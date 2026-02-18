@@ -2,10 +2,10 @@ import type { PropsWithChildren, ReactNode } from "react";
 
 export function ThreePanelLayout({ left, center, right }: { left: ReactNode; center: ReactNode; right: ReactNode }) {
   return (
-    <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[272px_minmax(480px,1fr)_320px]">
-      <aside className="flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{left}</aside>
-      <section className="flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{center}</section>
-      <aside className="flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{right}</aside>
+    <div className="three-panel-layout grid h-full grid-cols-1 gap-4 xl:grid-cols-[272px_minmax(480px,1fr)_320px]">
+      <aside className="panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{left}</aside>
+      <section className="panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{center}</section>
+      <aside className="panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{right}</aside>
     </div>
   );
 }

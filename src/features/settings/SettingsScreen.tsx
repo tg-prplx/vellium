@@ -210,14 +210,15 @@ export function SettingsScreen() {
       <div className="mb-4 flex gap-1 rounded-lg border border-border bg-bg-secondary p-1">
         {(["basic", "advanced", "prompts"] as const).map((tab) => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`flex-1 rounded-md px-4 py-2 text-xs font-semibold transition-colors ${
-              activeTab === tab ? "bg-accent text-text-inverse" : "text-text-secondary hover:bg-bg-hover"
+            className={`settings-tab flex-1 rounded-md px-4 py-2 text-xs font-semibold transition-colors ${
+              activeTab === tab ? "is-active bg-accent text-text-inverse" : "text-text-secondary hover:bg-bg-hover"
             }`}>
             {t(`settings.${tab}` as keyof typeof import("../../shared/i18n").translations.en)}
           </button>
         ))}
       </div>
 
+      <div key={activeTab} className="settings-content">
       {activeTab === "prompts" ? (
         <div className="space-y-4">
           <div className="rounded-xl border border-border bg-bg-secondary p-5">
@@ -501,6 +502,7 @@ export function SettingsScreen() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

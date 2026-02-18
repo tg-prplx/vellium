@@ -615,8 +615,8 @@ export function ChatScreen() {
     <>
       {/* Persona Modal */}
       {showPersonaModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => { setShowPersonaModal(false); setEditingPersona(null); }}>
-          <div className="w-full max-w-lg rounded-xl border border-border bg-bg-secondary p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="overlay-animate fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => { setShowPersonaModal(false); setEditingPersona(null); }}>
+          <div className="modal-pop w-full max-w-lg rounded-xl border border-border bg-bg-secondary p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-base font-semibold text-text-primary">{t("chat.personas")}</h2>
               <button onClick={() => { setShowPersonaModal(false); setEditingPersona(null); }}
@@ -1041,7 +1041,7 @@ export function ChatScreen() {
               </div>
             )}
 
-            <div className="flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3">
+            <div className="chat-scroll flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3">
               {messages.length === 0 && !streaming && (
                 <EmptyState title={t("chat.startConvo")} description={t("chat.startConvoDesc")} />
               )}
@@ -1050,10 +1050,10 @@ export function ChatScreen() {
                 const msgChar = msg.role === "assistant" ? getCharacterForMessage(msg) : null;
                 return (
                   <article key={msg.id}
-                    className={`group max-w-[88%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                    className={`chat-message group max-w-[88%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
                       msg.role === "user"
-                        ? "ml-auto bg-accent-subtle text-text-primary"
-                        : "mr-auto border border-border-subtle bg-bg-secondary text-text-primary"
+                        ? "chat-message-user ml-auto bg-accent-subtle text-text-primary"
+                        : "chat-message-assistant mr-auto border border-border-subtle bg-bg-secondary text-text-primary"
                     }`}>
                     <div className="mb-1.5 flex items-center gap-2">
                       {msgChar ? (
@@ -1108,7 +1108,7 @@ export function ChatScreen() {
                     )}
 
                     {!msg.id.startsWith("temp-") && (
-                      <div className="mt-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <div className="message-actions mt-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                         <button onClick={() => handleFork(msg)}
                           className="rounded-md px-2 py-0.5 text-[11px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary">{t("chat.fork")}</button>
                         <button onClick={() => { setEditingId(msg.id); setEditingValue(msg.content); }}
@@ -1134,7 +1134,7 @@ export function ChatScreen() {
               })}
 
               {streaming && (
-                <article className="mr-auto max-w-[88%] rounded-xl border border-accent-border bg-bg-secondary px-4 py-3 text-sm text-text-primary">
+                <article className="chat-message chat-streaming mr-auto max-w-[88%] rounded-xl border border-accent-border bg-bg-secondary px-4 py-3 text-sm text-text-primary">
                   <div className="mb-1.5 flex items-center gap-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">{activeChatCharacter?.name ?? "assistant"}</span>
                     <span className="flex items-center gap-1">
@@ -1152,9 +1152,9 @@ export function ChatScreen() {
             </div>
 
             {attachments.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
+              <div className="list-animate mt-2 flex flex-wrap gap-1.5">
                 {attachments.map((att) => (
-                  <div key={att.id} className="flex items-center gap-1.5 rounded-md border border-border bg-bg-primary px-2 py-1">
+                  <div key={att.id} className="float-card flex items-center gap-1.5 rounded-md border border-border bg-bg-primary px-2 py-1">
                     {att.type === "image" ? (
                       <img src={`http://localhost:3001${att.url}`} alt="" className="h-6 w-6 rounded object-cover" />
                     ) : (

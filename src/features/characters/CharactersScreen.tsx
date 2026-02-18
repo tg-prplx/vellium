@@ -299,7 +299,7 @@ export function CharactersScreen() {
           </PanelTitle>
 
           {/* Import section */}
-          <div className="mb-3 space-y-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
+          <div className="float-card mb-3 space-y-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Import</span>
               <button onClick={loadSample} className="text-[10px] text-accent hover:underline">
@@ -349,7 +349,7 @@ export function CharactersScreen() {
           </div>
 
           {/* Character list */}
-          <div className="flex-1 space-y-1.5 overflow-y-auto">
+          <div className="list-animate flex-1 space-y-1.5 overflow-y-auto">
             {loading ? (
               <div className="py-8 text-center text-xs text-text-tertiary">Loading...</div>
             ) : characters.length === 0 ? (
@@ -359,7 +359,7 @@ export function CharactersScreen() {
                 <button
                   key={char.id}
                   onClick={() => setSelected(char)}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${
+                  className={`float-card flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${
                     selected?.id === char.id
                       ? "bg-accent-subtle text-text-primary"
                       : "text-text-secondary hover:bg-bg-hover"
@@ -506,7 +506,7 @@ export function CharactersScreen() {
           </div>
 
           {selected && (
-            <div className="mt-3 rounded-lg border border-border-subtle bg-bg-primary p-3">
+            <div className="float-card mt-3 rounded-lg border border-border-subtle bg-bg-primary p-3">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Preview</div>
               <div className="flex items-center gap-2">
                 {selected.avatarUrl ? (

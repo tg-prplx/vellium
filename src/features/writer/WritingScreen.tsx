@@ -234,7 +234,7 @@ export function WritingScreen() {
             {t("writing.projects")}
           </PanelTitle>
 
-          <div className="flex-1 space-y-1.5 overflow-y-auto">
+          <div className="list-animate flex-1 space-y-1.5 overflow-y-auto">
             {projects.length === 0 ? (
               <EmptyState title={t("writing.noProjects")} description={t("writing.noProjectsDesc")} />
             ) : (
@@ -242,7 +242,7 @@ export function WritingScreen() {
                 <button
                   key={project.id}
                   onClick={() => openProject(project)}
-                  className={`block w-full rounded-lg px-3 py-2 text-left transition-colors ${
+                  className={`float-card block w-full rounded-lg px-3 py-2 text-left transition-colors ${
                     activeProject?.id === project.id
                       ? "bg-accent-subtle text-text-primary"
                       : "text-text-secondary hover:bg-bg-hover"
@@ -255,7 +255,7 @@ export function WritingScreen() {
             )}
           </div>
 
-          <div className="mt-3 rounded-lg border border-border-subtle bg-bg-primary p-3">
+          <div className="float-card mt-3 rounded-lg border border-border-subtle bg-bg-primary p-3">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{t("writing.chapters")}</div>
             <div className="max-h-40 space-y-1 overflow-y-auto">
               {chapters.map((ch) => (
@@ -279,7 +279,7 @@ export function WritingScreen() {
 
           {/* Background tasks indicator */}
           {runningTasks.length > 0 && (
-            <div className="mt-3 rounded-lg border border-accent-border bg-accent-subtle p-3">
+            <div className="float-card mt-3 rounded-lg border border-accent-border bg-accent-subtle p-3">
               <div className="mb-1.5 flex items-center gap-1.5">
                 <svg className="h-3.5 w-3.5 animate-spin text-accent" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -368,11 +368,11 @@ export function WritingScreen() {
                 description={activeProject ? t("writing.noChaptersDesc") : t("writing.selectProject")}
               />
             ) : (
-              <div className="space-y-3">
+              <div className="list-animate space-y-3">
                 {chapters.map((chapter) => (
                   <div
                     key={chapter.id}
-                    className={`rounded-lg border p-2.5 transition-colors ${
+                    className={`float-card rounded-lg border p-2.5 transition-colors ${
                       selectedChapterId === chapter.id
                         ? "border-accent-border bg-accent-subtle/50"
                         : "border-border bg-bg-primary"
@@ -390,7 +390,7 @@ export function WritingScreen() {
                         <article
                           key={scene.id}
                           onClick={() => setSelectedSceneId(scene.id)}
-                          className={`mb-1 cursor-pointer rounded-md border p-2 text-xs transition-colors ${
+                          className={`float-card mb-1 cursor-pointer rounded-md border p-2 text-xs transition-colors ${
                             selectedSceneId === scene.id
                               ? "border-accent-border bg-accent-subtle"
                               : "border-border-subtle hover:bg-bg-hover"
@@ -407,7 +407,7 @@ export function WritingScreen() {
           </div>
 
           {selectedScene && (
-            <div className="mt-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
+            <div className="float-card mt-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="text-xs font-semibold text-text-primary">{selectedScene.title}</span>
                 <div className="flex gap-1">
@@ -455,9 +455,9 @@ export function WritingScreen() {
               <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
                 Tasks
               </div>
-              <div className="max-h-32 space-y-1 overflow-y-auto">
+              <div className="list-animate max-h-32 space-y-1 overflow-y-auto">
                 {bgTasks.slice(0, 10).map((task) => (
-                  <div key={task.id} className={`flex items-center gap-2 rounded-md border px-2 py-1 text-[10px] ${
+                  <div key={task.id} className={`float-card flex items-center gap-2 rounded-md border px-2 py-1 text-[10px] ${
                     task.status === "running" ? "border-accent-border bg-accent-subtle" :
                     task.status === "error" ? "border-danger-border bg-danger-subtle" :
                     "border-border-subtle bg-bg-primary"
