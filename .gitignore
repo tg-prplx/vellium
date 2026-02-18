@@ -1,0 +1,14 @@
+.DS_Store
+/.build
+/Packages
+xcuserdata/
+DerivedData/
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc
+node_modules/
+dist/
+dist-electron/
+release/
+src-tauri/target/
+src-tauri/gen/
