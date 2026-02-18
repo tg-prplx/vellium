@@ -117,6 +117,6 @@ jobs:
             release-assets/**/*.dmg
             release-assets/**/Vellum Setup*.exe
             release-assets/**/Vellum Setup*.exe.blockmap
-            release-assets/**/*.blockmap
+            release-assets/**/*.dmg.blockmap
             release-assets/**/latest.yml
             release-assets/**/latest-mac*.yml
