@@ -8,15 +8,17 @@
     "dev": "concurrently -n server,vite -c blue,green \"npm run dev:server\" \"npm run dev:frontend\"",
     "dev:frontend": "vite",
     "dev:server": "tsx watch server/index.ts",
-    "predev:server": "node scripts/ensure-better-sqlite3.cjs",
+    "predev:server": "node scripts/ensure-better-sqlite3.cjs && node scripts/ensure-dev-port.cjs",
     "dev:electron": "npm run build:electron-main && npm run build:electron-preload && concurrently -n server,vite,electron -c blue,green,magenta \"npm run dev:server\" \"npm run dev:frontend\" \"wait-on http://localhost:1420 && electron .\"",
     "rebuild:native": "npm rebuild better-sqlite3",
     "build": "tsc -b && vite build",
+    "build:icons": "python3 scripts/generate-app-icons.py",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --outfile=server-bundle.mjs --external:better-sqlite3 --packages=external",
     "build:electron-main": "esbuild electron/main.ts --bundle --platform=node --format=cjs --outfile=dist-electron/main.cjs --external:electron",
     "build:electron-preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.cjs --external:electron",
-    "dist": "npm run build && npm run build:electron-main && npm run build:electron-preload && electron-builder",
-    "dist:mac": "npm run build && npm run build:electron-main && npm run build:electron-preload && electron-builder --mac",
-    "dist:win": "npm run build && npm run build:electron-main && npm run build:electron-preload && electron-builder --win",
+    "dist": "npm run build && npm run build:icons && npm run build:server && npm run build:electron-main && npm run build:electron-preload && electron-builder",
+    "dist:mac": "npm run build && npm run build:icons && npm run build:server && npm run build:electron-main && npm run build:electron-preload && electron-builder --mac",
+    "dist:win": "npm run build && npm run build:icons && npm run build:server && npm run build:electron-main && npm run build:electron-preload && electron-builder --win",
     "preview": "vite preview",
     "test": "vitest run"
   },
@@ -55,11 +57,13 @@
     "appId": "com.sillytauri.app",
     "productName": "SillyTauri",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
+      "server-bundle.mjs",
       "server/**/*.js",
       "server/**/*.ts",
       "node_modules/**/*",
@@ -70,6 +74,7 @@
       "**/node_modules/better-sqlite3/**"
     ],
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         {
           "target": "dmg",
@@ -82,6 +87,7 @@
       "category": "public.app-category.entertainment"
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",

@@ -53,7 +53,7 @@ function AppContent() {
       </div>
 
       <nav
-        className="app-nav ml-4 flex items-center gap-1 rounded-lg bg-bg-secondary p-1"
+        className="app-nav ml-4 my-1.5 flex items-center gap-1 rounded-lg bg-bg-secondary p-1"
         style={noDrag}
       >
         {tabs.map((tab) => (
