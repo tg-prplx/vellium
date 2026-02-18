@@ -4,43 +4,43 @@ module.exports = {
     extend: {
       colors: {
         bg: {
-          primary: "#1a1a1a",
-          secondary: "#222222",
-          tertiary: "#2a2a2a",
-          hover: "#333333",
-          active: "#3a3a3a"
+          primary: "var(--color-bg-primary)",
+          secondary: "var(--color-bg-secondary)",
+          tertiary: "var(--color-bg-tertiary)",
+          hover: "var(--color-bg-hover)",
+          active: "var(--color-bg-active)"
         },
         border: {
-          DEFAULT: "#333333",
-          subtle: "#2a2a2a",
-          strong: "#444444"
+          DEFAULT: "var(--color-border)",
+          subtle: "var(--color-border-subtle)",
+          strong: "var(--color-border-strong)"
         },
         text: {
-          primary: "#f5f5f5",
-          secondary: "#a0a0a0",
-          tertiary: "#707070",
-          inverse: "#1a1a1a"
+          primary: "var(--color-text-primary)",
+          secondary: "var(--color-text-secondary)",
+          tertiary: "var(--color-text-tertiary)",
+          inverse: "var(--color-text-inverse)"
         },
         accent: {
-          DEFAULT: "#d97757",
-          hover: "#c4664a",
-          subtle: "rgba(217, 119, 87, 0.12)",
-          border: "rgba(217, 119, 87, 0.3)"
+          DEFAULT: "var(--color-accent)",
+          hover: "var(--color-accent-hover)",
+          subtle: "var(--color-accent-subtle)",
+          border: "var(--color-accent-border)"
         },
         success: {
-          DEFAULT: "#4ade80",
-          subtle: "rgba(74, 222, 128, 0.12)",
-          border: "rgba(74, 222, 128, 0.3)"
+          DEFAULT: "var(--color-success)",
+          subtle: "var(--color-success-subtle)",
+          border: "var(--color-success-border)"
         },
         warning: {
-          DEFAULT: "#fbbf24",
-          subtle: "rgba(251, 191, 36, 0.12)",
-          border: "rgba(251, 191, 36, 0.3)"
+          DEFAULT: "var(--color-warning)",
+          subtle: "var(--color-warning-subtle)",
+          border: "var(--color-warning-border)"
         },
         danger: {
-          DEFAULT: "#f87171",
-          subtle: "rgba(248, 113, 113, 0.12)",
-          border: "rgba(248, 113, 113, 0.3)"
+          DEFAULT: "var(--color-danger)",
+          subtle: "var(--color-danger-subtle)",
+          border: "var(--color-danger-border)"
         }
       },
       fontFamily: {
@@ -56,7 +56,7 @@ module.exports = {
       boxShadow: {
         "soft": "0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2)",
         "medium": "0 4px 12px rgba(0, 0, 0, 0.4)",
-        "glow": "0 0 0 3px rgba(217, 119, 87, 0.15)"
+        "glow": "0 0 0 3px var(--color-accent-subtle)"
       }
     }
   },

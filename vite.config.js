@@ -13,7 +13,7 @@ export default defineConfig(function () { return ({
             }
         },
         watch: {
-            ignored: ["**/src-tauri/**", "**/server/**", "**/data/**"]
+            ignored: ["**/server/**", "**/data/**"]
         }
     }
 }); });

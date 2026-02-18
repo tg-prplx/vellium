@@ -1,20 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
+import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
 import type { AppSettings, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
-
-type ProviderPreset = {
-  key: string; label: string; description: string; baseUrl: string;
-  defaultId: string; defaultName: string; apiKeyHint: string; localOnly: boolean;
-};
-
-const PRESETS: ProviderPreset[] = [
-  { key: "openai", label: "OpenAI", description: "Official OpenAI API", baseUrl: "https://api.openai.com/v1", defaultId: "openai", defaultName: "OpenAI", apiKeyHint: "sk-...", localOnly: false },
-  { key: "lm_studio", label: "LM Studio", description: "Local OpenAI-compatible server", baseUrl: "http://localhost:1234/v1", defaultId: "lm-studio", defaultName: "LM Studio (Local)", apiKeyHint: "any string", localOnly: true },
-  { key: "ollama", label: "Ollama", description: "Ollama OpenAI-compatible endpoint", baseUrl: "http://localhost:11434/v1", defaultId: "ollama", defaultName: "Ollama (Local)", apiKeyHint: "ollama", localOnly: true },
-  { key: "openrouter", label: "OpenRouter", description: "OpenRouter unified API", baseUrl: "https://openrouter.ai/api/v1", defaultId: "openrouter", defaultName: "OpenRouter", apiKeyHint: "sk-or-v1-...", localOnly: false },
-  { key: "custom", label: "Custom", description: "Any OpenAI-compatible provider", baseUrl: "http://localhost:8080/v1", defaultId: "custom-provider", defaultName: "Custom Provider", apiKeyHint: "your key", localOnly: false }
-];
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{children}</h2>;
@@ -58,7 +46,10 @@ export function SettingsScreen() {
   const [selectedModelId, setSelectedModelId] = useState("");
 
   const [selectedPresetKey, setSelectedPresetKey] = useState("openai");
-  const selectedPreset = useMemo(() => PRESETS.find((p) => p.key === selectedPresetKey) ?? PRESETS[0], [selectedPresetKey]);
+  const selectedPreset = useMemo(
+    () => PROVIDER_PRESETS.find((p) => p.key === selectedPresetKey) ?? PROVIDER_PRESETS[0],
+    [selectedPresetKey]
+  );
 
   const [providerId, setProviderId] = useState(selectedPreset.defaultId);
   const [providerName, setProviderName] = useState(selectedPreset.defaultName);
@@ -98,11 +89,15 @@ export function SettingsScreen() {
   async function patch(next: Partial<AppSettings>) {
     const updated = await api.settingsUpdate(next);
     setSettings(updated);
+    if (next.theme !== undefined) {
+      window.dispatchEvent(new CustomEvent("theme-change", { detail: next.theme }));
+    }
   }
 
   async function reset() {
     const defaults = await api.settingsReset();
     setSettings(defaults);
+    window.dispatchEvent(new CustomEvent("onboarding-reset", { detail: defaults }));
     showResult("Settings reset to defaults", "success");
   }
 
@@ -330,7 +325,7 @@ export function SettingsScreen() {
             <div className="rounded-xl border border-border bg-bg-secondary p-5">
               <SectionTitle>{t("settings.quickPresets")}</SectionTitle>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {PRESETS.map((preset) => (
+                {PROVIDER_PRESETS.map((preset) => (
                   <button key={preset.key} onClick={() => applyPresetToForm(preset)}
                     className={`rounded-lg border p-2.5 text-left transition-colors ${
                       selectedPresetKey === preset.key ? "border-accent-border bg-accent-subtle" : "border-border hover:bg-bg-hover"
