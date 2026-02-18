@@ -18,6 +18,8 @@ import type {
   UserPersona
 } from "./types/contracts";
 
+type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
+
 const BASE = import.meta.env.DEV ? "http://localhost:3001/api" : "/api";
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -139,12 +141,12 @@ export const api = {
   chatDelete: (chatId: string) => del<{ ok: boolean }>(`/chats/${chatId}`),
   chatUpdateCharacters: (chatId: string, characterIds: string[]) =>
     patchReq<{ ok: boolean }>(`/chats/${chatId}/characters`, { characterIds }),
-  chatNextTurn: async (chatId: string, characterName: string, branchId?: string, callbacks?: StreamCallbacks, isAutoConvo?: boolean, userName?: string): Promise<ChatMessage[]> => {
+  chatNextTurn: async (chatId: string, characterName: string, branchId?: string, callbacks?: StreamCallbacks, isAutoConvo?: boolean, userPersona?: UserPersonaPayload | null): Promise<ChatMessage[]> => {
     if (callbacks) {
-      await streamPost(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userName }, callbacks);
+      await streamPost(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userPersona }, callbacks);
       return api.chatTimeline(chatId, branchId);
     }
-    return post<ChatMessage[]>(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userName });
+    return post<ChatMessage[]>(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userPersona });
   },
   chatList: () => get<ChatSession[]>("/chats"),
   chatTimeline: (chatId: string, branchId?: string) =>
@@ -155,13 +157,13 @@ export const api = {
     content: string,
     branchId?: string,
     callbacks?: StreamCallbacks,
-    userName?: string
+    userPersona?: UserPersonaPayload | null
   ): Promise<ChatMessage[]> => {
     if (callbacks) {
-      await streamPost(`/chats/${chatId}/send`, { content, branchId, userName }, callbacks);
+      await streamPost(`/chats/${chatId}/send`, { content, branchId, userPersona }, callbacks);
       return api.chatTimeline(chatId, branchId);
     }
-    return post<ChatMessage[]>(`/chats/${chatId}/send`, { content, branchId, userName });
+    return post<ChatMessage[]>(`/chats/${chatId}/send`, { content, branchId, userPersona });
   },
 
   chatRegenerate: async (chatId: string, branchId?: string, callbacks?: StreamCallbacks): Promise<ChatMessage[]> => {
@@ -189,11 +191,16 @@ export const api = {
     get<SamplerConfig | null>(`/chats/${chatId}/sampler`),
   chatSavePreset: (chatId: string, presetId: string | null) =>
     patchReq<{ ok: boolean }>(`/chats/${chatId}/preset`, { presetId }),
+  chatGetPreset: (chatId: string) =>
+    get<{ presetId: string | null }>(`/chats/${chatId}/preset`),
 
   // --- RP ---
   rpSetSceneState: (state: RpSceneState) => post<void>("/rp/scene-state", state),
+  rpGetSceneState: (chatId: string) => get<RpSceneState | null>(`/rp/scene-state/${chatId}`),
   rpUpdateAuthorNote: (chatId: string, authorNote: string) =>
     post<void>("/rp/author-note", { chatId, authorNote }),
+  rpGetAuthorNote: (chatId: string) =>
+    get<{ authorNote: string }>(`/rp/author-note/${chatId}`),
   rpApplyStylePreset: (chatId: string, presetId: string) =>
     post<void>("/rp/apply-preset", { chatId, presetId }),
   rpGetBlocks: (chatId: string) => get<PromptBlock[]>(`/rp/blocks/${chatId}`),

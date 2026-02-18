@@ -30,6 +30,13 @@ interface ProviderRow {
   full_local_only: number;
 }
 
+interface UserPersonaPayload {
+  name?: string;
+  description?: string;
+  personality?: string;
+  scenario?: string;
+}
+
 function messageToJson(row: MessageRow) {
   return {
     id: row.id,
@@ -102,16 +109,24 @@ function getCharacterCard(characterId: string | null): CharacterCardData | null 
   };
 }
 
-function getSceneState(chatId: string): { mood: string; pacing: string; variables: Record<string, string> } | null {
+function getSceneState(chatId: string): { mood: string; pacing: string; variables: Record<string, string>; intensity: number } | null {
   const row = db.prepare("SELECT payload FROM rp_scene_state WHERE chat_id = ?").get(chatId) as { payload: string } | undefined;
   if (!row) return null;
   try {
     const parsed = JSON.parse(row.payload);
-    return { mood: parsed.mood || "neutral", pacing: parsed.pacing || "balanced", variables: parsed.variables || {} };
+    const intensity = typeof parsed.intensity === "number" ? parsed.intensity : 0.5;
+    return {
+      mood: parsed.mood || "neutral",
+      pacing: parsed.pacing || "balanced",
+      variables: parsed.variables || {},
+      intensity: Math.max(0, Math.min(1, intensity))
+    };
   } catch { return null; }
 }
 
 function getAuthorNote(chatId: string): string {
+  const chat = db.prepare("SELECT author_note FROM chats WHERE id = ?").get(chatId) as { author_note: string | null } | undefined;
+  if (chat?.author_note) return chat.author_note;
   const row = db.prepare(
     "SELECT content FROM rp_memory_entries WHERE chat_id = ? AND role = 'author_note' ORDER BY created_at DESC LIMIT 1"
   ).get(chatId) as { content: string } | undefined;
@@ -136,7 +151,7 @@ async function streamLlmResponse(
   parentMsgId: string | null,
   overrideCharacterName?: string,
   isAutoConvo?: boolean,
-  userName?: string
+  userPersona?: UserPersonaPayload
 ) {
   const settings = getSettings();
   const providerId = settings.activeProviderId;
@@ -153,7 +168,12 @@ async function streamLlmResponse(
   const samplerConfig = getChatSamplerConfig(chatId, settings.samplerConfig);
 
   // Resolve user persona name for {{user}} placeholder
-  const resolvedUserName = userName || "User";
+  const resolvedUserName = (userPersona?.name || "").trim() || "User";
+  const personaInstruction = [
+    userPersona?.description ? `Description: ${userPersona.description}` : "",
+    userPersona?.personality ? `Personality: ${userPersona.personality}` : "",
+    userPersona?.scenario ? `Scenario: ${userPersona.scenario}` : ""
+  ].filter(Boolean).join("\n");
 
   // Multi-character support
   let characterIds: string[] = [];
@@ -175,10 +195,24 @@ async function streamLlmResponse(
   let systemPrompt: string;
   if (characterCards.length > 1 && overrideCharacterName) {
     systemPrompt = buildMultiCharSystemPrompt(
-      { blocks, characterCard: currentCharCard, sceneState, authorNote, intensity: sceneState ? 0.7 : 0.5, responseLanguage: settings.responseLanguage, censorshipMode: settings.censorshipMode, contextSummary: chat?.context_summary || "", defaultSystemPrompt: settings.defaultSystemPrompt, userName: resolvedUserName },
+      {
+        blocks,
+        characterCard: currentCharCard,
+        sceneState,
+        authorNote,
+        intensity: sceneState?.intensity ?? 0.5,
+        responseLanguage: settings.responseLanguage,
+        censorshipMode: settings.censorshipMode,
+        contextSummary: chat?.context_summary || "",
+        defaultSystemPrompt: settings.defaultSystemPrompt,
+        userName: resolvedUserName
+      },
       characterCards,
       overrideCharacterName
     );
+    if (personaInstruction) {
+      systemPrompt += `\n\n[User Persona]\nName: ${resolvedUserName}\n${personaInstruction}`;
+    }
     // Auto-conversation instruction — tell the bot there's no user, just act between characters
     if (isAutoConvo) {
       systemPrompt += "\n\n[IMPORTANT: This is an autonomous conversation between characters. There is NO human user participating. Do NOT wait for user input, do NOT address the user, do NOT ask questions to the user. Act naturally and continue the roleplay conversation with the other character(s). Advance the plot, respond to what the other character said, and keep the story flowing. Be proactive — take actions, express emotions, move the scene forward.]";
@@ -186,13 +220,16 @@ async function streamLlmResponse(
   } else {
     systemPrompt = buildSystemPrompt({
       blocks, characterCard: currentCharCard, sceneState, authorNote,
-      intensity: sceneState ? 0.7 : 0.5,
+      intensity: sceneState?.intensity ?? 0.5,
       responseLanguage: settings.responseLanguage,
       censorshipMode: settings.censorshipMode,
       contextSummary: chat?.context_summary || "",
       defaultSystemPrompt: settings.defaultSystemPrompt,
       userName: resolvedUserName
     });
+    if (personaInstruction) {
+      systemPrompt += `\n\n[User Persona]\nName: ${resolvedUserName}\n${personaInstruction}`;
+    }
   }
 
   const timeline = getTimeline(chatId, branchId);
@@ -461,15 +498,21 @@ router.get("/:id/timeline", (req, res) => {
 
 router.post("/:id/send", async (req, res: Response) => {
   const chatId = req.params.id;
-  const { content, branchId: reqBranchId, userName } = req.body;
+  const { content, branchId: reqBranchId, userName, userPersona } = req.body;
   const branchId = resolveBranch(chatId, reqBranchId);
+  const persona: UserPersonaPayload = {
+    name: String(userPersona?.name || userName || "User"),
+    description: String(userPersona?.description || ""),
+    personality: String(userPersona?.personality || ""),
+    scenario: String(userPersona?.scenario || "")
+  };
 
   // In multi-char mode, store who sent the message (user persona name)
   const chat = db.prepare("SELECT character_ids FROM chats WHERE id = ?").get(chatId) as { character_ids: string | null } | undefined;
   let charIds: string[] = [];
   try { charIds = JSON.parse(chat?.character_ids || "[]"); } catch { /* empty */ }
   const isMultiChar = charIds.length > 1;
-  const senderName = userName || "User";
+  const senderName = (persona.name || "").trim() || "User";
 
   // Insert user message — with character_name set to user persona name in multi-char mode
   const userId = newId();
@@ -481,9 +524,9 @@ router.post("/:id/send", async (req, res: Response) => {
   // In multi-char mode, the first character responds by default after user message
   if (isMultiChar && charIds.length > 0) {
     const firstChar = db.prepare("SELECT name FROM characters WHERE id = ?").get(charIds[0]) as { name: string } | undefined;
-    await streamLlmResponse(chatId, branchId, res, userId, firstChar?.name, false, senderName);
+    await streamLlmResponse(chatId, branchId, res, userId, firstChar?.name, false, persona);
   } else {
-    await streamLlmResponse(chatId, branchId, res, userId, undefined, false, senderName);
+    await streamLlmResponse(chatId, branchId, res, userId, undefined, false, persona);
   }
 });
 
@@ -520,10 +563,16 @@ router.post("/:id/regenerate", async (req, res: Response) => {
 // Multi-character: generate next turn for a specific character
 router.post("/:id/next-turn", async (req, res: Response) => {
   const chatId = req.params.id;
-  const { characterName, branchId: reqBranchId, isAutoConvo, userName } = req.body;
+  const { characterName, branchId: reqBranchId, isAutoConvo, userName, userPersona } = req.body;
   const branchId = resolveBranch(chatId, reqBranchId);
+  const persona: UserPersonaPayload = {
+    name: String(userPersona?.name || userName || "User"),
+    description: String(userPersona?.description || ""),
+    personality: String(userPersona?.personality || ""),
+    scenario: String(userPersona?.scenario || "")
+  };
 
-  await streamLlmResponse(chatId, branchId, res, null, characterName, isAutoConvo, userName);
+  await streamLlmResponse(chatId, branchId, res, null, characterName, isAutoConvo, persona);
 });
 
 router.post("/:id/compress", async (req, res: Response) => {
@@ -644,6 +693,12 @@ router.patch("/:id/preset", (req, res) => {
   const { presetId } = req.body;
   db.prepare("UPDATE chats SET active_preset = ? WHERE id = ?").run(presetId || null, chatId);
   res.json({ ok: true });
+});
+
+router.get("/:id/preset", (req, res) => {
+  const chatId = req.params.id;
+  const row = db.prepare("SELECT active_preset FROM chats WHERE id = ?").get(chatId) as { active_preset: string | null } | undefined;
+  res.json({ presetId: row?.active_preset || null });
 });
 
 export default router;

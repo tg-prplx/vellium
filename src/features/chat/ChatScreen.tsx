@@ -56,6 +56,13 @@ const BLOCK_COLORS: Record<string, string> = {
 };
 
 const RP_PRESETS = ["slowburn", "dominant", "romantic", "action", "mystery", "submissive", "seductive", "gentle_fem", "rough", "passionate"] as const;
+const DEFAULT_AUTHOR_NOTE = "Stay in character, avoid repetition, keep sensual pacing controlled.";
+const DEFAULT_SCENE_STATE: Omit<RpSceneState, "chatId"> = {
+  variables: { location: "Private room", time: "Night" },
+  mood: "teasing",
+  pacing: "slow",
+  intensity: 0.7
+};
 
 export function ChatScreen() {
   const { t } = useI18n();
@@ -63,13 +70,10 @@ export function ChatScreen() {
   const [activeChat, setActiveChat] = useState<ChatSession | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [authorNote, setAuthorNote] = useState("Stay in character, avoid repetition, keep sensual pacing controlled.");
+  const [authorNote, setAuthorNote] = useState(DEFAULT_AUTHOR_NOTE);
   const [sceneState, setSceneState] = useState<RpSceneState>({
     chatId: "",
-    variables: { location: "Private room", time: "Night" },
-    mood: "teasing",
-    pacing: "slow",
-    intensity: 0.7
+    ...DEFAULT_SCENE_STATE
   });
   const [blocks, setBlocks] = useState<PromptBlock[]>([]);
   const [contextSummary, setContextSummary] = useState("");
@@ -130,6 +134,10 @@ export function ChatScreen() {
   const [samplerSaved, setSamplerSaved] = useState(false);
   const samplerSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const samplerInitializedRef = useRef(false);
+  const authorNoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sceneStateSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const authorNoteInitializedRef = useRef(false);
+  const sceneStateInitializedRef = useRef(false);
 
   // Collapsible sections in left sidebar
   const [presetsCollapsed, setPresetsCollapsed] = useState(false);
@@ -151,6 +159,15 @@ export function ChatScreen() {
     () => messages.reduce((sum, m) => sum + (m.tokenCount || 0), 0),
     [messages]
   );
+  const activePersonaPayload = useMemo(() => {
+    if (!activePersona) return null;
+    return {
+      name: activePersona.name || "User",
+      description: activePersona.description || "",
+      personality: activePersona.personality || "",
+      scenario: activePersona.scenario || ""
+    };
+  }, [activePersona]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -199,25 +216,81 @@ export function ChatScreen() {
       setMessages([]);
       setBlocks([]);
       setChatCharacterIds([]);
+      setSceneState({ chatId: "", ...DEFAULT_SCENE_STATE });
+      setAuthorNote(DEFAULT_AUTHOR_NOTE);
+      setActivePreset(null);
       return;
     }
-    api.chatTimeline(activeChat.id).then((timeline) => {
-      setMessages(timeline);
-      setSceneState((prev) => ({ ...prev, chatId: activeChat.id }));
-    });
-    api.rpGetBlocks(activeChat.id).then(setBlocks).catch(() => {});
-    // Load per-chat sampler config
+    const chatId = activeChat.id;
+    let cancelled = false;
+
     samplerInitializedRef.current = false;
-    api.chatGetSampler(activeChat.id).then((config) => {
-      if (config) setSamplerConfig((prev) => ({ ...prev, ...config }));
-      // Mark as initialized after load so auto-save doesn't fire on load
-      setTimeout(() => { samplerInitializedRef.current = true; }, 300);
-    }).catch(() => {
-      setTimeout(() => { samplerInitializedRef.current = true; }, 300);
+    authorNoteInitializedRef.current = false;
+    sceneStateInitializedRef.current = false;
+
+    api.chatTimeline(chatId).then((timeline) => {
+      if (cancelled) return;
+      setMessages(timeline);
     });
+    api.rpGetBlocks(chatId).then((next) => {
+      if (cancelled) return;
+      setBlocks(next);
+    }).catch(() => {});
+
+    // Load per-chat sampler config
+    api.chatGetSampler(chatId).then((config) => {
+      if (cancelled) return;
+      setSamplerConfig((prev) => (config ? { ...prev, ...config } : prev));
+      samplerInitializedRef.current = true;
+    }).catch(() => {
+      if (cancelled) return;
+      samplerInitializedRef.current = true;
+    });
+
+    api.rpGetSceneState(chatId).then((state) => {
+      if (cancelled) return;
+      if (state) {
+        setSceneState({
+          chatId,
+          mood: state.mood || DEFAULT_SCENE_STATE.mood,
+          pacing: state.pacing || DEFAULT_SCENE_STATE.pacing,
+          intensity: typeof state.intensity === "number" ? state.intensity : DEFAULT_SCENE_STATE.intensity,
+          variables: state.variables || {}
+        });
+      } else {
+        setSceneState({ chatId, ...DEFAULT_SCENE_STATE });
+      }
+      sceneStateInitializedRef.current = true;
+    }).catch(() => {
+      if (cancelled) return;
+      setSceneState({ chatId, ...DEFAULT_SCENE_STATE });
+      sceneStateInitializedRef.current = true;
+    });
+
+    api.rpGetAuthorNote(chatId).then((result) => {
+      if (cancelled) return;
+      setAuthorNote(result.authorNote || DEFAULT_AUTHOR_NOTE);
+      authorNoteInitializedRef.current = true;
+    }).catch(() => {
+      if (cancelled) return;
+      setAuthorNote(DEFAULT_AUTHOR_NOTE);
+      authorNoteInitializedRef.current = true;
+    });
+
+    api.chatGetPreset(chatId).then((result) => {
+      if (cancelled) return;
+      setActivePreset(result.presetId || null);
+    }).catch(() => {
+      if (cancelled) return;
+      setActivePreset(null);
+    });
+
     // Load multi-char state
     setChatCharacterIds(activeChat.characterIds || (activeChat.characterId ? [activeChat.characterId] : []));
     setSamplerSaved(false);
+    return () => {
+      cancelled = true;
+    };
   }, [activeChat]);
 
   // Auto-save sampler config when it changes (debounced)
@@ -232,6 +305,28 @@ export function ChatScreen() {
     }, 800);
     return () => { if (samplerSaveTimerRef.current) clearTimeout(samplerSaveTimerRef.current); };
   }, [samplerConfig, activeChat]);
+
+  useEffect(() => {
+    if (!activeChat || !authorNoteInitializedRef.current) return;
+    if (authorNoteSaveTimerRef.current) clearTimeout(authorNoteSaveTimerRef.current);
+    authorNoteSaveTimerRef.current = setTimeout(() => {
+      api.rpUpdateAuthorNote(activeChat.id, authorNote).catch(() => {});
+    }, 600);
+    return () => {
+      if (authorNoteSaveTimerRef.current) clearTimeout(authorNoteSaveTimerRef.current);
+    };
+  }, [authorNote, activeChat]);
+
+  useEffect(() => {
+    if (!activeChat || !sceneStateInitializedRef.current) return;
+    if (sceneStateSaveTimerRef.current) clearTimeout(sceneStateSaveTimerRef.current);
+    sceneStateSaveTimerRef.current = setTimeout(() => {
+      api.rpSetSceneState({ ...sceneState, chatId: activeChat.id }).catch(() => {});
+    }, 600);
+    return () => {
+      if (sceneStateSaveTimerRef.current) clearTimeout(sceneStateSaveTimerRef.current);
+    };
+  }, [sceneState, activeChat]);
 
   const refreshActiveTimeline = useCallback(async () => {
     if (!activeChat) return;
@@ -314,7 +409,7 @@ export function ChatScreen() {
       const updated = await api.chatSend(chatId, outgoing, undefined, {
         onDelta: (delta) => setStreamText((prev) => prev + delta),
         onDone: () => { setStreaming(false); setStreamText(""); }
-      }, activePersona?.name);
+      }, activePersonaPayload);
       setMessages(updated);
     } catch (error) {
       setStreaming(false);
@@ -485,7 +580,7 @@ export function ChatScreen() {
       const updated = await api.chatNextTurn(activeChat.id, characterName, undefined, {
         onDelta: (delta) => setStreamText((prev) => prev + delta),
         onDone: () => { setStreaming(false); setStreamText(""); }
-      }, false, activePersona?.name);
+      }, false, activePersonaPayload);
       setMessages(updated);
     } catch (error) {
       setStreaming(false);
@@ -518,7 +613,7 @@ export function ChatScreen() {
         const updated = await api.chatNextTurn(activeChat.id, charName, undefined, {
           onDelta: (delta) => setStreamText((prev) => prev + delta),
           onDone: () => { setStreaming(false); setStreamText(""); }
-        }, true, activePersona?.name); // isAutoConvo = true
+        }, true, activePersonaPayload); // isAutoConvo = true
         setMessages(updated);
       } catch (error) {
         setErrorText(String(error));

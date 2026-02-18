@@ -75,6 +75,10 @@ const BUILTIN_PRESETS: Record<string, {
 
 router.post("/scene-state", (req, res) => {
   const state = req.body;
+  if (!state?.chatId) {
+    res.status(400).json({ error: "chatId is required" });
+    return;
+  }
   const payload = JSON.stringify(state);
   const ts = now();
 
@@ -86,13 +90,48 @@ router.post("/scene-state", (req, res) => {
   res.json({ ok: true });
 });
 
+router.get("/scene-state/:chatId", (req, res) => {
+  const row = db.prepare("SELECT payload FROM rp_scene_state WHERE chat_id = ?")
+    .get(req.params.chatId) as { payload: string } | undefined;
+  if (!row) {
+    res.json(null);
+    return;
+  }
+  try {
+    res.json(JSON.parse(row.payload));
+  } catch {
+    res.json(null);
+  }
+});
+
 router.post("/author-note", (req, res) => {
   const { chatId, authorNote } = req.body;
+  if (!chatId) {
+    res.status(400).json({ error: "chatId is required" });
+    return;
+  }
 
-  db.prepare("INSERT INTO rp_memory_entries (id, chat_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(newId(), chatId, "author_note", authorNote, now());
+  db.prepare("UPDATE chats SET author_note = ? WHERE id = ?")
+    .run(String(authorNote || ""), chatId);
 
   res.json({ ok: true });
+});
+
+router.get("/author-note/:chatId", (req, res) => {
+  const chatId = req.params.chatId;
+
+  const chat = db.prepare("SELECT author_note FROM chats WHERE id = ?")
+    .get(chatId) as { author_note: string | null } | undefined;
+  if (chat?.author_note) {
+    res.json({ authorNote: chat.author_note });
+    return;
+  }
+
+  const legacy = db.prepare(
+    "SELECT content FROM rp_memory_entries WHERE chat_id = ? AND role = 'author_note' ORDER BY created_at DESC LIMIT 1"
+  ).get(chatId) as { content: string } | undefined;
+
+  res.json({ authorNote: legacy?.content || "" });
 });
 
 router.post("/apply-preset", (req, res) => {
@@ -121,6 +160,7 @@ router.post("/apply-preset", (req, res) => {
     INSERT INTO rp_scene_state (chat_id, payload, updated_at) VALUES (?, ?, ?)
     ON CONFLICT(chat_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
   `).run(chatId, JSON.stringify(newState), ts);
+  db.prepare("UPDATE chats SET active_preset = ? WHERE id = ?").run(presetId, chatId);
 
   // If preset has a jailbreak override, update the jailbreak prompt block
   if (preset.jailbreakOverride) {
