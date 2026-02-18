@@ -53,16 +53,16 @@ function AppContent() {
       </div>
 
       <nav
-        className="ml-4 flex items-center gap-1 rounded-lg bg-bg-secondary p-1"
+        className="app-nav ml-4 flex items-center gap-1 rounded-lg bg-bg-secondary p-1"
         style={noDrag}
       >
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`app-tab-button flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
               activeTab === tab.id
-                ? "bg-bg-hover text-text-primary"
+                ? "is-active bg-bg-hover text-text-primary"
                 : "text-text-tertiary hover:text-text-secondary"
             }`}
           >
@@ -75,7 +75,7 @@ function AppContent() {
   );
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-bg-primary">
+    <div className="app-shell flex h-screen w-screen flex-col overflow-hidden bg-bg-primary">
       {isElectron ? (
         <TitleBar>
           <div className="mx-auto flex max-w-[1600px] items-center px-5 py-1">
@@ -91,7 +91,9 @@ function AppContent() {
       )}
 
       <main className="mx-auto w-full max-w-[1600px] flex-1 overflow-hidden p-4">
-        {content}
+        <div key={activeTab} className="tab-content-enter h-full">
+          {content}
+        </div>
       </main>
     </div>
   );

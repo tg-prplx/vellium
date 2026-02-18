@@ -6,26 +6,50 @@
 
 :root {
   color-scheme: dark;
+  --motion-fast: 180ms;
+  --motion-base: 320ms;
+  --motion-slow: 560ms;
+  --motion-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-soft: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 body {
   margin: 0;
-  background: #1a1a1a;
+  background:
+    radial-gradient(1200px 520px at 12% -8%, rgba(217, 119, 87, 0.15), transparent 55%),
+    radial-gradient(900px 520px at 100% 0%, rgba(114, 87, 217, 0.1), transparent 60%),
+    linear-gradient(180deg, #171717 0%, #131313 55%, #101010 100%);
+  background-attachment: fixed;
   color: #f5f5f5;
   font-family: "Manrope", system-ui, sans-serif;
   min-height: 100vh;
   letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
 }
 
 button {
   @apply transition-colors duration-150;
   cursor: pointer;
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--motion-soft),
+    box-shadow var(--motion-fast) ease;
 }
 
 button:disabled {
   cursor: not-allowed;
+}
+
+button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+button:not(:disabled):active {
+  transform: translateY(0) scale(0.98);
 }
 
 /* Scrollbar */
@@ -132,6 +156,232 @@ select {
   background-repeat: no-repeat;
   background-position: right 8px center;
   padding-right: 28px !important;
+}
+
+.app-shell {
+  position: relative;
+}
+
+.app-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(560px 320px at 18% 16%, rgba(217, 119, 87, 0.08), transparent 65%),
+    radial-gradient(620px 360px at 85% 22%, rgba(81, 146, 255, 0.08), transparent 62%);
+  animation: ambientPulse 12s ease-in-out infinite alternate;
+}
+
+.app-nav {
+  position: relative;
+  overflow: hidden;
+}
+
+.app-nav::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 10%, rgba(255, 255, 255, 0.05), transparent 90%);
+  transform: translateX(-100%);
+  animation: navShine 9s linear infinite;
+  pointer-events: none;
+}
+
+.app-tab-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.app-tab-button::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 0;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(217, 119, 87, 0), rgba(217, 119, 87, 1), rgba(217, 119, 87, 0));
+  transform: translateX(-50%);
+  transition: width var(--motion-base) var(--motion-spring);
+}
+
+.app-tab-button.is-active::after {
+  width: 84%;
+}
+
+.tab-content-enter {
+  height: 100%;
+  animation: tabIn var(--motion-slow) var(--motion-spring) both;
+}
+
+.three-panel-layout {
+  perspective: 900px;
+}
+
+.panel-shell {
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(3px);
+  animation: panelRise var(--motion-slow) var(--motion-spring) both;
+}
+
+.panel-shell:nth-child(2) {
+  animation-delay: 70ms;
+}
+
+.panel-shell:nth-child(3) {
+  animation-delay: 120ms;
+}
+
+.panel-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 42%);
+  pointer-events: none;
+}
+
+.list-animate > * {
+  animation: listIn 460ms var(--motion-spring) both;
+}
+
+.list-animate > *:nth-child(1) { animation-delay: 20ms; }
+.list-animate > *:nth-child(2) { animation-delay: 45ms; }
+.list-animate > *:nth-child(3) { animation-delay: 70ms; }
+.list-animate > *:nth-child(4) { animation-delay: 95ms; }
+.list-animate > *:nth-child(5) { animation-delay: 120ms; }
+.list-animate > *:nth-child(6) { animation-delay: 145ms; }
+
+.float-card {
+  transition:
+    transform var(--motion-base) var(--motion-soft),
+    box-shadow var(--motion-base) ease,
+    border-color var(--motion-fast) ease;
+}
+
+.float-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.26);
+}
+
+.chat-scroll {
+  position: relative;
+}
+
+.chat-message {
+  animation: bubbleIn 420ms var(--motion-spring) both;
+  transform-origin: bottom;
+}
+
+.chat-message-user {
+  animation-name: bubbleInUser;
+}
+
+.chat-message-assistant {
+  animation-name: bubbleInAssistant;
+}
+
+.chat-streaming {
+  animation: streamingIn 300ms var(--motion-soft) both;
+}
+
+.message-actions {
+  transform: translateY(3px);
+  transition:
+    opacity var(--motion-fast) ease,
+    transform var(--motion-fast) var(--motion-soft);
+}
+
+.group:hover .message-actions {
+  transform: translateY(0);
+}
+
+.overlay-animate {
+  animation: overlayFade 220ms ease both;
+}
+
+.modal-pop {
+  animation: modalIn 340ms var(--motion-spring) both;
+}
+
+.settings-tab {
+  transform: translateY(0);
+}
+
+.settings-tab.is-active {
+  box-shadow: 0 8px 20px rgba(217, 119, 87, 0.3);
+}
+
+.settings-content {
+  animation: tabIn 380ms var(--motion-spring) both;
+}
+
+@keyframes ambientPulse {
+  0% { opacity: 0.72; filter: saturate(95%); }
+  100% { opacity: 1; filter: saturate(118%); }
+}
+
+@keyframes navShine {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+@keyframes tabIn {
+  0% { opacity: 0; transform: translateY(14px) scale(0.992); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes panelRise {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) rotateX(4deg) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) rotateX(0) scale(1);
+  }
+}
+
+@keyframes listIn {
+  0% { opacity: 0; transform: translateX(-10px) scale(0.99); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes bubbleInAssistant {
+  0% { opacity: 0; transform: translateX(-18px) translateY(10px) scale(0.98); }
+  100% { opacity: 1; transform: translateX(0) translateY(0) scale(1); }
+}
+
+@keyframes bubbleInUser {
+  0% { opacity: 0; transform: translateX(18px) translateY(10px) scale(0.98); }
+  100% { opacity: 1; transform: translateX(0) translateY(0) scale(1); }
+}
+
+@keyframes streamingIn {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes overlayFade {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes modalIn {
+  0% { opacity: 0; transform: translateY(16px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Markdown prose styles for chat messages */
