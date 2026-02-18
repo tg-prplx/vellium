@@ -42,6 +42,7 @@ export interface ChatMessage {
   createdAt: string;
   parentId?: Id | null;
   characterName?: string;
+  attachments?: FileAttachment[];
 }
 
 export interface BranchNode {
@@ -94,7 +95,18 @@ export interface BookProject {
   id: Id;
   name: string;
   description: string;
+  characterIds: Id[];
   createdAt: string;
+}
+
+export interface WriterChapterSettings {
+  tone: string;
+  pacing: "slow" | "balanced" | "fast";
+  pov: "first_person" | "third_limited" | "third_omniscient";
+  creativity: number;
+  tension: number;
+  detail: number;
+  dialogue: number;
 }
 
 export interface Chapter {
@@ -102,6 +114,7 @@ export interface Chapter {
   projectId: Id;
   title: string;
   position: number;
+  settings: WriterChapterSettings;
   createdAt: string;
 }
 
@@ -149,6 +162,11 @@ export interface RpPresetConfig {
   mood: string;
   pacing: "slow" | "balanced" | "fast";
   intensity: number;
+  dialogueStyle?: "teasing" | "playful" | "dominant" | "tender" | "formal" | "chaotic";
+  initiative?: number;
+  descriptiveness?: number;
+  unpredictability?: number;
+  emotionalDepth?: number;
   jailbreakOverride?: string;
 }
 
@@ -157,6 +175,8 @@ export interface FileAttachment {
   filename: string;
   type: "image" | "text";
   url: string;
+  mimeType?: string;
+  dataUrl?: string;
   content?: string;
 }
 
@@ -176,6 +196,8 @@ export interface AppSettings {
   samplerConfig: SamplerConfig;
   defaultSystemPrompt: string;
   contextWindowSize: number;
+  contextTailBudgetWithSummaryPercent: number;
+  contextTailBudgetWithoutSummaryPercent: number;
   promptTemplates: PromptTemplates;
 }
 

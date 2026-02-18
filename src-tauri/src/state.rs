@@ -12,7 +12,15 @@ pub struct AppState {
 impl AppState {
     pub fn new(base_dir: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&base_dir)?;
-        let db_path = base_dir.join("sillytauri.db");
+        let vellum_db_path = base_dir.join("vellum.db");
+        let legacy_db_path = base_dir.join("sillytauri.db");
+        let db_path = if vellum_db_path.exists() {
+            vellum_db_path
+        } else if legacy_db_path.exists() {
+            legacy_db_path
+        } else {
+            vellum_db_path
+        };
         storage::init_db(&db_path)?;
         Ok(Self { base_dir, db_path })
     }

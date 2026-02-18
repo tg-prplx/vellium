@@ -1,5 +1,5 @@
 [package]
-name = "sillytauri"
+name = "vellum"
 version = "0.1.0"
 description = "RP/NSFW desktop chat app"
 authors = ["you"]

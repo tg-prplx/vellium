@@ -6,7 +6,7 @@ export type Locale = "en" | "ru";
 export const translations = {
   en: {
     // App
-    "app.name": "SillyTauri",
+    "app.name": "Vellum",
 
     // Tabs
     "tab.chat": "Chat",
@@ -95,6 +95,17 @@ export const translations = {
     "inspector.slow": "Slow",
     "inspector.balanced": "Balanced",
     "inspector.fast": "Fast",
+    "inspector.dialogueStyle": "Dialogue Style",
+    "inspector.dialogueStyleTeasing": "Teasing",
+    "inspector.dialogueStylePlayful": "Playful",
+    "inspector.dialogueStyleDominant": "Dominant",
+    "inspector.dialogueStyleTender": "Tender",
+    "inspector.dialogueStyleFormal": "Formal",
+    "inspector.dialogueStyleChaotic": "Chaotic",
+    "inspector.initiative": "Initiative",
+    "inspector.descriptiveness": "Descriptiveness",
+    "inspector.unpredictability": "Unpredictability",
+    "inspector.emotionalDepth": "Emotional Depth",
 
     // Writing screen
     "writing.projects": "Projects",
@@ -120,6 +131,30 @@ export const translations = {
     "writing.generationLog": "Generation Log",
     "writing.noActivity": "No activity yet",
     "writing.prompt": "Describe what should happen in the scene...",
+    "writing.defaultBookPrefix": "Book",
+    "writing.bookTitle": "Book title",
+    "writing.renameSelectedBook": "Rename selected book",
+    "writing.rename": "Rename",
+    "writing.untitledBook": "Untitled Book",
+    "writing.cast": "Creative Writing Cast",
+    "writing.castImportHint": "Import characters in the Characters tab to use them here.",
+    "writing.chapterDynamics": "Chapter Dynamics",
+    "writing.selectChapter": "Select a chapter",
+    "writing.tone": "Tone",
+    "writing.pov": "POV",
+    "writing.povFirstPerson": "First Person",
+    "writing.povThirdLimited": "Third Limited",
+    "writing.povThirdOmniscient": "Third Omniscient",
+    "writing.creativity": "Creativity",
+    "writing.tension": "Tension",
+    "writing.detail": "Detail",
+    "writing.dialogueShare": "Dialogue Share",
+    "writing.dynamicSettingsHint": "Create or select a chapter to unlock dynamic chapter settings.",
+    "writing.tasks": "Tasks",
+    "writing.useModel": "Use Model",
+    "writing.modelSet": "Writer model set",
+    "writing.chShort": "ch",
+    "writing.scenesShort": "scenes",
 
     // Characters
     "chars.import": "Import",
@@ -183,6 +218,8 @@ export const translations = {
     "settings.defaultSysPromptDesc": "This is used when the \"system\" prompt block has no custom content.",
     "settings.contextWindow": "Context Window",
     "settings.contextSize": "Context Window Size (tokens)",
+    "settings.contextTailWithSummary": "Tail Budget With Summary (%)",
+    "settings.contextTailWithoutSummary": "Tail Budget Without Summary (%)",
     "settings.contextDesc": "Maximum context window for conversations. Older messages will be truncated or compressed.",
     "settings.promptTemplates": "Prompt Templates",
     "settings.promptTemplatesDesc": "Edit the system prompts used throughout the app. Changes are saved automatically.",
@@ -194,8 +231,8 @@ export const translations = {
     "settings.mergeRolesDesc": "Fix 'roles must alternate user/assistant' error by merging consecutive same-role messages",
 
     // Prompt template labels
-    "prompt.jailbreak": "Jailbreak / Freedom Prompt",
-    "prompt.jailbreakDesc": "Used in the jailbreak prompt block for RP chats",
+    "prompt.jailbreak": "Character lock Prompt",
+    "prompt.jailbreakDesc": "Used in the Character lock prompt block for RP chats",
     "prompt.compress": "Compress / Summary Prompt",
     "prompt.compressDesc": "System prompt when compressing chat context",
     "prompt.writerGenerate": "Writer: Generate Draft",
@@ -237,7 +274,7 @@ export const translations = {
   },
   ru: {
     // App
-    "app.name": "SillyTauri",
+    "app.name": "Vellum",
 
     // Tabs
     "tab.chat": "Чат",
@@ -326,6 +363,17 @@ export const translations = {
     "inspector.slow": "Медленный",
     "inspector.balanced": "Сбалансированный",
     "inspector.fast": "Быстрый",
+    "inspector.dialogueStyle": "Стиль диалога",
+    "inspector.dialogueStyleTeasing": "Дразнящий",
+    "inspector.dialogueStylePlayful": "Игривый",
+    "inspector.dialogueStyleDominant": "Доминантный",
+    "inspector.dialogueStyleTender": "Нежный",
+    "inspector.dialogueStyleFormal": "Формальный",
+    "inspector.dialogueStyleChaotic": "Хаотичный",
+    "inspector.initiative": "Инициативность",
+    "inspector.descriptiveness": "Описательность",
+    "inspector.unpredictability": "Непредсказуемость",
+    "inspector.emotionalDepth": "Эмоциональная глубина",
 
     // Writing screen
     "writing.projects": "Проекты",
@@ -351,6 +399,30 @@ export const translations = {
     "writing.generationLog": "Лог генерации",
     "writing.noActivity": "Активности пока нет",
     "writing.prompt": "Опишите, что должно произойти в сцене...",
+    "writing.defaultBookPrefix": "Книга",
+    "writing.bookTitle": "Название книги",
+    "writing.renameSelectedBook": "Переименовать выбранную книгу",
+    "writing.rename": "Переименовать",
+    "writing.untitledBook": "Без названия",
+    "writing.cast": "Каст творческого письма",
+    "writing.castImportHint": "Импортируйте персонажей во вкладке «Персонажи», чтобы использовать их здесь.",
+    "writing.chapterDynamics": "Динамика главы",
+    "writing.selectChapter": "Выберите главу",
+    "writing.tone": "Тон",
+    "writing.pov": "POV",
+    "writing.povFirstPerson": "Первое лицо",
+    "writing.povThirdLimited": "Третье лицо (ограниченное)",
+    "writing.povThirdOmniscient": "Третье лицо (всеведущее)",
+    "writing.creativity": "Креативность",
+    "writing.tension": "Напряжение",
+    "writing.detail": "Детализация",
+    "writing.dialogueShare": "Доля диалога",
+    "writing.dynamicSettingsHint": "Создайте или выберите главу, чтобы открыть динамические настройки.",
+    "writing.tasks": "Задачи",
+    "writing.useModel": "Использовать модель",
+    "writing.modelSet": "Модель писательства установлена",
+    "writing.chShort": "гл",
+    "writing.scenesShort": "сцен",
 
     // Characters
     "chars.import": "Импорт",
@@ -414,6 +486,8 @@ export const translations = {
     "settings.defaultSysPromptDesc": "Используется, если блок \"system\" не имеет содержимого.",
     "settings.contextWindow": "Окно контекста",
     "settings.contextSize": "Размер окна контекста (токены)",
+    "settings.contextTailWithSummary": "Бюджет хвоста с summary (%)",
+    "settings.contextTailWithoutSummary": "Бюджет хвоста без summary (%)",
     "settings.contextDesc": "Максимальный размер контекста. Старые сообщения будут обрезаны или сжаты.",
     "settings.promptTemplates": "Шаблоны промптов",
     "settings.promptTemplatesDesc": "Редактируйте системные промпты приложения. Изменения сохраняются автоматически.",
@@ -425,8 +499,8 @@ export const translations = {
     "settings.mergeRolesDesc": "Исправляет ошибку 'roles must alternate user/assistant' объединением подряд идущих сообщений одной роли",
 
     // Prompt template labels
-    "prompt.jailbreak": "Jailbreak / Промпт свободы",
-    "prompt.jailbreakDesc": "Используется в блоке jailbreak для RP чатов",
+    "prompt.jailbreak": "Character lock / Промпт фиксации персонажа",
+    "prompt.jailbreakDesc": "Используется в блоке Character lock для RP чатов",
     "prompt.compress": "Промпт сжатия / резюме",
     "prompt.compressDesc": "Системный промпт при сжатии контекста чата",
     "prompt.writerGenerate": "Писатель: Генерация черновика",

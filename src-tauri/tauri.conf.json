@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "SillyTauri",
+  "productName": "Vellum",
   "version": "0.1.0",
-  "identifier": "io.sillytauri.app",
+  "identifier": "io.vellum.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "SillyTauri",
+        "title": "Vellum",
         "width": 1440,
         "height": 900,
         "resizable": true

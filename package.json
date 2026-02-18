@@ -1,5 +1,5 @@
 {
-  "name": "sillytauri",
+  "name": "vellum",
   "private": true,
   "version": "0.2.0",
   "type": "module",
@@ -9,16 +9,18 @@
     "dev:frontend": "vite",
     "dev:server": "tsx watch server/index.ts",
     "predev:server": "node scripts/ensure-better-sqlite3.cjs && node scripts/ensure-dev-port.cjs",
-    "dev:electron": "npm run build:electron-main && npm run build:electron-preload && concurrently -n server,vite,electron -c blue,green,magenta \"npm run dev:server\" \"npm run dev:frontend\" \"wait-on http://localhost:1420 && electron .\"",
+    "dev:electron": "npm run build:electron-main && npm run build:electron-preload && concurrently -n server,vite,electron -c blue,green,magenta \"npm run dev:server\" \"npm run dev:frontend\" \"wait-on -t 120000 http-get://localhost:1420 http-get://127.0.0.1:3001/api/health && electron .\"",
     "rebuild:native": "npm rebuild better-sqlite3",
+    "rebuild:native:electron": "npx electron-rebuild -f -w better-sqlite3 -v 40.4.1",
     "build": "tsc -b && vite build",
-    "build:icons": "python3 scripts/generate-app-icons.py",
+    "build:icons": "node scripts/run-build-icons.cjs",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --outfile=server-bundle.mjs --external:better-sqlite3 --packages=external",
     "build:electron-main": "esbuild electron/main.ts --bundle --platform=node --format=cjs --outfile=dist-electron/main.cjs --external:electron",
     "build:electron-preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.cjs --external:electron",
-    "dist": "npm run build && npm run build:icons && npm run build:server && npm run build:electron-main && npm run build:electron-preload && electron-builder",
-    "dist:mac": "npm run build && npm run build:icons && npm run build:server && npm run build:electron-main && npm run build:electron-preload && electron-builder --mac",
-    "dist:win": "npm run build && npm run build:icons && npm run build:server && npm run build:electron-main && npm run build:electron-preload && electron-builder --win",
+    "build:desktop": "npm run build && npm run build:icons && npm run build:server && npm run build:electron-main && npm run build:electron-preload",
+    "dist": "npm run rebuild:native:electron && npm run build:desktop && electron-builder --publish never",
+    "dist:mac": "npm run rebuild:native:electron && npm run build:desktop && electron-builder --mac --publish never",
+    "dist:win": "npm run rebuild:native:electron && npm run build:desktop && electron-builder --win --publish never",
     "preview": "vite preview",
     "test": "vitest run"
   },
@@ -54,8 +56,8 @@
     "wait-on": "^9.0.4"
   },
   "build": {
-    "appId": "com.sillytauri.app",
-    "productName": "SillyTauri",
+    "appId": "com.vellum.app",
+    "productName": "Vellum",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -64,20 +66,29 @@
       "dist/**/*",
       "dist-electron/**/*",
       "server-bundle.mjs",
-      "server/**/*.js",
-      "server/**/*.ts",
-      "node_modules/**/*",
       "package.json"
     ],
+    "asar": true,
     "asarUnpack": [
-      "**/better-sqlite3/**",
-      "**/node_modules/better-sqlite3/**"
+      "server-bundle.mjs",
+      "node_modules/better-sqlite3/build/Release/*.node",
+      "node_modules/bindings/**",
+      "node_modules/file-uri-to-path/**"
     ],
+    "buildDependenciesFromSource": true,
+    "npmRebuild": true,
     "mac": {
       "icon": "build/icon.icns",
       "target": [
         {
           "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "dir",
           "arch": [
             "x64",
             "arm64"

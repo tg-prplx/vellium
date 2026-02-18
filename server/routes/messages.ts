@@ -9,6 +9,7 @@ interface MessageRow {
   branch_id: string;
   role: string;
   content: string;
+  attachments: string | null;
   token_count: number;
   parent_id: string | null;
   deleted: number;
@@ -18,12 +19,20 @@ interface MessageRow {
 }
 
 function messageToJson(row: MessageRow) {
+  let attachments: unknown[] = [];
+  try {
+    const parsed = JSON.parse(row.attachments || "[]");
+    if (Array.isArray(parsed)) attachments = parsed;
+  } catch {
+    attachments = [];
+  }
   return {
     id: row.id,
     chatId: row.chat_id,
     branchId: row.branch_id,
     role: row.role,
     content: row.content,
+    attachments,
     tokenCount: row.token_count,
     createdAt: row.created_at,
     parentId: row.parent_id,

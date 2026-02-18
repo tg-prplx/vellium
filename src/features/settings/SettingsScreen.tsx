@@ -491,6 +491,34 @@ export function SettingsScreen() {
                     onChange={(e) => patch({ contextWindowSize: Number(e.target.value) })}
                     className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
                 </div>
+                <div>
+                  <FieldLabel>{t("settings.contextTailWithSummary")}</FieldLabel>
+                  <input
+                    type="number"
+                    min={5}
+                    max={95}
+                    value={settings.contextTailBudgetWithSummaryPercent ?? 35}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const next = Number.isFinite(raw) ? Math.max(5, Math.min(95, Math.floor(raw))) : 35;
+                      patch({ contextTailBudgetWithSummaryPercent: next });
+                    }}
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
+                </div>
+                <div>
+                  <FieldLabel>{t("settings.contextTailWithoutSummary")}</FieldLabel>
+                  <input
+                    type="number"
+                    min={5}
+                    max={95}
+                    value={settings.contextTailBudgetWithoutSummaryPercent ?? 75}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const next = Number.isFinite(raw) ? Math.max(5, Math.min(95, Math.floor(raw))) : 75;
+                      patch({ contextTailBudgetWithoutSummaryPercent: next });
+                    }}
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
+                </div>
                 <p className="text-[10px] text-text-tertiary">{t("settings.contextDesc")}</p>
               </div>
             </div>

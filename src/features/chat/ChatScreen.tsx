@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../components/Panels";
-import { api } from "../../shared/api";
+import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { marked } from "marked";
 import type {
@@ -45,6 +45,27 @@ function renderContent(text: string, charName?: string, userName?: string): stri
   return renderMarkdown(replaced);
 }
 
+function guessMimeType(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    webp: "image/webp",
+    bmp: "image/bmp",
+    svg: "image/svg+xml"
+  };
+  return map[ext] || "application/octet-stream";
+}
+
+function imageSourceFromAttachment(att: FileAttachment): string | null {
+  if (att.type !== "image") return null;
+  if (att.dataUrl?.startsWith("data:image/")) return att.dataUrl;
+  if (att.url?.startsWith("http://") || att.url?.startsWith("https://") || att.url?.startsWith("/")) return att.url;
+  return null;
+}
+
 const BLOCK_COLORS: Record<string, string> = {
   system: "border-blue-500/30 bg-blue-500/8",
   jailbreak: "border-red-500/30 bg-red-500/8",
@@ -57,12 +78,31 @@ const BLOCK_COLORS: Record<string, string> = {
 
 const RP_PRESETS = ["slowburn", "dominant", "romantic", "action", "mystery", "submissive", "seductive", "gentle_fem", "rough", "passionate"] as const;
 const DEFAULT_AUTHOR_NOTE = "Stay in character, avoid repetition, keep sensual pacing controlled.";
+
+function promptBlockLabel(kind: PromptBlock["kind"]): string {
+  if (kind === "jailbreak") return "Character lock";
+  return kind.replace("_", " ");
+}
 const DEFAULT_SCENE_STATE: Omit<RpSceneState, "chatId"> = {
-  variables: { location: "Private room", time: "Night" },
+  variables: {
+    location: "Private room",
+    time: "Night",
+    dialogueStyle: "teasing",
+    initiative: "65",
+    descriptiveness: "70",
+    unpredictability: "45",
+    emotionalDepth: "75"
+  },
   mood: "teasing",
   pacing: "slow",
   intensity: 0.7
 };
+
+function readSceneVarPercent(variables: Record<string, string>, key: string, fallback: number): number {
+  const raw = Number(variables[key]);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(0, Math.min(100, Math.round(raw)));
+}
 
 export function ChatScreen() {
   const { t } = useI18n();
@@ -81,6 +121,7 @@ export function ChatScreen() {
   const [editingValue, setEditingValue] = useState("");
   const [streamText, setStreamText] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [streamingCharacterName, setStreamingCharacterName] = useState<string | null>(null);
   const [draggedBlockId, setDraggedBlockId] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string>("");
   const [activeModelLabel, setActiveModelLabel] = useState<string>("");
@@ -144,7 +185,7 @@ export function ChatScreen() {
 
   // Inspector collapse
   const [inspectorSection, setInspectorSection] = useState<Record<string, boolean>>({
-    scene: true, sampler: false, blocks: true, context: false
+    scene: true, sampler: false, blocks: false, context: false
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -368,7 +409,7 @@ export function ChatScreen() {
   }
 
   async function handleSend() {
-    if (!input.trim()) return;
+    if ((!input.trim() && attachments.length === 0) || autoConvoRunning) return;
     setErrorText("");
     try {
       let chatId = activeChat?.id;
@@ -386,13 +427,9 @@ export function ChatScreen() {
       const currentAttachments = [...attachments];
       if (currentAttachments.length > 0) {
         const textAttachments = currentAttachments.filter((a) => a.type === "text" && a.content);
-        const imageAttachments = currentAttachments.filter((a) => a.type === "image");
         if (textAttachments.length > 0) {
           outgoing += "\n\n---\n[Attached files]\n" +
             textAttachments.map((a) => `[${a.filename}]:\n${a.content!.slice(0, 4000)}`).join("\n\n");
-        }
-        if (imageAttachments.length > 0) {
-          outgoing += "\n\n[Attached images: " + imageAttachments.map((a) => a.filename).join(", ") + "]";
         }
       }
       setInput("");
@@ -400,20 +437,22 @@ export function ChatScreen() {
 
       const optimisticMsg: ChatMessage = {
         id: `temp-${Date.now()}`, chatId, branchId: "main",
-        role: "user", content: outgoing, tokenCount: 0, createdAt: new Date().toISOString()
+        role: "user", content: outgoing, attachments: currentAttachments, tokenCount: 0, createdAt: new Date().toISOString()
       };
       setMessages((prev) => [...prev, optimisticMsg]);
       setStreamText("");
       setStreaming(true);
+      setStreamingCharacterName(null);
 
       const updated = await api.chatSend(chatId, outgoing, undefined, {
         onDelta: (delta) => setStreamText((prev) => prev + delta),
-        onDone: () => { setStreaming(false); setStreamText(""); }
-      }, activePersonaPayload);
+        onDone: () => { setStreaming(false); setStreamText(""); setStreamingCharacterName(null); }
+      }, activePersonaPayload, currentAttachments);
       setMessages(updated);
     } catch (error) {
       setStreaming(false);
       setStreamText("");
+      setStreamingCharacterName(null);
       setErrorText(String(error));
     }
   }
@@ -424,6 +463,7 @@ export function ChatScreen() {
       await api.chatAbort(activeChat.id);
       setStreaming(false);
       setStreamText("");
+      setStreamingCharacterName(null);
       autoConvoRef.current = false;
       setAutoConvoRunning(false);
       await refreshActiveTimeline();
@@ -433,11 +473,12 @@ export function ChatScreen() {
   }
 
   async function handleRegenerate() {
-    if (!activeChat) return;
+    if (!activeChat || autoConvoRunning) return;
     setErrorText("");
     try {
       setStreamText("");
       setStreaming(true);
+      setStreamingCharacterName(null);
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === "assistant") return prev.slice(0, -1);
@@ -445,12 +486,13 @@ export function ChatScreen() {
       });
       const updated = await api.chatRegenerate(activeChat.id, undefined, {
         onDelta: (delta) => setStreamText((prev) => prev + delta),
-        onDone: () => { setStreaming(false); setStreamText(""); }
+        onDone: () => { setStreaming(false); setStreamText(""); setStreamingCharacterName(null); }
       });
       setMessages(updated);
     } catch (error) {
       setStreaming(false);
       setStreamText("");
+      setStreamingCharacterName(null);
       setErrorText(String(error));
     }
   }
@@ -501,7 +543,15 @@ export function ChatScreen() {
           reader.readAsDataURL(file);
         });
         const attachment = await api.uploadFile(base64, file.name);
-        setAttachments((prev) => [...prev, attachment]);
+        const mimeType = attachment.mimeType || file.type || guessMimeType(file.name);
+        const normalizedAttachment: FileAttachment = {
+          ...attachment,
+          mimeType
+        };
+        if (attachment.type === "image") {
+          normalizedAttachment.dataUrl = `data:${mimeType};base64,${base64}`;
+        }
+        setAttachments((prev) => [...prev, normalizedAttachment]);
       }
     } catch (error) { setErrorText(String(error)); }
     setUploading(false);
@@ -531,9 +581,8 @@ export function ChatScreen() {
     if (!activeChat) return;
     try {
       const result = await api.rpApplyStylePreset(activeChat.id, preset);
-      const data = result as unknown as { sceneState?: RpSceneState };
-      if (data.sceneState) {
-        setSceneState(data.sceneState);
+      if (result.sceneState) {
+        setSceneState(result.sceneState);
       }
       setActivePreset(preset);
       api.rpGetBlocks(activeChat.id).then(setBlocks).catch(() => {});
@@ -572,55 +621,64 @@ export function ChatScreen() {
 
   // Next turn for a specific character (multi-char)
   async function handleNextTurn(characterName: string) {
-    if (!activeChat || streaming) return;
+    if (!activeChat || streaming || autoConvoRunning) return;
     setErrorText("");
     setStreamText("");
     setStreaming(true);
+    setStreamingCharacterName(characterName);
     try {
       const updated = await api.chatNextTurn(activeChat.id, characterName, undefined, {
         onDelta: (delta) => setStreamText((prev) => prev + delta),
-        onDone: () => { setStreaming(false); setStreamText(""); }
+        onDone: () => { setStreaming(false); setStreamText(""); setStreamingCharacterName(null); }
       }, false, activePersonaPayload);
       setMessages(updated);
     } catch (error) {
       setStreaming(false);
       setStreamText("");
+      setStreamingCharacterName(null);
       setErrorText(String(error));
     }
   }
 
   // Auto-conversation: characters take turns automatically
   async function startAutoConversation() {
-    if (!activeChat || chatCharacterIds.length < 2) return;
+    if (!activeChat || chatCharacterIds.length < 2 || autoConvoRunning || streaming) return;
     autoConvoRef.current = true;
     setAutoConvoRunning(true);
 
     const charNames = chatCharacterIds
       .map((id) => characters.find((c) => c.id === id))
-      .filter((c): c is CharacterDetail => c !== null)
+      .filter((c): c is CharacterDetail => Boolean(c))
       .map((c) => c.name);
 
-    if (charNames.length < 2) { setAutoConvoRunning(false); return; }
+    if (charNames.length < 2) {
+      autoConvoRef.current = false;
+      setAutoConvoRunning(false);
+      return;
+    }
+    const turns = Number.isFinite(autoTurnsCount) ? Math.max(1, Math.min(50, Math.floor(autoTurnsCount))) : 1;
 
-    for (let turn = 0; turn < autoTurnsCount; turn++) {
+    for (let turn = 0; turn < turns; turn++) {
       if (!autoConvoRef.current) break;
 
       const charName = charNames[turn % charNames.length];
       setStreamText("");
       setStreaming(true);
+      setStreamingCharacterName(charName);
 
       try {
         const updated = await api.chatNextTurn(activeChat.id, charName, undefined, {
           onDelta: (delta) => setStreamText((prev) => prev + delta),
-          onDone: () => { setStreaming(false); setStreamText(""); }
+          onDone: () => { setStreaming(false); setStreamText(""); setStreamingCharacterName(null); }
         }, true, activePersonaPayload); // isAutoConvo = true
         setMessages(updated);
       } catch (error) {
+        setStreamingCharacterName(null);
         setErrorText(String(error));
         break;
       }
 
-      if (autoConvoRef.current && turn < autoTurnsCount - 1) {
+      if (autoConvoRef.current && turn < turns - 1) {
         await new Promise((r) => setTimeout(r, 500));
       }
     }
@@ -628,11 +686,15 @@ export function ChatScreen() {
     autoConvoRef.current = false;
     setAutoConvoRunning(false);
     setStreaming(false);
+    setStreamingCharacterName(null);
   }
 
   function stopAutoConversation() {
     autoConvoRef.current = false;
     setAutoConvoRunning(false);
+    setStreaming(false);
+    setStreamText("");
+    setStreamingCharacterName(null);
     if (activeChat) {
       api.chatAbort(activeChat.id).catch(() => {});
     }
@@ -660,6 +722,18 @@ export function ChatScreen() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
   }
 
+  function setSceneVariable(key: string, value: string) {
+    setSceneState((prev) => ({
+      ...prev,
+      variables: { ...prev.variables, [key]: value }
+    }));
+  }
+
+  function setSceneVariablePercent(key: string, value: number) {
+    const clamped = Math.max(0, Math.min(100, Math.round(value)));
+    setSceneVariable(key, String(clamped));
+  }
+
   function toggleSection(key: string) {
     setInspectorSection((prev) => ({ ...prev, [key]: !prev[key] }));
   }
@@ -668,7 +742,7 @@ export function ChatScreen() {
   const chatCharacters = useMemo(() => {
     return chatCharacterIds
       .map((id) => characters.find((c) => c.id === id))
-      .filter((c): c is CharacterDetail => c !== null);
+      .filter((c): c is CharacterDetail => Boolean(c));
   }, [chatCharacterIds, characters]);
 
   const activeChatCharacter = useMemo(() => {
@@ -848,7 +922,7 @@ export function ChatScreen() {
                         onClick={() => handleCreateChat(char.id)}
                         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-bg-hover">
                         {char.avatarUrl ? (
-                          <img src={char.avatarUrl.startsWith("http") ? char.avatarUrl : `http://localhost:3001${char.avatarUrl}`}
+                          <img src={resolveApiAssetUrl(char.avatarUrl) ?? undefined}
                             alt={char.name} className="h-6 w-6 rounded-full object-cover" />
                         ) : (
                           <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-subtle text-[10px] font-bold text-accent">
@@ -932,7 +1006,7 @@ export function ChatScreen() {
                       }`}>
                       <button onClick={() => setActiveChat(chat)} className="flex flex-1 items-center gap-2 text-left">
                         {chatChar?.avatarUrl ? (
-                          <img src={chatChar.avatarUrl.startsWith("http") ? chatChar.avatarUrl : `http://localhost:3001${chatChar.avatarUrl}`}
+                          <img src={resolveApiAssetUrl(chatChar.avatarUrl) ?? undefined}
                             alt="" className="h-6 w-6 flex-shrink-0 rounded-full object-cover" />
                         ) : chatChar ? (
                           <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-accent-subtle text-[9px] font-bold text-accent">
@@ -1012,7 +1086,7 @@ export function ChatScreen() {
                   </button>
                 )}
                 <button onClick={handleRegenerate}
-                  disabled={streaming || !activeChat || messages.length === 0}
+                  disabled={streaming || autoConvoRunning || !activeChat || messages.length === 0}
                   className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40">
                   {t("chat.regenerate")}
                 </button>
@@ -1092,7 +1166,7 @@ export function ChatScreen() {
                   {chatCharacters.map((ch) => (
                     <div key={ch.id} className="flex items-center gap-1">
                       {ch.avatarUrl ? (
-                        <img src={ch.avatarUrl.startsWith("http") ? ch.avatarUrl : `http://localhost:3001${ch.avatarUrl}`}
+                        <img src={resolveApiAssetUrl(ch.avatarUrl) ?? undefined}
                           alt="" className="h-5 w-5 rounded-full object-cover" />
                       ) : (
                         <div className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500/20 text-[9px] font-bold text-purple-400">
@@ -1100,7 +1174,7 @@ export function ChatScreen() {
                         </div>
                       )}
                       {chatCharacters.length > 1 && (
-                        <button onClick={() => handleNextTurn(ch.name)} disabled={streaming}
+                        <button onClick={() => handleNextTurn(ch.name)} disabled={streaming || autoConvoRunning}
                           className="rounded px-1.5 py-0.5 text-[9px] font-medium text-purple-400 hover:bg-purple-500/20 disabled:opacity-40"
                           title={`${t("chat.nextTurn")}: ${ch.name}`}>
                           {ch.name}
@@ -1112,7 +1186,11 @@ export function ChatScreen() {
                 {chatCharacters.length > 1 && (
                   <div className="ml-auto flex items-center gap-1.5">
                     <input type="number" min={1} max={50} value={autoTurnsCount}
-                      onChange={(e) => setAutoTurnsCount(Number(e.target.value))}
+                      onChange={(e) => {
+                        const parsed = Number(e.target.value);
+                        const next = Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 1;
+                        setAutoTurnsCount(next);
+                      }}
                       className="w-12 rounded border border-border bg-bg-primary px-1 py-0.5 text-center text-[10px] text-text-primary" />
                     <span className="text-[9px] text-text-tertiary">{t("chat.turns")}</span>
                     {autoConvoRunning ? (
@@ -1121,7 +1199,7 @@ export function ChatScreen() {
                         {t("chat.autoConvoStop")}
                       </button>
                     ) : (
-                      <button onClick={startAutoConversation} disabled={streaming}
+                      <button onClick={startAutoConversation} disabled={streaming || autoConvoRunning}
                         className="rounded-md bg-purple-500/20 px-2 py-0.5 text-[10px] font-medium text-purple-300 hover:bg-purple-500/30 disabled:opacity-40">
                         {t("chat.autoConvoStart")}
                       </button>
@@ -1154,7 +1232,7 @@ export function ChatScreen() {
                       {msgChar ? (
                         <>
                           {msgChar.avatarUrl ? (
-                            <img src={msgChar.avatarUrl.startsWith("http") ? msgChar.avatarUrl : `http://localhost:3001${msgChar.avatarUrl}`}
+                            <img src={resolveApiAssetUrl(msgChar.avatarUrl) ?? undefined}
                               alt="" className="h-4 w-4 rounded-full object-cover" />
                           ) : null}
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-400">{msg.characterName || msgChar.name}</span>
@@ -1199,6 +1277,39 @@ export function ChatScreen() {
                             }} />
                           </div>
                         )}
+                        {msg.attachments && msg.attachments.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {msg.attachments.map((att, idx) => {
+                              const key = `${msg.id}-att-${att.id || idx}`;
+                              const imageSrc = imageSourceFromAttachment(att);
+                              if (att.type === "image" && imageSrc) {
+                                return (
+                                  <a
+                                    key={key}
+                                    href={imageSrc}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="block overflow-hidden rounded-md border border-border-subtle bg-bg-primary">
+                                    <img src={imageSrc} alt={att.filename || "image attachment"} className="h-24 w-24 object-cover" />
+                                  </a>
+                                );
+                              }
+                              return (
+                                <a
+                                  key={key}
+                                  href={att.url || "#"}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-secondary hover:bg-bg-hover">
+                                  <svg className="h-3.5 w-3.5 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  <span className="max-w-[180px] truncate">{att.filename || "attachment"}</span>
+                                </a>
+                              );
+                            })}
+                          </div>
+                        )}
                       </>
                     )}
 
@@ -1231,7 +1342,7 @@ export function ChatScreen() {
               {streaming && (
                 <article className="chat-message chat-streaming mr-auto max-w-[88%] rounded-xl border border-accent-border bg-bg-secondary px-4 py-3 text-sm text-text-primary">
                   <div className="mb-1.5 flex items-center gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">{activeChatCharacter?.name ?? "assistant"}</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">{streamingCharacterName || activeChatCharacter?.name || "assistant"}</span>
                     <span className="flex items-center gap-1">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                       <span className="text-[10px] text-accent">{t("chat.streaming")}</span>
@@ -1251,7 +1362,7 @@ export function ChatScreen() {
                 {attachments.map((att) => (
                   <div key={att.id} className="float-card flex items-center gap-1.5 rounded-md border border-border bg-bg-primary px-2 py-1">
                     {att.type === "image" ? (
-                      <img src={`http://localhost:3001${att.url}`} alt="" className="h-6 w-6 rounded object-cover" />
+                      <img src={imageSourceFromAttachment(att) || att.url} alt="" className="h-6 w-6 rounded object-cover" />
                     ) : (
                       <svg className="h-3.5 w-3.5 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -1291,8 +1402,8 @@ export function ChatScreen() {
                 <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} className="hidden"
                   accept="image/*,.txt,.md,.json,.csv,.log,.xml,.html,.js,.ts,.py,.rb,.yaml,.yml" />
               </div>
-              <button onClick={streaming ? handleAbort : (input.trim() ? handleSend : handleRegenerate)}
-                disabled={!streaming && !input.trim() && (messages.length === 0 || messages[messages.length - 1]?.role !== "user")}
+              <button onClick={streaming ? handleAbort : ((input.trim() || attachments.length > 0) ? handleSend : handleRegenerate)}
+                disabled={!streaming && !input.trim() && attachments.length === 0 && (messages.length === 0 || messages[messages.length - 1]?.role !== "user")}
                 className={`flex h-[80px] w-[80px] flex-col items-center justify-center rounded-xl text-text-inverse ${
                   streaming
                     ? "bg-danger hover:bg-danger/80"
@@ -1307,7 +1418,7 @@ export function ChatScreen() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0l-7 7m7-7l7 7" />
                   </svg>
                 )}
-                <span className="mt-1 text-[10px] font-semibold">{streaming ? t("chat.stop") : (input.trim() ? t("chat.send") : t("chat.resend"))}</span>
+                <span className="mt-1 text-[10px] font-semibold">{streaming ? t("chat.stop") : ((input.trim() || attachments.length > 0) ? t("chat.send") : t("chat.resend"))}</span>
               </button>
             </div>
           </>
@@ -1358,6 +1469,46 @@ export function ChatScreen() {
                       onChange={(e) => setSceneState((prev) => ({ ...prev, intensity: Number(e.target.value) }))}
                       className="w-full" />
                   </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.dialogueStyle")}</label>
+                    <select
+                      value={sceneState.variables.dialogueStyle || "teasing"}
+                      onChange={(e) => setSceneVariable("dialogueStyle", e.target.value)}
+                      className="w-full rounded-md border border-border bg-bg-primary px-2.5 py-1.5 text-xs text-text-primary"
+                    >
+                      <option value="teasing">{t("inspector.dialogueStyleTeasing")}</option>
+                      <option value="playful">{t("inspector.dialogueStylePlayful")}</option>
+                      <option value="dominant">{t("inspector.dialogueStyleDominant")}</option>
+                      <option value="tender">{t("inspector.dialogueStyleTender")}</option>
+                      <option value="formal">{t("inspector.dialogueStyleFormal")}</option>
+                      <option value="chaotic">{t("inspector.dialogueStyleChaotic")}</option>
+                    </select>
+                  </div>
+                  {[
+                    { key: "initiative", label: t("inspector.initiative") },
+                    { key: "descriptiveness", label: t("inspector.descriptiveness") },
+                    { key: "unpredictability", label: t("inspector.unpredictability") },
+                    { key: "emotionalDepth", label: t("inspector.emotionalDepth") }
+                  ].map((item) => {
+                    const value = readSceneVarPercent(sceneState.variables, item.key, 60);
+                    return (
+                      <div key={item.key}>
+                        <div className="mb-1 flex items-center justify-between">
+                          <label className="text-[10px] text-text-tertiary">{item.label}</label>
+                          <span className="text-[10px] font-medium text-text-secondary">{value}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={value}
+                          onChange={(e) => setSceneVariablePercent(item.key, Number(e.target.value))}
+                          className="w-full"
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1436,7 +1587,7 @@ export function ChatScreen() {
                       <svg className="h-3 w-3 flex-shrink-0 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16" />
                       </svg>
-                      <span className="capitalize">{block.kind.replace("_", " ")}</span>
+                      <span className="capitalize">{promptBlockLabel(block.kind)}</span>
                     </div>
                   ))}
                 </div>
