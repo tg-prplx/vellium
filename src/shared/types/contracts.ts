@@ -181,6 +181,7 @@ export interface FileAttachment {
 }
 
 export interface AppSettings {
+  onboardingCompleted: boolean;
   theme: "dark" | "light" | "custom";
   fontScale: number;
   density: "comfortable" | "compact";

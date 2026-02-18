@@ -3,9 +3,11 @@ import { ChatScreen } from "./features/chat/ChatScreen";
 import { WritingScreen } from "./features/writer/WritingScreen";
 import { CharactersScreen } from "./features/characters/CharactersScreen";
 import { SettingsScreen } from "./features/settings/SettingsScreen";
-import { I18nContext, useI18n, type Locale } from "./shared/i18n";
+import { WelcomeScreen } from "./features/welcome/WelcomeScreen";
+import { I18nContext, translations, useI18n, type Locale } from "./shared/i18n";
 import { api } from "./shared/api";
 import { TitleBar } from "./components/TitleBar";
+import type { AppSettings } from "./shared/types/contracts";
 
 type TabId = "chat" | "writing" | "characters" | "settings";
 
@@ -99,26 +101,99 @@ function AppContent() {
   );
 }
 
+function applyTheme(theme: string) {
+  const root = document.documentElement;
+  root.classList.remove("theme-light");
+  if (theme === "light") {
+    root.classList.add("theme-light");
+  }
+}
+
 export function App() {
   const [locale, setLocale] = useState<Locale>("en");
+  const [initialSettings, setInitialSettings] = useState<AppSettings | null>(null);
+  const [isBooting, setIsBooting] = useState(true);
+  const isElectron = !!window.electronAPI;
 
   useEffect(() => {
     api.settingsGet().then((s) => {
+      setInitialSettings(s);
+      applyTheme(s.theme ?? "dark");
       if (s.interfaceLanguage === "ru" || s.interfaceLanguage === "en") {
         setLocale(s.interfaceLanguage);
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setIsBooting(false));
 
     const handler = (e: Event) => {
       setLocale((e as CustomEvent).detail as Locale);
     };
+    const themeHandler = (e: Event) => {
+      applyTheme((e as CustomEvent<string>).detail);
+    };
+    const onboardingResetHandler = (e: Event) => {
+      const next = (e as CustomEvent<AppSettings>).detail;
+      if (!next) return;
+      setInitialSettings(next);
+      applyTheme(next.theme ?? "dark");
+      if (next.interfaceLanguage === "ru" || next.interfaceLanguage === "en") {
+        setLocale(next.interfaceLanguage);
+      }
+    };
     window.addEventListener("locale-change", handler);
-    return () => window.removeEventListener("locale-change", handler);
+    window.addEventListener("theme-change", themeHandler);
+    window.addEventListener("onboarding-reset", onboardingResetHandler);
+    return () => {
+      window.removeEventListener("locale-change", handler);
+      window.removeEventListener("theme-change", themeHandler);
+      window.removeEventListener("onboarding-reset", onboardingResetHandler);
+    };
   }, []);
+
+  async function completeOnboarding(patch: Partial<AppSettings>) {
+    const updated = await api.settingsUpdate({ ...patch, onboardingCompleted: true });
+    setInitialSettings(updated);
+    applyTheme(updated.theme ?? "dark");
+    if (updated.interfaceLanguage === "ru" || updated.interfaceLanguage === "en") {
+      setLocale(updated.interfaceLanguage);
+    }
+  }
 
   return (
     <I18nContext.Provider value={locale}>
-      <AppContent />
+      {isBooting ? (
+        <div className="flex h-screen w-screen items-center justify-center bg-bg-primary">
+          <div className="text-sm text-text-tertiary">Loading...</div>
+        </div>
+      ) : initialSettings && !initialSettings.onboardingCompleted ? (
+        <div className="app-shell flex h-screen w-screen flex-col overflow-hidden bg-bg-primary">
+          {isElectron ? (
+            <TitleBar>
+              <div className="mx-auto flex w-full max-w-[1300px] items-center px-5 py-1">
+                <div className="flex items-center gap-2.5" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent">
+                    <svg className="h-4 w-4 text-text-inverse" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                    </svg>
+                  </div>
+                  <span className="text-sm font-semibold text-text-primary">{translations[locale]["app.name"]}</span>
+                  <span className="rounded-md border border-border-subtle bg-bg-secondary px-2 py-1 text-[10px] text-text-secondary">
+                    {translations[locale]["welcome.setupBadge"]}
+                  </span>
+                </div>
+              </div>
+            </TitleBar>
+          ) : null}
+          <main className="flex-1 overflow-hidden">
+            <WelcomeScreen
+              initialSettings={initialSettings}
+              onPreviewLocale={setLocale}
+              onComplete={completeOnboarding}
+            />
+          </main>
+        </div>
+      ) : (
+        <AppContent />
+      )}
     </I18nContext.Provider>
   );
 }

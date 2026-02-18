@@ -230,6 +230,7 @@ try {
 // --- Default settings ---
 
 const DEFAULT_SETTINGS = {
+  onboardingCompleted: false,
   theme: "dark",
   fontScale: 1,
   density: "comfortable",
@@ -268,6 +269,17 @@ const DEFAULT_SETTINGS = {
 const existingSettings = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string } | undefined;
 if (!existingSettings) {
   db.prepare("INSERT INTO settings (id, payload) VALUES (1, ?)").run(JSON.stringify(DEFAULT_SETTINGS));
+} else {
+  // Backward-compat: existing installs should not see onboarding retroactively.
+  try {
+    const parsed = JSON.parse(existingSettings.payload) as Record<string, unknown>;
+    if (typeof parsed.onboardingCompleted !== "boolean") {
+      parsed.onboardingCompleted = true;
+      db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(parsed));
+    }
+  } catch {
+    db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(DEFAULT_SETTINGS));
+  }
 }
 
 // --- Utilities ---
