@@ -190,7 +190,8 @@ const migrations = [
   "ALTER TABLE chats ADD COLUMN auto_conversation INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE messages ADD COLUMN character_name TEXT DEFAULT ''",
   "ALTER TABLE chats ADD COLUMN active_preset TEXT DEFAULT ''",
-  "ALTER TABLE messages ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
+  "ALTER TABLE messages ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE chats ADD COLUMN author_note TEXT DEFAULT ''"
 ];
 
 for (const sql of migrations) {
