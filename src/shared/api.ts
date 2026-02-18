@@ -9,6 +9,11 @@ import type {
   ChatSession,
   ConsistencyIssue,
   FileAttachment,
+  LoreBook,
+  McpDiscoverResult,
+  McpImportResult,
+  McpServerConfig,
+  McpServerTestResult,
   PromptBlock,
   ProviderModel,
   ProviderProfile,
@@ -96,6 +101,13 @@ async function del<T>(path: string): Promise<T> {
 
 export type StreamCallbacks = {
   onDelta?: (delta: string) => void;
+  onToolEvent?: (event: {
+    phase: "start" | "done";
+    callId: string;
+    name: string;
+    args?: string;
+    result?: string;
+  }) => void;
   onDone?: () => void;
 };
 
@@ -151,9 +163,25 @@ async function streamPost(
         const trimmed = line.trim();
         if (!trimmed.startsWith("data: ")) continue;
         try {
-          const parsed = JSON.parse(trimmed.slice(6)) as { type: string; delta?: string };
+          const parsed = JSON.parse(trimmed.slice(6)) as {
+            type: string;
+            delta?: string;
+            phase?: "start" | "done";
+            callId?: string;
+            name?: string;
+            args?: string;
+            result?: string;
+          };
           if (parsed.type === "delta" && parsed.delta) {
             callbacks.onDelta?.(parsed.delta);
+          } else if (parsed.type === "tool" && parsed.phase && parsed.callId && parsed.name) {
+            callbacks.onToolEvent?.({
+              phase: parsed.phase,
+              callId: parsed.callId,
+              name: parsed.name,
+              args: parsed.args,
+              result: parsed.result
+            });
           } else if (parsed.type === "done") {
             doneEmitted = true;
             callbacks.onDone?.();
@@ -180,6 +208,9 @@ export const api = {
   settingsGet: () => get<AppSettings>("/settings"),
   settingsUpdate: (patchData: Partial<AppSettings>) => patchReq<AppSettings>("/settings", patchData),
   settingsReset: () => post<AppSettings>("/settings/reset"),
+  settingsTestMcpServer: (server: McpServerConfig) => post<McpServerTestResult>("/settings/mcp/test", { server }),
+  settingsImportMcpSource: (source: string) => post<McpImportResult>("/settings/mcp/import", { source }),
+  settingsDiscoverMcpTools: (serverIds?: string[]) => post<McpDiscoverResult>("/settings/mcp/discover", { serverIds }),
 
   // --- Providers ---
   providerUpsert: (profile: Omit<ProviderProfile, "apiKeyMasked"> & { apiKey: string }) =>
@@ -251,6 +282,10 @@ export const api = {
     patchReq<{ ok: boolean }>(`/chats/${chatId}/preset`, { presetId }),
   chatGetPreset: (chatId: string) =>
     get<{ presetId: string | null }>(`/chats/${chatId}/preset`),
+  chatSaveLorebook: (chatId: string, lorebookId: string | null) =>
+    patchReq<{ ok: boolean; lorebookId: string | null }>(`/chats/${chatId}/lorebook`, { lorebookId }),
+  chatGetLorebook: (chatId: string) =>
+    get<{ lorebookId: string | null }>(`/chats/${chatId}/lorebook`),
 
   // --- RP ---
   rpSetSceneState: (state: RpSceneState) => post<void>("/rp/scene-state", state),
@@ -275,6 +310,13 @@ export const api = {
   characterDelete: (id: string) => del<void>(`/characters/${id}`),
   characterUploadAvatar: (id: string, base64Data: string, filename: string) =>
     post<{ avatarUrl: string }>(`/characters/${id}/avatar`, { base64Data, filename }),
+
+  // --- LoreBooks ---
+  lorebookList: () => get<LoreBook[]>("/lorebooks"),
+  lorebookGet: (id: string) => get<LoreBook>(`/lorebooks/${id}`),
+  lorebookCreate: (data: Partial<LoreBook>) => post<LoreBook>("/lorebooks", data),
+  lorebookUpdate: (id: string, data: Partial<LoreBook>) => put<LoreBook>(`/lorebooks/${id}`, data),
+  lorebookDelete: (id: string) => del<{ ok: boolean }>(`/lorebooks/${id}`),
 
   // --- Writer ---
   writerProjectCreate: (name: string, description: string, characterIds: string[] = []) =>

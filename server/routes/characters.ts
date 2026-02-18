@@ -2,6 +2,7 @@ import { Router } from "express";
 import { writeFileSync } from "fs";
 import { join } from "path";
 import { db, newId, now, AVATARS_DIR } from "../db.js";
+import { parseCharacterLoreBook } from "../domain/lorebooks.js";
 
 const router = Router();
 
@@ -9,6 +10,7 @@ interface CharacterRow {
   id: string;
   name: string;
   card_json: string;
+  lorebook_id: string | null;
   avatar_path: string | null;
   tags: string | null;
   greeting: string | null;
@@ -26,6 +28,7 @@ function characterToJson(row: CharacterRow) {
     id: row.id,
     name: row.name,
     avatarUrl: row.avatar_path ? (row.avatar_path.startsWith("http") ? row.avatar_path : `/api/avatars/${row.avatar_path}`) : null,
+    lorebookId: row.lorebook_id || null,
     tags: JSON.parse(row.tags || "[]") as string[],
     greeting: row.greeting || "",
     systemPrompt: row.system_prompt || "",
@@ -72,23 +75,61 @@ router.post("/import", (req, res) => {
       return;
     }
 
-    const data = (parsed.data || {}) as Record<string, string>;
+    const data = (parsed.data || {}) as Record<string, unknown>;
     const id = newId();
-    const name = data.name ?? "Unnamed";
-    const tags = JSON.stringify(data.tags || []);
-    const greeting = data.first_mes || "";
-    const systemPrompt = data.system_prompt || "";
-    const description = data.description || "";
-    const personality = data.personality || "";
-    const scenario = data.scenario || "";
-    const mesExample = data.mes_example || "";
-    const creatorNotes = data.creator_notes || "";
-    const avatarPath = data.avatar || null;
+    const name = String(data.name || "Unnamed").trim() || "Unnamed";
+    const tags = JSON.stringify(Array.isArray(data.tags) ? data.tags : []);
+    const greeting = String(data.first_mes || "");
+    const systemPrompt = String(data.system_prompt || "");
+    const description = String(data.description || "");
+    const personality = String(data.personality || "");
+    const scenario = String(data.scenario || "");
+    const mesExample = String(data.mes_example || "");
+    const creatorNotes = String(data.creator_notes || "");
+    const avatarPath = data.avatar ? String(data.avatar) : null;
+    const ts = now();
 
-    db.prepare(
-      `INSERT INTO characters (id, name, card_json, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, name, rawJson, avatarPath, tags, greeting, systemPrompt, description, personality, scenario, mesExample, creatorNotes, now());
+    const parsedLorebook = parseCharacterLoreBook(data);
+    let lorebookId: string | null = null;
+
+    const importTx = db.transaction(() => {
+      if (parsedLorebook) {
+        lorebookId = newId();
+        db.prepare(
+          "INSERT INTO lorebooks (id, name, description, entries_json, source_character_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          lorebookId,
+          parsedLorebook.name,
+          parsedLorebook.description,
+          JSON.stringify(parsedLorebook.entries),
+          id,
+          ts,
+          ts
+        );
+      }
+
+      db.prepare(
+        `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        id,
+        name,
+        rawJson,
+        lorebookId,
+        avatarPath,
+        tags,
+        greeting,
+        systemPrompt,
+        description,
+        personality,
+        scenario,
+        mesExample,
+        creatorNotes,
+        ts
+      );
+    });
+
+    importTx();
 
     const row = db.prepare("SELECT * FROM characters WHERE id = ?").get(id) as CharacterRow;
     res.json(characterToJson(row));
