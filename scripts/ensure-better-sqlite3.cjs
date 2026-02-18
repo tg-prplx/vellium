@@ -13,7 +13,10 @@ function hasAbiMismatch(error) {
 
 function canLoadBetterSqlite3() {
   try {
-    require("better-sqlite3");
+    const Database = require("better-sqlite3");
+    const db = new Database(":memory:");
+    db.prepare("select 1 as ok").get();
+    db.close();
     return true;
   } catch (error) {
     if (hasAbiMismatch(error)) {
