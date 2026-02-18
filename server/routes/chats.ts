@@ -1,0 +1,649 @@
+import { Router } from "express";
+import { db, newId, now, roughTokenCount, isLocalhostUrl, DEFAULT_SETTINGS, nextSortOrder } from "../db.js";
+import { buildSystemPrompt, buildMessageArray, buildMultiCharSystemPrompt, buildMultiCharMessageArray, mergeConsecutiveRoles, DEFAULT_PROMPT_BLOCKS } from "../domain/rpEngine.js";
+import type { PromptBlock, CharacterCardData } from "../domain/rpEngine.js";
+import type { Response } from "express";
+
+const router = Router();
+
+// Active abort controllers per chat — for stream interruption
+const activeAbortControllers = new Map<string, AbortController>();
+
+interface MessageRow {
+  id: string;
+  chat_id: string;
+  branch_id: string;
+  role: string;
+  content: string;
+  token_count: number;
+  parent_id: string | null;
+  deleted: number;
+  created_at: string;
+  character_name: string | null;
+  sort_order: number;
+}
+
+interface ProviderRow {
+  id: string;
+  base_url: string;
+  api_key_cipher: string;
+  full_local_only: number;
+}
+
+function messageToJson(row: MessageRow) {
+  return {
+    id: row.id,
+    chatId: row.chat_id,
+    branchId: row.branch_id,
+    role: row.role,
+    content: row.content,
+    tokenCount: row.token_count,
+    createdAt: row.created_at,
+    parentId: row.parent_id,
+    characterName: row.character_name || undefined
+  };
+}
+
+function resolveBranch(chatId: string, branchId?: string): string {
+  if (branchId) return branchId;
+  const row = db.prepare("SELECT id FROM branches WHERE chat_id = ? ORDER BY created_at ASC LIMIT 1")
+    .get(chatId) as { id: string } | undefined;
+  if (row) return row.id;
+  const id = newId();
+  db.prepare("INSERT INTO branches (id, chat_id, name, parent_message_id, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(id, chatId, "main", null, now());
+  return id;
+}
+
+function getTimeline(chatId: string, branchId: string) {
+  const rows = db.prepare(
+    "SELECT * FROM messages WHERE chat_id = ? AND branch_id = ? AND deleted = 0 ORDER BY sort_order ASC, created_at ASC"
+  ).all(chatId, branchId) as MessageRow[];
+  return rows.map(messageToJson);
+}
+
+function getSettings() {
+  const row = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string };
+  const stored = JSON.parse(row.payload);
+  return { ...DEFAULT_SETTINGS, ...stored, samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) } };
+}
+
+function getPromptBlocks(chatId: string): PromptBlock[] {
+  const rows = db.prepare(
+    "SELECT * FROM prompt_blocks WHERE chat_id = ? ORDER BY ordering ASC"
+  ).all(chatId) as { id: string; kind: string; enabled: number; ordering: number; content: string }[];
+
+  if (rows.length === 0) return DEFAULT_PROMPT_BLOCKS;
+
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    enabled: r.enabled === 1,
+    order: r.ordering,
+    content: r.content
+  }));
+}
+
+function getCharacterCard(characterId: string | null): CharacterCardData | null {
+  if (!characterId) return null;
+  const row = db.prepare("SELECT * FROM characters WHERE id = ?").get(characterId) as {
+    name: string; description: string; personality: string; scenario: string;
+    system_prompt: string; mes_example: string; greeting: string;
+  } | undefined;
+  if (!row) return null;
+  return {
+    name: row.name,
+    description: row.description || "",
+    personality: row.personality || "",
+    scenario: row.scenario || "",
+    systemPrompt: row.system_prompt || "",
+    mesExample: row.mes_example || "",
+    greeting: row.greeting || ""
+  };
+}
+
+function getSceneState(chatId: string): { mood: string; pacing: string; variables: Record<string, string> } | null {
+  const row = db.prepare("SELECT payload FROM rp_scene_state WHERE chat_id = ?").get(chatId) as { payload: string } | undefined;
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.payload);
+    return { mood: parsed.mood || "neutral", pacing: parsed.pacing || "balanced", variables: parsed.variables || {} };
+  } catch { return null; }
+}
+
+function getAuthorNote(chatId: string): string {
+  const row = db.prepare(
+    "SELECT content FROM rp_memory_entries WHERE chat_id = ? AND role = 'author_note' ORDER BY created_at DESC LIMIT 1"
+  ).get(chatId) as { content: string } | undefined;
+  return row?.content || "";
+}
+
+function getChatSamplerConfig(chatId: string, globalConfig: Record<string, unknown>): Record<string, unknown> {
+  const chat = db.prepare("SELECT sampler_config FROM chats WHERE id = ?").get(chatId) as { sampler_config: string | null } | undefined;
+  if (chat?.sampler_config) {
+    try {
+      return { ...globalConfig, ...JSON.parse(chat.sampler_config) };
+    } catch { /* use global */ }
+  }
+  return globalConfig;
+}
+
+// Core LLM streaming function — used by send, regenerate, auto-conversation
+async function streamLlmResponse(
+  chatId: string,
+  branchId: string,
+  res: Response,
+  parentMsgId: string | null,
+  overrideCharacterName?: string,
+  isAutoConvo?: boolean,
+  userName?: string
+) {
+  const settings = getSettings();
+  const providerId = settings.activeProviderId;
+  const modelId = settings.activeModel;
+
+  const chat = db.prepare("SELECT character_id, character_ids, context_summary FROM chats WHERE id = ?").get(chatId) as {
+    character_id: string | null; character_ids: string | null; context_summary: string | null;
+  } | undefined;
+
+  // Build prompt
+  const blocks = getPromptBlocks(chatId);
+  const sceneState = getSceneState(chatId);
+  const authorNote = getAuthorNote(chatId);
+  const samplerConfig = getChatSamplerConfig(chatId, settings.samplerConfig);
+
+  // Resolve user persona name for {{user}} placeholder
+  const resolvedUserName = userName || "User";
+
+  // Multi-character support
+  let characterIds: string[] = [];
+  try {
+    characterIds = JSON.parse(chat?.character_ids || "[]");
+  } catch { /* empty */ }
+  if (characterIds.length === 0 && chat?.character_id) {
+    characterIds = [chat.character_id];
+  }
+
+  const characterCards: CharacterCardData[] = characterIds
+    .map((id) => getCharacterCard(id))
+    .filter((c): c is CharacterCardData => c !== null);
+
+  const currentCharCard = overrideCharacterName
+    ? characterCards.find((c) => c.name === overrideCharacterName) ?? characterCards[0] ?? null
+    : characterCards[0] ?? getCharacterCard(chat?.character_id ?? null);
+
+  let systemPrompt: string;
+  if (characterCards.length > 1 && overrideCharacterName) {
+    systemPrompt = buildMultiCharSystemPrompt(
+      { blocks, characterCard: currentCharCard, sceneState, authorNote, intensity: sceneState ? 0.7 : 0.5, responseLanguage: settings.responseLanguage, censorshipMode: settings.censorshipMode, contextSummary: chat?.context_summary || "", defaultSystemPrompt: settings.defaultSystemPrompt, userName: resolvedUserName },
+      characterCards,
+      overrideCharacterName
+    );
+    // Auto-conversation instruction — tell the bot there's no user, just act between characters
+    if (isAutoConvo) {
+      systemPrompt += "\n\n[IMPORTANT: This is an autonomous conversation between characters. There is NO human user participating. Do NOT wait for user input, do NOT address the user, do NOT ask questions to the user. Act naturally and continue the roleplay conversation with the other character(s). Advance the plot, respond to what the other character said, and keep the story flowing. Be proactive — take actions, express emotions, move the scene forward.]";
+    }
+  } else {
+    systemPrompt = buildSystemPrompt({
+      blocks, characterCard: currentCharCard, sceneState, authorNote,
+      intensity: sceneState ? 0.7 : 0.5,
+      responseLanguage: settings.responseLanguage,
+      censorshipMode: settings.censorshipMode,
+      contextSummary: chat?.context_summary || "",
+      defaultSystemPrompt: settings.defaultSystemPrompt,
+      userName: resolvedUserName
+    });
+  }
+
+  const timeline = getTimeline(chatId, branchId);
+  let apiMessages;
+
+  if (characterCards.length > 1 && overrideCharacterName) {
+    apiMessages = buildMultiCharMessageArray(
+      systemPrompt,
+      timeline,
+      overrideCharacterName,
+      authorNote,
+      chat?.context_summary || "",
+      resolvedUserName
+    );
+  } else {
+    apiMessages = buildMessageArray(
+      systemPrompt,
+      timeline,
+      authorNote,
+      chat?.context_summary || "",
+      currentCharCard?.name,
+      resolvedUserName
+    );
+  }
+
+  // Merge consecutive roles if enabled
+  if (settings.mergeConsecutiveRoles) {
+    apiMessages = mergeConsecutiveRoles(apiMessages);
+  }
+
+  if (!providerId || !modelId) {
+    const lastUser = timeline.filter((m) => m.role === "user").pop();
+    const assistantText = `[No provider configured] Echo: ${lastUser?.content || "..."}`;
+    const assistantId = newId();
+    db.prepare(
+      "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+    ).run(assistantId, chatId, branchId, "assistant", assistantText, roughTokenCount(assistantText), parentMsgId, now(), overrideCharacterName || null, nextSortOrder(chatId, branchId));
+    res.json(getTimeline(chatId, branchId));
+    return;
+  }
+
+  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  if (!provider) {
+    const assistantText = `[Provider not found] Configure a provider in Settings.`;
+    const assistantId = newId();
+    db.prepare(
+      "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+    ).run(assistantId, chatId, branchId, "assistant", assistantText, roughTokenCount(assistantText), parentMsgId, now(), overrideCharacterName || null, nextSortOrder(chatId, branchId));
+    res.json(getTimeline(chatId, branchId));
+    return;
+  }
+
+  if (settings.fullLocalMode && !isLocalhostUrl(provider.base_url)) {
+    res.status(400).json({ error: "Provider blocked by Full Local Mode" });
+    return;
+  }
+
+  // SSE headers
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive"
+  });
+
+  // Set up abort controller for this chat
+  const abortController = new AbortController();
+  activeAbortControllers.set(chatId, abortController);
+
+  // Clean up on client disconnect
+  res.on("close", () => {
+    abortController.abort();
+    activeAbortControllers.delete(chatId);
+  });
+
+  try {
+    const sc = samplerConfig as Record<string, unknown>;
+    const response = await fetch(`${provider.base_url}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${provider.api_key_cipher}`
+      },
+      body: JSON.stringify({
+        model: modelId,
+        messages: apiMessages,
+        stream: true,
+        temperature: sc.temperature ?? 0.9,
+        top_p: sc.topP ?? 1,
+        frequency_penalty: sc.frequencyPenalty ?? 0,
+        presence_penalty: sc.presencePenalty ?? 0,
+        max_tokens: sc.maxTokens ?? 2048,
+        ...(Array.isArray(sc.stop) && (sc.stop as string[]).length > 0 ? { stop: sc.stop } : {})
+      }),
+      signal: abortController.signal
+    });
+
+    if (!response.ok || !response.body) {
+      const errText = await response.text().catch(() => "Unknown error");
+      const assistantText = `[API Error: ${response.status}] ${errText.slice(0, 200)}`;
+      const assistantId = newId();
+      db.prepare(
+        "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+      ).run(assistantId, chatId, branchId, "assistant", assistantText, roughTokenCount(assistantText), parentMsgId, now(), overrideCharacterName || null, nextSortOrder(chatId, branchId));
+      res.write(`data: ${JSON.stringify({ type: "done", chatId })}\n\n`);
+      res.end();
+      activeAbortControllers.delete(chatId);
+      return;
+    }
+
+    let fullContent = "";
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // Check if aborted
+        if (abortController.signal.aborted) {
+          await reader.cancel();
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data: ")) continue;
+          const data = trimmed.slice(6);
+          if (data === "[DONE]") continue;
+
+          try {
+            const parsed = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
+            const delta = parsed.choices?.[0]?.delta?.content;
+            if (delta) {
+              fullContent += delta;
+              res.write(`data: ${JSON.stringify({ type: "delta", chatId, delta })}\n\n`);
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
+    } catch (readErr) {
+      if (!(readErr instanceof Error && readErr.name === "AbortError")) {
+        throw readErr;
+      }
+    }
+
+    // Insert assistant message (even partial if interrupted)
+    if (fullContent) {
+      const assistantId = newId();
+      db.prepare(
+        "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+      ).run(assistantId, chatId, branchId, "assistant", fullContent, roughTokenCount(fullContent), parentMsgId, now(), overrideCharacterName || null, nextSortOrder(chatId, branchId));
+    }
+
+    res.write(`data: ${JSON.stringify({ type: "done", chatId })}\n\n`);
+    res.end();
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      // Interrupted by user — save what we have
+      res.write(`data: ${JSON.stringify({ type: "done", chatId, interrupted: true })}\n\n`);
+      res.end();
+    } else {
+      const errMsg = err instanceof Error ? err.message : "Network error";
+      const assistantText = `[Error] ${errMsg}`;
+      const assistantId = newId();
+      db.prepare(
+        "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+      ).run(assistantId, chatId, branchId, "assistant", assistantText, roughTokenCount(assistantText), parentMsgId, now(), overrideCharacterName || null, nextSortOrder(chatId, branchId));
+      res.write(`data: ${JSON.stringify({ type: "done", chatId })}\n\n`);
+      res.end();
+    }
+  } finally {
+    activeAbortControllers.delete(chatId);
+  }
+}
+
+// --- Routes ---
+
+// Abort/interrupt stream
+router.post("/:id/abort", (req, res) => {
+  const chatId = req.params.id;
+  const controller = activeAbortControllers.get(chatId);
+  if (controller) {
+    controller.abort();
+    activeAbortControllers.delete(chatId);
+    res.json({ ok: true, interrupted: true });
+  } else {
+    res.json({ ok: true, interrupted: false });
+  }
+});
+
+router.post("/", (req, res) => {
+  const { title, characterId, characterIds } = req.body;
+  const chatId = newId();
+  const ts = now();
+
+  const charIdsJson = JSON.stringify(characterIds || []);
+  db.prepare("INSERT INTO chats (id, title, character_id, character_ids, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(chatId, title, characterId || null, charIdsJson, ts);
+
+  // Auto-create root branch
+  const branchId = newId();
+  db.prepare("INSERT INTO branches (id, chat_id, name, parent_message_id, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(branchId, chatId, "main", null, ts);
+
+  // If character has a greeting, insert it as first message
+  const allCharIds: string[] = characterIds?.length ? characterIds : (characterId ? [characterId] : []);
+  if (allCharIds.length > 0) {
+    // Insert greeting from first character
+    const firstChar = db.prepare("SELECT name, greeting FROM characters WHERE id = ?").get(allCharIds[0]) as { name: string; greeting: string } | undefined;
+    if (firstChar?.greeting) {
+      db.prepare(
+        "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+      ).run(newId(), chatId, branchId, "assistant", firstChar.greeting, roughTokenCount(firstChar.greeting), null, ts, firstChar.name, 1);
+    }
+  }
+
+  res.json({ id: chatId, title, characterId: characterId || null, characterIds: allCharIds, createdAt: ts });
+});
+
+router.get("/", (_req, res) => {
+  const rows = db.prepare("SELECT * FROM chats ORDER BY created_at DESC").all() as {
+    id: string; title: string; character_id: string | null; character_ids: string | null; auto_conversation: number; created_at: string;
+  }[];
+  res.json(rows.map((r) => {
+    let characterIds: string[] = [];
+    try { characterIds = JSON.parse(r.character_ids || "[]"); } catch { /* empty */ }
+    return {
+      id: r.id, title: r.title, characterId: r.character_id,
+      characterIds,
+      autoConversation: r.auto_conversation === 1,
+      createdAt: r.created_at
+    };
+  }));
+});
+
+// Delete chat
+router.delete("/:id", (req, res) => {
+  const chatId = req.params.id;
+  db.prepare("DELETE FROM messages WHERE chat_id = ?").run(chatId);
+  db.prepare("DELETE FROM branches WHERE chat_id = ?").run(chatId);
+  db.prepare("DELETE FROM prompt_blocks WHERE chat_id = ?").run(chatId);
+  try { db.prepare("DELETE FROM rp_scene_state WHERE chat_id = ?").run(chatId); } catch { /* table might not exist */ }
+  try { db.prepare("DELETE FROM rp_memory_entries WHERE chat_id = ?").run(chatId); } catch { /* table might not exist */ }
+  db.prepare("DELETE FROM chats WHERE id = ?").run(chatId);
+  res.json({ ok: true });
+});
+
+// Update chat character list
+router.patch("/:id/characters", (req, res) => {
+  const chatId = req.params.id;
+  const { characterIds } = req.body;
+  db.prepare("UPDATE chats SET character_ids = ? WHERE id = ?").run(JSON.stringify(characterIds || []), chatId);
+  res.json({ ok: true, characterIds });
+});
+
+router.get("/:id/timeline", (req, res) => {
+  const branchId = resolveBranch(req.params.id, req.query.branchId as string | undefined);
+  res.json(getTimeline(req.params.id, branchId));
+});
+
+router.post("/:id/send", async (req, res: Response) => {
+  const chatId = req.params.id;
+  const { content, branchId: reqBranchId, userName } = req.body;
+  const branchId = resolveBranch(chatId, reqBranchId);
+
+  // In multi-char mode, store who sent the message (user persona name)
+  const chat = db.prepare("SELECT character_ids FROM chats WHERE id = ?").get(chatId) as { character_ids: string | null } | undefined;
+  let charIds: string[] = [];
+  try { charIds = JSON.parse(chat?.character_ids || "[]"); } catch { /* empty */ }
+  const isMultiChar = charIds.length > 1;
+  const senderName = userName || "User";
+
+  // Insert user message — with character_name set to user persona name in multi-char mode
+  const userId = newId();
+  const userTs = now();
+  db.prepare(
+    "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+  ).run(userId, chatId, branchId, "user", content, roughTokenCount(content), null, userTs, isMultiChar ? senderName : "", nextSortOrder(chatId, branchId));
+
+  // In multi-char mode, the first character responds by default after user message
+  if (isMultiChar && charIds.length > 0) {
+    const firstChar = db.prepare("SELECT name FROM characters WHERE id = ?").get(charIds[0]) as { name: string } | undefined;
+    await streamLlmResponse(chatId, branchId, res, userId, firstChar?.name, false, senderName);
+  } else {
+    await streamLlmResponse(chatId, branchId, res, userId, undefined, false, senderName);
+  }
+});
+
+router.post("/:id/fork", (req, res) => {
+  const chatId = req.params.id;
+  const { parentMessageId, name } = req.body;
+  const branchId = newId();
+  const ts = now();
+  db.prepare("INSERT INTO branches (id, chat_id, name, parent_message_id, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(branchId, chatId, name, parentMessageId, ts);
+  res.json({ id: branchId, chatId, name, parentMessageId, createdAt: ts });
+});
+
+router.post("/:id/regenerate", async (req, res: Response) => {
+  const chatId = req.params.id;
+  const { branchId: reqBranchId } = req.body ?? {};
+  const branchId = resolveBranch(chatId, reqBranchId);
+
+  const lastAssistant = db.prepare(
+    "SELECT * FROM messages WHERE chat_id = ? AND branch_id = ? AND role = 'assistant' AND deleted = 0 ORDER BY created_at DESC LIMIT 1"
+  ).get(chatId, branchId) as MessageRow | undefined;
+
+  if (lastAssistant) {
+    db.prepare("UPDATE messages SET deleted = 1 WHERE id = ?").run(lastAssistant.id);
+  }
+
+  const lastUser = db.prepare(
+    "SELECT id FROM messages WHERE chat_id = ? AND branch_id = ? AND role = 'user' AND deleted = 0 ORDER BY created_at DESC LIMIT 1"
+  ).get(chatId, branchId) as { id: string } | undefined;
+
+  await streamLlmResponse(chatId, branchId, res, lastUser?.id ?? null);
+});
+
+// Multi-character: generate next turn for a specific character
+router.post("/:id/next-turn", async (req, res: Response) => {
+  const chatId = req.params.id;
+  const { characterName, branchId: reqBranchId, isAutoConvo, userName } = req.body;
+  const branchId = resolveBranch(chatId, reqBranchId);
+
+  await streamLlmResponse(chatId, branchId, res, null, characterName, isAutoConvo, userName);
+});
+
+router.post("/:id/compress", async (req, res: Response) => {
+  const chatId = req.params.id;
+  const { branchId: reqBranchId } = req.body ?? {};
+  const branchId = resolveBranch(chatId, reqBranchId);
+
+  const settings = getSettings();
+  const providerId = settings.compressProviderId || settings.activeProviderId;
+  const modelId = settings.compressModel || settings.activeModel;
+  const timeline = getTimeline(chatId, branchId);
+
+  if (!providerId || !modelId || timeline.length === 0) {
+    const summary = timeline.slice(-8).map((m) => `${m.role}: ${m.content.split("\n")[0].slice(0, 80)}`).join("\n");
+    db.prepare("UPDATE chats SET context_summary = ? WHERE id = ?").run(summary, chatId);
+    res.json({ summary });
+    return;
+  }
+
+  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  if (!provider) {
+    res.json({ summary: "" });
+    return;
+  }
+
+  const messagesToSummarize = timeline.map((m) => `[${m.role}]: ${m.content}`).join("\n\n");
+  const compressTemplate = settings.promptTemplates?.compressSummary || "Summarize the following roleplay conversation. Preserve key plot points, character details, relationships, and important events. Be concise but thorough.";
+  const summaryPrompt = [
+    { role: "system", content: compressTemplate },
+    { role: "user", content: messagesToSummarize }
+  ];
+
+  try {
+    const response = await fetch(`${provider.base_url}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.api_key_cipher}` },
+      body: JSON.stringify({ model: modelId, messages: summaryPrompt, temperature: 0.3, max_tokens: 1024 })
+    });
+
+    const body = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const summary = body.choices?.[0]?.message?.content ?? "";
+
+    db.prepare("UPDATE chats SET context_summary = ? WHERE id = ?").run(summary, chatId);
+    res.json({ summary });
+  } catch {
+    res.json({ summary: "" });
+  }
+});
+
+// --- Translate message ---
+router.post("/messages/:id/translate", async (req, res: Response) => {
+  const messageId = req.params.id;
+  const { targetLanguage } = req.body ?? {};
+
+  const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId) as MessageRow | undefined;
+  if (!message) { res.status(404).json({ error: "Message not found" }); return; }
+
+  const settings = getSettings();
+  const providerId = settings.activeProviderId;
+  const modelId = settings.activeModel;
+
+  if (!providerId || !modelId) {
+    res.json({ translation: `[No model configured] ${message.content}` });
+    return;
+  }
+
+  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  if (!provider) { res.json({ translation: message.content }); return; }
+
+  const lang = targetLanguage || settings.responseLanguage || "English";
+
+  try {
+    const response = await fetch(`${provider.base_url}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.api_key_cipher}` },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [
+          { role: "system", content: `Translate the following message to ${lang}. Output ONLY the translation, nothing else. Preserve formatting, line breaks, and markdown.` },
+          { role: "user", content: message.content }
+        ],
+        temperature: 0.2,
+        max_tokens: 2048
+      })
+    });
+
+    const body = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const translation = body.choices?.[0]?.message?.content ?? message.content;
+    res.json({ translation });
+  } catch {
+    res.json({ translation: message.content });
+  }
+});
+
+// --- Per-chat sampler config ---
+router.patch("/:id/sampler", (req, res) => {
+  const chatId = req.params.id;
+  const { samplerConfig } = req.body;
+  db.prepare("UPDATE chats SET sampler_config = ? WHERE id = ?").run(JSON.stringify(samplerConfig), chatId);
+  res.json({ ok: true });
+});
+
+router.get("/:id/sampler", (req, res) => {
+  const chatId = req.params.id;
+  const row = db.prepare("SELECT sampler_config FROM chats WHERE id = ?").get(chatId) as { sampler_config: string | null } | undefined;
+  if (row?.sampler_config) {
+    try {
+      res.json(JSON.parse(row.sampler_config));
+      return;
+    } catch { /* fallback */ }
+  }
+  res.json(null);
+});
+
+// --- Per-chat active preset ---
+router.patch("/:id/preset", (req, res) => {
+  const chatId = req.params.id;
+  const { presetId } = req.body;
+  db.prepare("UPDATE chats SET active_preset = ? WHERE id = ?").run(presetId || null, chatId);
+  res.json({ ok: true });
+});
+
+export default router;

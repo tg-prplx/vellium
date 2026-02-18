@@ -1,0 +1,97 @@
+{
+  "name": "sillytauri",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -n server,vite -c blue,green \"npm run dev:server\" \"npm run dev:frontend\"",
+    "dev:frontend": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:electron": "npm run build:electron-main && npm run build:electron-preload && concurrently -n server,vite,electron -c blue,green,magenta \"npm run dev:server\" \"npm run dev:frontend\" \"wait-on http://localhost:1420 && electron .\"",
+    "build": "tsc -b && vite build",
+    "build:electron-main": "esbuild electron/main.ts --bundle --platform=node --format=cjs --outfile=dist-electron/main.cjs --external:electron",
+    "build:electron-preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.cjs --external:electron",
+    "dist": "npm run build && npm run build:electron-main && npm run build:electron-preload && electron-builder",
+    "dist:mac": "npm run build && npm run build:electron-main && npm run build:electron-preload && electron-builder --mac",
+    "dist:win": "npm run build && npm run build:electron-main && npm run build:electron-preload && electron-builder --win",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "clsx": "^2.1.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "marked": "^17.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "uuid": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/react": "^18.3.4",
+    "@types/react-dom": "^18.3.0",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.0",
+    "electron": "^40.4.1",
+    "electron-builder": "^26.7.0",
+    "esbuild": "^0.27.3",
+    "postcss": "^8.4.45",
+    "tailwindcss": "^3.4.13",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8",
+    "vitest": "^2.1.1",
+    "wait-on": "^9.0.4"
+  },
+  "build": {
+    "appId": "com.sillytauri.app",
+    "productName": "SillyTauri",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "server/**/*.js",
+      "server/**/*.ts",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/better-sqlite3/**",
+      "**/node_modules/better-sqlite3/**"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.entertainment"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
