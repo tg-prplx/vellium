@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from "electron";
-import { spawn, type ChildProcess } from "child_process";
 import path from "path";
 import { existsSync } from "fs";
+import { pathToFileURL } from "url";
 
 const isDev = !app.isPackaged;
 
@@ -18,8 +18,8 @@ if (!isDev) {
 }
 
 let mainWindow: BrowserWindow | null = null;
-let serverProcess: ChildProcess | null = null;
 let creatingWindow = false;
+let embeddedServerStart: Promise<void> | null = null;
 
 const SERVER_PORT = 3001;
 const SERVER_START_TIMEOUT_MS = 20000;
@@ -67,81 +67,38 @@ async function waitForServerReady(timeoutMs = SERVER_START_TIMEOUT_MS): Promise<
     } catch {
       // Server is not ready yet.
     }
-    if (serverProcess && serverProcess.exitCode !== null && serverProcess.exitCode !== undefined) {
-      throw new Error(`Bundled server exited with code ${serverProcess.exitCode} before it became ready`);
-    }
     await sleep(150);
   }
 
   throw new Error(`Timed out waiting for bundled server at ${healthUrl}`);
 }
 
-/** In production, spawn the server as a child process using the bundled Node */
+/** In production, boot the bundled server directly in the Electron main process. */
 function startProductionServer(): Promise<void> {
-  if (serverProcess && !serverProcess.killed && serverProcess.exitCode === null) {
-    return waitForServerReady();
-  }
-
-  return (async () => {
+  if (embeddedServerStart) return embeddedServerStart;
+  embeddedServerStart = (async () => {
     if (await isServerHealthy()) return;
 
-    return new Promise<void>((resolve, reject) => {
-      const serverScript = resolveBundledServerScript();
-      const distPath = resolveBundledDistPath();
-      let settled = false;
+    const serverScript = resolveBundledServerScript();
+    const distPath = resolveBundledDistPath();
 
-      const safeResolve = () => {
-        if (settled) return;
-        settled = true;
-        resolve();
-      };
+    // These are read at module init time in the bundled server.
+    process.env.SLV_DATA_DIR = process.env.SLV_DATA_DIR || path.join(app.getPath("userData"), "data");
+    process.env.SLV_SERVER_PORT = String(SERVER_PORT);
+    process.env.SLV_SERVER_AUTOSTART = "0";
+    process.env.ELECTRON_SERVE_STATIC = "1";
+    process.env.ELECTRON_DIST_PATH = distPath;
+    process.env.NODE_ENV = "production";
 
-      const safeReject = (error: unknown) => {
-        if (settled) return;
-        settled = true;
-        reject(error);
-      };
-
-      // Set env vars for the server child process
-      const env = {
-        ...process.env,
-        SLV_DATA_DIR: process.env.SLV_DATA_DIR,
-        SLV_SERVER_PORT: String(SERVER_PORT),
-        SLV_SERVER_AUTOSTART: "1",
-        ELECTRON_SERVE_STATIC: "1",
-        ELECTRON_DIST_PATH: distPath,
-        ELECTRON_RUN_AS_NODE: "1",
-        NODE_ENV: "production"
-      };
-
-      serverProcess = spawn(process.execPath, [serverScript], {
-        env,
-        stdio: ["pipe", "pipe", "pipe"]
-      });
-
-      serverProcess.stdout?.on("data", (data: Buffer) => {
-        const msg = data.toString();
-        console.log("[server]", msg.trim());
-        if (msg.includes("Server running")) {
-          safeResolve();
-        }
-      });
-
-      serverProcess.stderr?.on("data", (data: Buffer) => {
-        console.error("[server-err]", data.toString().trim());
-      });
-
-      serverProcess.on("error", safeReject);
-      serverProcess.on("exit", (code) => {
-        if (code !== 0 && code !== null) {
-          console.error(`Server exited with code ${code}`);
-        }
-        serverProcess = null;
-      });
-
-      void waitForServerReady().then(safeResolve).catch(safeReject);
-    });
+    const moduleUrl = pathToFileURL(serverScript).href;
+    const mod = await import(moduleUrl) as { startServer?: (port?: number) => Promise<number> };
+    if (typeof mod.startServer !== "function") {
+      throw new Error(`Bundled server missing startServer(): ${serverScript}`);
+    }
+    await mod.startServer(SERVER_PORT);
+    await waitForServerReady();
   })();
+  return embeddedServerStart;
 }
 
 async function createWindow() {
@@ -267,7 +224,7 @@ app.whenReady().then(() => {
   void createWindow().catch((error) => {
     console.error("Failed to create main window:", error);
     const message = error instanceof Error ? error.stack || error.message : String(error);
-    dialog.showErrorBox("Vellum startup error", message);
+    dialog.showErrorBox("Vellium startup error", message);
     app.quit();
   });
 });
@@ -286,10 +243,7 @@ app.on("activate", () => {
   }
 });
 
-// Clean up server process on quit
+// Bundled server runs in-process; no child teardown needed.
 app.on("before-quit", () => {
-  if (serverProcess) {
-    serverProcess.kill();
-    serverProcess = null;
-  }
+  // no-op
 });
