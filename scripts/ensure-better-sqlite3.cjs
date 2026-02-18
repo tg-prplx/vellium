@@ -3,31 +3,52 @@ const path = require("node:path");
 
 const rootDir = path.resolve(__dirname, "..");
 
-function hasAbiMismatch(error) {
-  const message = String(error?.message || "");
+function hasAbiMismatchOutput(output) {
+  const text = String(output || "");
   return (
-    error?.code === "ERR_DLOPEN_FAILED" &&
-    message.includes("NODE_MODULE_VERSION")
+    text.includes("ERR_DLOPEN_FAILED") ||
+    text.includes("NODE_MODULE_VERSION")
   );
 }
 
-function canLoadBetterSqlite3() {
-  try {
-    const Database = require("better-sqlite3");
-    const db = new Database(":memory:");
-    db.prepare("select 1 as ok").get();
-    db.close();
-    return true;
-  } catch (error) {
-    if (hasAbiMismatch(error)) {
-      return false;
-    }
-    throw error;
-  }
+function probeBetterSqlite3() {
+  const testCode = [
+    "const Database = require('better-sqlite3');",
+    "const db = new Database(':memory:');",
+    "db.prepare('select 1 as ok').get();",
+    "db.close();"
+  ].join(" ");
+
+  const probe = spawnSync(process.execPath, ["-e", testCode], {
+    cwd: rootDir,
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    encoding: "utf8"
+  });
+
+  return {
+    ok: probe.status === 0,
+    status: probe.status,
+    signal: probe.signal,
+    stdout: probe.stdout || "",
+    stderr: probe.stderr || ""
+  };
 }
 
-if (canLoadBetterSqlite3()) {
+const initialProbe = probeBetterSqlite3();
+if (initialProbe.ok) {
   process.exit(0);
+}
+
+const initialOutput = `${initialProbe.stdout}\n${initialProbe.stderr}`;
+const shouldRebuild =
+  Boolean(initialProbe.signal) || hasAbiMismatchOutput(initialOutput);
+
+if (!shouldRebuild) {
+  if (initialOutput.trim()) {
+    console.error(initialOutput.trim());
+  }
+  process.exit(initialProbe.status ?? 1);
 }
 
 console.warn(
@@ -45,7 +66,12 @@ if (rebuild.status !== 0) {
   process.exit(rebuild.status ?? 1);
 }
 
-if (!canLoadBetterSqlite3()) {
+const postRebuildProbe = probeBetterSqlite3();
+if (!postRebuildProbe.ok) {
+  const postOutput = `${postRebuildProbe.stdout}\n${postRebuildProbe.stderr}`.trim();
+  if (postOutput) {
+    console.error(postOutput);
+  }
   console.error("[native] better-sqlite3 still failed to load after rebuild.");
   process.exit(1);
 }

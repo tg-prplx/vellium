@@ -9,6 +9,9 @@ DerivedData/
 node_modules/
 dist/
 dist-electron/
+build/
+server-bundle.cjs
+server-bundle.mjs
 release/
 src-tauri/target/
 src-tauri/gen/
