@@ -4,71 +4,132 @@ import { DEFAULT_PROMPT_BLOCKS } from "../domain/rpEngine.js";
 
 const router = Router();
 
-// Built-in RP preset definitions
-const BUILTIN_PRESETS: Record<string, {
+type BuiltinPreset = {
   mood: string;
-  pacing: string;
+  pacing: "slow" | "balanced" | "fast";
   intensity: number;
+  dialogueStyle: "teasing" | "playful" | "dominant" | "tender" | "formal" | "chaotic";
+  initiative: number;
+  descriptiveness: number;
+  unpredictability: number;
+  emotionalDepth: number;
   jailbreakOverride?: string;
-}> = {
+};
+
+function clampPercent(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+// Built-in RP preset definitions
+const BUILTIN_PRESETS: Record<string, BuiltinPreset> = {
   slowburn: {
     mood: "tension, longing, anticipation",
     pacing: "slow",
     intensity: 0.5,
+    dialogueStyle: "tender",
+    initiative: 40,
+    descriptiveness: 85,
+    unpredictability: 30,
+    emotionalDepth: 92,
     jailbreakOverride: "Focus on emotional buildup, tension, and slow-developing relationships. Let feelings simmer. Avoid rushing to conclusions. Write with restraint and emotional subtlety."
   },
   dominant: {
     mood: "assertive, commanding, intense",
     pacing: "balanced",
     intensity: 0.8,
+    dialogueStyle: "dominant",
+    initiative: 90,
+    descriptiveness: 68,
+    unpredictability: 58,
+    emotionalDepth: 62,
     jailbreakOverride: "Write assertive, confident characters. Emphasize power dynamics, control, and dominance in interactions. Characters should be bold and unapologetic."
   },
   romantic: {
     mood: "tender, warm, affectionate",
     pacing: "slow",
     intensity: 0.6,
+    dialogueStyle: "tender",
+    initiative: 58,
+    descriptiveness: 80,
+    unpredictability: 35,
+    emotionalDepth: 92,
     jailbreakOverride: "Focus on emotional intimacy, tenderness, and romantic connection. Write with warmth and vulnerability. Emphasize sweet moments and emotional openness."
   },
   action: {
     mood: "tense, adrenaline, danger",
     pacing: "fast",
     intensity: 0.9,
+    dialogueStyle: "chaotic",
+    initiative: 95,
+    descriptiveness: 65,
+    unpredictability: 82,
+    emotionalDepth: 52,
     jailbreakOverride: "Focus on action sequences, combat, and dynamic movement. Write with urgency and momentum. Keep scenes fast-paced with visceral detail."
   },
   mystery: {
     mood: "suspicious, intriguing, atmospheric",
     pacing: "balanced",
     intensity: 0.6,
+    dialogueStyle: "formal",
+    initiative: 63,
+    descriptiveness: 82,
+    unpredictability: 78,
+    emotionalDepth: 55,
     jailbreakOverride: "Create an atmosphere of suspense and intrigue. Drop subtle clues and red herrings. Write with tension and uncertainty. Keep the reader guessing."
   },
   submissive: {
     mood: "shy, obedient, eager to please",
     pacing: "slow",
     intensity: 0.7,
+    dialogueStyle: "tender",
+    initiative: 36,
+    descriptiveness: 72,
+    unpredictability: 34,
+    emotionalDepth: 80,
     jailbreakOverride: "Write characters that are submissive, yielding, and eager to serve. Emphasize vulnerability, shyness, and devotion. Characters blush, stammer, and seek approval. They find pleasure in pleasing others and being directed. Write body language that shows deference and nervous excitement."
   },
   seductive: {
     mood: "flirty, teasing, sensual, alluring",
     pacing: "slow",
     intensity: 0.8,
+    dialogueStyle: "teasing",
+    initiative: 72,
+    descriptiveness: 86,
+    unpredictability: 48,
+    emotionalDepth: 76,
     jailbreakOverride: "Write with heavy sensual undertones. Characters are flirtatious, playful, and provocative. Emphasize body language, lingering touches, suggestive dialogue, and building sexual tension. Describe physical reactions, heated glances, and teasing exchanges. Let desire simmer beneath every interaction."
   },
   gentle_fem: {
     mood: "soft, nurturing, emotionally warm, caring",
     pacing: "slow",
     intensity: 0.6,
+    dialogueStyle: "tender",
+    initiative: 50,
+    descriptiveness: 78,
+    unpredictability: 28,
+    emotionalDepth: 88,
     jailbreakOverride: "Write feminine characters that are gentle, nurturing, and emotionally available. Emphasize soft touches, caring gestures, whispered words of comfort. Characters are maternal yet intimate, providing emotional safety while being physically affectionate. Focus on tenderness, soft skin, gentle caresses, and emotional vulnerability."
   },
   rough: {
     mood: "aggressive, primal, raw, intense",
     pacing: "fast",
     intensity: 0.95,
+    dialogueStyle: "dominant",
+    initiative: 96,
+    descriptiveness: 72,
+    unpredictability: 74,
+    emotionalDepth: 58,
     jailbreakOverride: "Write with raw physicality and primal energy. Characters are rough, aggressive, and unapologetic in their desires. Emphasize physical dominance, grabbing, pinning, and forceful movement. Dialogue is direct, commanding, sometimes crude. Describe heavy breathing, sweat, and raw physical sensations. No restraint, no holding back."
   },
   passionate: {
     mood: "deep desire, fire, emotional intensity, burning",
     pacing: "balanced",
     intensity: 0.85,
+    dialogueStyle: "tender",
+    initiative: 76,
+    descriptiveness: 82,
+    unpredictability: 50,
+    emotionalDepth: 94,
     jailbreakOverride: "Write with burning passion and deep emotional connection. Characters are consumed by desire and love simultaneously. Emphasize desperate kisses, whispered confessions, bodies pressed together, emotional overwhelm. The intensity comes from both physical desire and deep emotional bond. Write as if each moment could be their last."
   }
 };
@@ -138,6 +199,11 @@ router.post("/apply-preset", (req, res) => {
   const { chatId, presetId } = req.body;
   const preset = BUILTIN_PRESETS[presetId];
 
+  if (!chatId) {
+    res.status(400).json({ error: "chatId is required" });
+    return;
+  }
+
   if (!preset) {
     res.status(404).json({ error: "Preset not found" });
     return;
@@ -145,14 +211,32 @@ router.post("/apply-preset", (req, res) => {
 
   // Update scene state with preset values
   const existingState = db.prepare("SELECT payload FROM rp_scene_state WHERE chat_id = ?").get(chatId) as { payload: string } | undefined;
-  const currentState = existingState ? JSON.parse(existingState.payload) : { chatId, variables: {}, mood: "neutral", pacing: "balanced", intensity: 0.5 };
+  const fallbackState = { chatId, variables: {}, mood: "neutral", pacing: "balanced", intensity: 0.5 };
+  let currentState: typeof fallbackState & { variables?: Record<string, string> };
+  try {
+    currentState = existingState ? JSON.parse(existingState.payload) : fallbackState;
+  } catch {
+    currentState = fallbackState;
+  }
+  const currentVariables =
+    currentState.variables && typeof currentState.variables === "object"
+      ? currentState.variables
+      : {};
 
   const newState = {
     ...currentState,
     chatId,
     mood: preset.mood,
     pacing: preset.pacing,
-    intensity: preset.intensity
+    intensity: preset.intensity,
+    variables: {
+      ...currentVariables,
+      dialogueStyle: preset.dialogueStyle,
+      initiative: String(clampPercent(preset.initiative)),
+      descriptiveness: String(clampPercent(preset.descriptiveness)),
+      unpredictability: String(clampPercent(preset.unpredictability)),
+      emotionalDepth: String(clampPercent(preset.emotionalDepth))
+    }
   };
 
   const ts = now();
@@ -188,7 +272,12 @@ router.get("/presets", (_req, res) => {
     name: id.charAt(0).toUpperCase() + id.slice(1),
     mood: config.mood,
     pacing: config.pacing,
-    intensity: config.intensity
+    intensity: config.intensity,
+    dialogueStyle: config.dialogueStyle,
+    initiative: config.initiative,
+    descriptiveness: config.descriptiveness,
+    unpredictability: config.unpredictability,
+    emotionalDepth: config.emotionalDepth
   }));
   res.json(presets);
 });

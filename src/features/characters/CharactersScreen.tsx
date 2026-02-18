@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../../shared/api";
+import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../components/Panels";
 import type { CharacterDetail } from "../../shared/types/contracts";
@@ -281,9 +281,7 @@ export function CharactersScreen() {
   }, [rawJson]);
 
   function avatarSrc(url: string | null) {
-    if (!url) return null;
-    if (url.startsWith("http")) return url;
-    return `http://localhost:3001${url}`;
+    return resolveApiAssetUrl(url);
   }
 
   return (

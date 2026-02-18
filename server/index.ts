@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { writeFileSync, existsSync } from "fs";
 import { newId, UPLOADS_DIR, DATA_DIR } from "./db.js";
 import accountRoutes from "./routes/account.js";
@@ -15,6 +15,7 @@ import writerRoutes from "./routes/writer.js";
 import personaRoutes from "./routes/personas.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_PORT = Number(process.env.SLV_SERVER_PORT || 3001);
 
 const app = express();
 
@@ -25,6 +26,36 @@ app.use(express.json({ limit: "50mb" }));
 app.use("/api/avatars", express.static(join(DATA_DIR, "avatars")));
 app.use("/api/uploads", express.static(join(DATA_DIR, "uploads")));
 
+function mimeByExtension(extRaw: string): string {
+  const ext = extRaw.toLowerCase();
+  const map: Record<string, string> = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    gif: "image/gif",
+    webp: "image/webp",
+    bmp: "image/bmp",
+    svg: "image/svg+xml",
+    txt: "text/plain",
+    md: "text/markdown",
+    json: "application/json",
+    csv: "text/csv",
+    log: "text/plain",
+    xml: "application/xml",
+    html: "text/html",
+    js: "text/javascript",
+    ts: "text/plain",
+    py: "text/plain",
+    rb: "text/plain",
+    yaml: "text/yaml",
+    yml: "text/yaml",
+    toml: "application/toml",
+    ini: "text/plain",
+    cfg: "text/plain"
+  };
+  return map[ext] || "application/octet-stream";
+}
+
 // File upload endpoint
 app.post("/api/upload", (req, res) => {
   const { base64Data, filename } = req.body;
@@ -32,7 +63,7 @@ app.post("/api/upload", (req, res) => {
     res.status(400).json({ error: "base64Data and filename required" });
     return;
   }
-  const ext = filename.split(".").pop() || "bin";
+  const ext = (filename.split(".").pop() || "bin").toLowerCase();
   const id = newId();
   const storedName = `${id}.${ext}`;
   const buffer = Buffer.from(base64Data, "base64");
@@ -51,6 +82,7 @@ app.post("/api/upload", (req, res) => {
     filename,
     type: isImage ? "image" : "text",
     url: `/api/uploads/${storedName}`,
+    mimeType: mimeByExtension(ext),
     content
   });
 });
@@ -87,17 +119,32 @@ if (process.env.ELECTRON_SERVE_STATIC === "1") {
 
 export { app };
 
-export function startServer(port: number = 3001): Promise<number> {
-  return new Promise((resolve) => {
-    app.listen(port, () => {
-      console.log(`Server running on http://localhost:${port}`);
+export function startServer(port: number = DEFAULT_PORT): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, "127.0.0.1", () => {
+      console.log(`Server running on http://127.0.0.1:${port}`);
       resolve(port);
     });
+    server.on("error", reject);
   });
 }
 
-// Auto-start when run directly (not imported by Electron)
-const isDirectRun = !process.env.ELECTRON_RUN;
+// Auto-start only when this module is the entrypoint.
+const isDirectRun = (() => {
+  if (process.env.SLV_SERVER_AUTOSTART === "1") {
+    return true;
+  }
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return pathToFileURL(entry).href === import.meta.url;
+  } catch {
+    return false;
+  }
+})();
 if (isDirectRun) {
-  startServer(3001);
+  startServer(DEFAULT_PORT).catch((error) => {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  });
 }

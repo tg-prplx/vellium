@@ -15,12 +15,23 @@ interface MessageRow {
   branch_id: string;
   role: string;
   content: string;
+  attachments: string | null;
   token_count: number;
   parent_id: string | null;
   deleted: number;
   created_at: string;
   character_name: string | null;
   sort_order: number;
+}
+
+interface MessageAttachmentPayload {
+  id?: string;
+  filename?: string;
+  type?: string;
+  url?: string;
+  mimeType?: string;
+  dataUrl?: string;
+  content?: string;
 }
 
 interface ProviderRow {
@@ -38,12 +49,20 @@ interface UserPersonaPayload {
 }
 
 function messageToJson(row: MessageRow) {
+  let attachments: MessageAttachmentPayload[] = [];
+  try {
+    const parsed = JSON.parse(row.attachments || "[]");
+    if (Array.isArray(parsed)) attachments = parsed as MessageAttachmentPayload[];
+  } catch {
+    attachments = [];
+  }
   return {
     id: row.id,
     chatId: row.chat_id,
     branchId: row.branch_id,
     role: row.role,
     content: row.content,
+    attachments,
     tokenCount: row.token_count,
     createdAt: row.created_at,
     parentId: row.parent_id,
@@ -143,6 +162,84 @@ function getChatSamplerConfig(chatId: string, globalConfig: Record<string, unkno
   return globalConfig;
 }
 
+function sanitizeAttachments(input: unknown): MessageAttachmentPayload[] {
+  if (!Array.isArray(input)) return [];
+  const out: MessageAttachmentPayload[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as MessageAttachmentPayload;
+    const type = raw.type === "image" ? "image" : (raw.type === "text" ? "text" : null);
+    if (!type) continue;
+
+    const base: MessageAttachmentPayload = {
+      id: String(raw.id || ""),
+      filename: String(raw.filename || ""),
+      type,
+      url: String(raw.url || ""),
+      mimeType: String(raw.mimeType || "")
+    };
+
+    if (type === "image") {
+      const dataUrl = String(raw.dataUrl || "");
+      // Keep only data:image/* URLs to avoid arbitrary payload injection.
+      if (dataUrl.startsWith("data:image/")) {
+        // Rough cap at ~15MB per attachment payload.
+        base.dataUrl = dataUrl.slice(0, 15 * 1024 * 1024);
+      }
+      out.push(base);
+      continue;
+    }
+
+    if (type === "text") {
+      const content = String(raw.content || "");
+      if (content) base.content = content.slice(0, 20000);
+      out.push(base);
+    }
+  }
+  return out.slice(0, 12);
+}
+
+function getContextWindowBudget(settings: Record<string, unknown>): number {
+  const raw = Number(settings.contextWindowSize);
+  if (!Number.isFinite(raw) || raw <= 0) return 8192;
+  return Math.max(512, Math.min(32768, Math.floor(raw)));
+}
+
+function getTailBudgetPercent(
+  settings: Record<string, unknown>,
+  key: "contextTailBudgetWithSummaryPercent" | "contextTailBudgetWithoutSummaryPercent",
+  fallback: number
+): number {
+  const raw = Number(settings[key]);
+  if (!Number.isFinite(raw)) return fallback;
+  return Math.max(5, Math.min(95, raw));
+}
+
+function selectTimelineForPrompt(
+  timeline: ReturnType<typeof getTimeline>,
+  contextSummary: string,
+  contextWindowBudget: number,
+  withSummaryPercent: number,
+  withoutSummaryPercent: number
+) {
+  const hasSummary = Boolean(contextSummary.trim());
+  // Leave headroom for system prompt, summary block, and model overhead.
+  const historyTokenBudget = hasSummary
+    ? Math.max(256, Math.floor(contextWindowBudget * (withSummaryPercent / 100)))
+    : Math.max(512, Math.floor(contextWindowBudget * (withoutSummaryPercent / 100)));
+
+  const selected = [] as ReturnType<typeof getTimeline>;
+  let used = 0;
+  for (let i = timeline.length - 1; i >= 0; i -= 1) {
+    const msg = timeline[i];
+    const msgTokens = Math.max(1, Number(msg.tokenCount) || roughTokenCount(msg.content));
+    if (selected.length > 0 && used + msgTokens > historyTokenBudget) break;
+    selected.unshift(msg);
+    used += msgTokens;
+  }
+  return selected;
+}
+
 // Core LLM streaming function — used by send, regenerate, auto-conversation
 async function streamLlmResponse(
   chatId: string,
@@ -233,23 +330,34 @@ async function streamLlmResponse(
   }
 
   const timeline = getTimeline(chatId, branchId);
+  const contextSummary = chat?.context_summary || "";
+  const contextWindowBudget = getContextWindowBudget(settings as Record<string, unknown>);
+  const withSummaryPercent = getTailBudgetPercent(settings as Record<string, unknown>, "contextTailBudgetWithSummaryPercent", 35);
+  const withoutSummaryPercent = getTailBudgetPercent(settings as Record<string, unknown>, "contextTailBudgetWithoutSummaryPercent", 75);
+  const promptTimeline = selectTimelineForPrompt(
+    timeline,
+    contextSummary,
+    contextWindowBudget,
+    withSummaryPercent,
+    withoutSummaryPercent
+  );
   let apiMessages;
 
   if (characterCards.length > 1 && overrideCharacterName) {
     apiMessages = buildMultiCharMessageArray(
       systemPrompt,
-      timeline,
+      promptTimeline,
       overrideCharacterName,
       authorNote,
-      chat?.context_summary || "",
+      contextSummary,
       resolvedUserName
     );
   } else {
     apiMessages = buildMessageArray(
       systemPrompt,
-      timeline,
+      promptTimeline,
       authorNote,
-      chat?.context_summary || "",
+      contextSummary,
       currentCharCard?.name,
       resolvedUserName
     );
@@ -498,7 +606,7 @@ router.get("/:id/timeline", (req, res) => {
 
 router.post("/:id/send", async (req, res: Response) => {
   const chatId = req.params.id;
-  const { content, branchId: reqBranchId, userName, userPersona } = req.body;
+  const { content, branchId: reqBranchId, userName, userPersona, attachments: rawAttachments } = req.body;
   const branchId = resolveBranch(chatId, reqBranchId);
   const persona: UserPersonaPayload = {
     name: String(userPersona?.name || userName || "User"),
@@ -506,6 +614,7 @@ router.post("/:id/send", async (req, res: Response) => {
     personality: String(userPersona?.personality || ""),
     scenario: String(userPersona?.scenario || "")
   };
+  const attachments = sanitizeAttachments(rawAttachments);
 
   // In multi-char mode, store who sent the message (user persona name)
   const chat = db.prepare("SELECT character_ids FROM chats WHERE id = ?").get(chatId) as { character_ids: string | null } | undefined;
@@ -518,8 +627,20 @@ router.post("/:id/send", async (req, res: Response) => {
   const userId = newId();
   const userTs = now();
   db.prepare(
-    "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
-  ).run(userId, chatId, branchId, "user", content, roughTokenCount(content), null, userTs, isMultiChar ? senderName : "", nextSortOrder(chatId, branchId));
+    "INSERT INTO messages (id, chat_id, branch_id, role, content, attachments, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+  ).run(
+    userId,
+    chatId,
+    branchId,
+    "user",
+    String(content || ""),
+    JSON.stringify(attachments),
+    roughTokenCount(String(content || "")),
+    null,
+    userTs,
+    isMultiChar ? senderName : "",
+    nextSortOrder(chatId, branchId)
+  );
 
   // In multi-char mode, the first character responds by default after user message
   if (isMultiChar && charIds.length > 0) {

@@ -15,24 +15,63 @@ import type {
   RpSceneState,
   Scene,
   SamplerConfig,
+  WriterChapterSettings,
   UserPersona
 } from "./types/contracts";
 
 type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
 
 const BASE = import.meta.env.DEV ? "http://localhost:3001/api" : "/api";
+const PROD_FALLBACK_BASES = ["http://127.0.0.1:3001/api", "http://localhost:3001/api"];
+
+function requestBases(): string[] {
+  return import.meta.env.DEV ? [BASE] : [BASE, ...PROD_FALLBACK_BASES];
+}
+
+export function resolveApiAssetUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:")) {
+    return url;
+  }
+  // In prod the renderer is served by the same backend, so relative URLs are correct.
+  if (!import.meta.env.DEV) return url;
+  return `http://localhost:3001${url}`;
+}
+
+function isNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  // Browser fetch network failure is usually TypeError; keep message checks as backup.
+  return (
+    err.name === "TypeError" ||
+    /failed to fetch|networkerror|network error|load failed/i.test(err.message)
+  );
+}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
+  const bases = requestBases();
+  let lastErr: unknown = new Error("Request failed");
+
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        method,
+        headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      return res.json();
+    } catch (err) {
+      lastErr = err;
+      if (!isNetworkError(err) || import.meta.env.DEV) {
+        throw err;
+      }
+    }
   }
-  return res.json();
+
+  throw lastErr;
 }
 
 async function get<T>(path: string): Promise<T> {
@@ -65,15 +104,32 @@ async function streamPost(
   body: unknown,
   callbacks: StreamCallbacks
 ): Promise<void> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
+  let res: Response | null = null;
+  let lastErr: unknown = new Error("Request failed");
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
+  for (const base of requestBases()) {
+    try {
+      const candidate = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!candidate.ok) {
+        const text = await candidate.text();
+        throw new Error(text || `HTTP ${candidate.status}`);
+      }
+      res = candidate;
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (!isNetworkError(err) || import.meta.env.DEV) {
+        throw err;
+      }
+    }
+  }
+
+  if (!res) {
+    throw lastErr;
   }
 
   const contentType = res.headers.get("content-type") ?? "";
@@ -157,13 +213,14 @@ export const api = {
     content: string,
     branchId?: string,
     callbacks?: StreamCallbacks,
-    userPersona?: UserPersonaPayload | null
+    userPersona?: UserPersonaPayload | null,
+    attachments?: FileAttachment[]
   ): Promise<ChatMessage[]> => {
     if (callbacks) {
-      await streamPost(`/chats/${chatId}/send`, { content, branchId, userPersona }, callbacks);
+      await streamPost(`/chats/${chatId}/send`, { content, branchId, userPersona, attachments }, callbacks);
       return api.chatTimeline(chatId, branchId);
     }
-    return post<ChatMessage[]>(`/chats/${chatId}/send`, { content, branchId, userPersona });
+    return post<ChatMessage[]>(`/chats/${chatId}/send`, { content, branchId, userPersona, attachments });
   },
 
   chatRegenerate: async (chatId: string, branchId?: string, callbacks?: StreamCallbacks): Promise<ChatMessage[]> => {
@@ -202,7 +259,7 @@ export const api = {
   rpGetAuthorNote: (chatId: string) =>
     get<{ authorNote: string }>(`/rp/author-note/${chatId}`),
   rpApplyStylePreset: (chatId: string, presetId: string) =>
-    post<void>("/rp/apply-preset", { chatId, presetId }),
+    post<{ ok: boolean; sceneState: RpSceneState; presetId: string }>("/rp/apply-preset", { chatId, presetId }),
   rpGetBlocks: (chatId: string) => get<PromptBlock[]>(`/rp/blocks/${chatId}`),
   rpSaveBlocks: (chatId: string, blocks: PromptBlock[]) =>
     put<void>(`/rp/blocks/${chatId}`, { blocks }),
@@ -219,18 +276,24 @@ export const api = {
     post<{ avatarUrl: string }>(`/characters/${id}/avatar`, { base64Data, filename }),
 
   // --- Writer ---
-  writerProjectCreate: (name: string, description: string) =>
-    post<BookProject>("/writer/projects", { name, description }),
+  writerProjectCreate: (name: string, description: string, characterIds: string[] = []) =>
+    post<BookProject>("/writer/projects", { name, description, characterIds }),
   writerProjectList: () => get<BookProject[]>("/writer/projects"),
+  writerProjectUpdate: (projectId: string, data: { name?: string; description?: string }) =>
+    patchReq<BookProject>(`/writer/projects/${projectId}`, data),
+  writerProjectSetCharacters: (projectId: string, characterIds: string[]) =>
+    patchReq<BookProject>(`/writer/projects/${projectId}/characters`, { characterIds }),
   writerProjectOpen: (projectId: string) =>
     get<{ project: BookProject; chapters: Chapter[]; scenes: Scene[] }>(`/writer/projects/${projectId}`),
   writerChapterCreate: (projectId: string, title: string) =>
     post<Chapter>("/writer/chapters", { projectId, title }),
+  writerChapterUpdateSettings: (chapterId: string, settings: WriterChapterSettings) =>
+    patchReq<Chapter>(`/writer/chapters/${chapterId}/settings`, { settings }),
   writerGenerateDraft: (chapterId: string, prompt: string) =>
     post<Scene>(`/writer/chapters/${chapterId}/generate-draft`, { prompt }),
   writerSceneExpand: (sceneId: string) => post<Scene>(`/writer/scenes/${sceneId}/expand`),
-  writerSceneRewrite: (sceneId: string, tone: string) =>
-    post<Scene>(`/writer/scenes/${sceneId}/rewrite`, { tone }),
+  writerSceneRewrite: (sceneId: string, tone?: string) =>
+    post<Scene>(`/writer/scenes/${sceneId}/rewrite`, tone ? { tone } : {}),
   writerSceneSummarize: (sceneId: string) => get<string>(`/writer/scenes/${sceneId}/summarize`),
   writerConsistencyRun: (projectId: string) =>
     post<ConsistencyIssue[]>(`/writer/projects/${projectId}/consistency`),

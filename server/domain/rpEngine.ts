@@ -47,7 +47,39 @@ function replacePlaceholders(text: string, charName?: string, userName?: string)
 
 export interface ChatCompletionMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | ChatCompletionContentPart[];
+}
+
+export interface ChatAttachment {
+  type: "image" | "text";
+  dataUrl?: string;
+  filename?: string;
+}
+
+export interface ChatCompletionContentPart {
+  type: "text" | "image_url";
+  text?: string;
+  image_url?: { url: string };
+}
+
+function extractVisionParts(attachments?: ChatAttachment[]): ChatCompletionContentPart[] {
+  if (!attachments?.length) return [];
+  const parts: ChatCompletionContentPart[] = [];
+  for (const attachment of attachments) {
+    if (attachment.type !== "image") continue;
+    const dataUrl = String(attachment.dataUrl || "");
+    if (!dataUrl.startsWith("data:image/")) continue;
+    parts.push({ type: "image_url", image_url: { url: dataUrl } });
+  }
+  return parts;
+}
+
+function buildMessageContent(text: string, visionParts: ChatCompletionContentPart[]): string | ChatCompletionContentPart[] {
+  if (visionParts.length === 0) return text;
+  const content: ChatCompletionContentPart[] = [];
+  content.push({ type: "text", text: text.trim() ? text : "[Image attachment]" });
+  content.push(...visionParts);
+  return content;
 }
 
 export function buildSystemPrompt(ctx: PromptContext): string {
@@ -110,7 +142,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 
 export function buildMessageArray(
   systemPrompt: string,
-  timeline: { role: string; content: string }[],
+  timeline: { role: string; content: string; attachments?: ChatAttachment[] }[],
   authorNote: string,
   contextSummary: string,
   charName?: string,
@@ -127,10 +159,14 @@ export function buildMessageArray(
   }
 
   // Build message array — replace placeholders in message content
-  const timelineMessages: ChatCompletionMessage[] = timeline.map((m) => ({
-    role: m.role as "user" | "assistant",
-    content: replacePlaceholders(m.content, charName, userName)
-  }));
+  const timelineMessages: ChatCompletionMessage[] = timeline.map((m) => {
+    const text = replacePlaceholders(m.content, charName, userName);
+    const visionParts = extractVisionParts(m.attachments);
+    return {
+      role: m.role as "user" | "assistant",
+      content: buildMessageContent(text, visionParts)
+    };
+  });
 
   // Inject author's note 4 messages from the end
   if (authorNote && timelineMessages.length > 0) {
@@ -152,7 +188,7 @@ export function mergeConsecutiveRoles(messages: ChatCompletionMessage[]): ChatCo
   const merged: ChatCompletionMessage[] = [];
   for (const msg of messages) {
     const last = merged[merged.length - 1];
-    if (last && last.role === msg.role) {
+    if (last && last.role === msg.role && typeof last.content === "string" && typeof msg.content === "string") {
       last.content += "\n\n" + msg.content;
     } else {
       merged.push({ ...msg });
@@ -167,7 +203,7 @@ export function mergeConsecutiveRoles(messages: ChatCompletionMessage[]): ChatCo
 // - All other messages (other bots + real user) → "user" with speaker name prefix
 export function buildMultiCharMessageArray(
   systemPrompt: string,
-  timeline: { role: string; content: string; characterName?: string }[],
+  timeline: { role: string; content: string; characterName?: string; attachments?: ChatAttachment[] }[],
   currentCharacterName: string,
   authorNote: string,
   contextSummary: string,
@@ -185,13 +221,15 @@ export function buildMultiCharMessageArray(
   const remapped: ChatCompletionMessage[] = [];
   for (const m of timeline) {
     const content = replacePlaceholders(m.content, currentCharacterName, userName);
+    const visionParts = extractVisionParts(m.attachments);
     if (m.role === "assistant" && m.characterName === currentCharacterName) {
       // This character's own messages → assistant
-      remapped.push({ role: "assistant", content });
+      remapped.push({ role: "assistant", content: buildMessageContent(content, visionParts) });
     } else {
       // All other messages (other bots, real user) → user with speaker prefix
       const speaker = m.characterName || (m.role === "user" ? userName || "User" : "Unknown");
-      remapped.push({ role: "user", content: `[${speaker}]: ${content}` });
+      const prefixed = `[${speaker}]: ${content || (visionParts.length > 0 ? "sent image attachment." : "")}`;
+      remapped.push({ role: "user", content: buildMessageContent(prefixed, visionParts) });
     }
   }
 
@@ -281,8 +319,33 @@ function formatCharacterCard(card: CharacterCardData): string {
 
 function formatSceneState(scene: SceneState, intensity: number): string {
   const parts = [`Current mood: ${scene.mood}`, `Pacing: ${scene.pacing}`];
-  if (Object.keys(scene.variables).length > 0) {
-    parts.push(`Scene variables: ${Object.entries(scene.variables).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+  const vars = scene.variables || {};
+  const dialogueStyle = vars.dialogueStyle;
+  const initiative = Number(vars.initiative);
+  const descriptiveness = Number(vars.descriptiveness);
+  const unpredictability = Number(vars.unpredictability);
+  const emotionalDepth = Number(vars.emotionalDepth);
+
+  if (typeof dialogueStyle === "string" && dialogueStyle.trim()) {
+    parts.push(`Dialogue style: ${dialogueStyle.trim()}`);
+  }
+  if (Number.isFinite(initiative)) {
+    parts.push(`Character initiative: ${Math.max(0, Math.min(100, Math.round(initiative)))}%`);
+  }
+  if (Number.isFinite(descriptiveness)) {
+    parts.push(`Descriptive richness: ${Math.max(0, Math.min(100, Math.round(descriptiveness)))}%`);
+  }
+  if (Number.isFinite(unpredictability)) {
+    parts.push(`Plot unpredictability: ${Math.max(0, Math.min(100, Math.round(unpredictability)))}%`);
+  }
+  if (Number.isFinite(emotionalDepth)) {
+    parts.push(`Emotional depth: ${Math.max(0, Math.min(100, Math.round(emotionalDepth)))}%`);
+  }
+
+  const remaining = Object.entries(vars)
+    .filter(([key]) => !["dialogueStyle", "initiative", "descriptiveness", "unpredictability", "emotionalDepth"].includes(key));
+  if (remaining.length > 0) {
+    parts.push(`Scene variables: ${remaining.map(([k, v]) => `${k}=${v}`).join(", ")}`);
   }
   parts.push(`Intensity: ${Math.round(intensity * 100)}%`);
   return `[Scene State]\n${parts.join("\n")}`;
