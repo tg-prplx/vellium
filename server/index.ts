@@ -13,6 +13,7 @@ import rpRoutes from "./routes/rp.js";
 import characterRoutes from "./routes/characters.js";
 import writerRoutes from "./routes/writer.js";
 import personaRoutes from "./routes/personas.js";
+import lorebookRoutes from "./routes/lorebooks.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = Number(process.env.SLV_SERVER_PORT || 3001);
@@ -95,6 +96,7 @@ app.use("/api/chats", chatRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/rp", rpRoutes);
 app.use("/api/characters", characterRoutes);
+app.use("/api/lorebooks", lorebookRoutes);
 app.use("/api/writer", writerRoutes);
 app.use("/api/personas", personaRoutes);
 

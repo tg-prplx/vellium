@@ -3,6 +3,8 @@ import { db, newId, now, roughTokenCount, isLocalhostUrl, DEFAULT_SETTINGS, next
 import { buildSystemPrompt, buildMessageArray, buildMultiCharSystemPrompt, buildMultiCharMessageArray, mergeConsecutiveRoles, DEFAULT_PROMPT_BLOCKS } from "../domain/rpEngine.js";
 import type { PromptBlock, CharacterCardData } from "../domain/rpEngine.js";
 import type { Response } from "express";
+import { prepareMcpTools, type McpServerConfig } from "../services/mcp.js";
+import { getTriggeredLoreEntries, injectLoreBlocks, normalizeLoreBookEntries, type LoreBookEntryData } from "../domain/lorebooks.js";
 
 const router = Router();
 
@@ -39,6 +41,12 @@ interface ProviderRow {
   base_url: string;
   api_key_cipher: string;
   full_local_only: number;
+}
+
+interface LoreBookRow {
+  id: string;
+  name: string;
+  entries_json: string;
 }
 
 interface UserPersonaPayload {
@@ -91,7 +99,14 @@ function getTimeline(chatId: string, branchId: string) {
 function getSettings() {
   const row = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string };
   const stored = JSON.parse(row.payload);
-  return { ...DEFAULT_SETTINGS, ...stored, samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) } };
+  const mcpServers = Array.isArray(stored.mcpServers) ? stored.mcpServers : DEFAULT_SETTINGS.mcpServers;
+  return {
+    ...DEFAULT_SETTINGS,
+    ...stored,
+    samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
+    promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) },
+    mcpServers
+  };
 }
 
 function getPromptBlocks(chatId: string): PromptBlock[] {
@@ -126,6 +141,18 @@ function getCharacterCard(characterId: string | null): CharacterCardData | null 
     mesExample: row.mes_example || "",
     greeting: row.greeting || ""
   };
+}
+
+function getLorebookEntries(lorebookId: string | null): LoreBookEntryData[] {
+  if (!lorebookId) return [];
+  const row = db.prepare("SELECT id, name, entries_json FROM lorebooks WHERE id = ?").get(lorebookId) as LoreBookRow | undefined;
+  if (!row) return [];
+  try {
+    const parsed = JSON.parse(row.entries_json || "[]");
+    return normalizeLoreBookEntries(parsed);
+  } catch {
+    return [];
+  }
 }
 
 function getSceneState(chatId: string): { mood: string; pacing: string; variables: Record<string, string>; intensity: number } | null {
@@ -240,6 +267,420 @@ function selectTimelineForPrompt(
   return selected;
 }
 
+interface OpenAICompletionMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: unknown;
+  tool_calls?: OpenAIToolCall[];
+  tool_call_id?: string;
+}
+
+interface OpenAIToolCall {
+  id?: string;
+  type?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+}
+
+interface ToolCallTrace {
+  callId: string;
+  name: string;
+  args: string;
+  result: string;
+}
+
+interface ToolCallStreamEvent {
+  phase: "start" | "done";
+  callId: string;
+  name: string;
+  args: string;
+  result?: string;
+}
+
+function clampToolIterationLimit(raw: unknown): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return 4;
+  return Math.max(1, Math.min(12, Math.floor(value)));
+}
+
+function parseToolCallingPolicy(raw: unknown): "conservative" | "balanced" | "aggressive" {
+  if (raw === "conservative" || raw === "balanced" || raw === "aggressive") {
+    return raw;
+  }
+  return "balanced";
+}
+
+function normalizeAssistantContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        const row = item as { type?: unknown; text?: unknown };
+        if (row.type === "text") return String(row.text ?? "");
+        return "";
+      })
+      .filter(Boolean);
+    return parts.join("\n").trim();
+  }
+  if (content === null || content === undefined) return "";
+  return String(content);
+}
+
+async function sendSseText(res: Response, chatId: string, text: string, paceMs = 0) {
+  const chunks = text.match(/[\s\S]{1,140}/g) ?? [];
+  for (const chunk of chunks) {
+    res.write(`data: ${JSON.stringify({ type: "delta", chatId, delta: chunk })}\n\n`);
+    if (paceMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, paceMs));
+    }
+  }
+}
+
+function parseToolServers(raw: unknown): McpServerConfig[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Partial<McpServerConfig>;
+      const id = String(row.id || "").trim();
+      const command = String(row.command || "").trim();
+      if (!id || !command) return null;
+      const timeoutMs = Number(row.timeoutMs);
+      return {
+        id,
+        name: String(row.name || id),
+        command,
+        args: String(row.args || ""),
+        env: String(row.env || ""),
+        enabled: row.enabled !== false,
+        timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : 15000
+      } as McpServerConfig;
+    })
+    .filter((item): item is McpServerConfig => item !== null);
+}
+
+function parseToolNameList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => String(item || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function parseToolStates(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const name = String(key || "").trim();
+    if (!name) continue;
+    if (typeof value === "boolean") out[name] = value;
+  }
+  return out;
+}
+
+function matchToolPattern(toolName: string, pattern: string): boolean {
+  const t = toolName.toLowerCase();
+  const p = pattern.toLowerCase();
+  if (!p) return false;
+  if (!p.includes("*")) return t === p;
+  const escaped = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  try {
+    return new RegExp(`^${escaped}$`, "i").test(t);
+  } catch {
+    return t === p;
+  }
+}
+
+function filterToolsForModel(
+  tools: Array<{ type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } }>,
+  allowlistRaw: unknown,
+  denylistRaw: unknown,
+  statesRaw: unknown
+) {
+  const allowlist = parseToolNameList(allowlistRaw);
+  const denylist = parseToolNameList(denylistRaw);
+  const states = parseToolStates(statesRaw);
+  return tools.filter((tool) => {
+    const name = String(tool?.function?.name || "").trim();
+    if (!name) return false;
+    if (states[name] === false) return false;
+    const allowed = allowlist.length === 0 || allowlist.some((pattern) => matchToolPattern(name, pattern));
+    if (!allowed) return false;
+    const denied = denylist.some((pattern) => matchToolPattern(name, pattern));
+    return !denied;
+  });
+}
+
+async function requestChatCompletion(
+  provider: ProviderRow,
+  modelId: string,
+  body: Record<string, unknown>,
+  signal: AbortSignal
+) {
+  const response = await fetch(`${provider.base_url}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${provider.api_key_cipher}`
+    },
+    body: JSON.stringify({ model: modelId, ...body }),
+    signal
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "Unknown error");
+    throw new Error(`[API Error: ${response.status}] ${errText.slice(0, 500)}`);
+  }
+  return response.json() as Promise<{
+    choices?: Array<{
+      message?: {
+        content?: unknown;
+        tool_calls?: OpenAIToolCall[];
+      };
+    }>;
+  }>;
+}
+
+async function runToolCallingCompletion(params: {
+  provider: ProviderRow;
+  modelId: string;
+  samplerConfig: Record<string, unknown>;
+  apiMessages: OpenAICompletionMessage[];
+  settings: Record<string, unknown>;
+  signal: AbortSignal;
+  onToolEvent?: (event: ToolCallStreamEvent) => void;
+}): Promise<{ content: string; toolCalls: ToolCallTrace[]; streamMessages?: Array<Record<string, unknown>> } | null> {
+  const autoAttach = params.settings.mcpAutoAttachTools !== false;
+  if (!autoAttach) return null;
+
+  const servers = parseToolServers(params.settings.mcpServers);
+  if (!servers.length) return null;
+
+  const mcp = await prepareMcpTools(servers, { signal: params.signal });
+  try {
+    const exposedTools = filterToolsForModel(
+      mcp.tools,
+      params.settings.mcpToolAllowlist,
+      params.settings.mcpToolDenylist,
+      params.settings.mcpToolStates
+    );
+    if (!exposedTools.length) return null;
+
+    const policy = parseToolCallingPolicy(params.settings.toolCallingPolicy);
+    const maxToolCallsRaw = clampToolIterationLimit(params.settings.maxToolCallsPerTurn);
+    const maxToolCalls = policy === "conservative" ? Math.min(2, maxToolCallsRaw) : maxToolCallsRaw;
+    const policyInstruction = policy === "conservative"
+      ? "Use tools only when strictly necessary. If a direct answer is sufficient, do not call tools."
+      : policy === "aggressive"
+        ? "Prefer using tools when they can improve accuracy, freshness, or completeness of the answer."
+        : "Use tools only when they clearly help produce a better answer.";
+    const workingMessages = [
+      ...params.apiMessages,
+      {
+        role: "system",
+        content: policyInstruction
+      }
+    ] as Array<Record<string, unknown>>;
+    const sc = params.samplerConfig;
+    const toolTraces: ToolCallTrace[] = [];
+    let executedTools = 0;
+
+    while (executedTools < maxToolCalls) {
+      const body = await requestChatCompletion(params.provider, params.modelId, {
+        messages: workingMessages,
+        stream: false,
+        temperature: sc.temperature ?? 0.9,
+        top_p: sc.topP ?? 1,
+        frequency_penalty: sc.frequencyPenalty ?? 0,
+        presence_penalty: sc.presencePenalty ?? 0,
+        max_tokens: sc.maxTokens ?? 2048,
+        ...(Array.isArray(sc.stop) && (sc.stop as string[]).length > 0 ? { stop: sc.stop } : {}),
+        tools: exposedTools,
+        ...(policy === "aggressive" ? { tool_choice: "auto" } : {})
+      }, params.signal);
+
+      const assistant = body.choices?.[0]?.message;
+      const assistantContent = normalizeAssistantContent(assistant?.content);
+      const toolCalls = Array.isArray(assistant?.tool_calls) ? assistant.tool_calls : [];
+
+      if (toolCalls.length === 0) {
+        // No tool calls on first pass: fallback to standard streaming path.
+        if (executedTools === 0) {
+          return null;
+        }
+        // Tools were used already: run a final streamed assistant pass in caller.
+        return { content: assistantContent, toolCalls: toolTraces, streamMessages: workingMessages };
+      }
+
+      workingMessages.push({
+        role: "assistant",
+        content: assistantContent,
+        tool_calls: toolCalls
+      });
+
+      for (const call of toolCalls) {
+        if (executedTools >= maxToolCalls) break;
+        const toolName = String(call.function?.name || "");
+        const fallbackId = `${toolName || "tool"}_${executedTools + 1}`;
+        const toolCallId = String(call.id || fallbackId);
+        const toolArgs = String(call.function?.arguments || "");
+        params.onToolEvent?.({
+          phase: "start",
+          callId: toolCallId,
+          name: toolName,
+          args: toolArgs
+        });
+        const toolResult = await mcp.executeToolCall(toolName, toolArgs, params.signal);
+        params.onToolEvent?.({
+          phase: "done",
+          callId: toolCallId,
+          name: toolName,
+          args: toolArgs,
+          result: toolResult
+        });
+        toolTraces.push({
+          callId: toolCallId,
+          name: toolName,
+          args: toolArgs,
+          result: toolResult
+        });
+        workingMessages.push({
+          role: "tool",
+          tool_call_id: toolCallId,
+          content: toolResult
+        });
+        executedTools += 1;
+      }
+    }
+
+    // Tool-call budget reached: perform final streamed assistant pass in caller.
+    return { content: "", toolCalls: toolTraces, streamMessages: workingMessages };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "";
+    // If provider doesn't support tools/function calling, fallback to regular streaming flow.
+    if (/tool|function.?call|tool_choice|unsupported/i.test(message)) {
+      return null;
+    }
+    throw err;
+  } finally {
+    await mcp.close();
+  }
+}
+
+function serializeToolTrace(trace: ToolCallTrace): string {
+  const name = String(trace.name || "unknown_tool").trim();
+  const args = String(trace.args || "").trim();
+  const result = String(trace.result || "").trim();
+  const safeArgs = args ? args.slice(0, 5000) : "{}";
+  const safeResult = result ? result.slice(0, 12000) : "(empty)";
+  return JSON.stringify({
+    kind: "tool_call",
+    callId: String(trace.callId || "").trim(),
+    name,
+    args: safeArgs,
+    result: safeResult
+  });
+}
+
+function deleteMessageTree(chatId: string, branchId: string, messageId: string) {
+  db.prepare(`
+    WITH RECURSIVE descendants(id) AS (
+      SELECT id
+      FROM messages
+      WHERE id = ? AND chat_id = ? AND branch_id = ? AND deleted = 0
+      UNION ALL
+      SELECT m.id
+      FROM messages m
+      JOIN descendants d ON m.parent_id = d.id
+      WHERE m.chat_id = ? AND m.branch_id = ? AND m.deleted = 0
+    )
+    UPDATE messages
+    SET deleted = 1
+    WHERE id IN (SELECT id FROM descendants)
+  `).run(messageId, chatId, branchId, chatId, branchId);
+}
+
+async function streamProviderCompletion(params: {
+  provider: ProviderRow;
+  modelId: string;
+  messages: unknown;
+  samplerConfig: Record<string, unknown>;
+  chatId: string;
+  res: Response;
+  signal: AbortSignal;
+}) {
+  const sc = params.samplerConfig;
+  const response = await fetch(`${params.provider.base_url}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${params.provider.api_key_cipher}`
+    },
+    body: JSON.stringify({
+      model: params.modelId,
+      messages: params.messages,
+      stream: true,
+      temperature: sc.temperature ?? 0.9,
+      top_p: sc.topP ?? 1,
+      frequency_penalty: sc.frequencyPenalty ?? 0,
+      presence_penalty: sc.presencePenalty ?? 0,
+      max_tokens: sc.maxTokens ?? 2048,
+      ...(Array.isArray(sc.stop) && (sc.stop as string[]).length > 0 ? { stop: sc.stop } : {})
+    }),
+    signal: params.signal
+  });
+
+  if (!response.ok || !response.body) {
+    const errText = await response.text().catch(() => "Unknown error");
+    throw new Error(`[API Error: ${response.status}] ${errText.slice(0, 200)}`);
+  }
+
+  let fullContent = "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      if (params.signal.aborted) {
+        await reader.cancel();
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") continue;
+
+        try {
+          const parsed = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullContent += delta;
+            params.res.write(`data: ${JSON.stringify({ type: "delta", chatId: params.chatId, delta })}\n\n`);
+          }
+        } catch {
+          // Ignore malformed stream chunks.
+        }
+      }
+    }
+  } catch (readErr) {
+    if (!(readErr instanceof Error && readErr.name === "AbortError")) {
+      throw readErr;
+    }
+  }
+
+  return fullContent;
+}
+
 // Core LLM streaming function — used by send, regenerate, auto-conversation
 async function streamLlmResponse(
   chatId: string,
@@ -254,8 +695,8 @@ async function streamLlmResponse(
   const providerId = settings.activeProviderId;
   const modelId = settings.activeModel;
 
-  const chat = db.prepare("SELECT character_id, character_ids, context_summary FROM chats WHERE id = ?").get(chatId) as {
-    character_id: string | null; character_ids: string | null; context_summary: string | null;
+  const chat = db.prepare("SELECT character_id, character_ids, lorebook_id, context_summary FROM chats WHERE id = ?").get(chatId) as {
+    character_id: string | null; character_ids: string | null; lorebook_id: string | null; context_summary: string | null;
   } | undefined;
 
   // Build prompt
@@ -289,11 +730,33 @@ async function streamLlmResponse(
     ? characterCards.find((c) => c.name === overrideCharacterName) ?? characterCards[0] ?? null
     : characterCards[0] ?? getCharacterCard(chat?.character_id ?? null);
 
+  const timeline = getTimeline(chatId, branchId).filter((m) => m.role === "user" || m.role === "assistant");
+  const contextSummary = chat?.context_summary || "";
+  const contextWindowBudget = getContextWindowBudget(settings as Record<string, unknown>);
+  const withSummaryPercent = getTailBudgetPercent(settings as Record<string, unknown>, "contextTailBudgetWithSummaryPercent", 35);
+  const withoutSummaryPercent = getTailBudgetPercent(settings as Record<string, unknown>, "contextTailBudgetWithoutSummaryPercent", 75);
+  const promptTimeline = selectTimelineForPrompt(
+    timeline,
+    contextSummary,
+    contextWindowBudget,
+    withSummaryPercent,
+    withoutSummaryPercent
+  );
+
+  const lorebookEntries = getLorebookEntries(chat?.lorebook_id || null);
+  const loreBlockEnabled = blocks.some((block) => block.kind === "lore" && block.enabled);
+  const triggeredLoreEntries = loreBlockEnabled
+    ? getTriggeredLoreEntries(lorebookEntries, promptTimeline.map((item) => String(item.content || "")))
+    : [];
+  const effectiveBlocks = triggeredLoreEntries.length > 0
+    ? injectLoreBlocks(blocks, triggeredLoreEntries)
+    : blocks;
+
   let systemPrompt: string;
   if (characterCards.length > 1 && overrideCharacterName) {
     systemPrompt = buildMultiCharSystemPrompt(
       {
-        blocks,
+        blocks: effectiveBlocks,
         characterCard: currentCharCard,
         sceneState,
         authorNote,
@@ -316,7 +779,7 @@ async function streamLlmResponse(
     }
   } else {
     systemPrompt = buildSystemPrompt({
-      blocks, characterCard: currentCharCard, sceneState, authorNote,
+      blocks: effectiveBlocks, characterCard: currentCharCard, sceneState, authorNote,
       intensity: sceneState?.intensity ?? 0.5,
       responseLanguage: settings.responseLanguage,
       censorshipMode: settings.censorshipMode,
@@ -329,18 +792,6 @@ async function streamLlmResponse(
     }
   }
 
-  const timeline = getTimeline(chatId, branchId);
-  const contextSummary = chat?.context_summary || "";
-  const contextWindowBudget = getContextWindowBudget(settings as Record<string, unknown>);
-  const withSummaryPercent = getTailBudgetPercent(settings as Record<string, unknown>, "contextTailBudgetWithSummaryPercent", 35);
-  const withoutSummaryPercent = getTailBudgetPercent(settings as Record<string, unknown>, "contextTailBudgetWithoutSummaryPercent", 75);
-  const promptTimeline = selectTimelineForPrompt(
-    timeline,
-    contextSummary,
-    contextWindowBudget,
-    withSummaryPercent,
-    withoutSummaryPercent
-  );
   let apiMessages;
 
   if (characterCards.length > 1 && overrideCharacterName) {
@@ -414,80 +865,94 @@ async function streamLlmResponse(
 
   try {
     const sc = samplerConfig as Record<string, unknown>;
-    const response = await fetch(`${provider.base_url}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${provider.api_key_cipher}`
-      },
-      body: JSON.stringify({
-        model: modelId,
-        messages: apiMessages,
-        stream: true,
-        temperature: sc.temperature ?? 0.9,
-        top_p: sc.topP ?? 1,
-        frequency_penalty: sc.frequencyPenalty ?? 0,
-        presence_penalty: sc.presencePenalty ?? 0,
-        max_tokens: sc.maxTokens ?? 2048,
-        ...(Array.isArray(sc.stop) && (sc.stop as string[]).length > 0 ? { stop: sc.stop } : {})
-      }),
+    const toolCallingEnabled = settings.toolCallingEnabled === true;
+    if (toolCallingEnabled) {
+      const toolResult = await runToolCallingCompletion({
+        provider,
+        modelId,
+        samplerConfig: sc,
+        apiMessages: apiMessages as unknown as OpenAICompletionMessage[],
+        settings: settings as Record<string, unknown>,
+        signal: abortController.signal,
+        onToolEvent: (event) => {
+          const safeArgs = String(event.args || "").slice(0, 2000);
+          const safeResult = typeof event.result === "string" ? event.result.slice(0, 4000) : undefined;
+          res.write(`data: ${JSON.stringify({
+            type: "tool",
+            chatId,
+            phase: event.phase,
+            callId: event.callId,
+            name: event.name,
+            args: safeArgs,
+            result: safeResult
+          })}\n\n`);
+        }
+      });
+      if (toolResult) {
+        let fullContent = toolResult.content || "";
+        if (Array.isArray(toolResult.streamMessages) && toolResult.streamMessages.length > 0) {
+          fullContent = await streamProviderCompletion({
+            provider,
+            modelId,
+            messages: toolResult.streamMessages,
+            samplerConfig: sc,
+            chatId,
+            res,
+            signal: abortController.signal
+          });
+        } else if (fullContent) {
+          await sendSseText(res, chatId, fullContent, 12);
+        }
+
+        if (fullContent || toolResult.toolCalls.length > 0) {
+          const assistantId = newId();
+          db.prepare(
+            "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+          ).run(
+            assistantId,
+            chatId,
+            branchId,
+            "assistant",
+            fullContent,
+            roughTokenCount(fullContent),
+            parentMsgId,
+            now(),
+            overrideCharacterName || null,
+            nextSortOrder(chatId, branchId)
+          );
+          for (const toolCall of toolResult.toolCalls) {
+            const toolText = serializeToolTrace(toolCall);
+            db.prepare(
+              "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+            ).run(
+              newId(),
+              chatId,
+              branchId,
+              "tool",
+              toolText,
+              roughTokenCount(toolText),
+              assistantId,
+              now(),
+              null,
+              nextSortOrder(chatId, branchId)
+            );
+          }
+        }
+        res.write(`data: ${JSON.stringify({ type: "done", chatId })}\n\n`);
+        res.end();
+        return;
+      }
+    }
+
+    const fullContent = await streamProviderCompletion({
+      provider,
+      modelId,
+      messages: apiMessages,
+      samplerConfig: sc,
+      chatId,
+      res,
       signal: abortController.signal
     });
-
-    if (!response.ok || !response.body) {
-      const errText = await response.text().catch(() => "Unknown error");
-      const assistantText = `[API Error: ${response.status}] ${errText.slice(0, 200)}`;
-      const assistantId = newId();
-      db.prepare(
-        "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
-      ).run(assistantId, chatId, branchId, "assistant", assistantText, roughTokenCount(assistantText), parentMsgId, now(), overrideCharacterName || null, nextSortOrder(chatId, branchId));
-      res.write(`data: ${JSON.stringify({ type: "done", chatId })}\n\n`);
-      res.end();
-      activeAbortControllers.delete(chatId);
-      return;
-    }
-
-    let fullContent = "";
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        // Check if aborted
-        if (abortController.signal.aborted) {
-          await reader.cancel();
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data: ")) continue;
-          const data = trimmed.slice(6);
-          if (data === "[DONE]") continue;
-
-          try {
-            const parsed = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
-            const delta = parsed.choices?.[0]?.delta?.content;
-            if (delta) {
-              fullContent += delta;
-              res.write(`data: ${JSON.stringify({ type: "delta", chatId, delta })}\n\n`);
-            }
-          } catch { /* skip malformed */ }
-        }
-      }
-    } catch (readErr) {
-      if (!(readErr instanceof Error && readErr.name === "AbortError")) {
-        throw readErr;
-      }
-    }
 
     // Insert assistant message (even partial if interrupted)
     if (fullContent) {
@@ -539,9 +1004,16 @@ router.post("/", (req, res) => {
   const chatId = newId();
   const ts = now();
 
-  const charIdsJson = JSON.stringify(characterIds || []);
-  db.prepare("INSERT INTO chats (id, title, character_id, character_ids, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(chatId, title, characterId || null, charIdsJson, ts);
+  const allCharIds: string[] = characterIds?.length ? characterIds : (characterId ? [characterId] : []);
+  const charIdsJson = JSON.stringify(allCharIds);
+  let lorebookId: string | null = req.body?.lorebookId ? String(req.body.lorebookId) : null;
+  if (!lorebookId && allCharIds[0]) {
+    const row = db.prepare("SELECT lorebook_id FROM characters WHERE id = ?").get(allCharIds[0]) as { lorebook_id: string | null } | undefined;
+    lorebookId = row?.lorebook_id || null;
+  }
+
+  db.prepare("INSERT INTO chats (id, title, character_id, character_ids, lorebook_id, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(chatId, title, characterId || null, charIdsJson, lorebookId, ts);
 
   // Auto-create root branch
   const branchId = newId();
@@ -549,7 +1021,6 @@ router.post("/", (req, res) => {
     .run(branchId, chatId, "main", null, ts);
 
   // If character has a greeting, insert it as first message
-  const allCharIds: string[] = characterIds?.length ? characterIds : (characterId ? [characterId] : []);
   if (allCharIds.length > 0) {
     // Insert greeting from first character
     const firstChar = db.prepare("SELECT name, greeting FROM characters WHERE id = ?").get(allCharIds[0]) as { name: string; greeting: string } | undefined;
@@ -560,12 +1031,12 @@ router.post("/", (req, res) => {
     }
   }
 
-  res.json({ id: chatId, title, characterId: characterId || null, characterIds: allCharIds, createdAt: ts });
+  res.json({ id: chatId, title, characterId: characterId || null, characterIds: allCharIds, lorebookId, createdAt: ts });
 });
 
 router.get("/", (_req, res) => {
   const rows = db.prepare("SELECT * FROM chats ORDER BY created_at DESC").all() as {
-    id: string; title: string; character_id: string | null; character_ids: string | null; auto_conversation: number; created_at: string;
+    id: string; title: string; character_id: string | null; character_ids: string | null; lorebook_id: string | null; auto_conversation: number; created_at: string;
   }[];
   res.json(rows.map((r) => {
     let characterIds: string[] = [];
@@ -573,6 +1044,7 @@ router.get("/", (_req, res) => {
     return {
       id: r.id, title: r.title, characterId: r.character_id,
       characterIds,
+      lorebookId: r.lorebook_id || null,
       autoConversation: r.auto_conversation === 1,
       createdAt: r.created_at
     };
@@ -597,6 +1069,19 @@ router.patch("/:id/characters", (req, res) => {
   const { characterIds } = req.body;
   db.prepare("UPDATE chats SET character_ids = ? WHERE id = ?").run(JSON.stringify(characterIds || []), chatId);
   res.json({ ok: true, characterIds });
+});
+
+router.patch("/:id/lorebook", (req, res) => {
+  const chatId = req.params.id;
+  const lorebookId = req.body?.lorebookId ? String(req.body.lorebookId) : null;
+  db.prepare("UPDATE chats SET lorebook_id = ? WHERE id = ?").run(lorebookId, chatId);
+  res.json({ ok: true, lorebookId });
+});
+
+router.get("/:id/lorebook", (req, res) => {
+  const chatId = req.params.id;
+  const row = db.prepare("SELECT lorebook_id FROM chats WHERE id = ?").get(chatId) as { lorebook_id: string | null } | undefined;
+  res.json({ lorebookId: row?.lorebook_id || null });
 });
 
 router.get("/:id/branches", (req, res) => {
@@ -764,7 +1249,7 @@ router.post("/:id/regenerate", async (req, res: Response) => {
   ).get(chatId, branchId) as MessageRow | undefined;
 
   if (lastAssistant) {
-    db.prepare("UPDATE messages SET deleted = 1 WHERE id = ?").run(lastAssistant.id);
+    deleteMessageTree(chatId, branchId, lastAssistant.id);
   }
 
   const lastUser = db.prepare(

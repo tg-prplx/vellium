@@ -11,6 +11,7 @@ import type {
   PromptBlock,
   RpSceneState,
   CharacterDetail,
+  LoreBook,
   SamplerConfig,
   ProviderProfile,
   ProviderModel,
@@ -105,6 +106,47 @@ function readSceneVarPercent(variables: Record<string, string>, key: string, fal
   return Math.max(0, Math.min(100, Math.round(raw)));
 }
 
+interface ParsedToolCallContent {
+  callId: string;
+  name: string;
+  args: string;
+  result: string;
+}
+
+interface StreamingToolCall {
+  callId: string;
+  name: string;
+  args: string;
+  status: "running" | "done";
+  result?: string;
+}
+
+function parseToolCallContent(content: string): ParsedToolCallContent {
+  try {
+    const parsed = JSON.parse(content) as Partial<ParsedToolCallContent> & { kind?: string };
+    if (parsed && typeof parsed === "object" && parsed.kind === "tool_call") {
+      return {
+        callId: String(parsed.callId || "").trim(),
+        name: String(parsed.name || "tool").trim() || "tool",
+        args: String(parsed.args || "{}"),
+        result: String(parsed.result || "")
+      };
+    }
+  } catch {
+    // Legacy tool format fallback below.
+  }
+
+  const lines = String(content || "").split("\n");
+  const first = lines.find((line) => line.startsWith("Tool:")) || "";
+  const name = first.replace(/^Tool:\s*/i, "").trim() || "tool";
+  return {
+    callId: "",
+    name,
+    args: "{}",
+    result: String(content || "")
+  };
+}
+
 export function ChatScreen() {
   const { t } = useI18n();
   const [chats, setChats] = useState<ChatSession[]>([]);
@@ -125,6 +167,8 @@ export function ChatScreen() {
   const [streamText, setStreamText] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamingCharacterName, setStreamingCharacterName] = useState<string | null>(null);
+  const [streamingToolCalls, setStreamingToolCalls] = useState<StreamingToolCall[]>([]);
+  const [streamingToolsExpanded, setStreamingToolsExpanded] = useState(false);
   const [draggedBlockId, setDraggedBlockId] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string>("");
   const [activeModelLabel, setActiveModelLabel] = useState<string>("");
@@ -167,6 +211,8 @@ export function ChatScreen() {
 
   // Active preset
   const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [lorebooks, setLorebooks] = useState<LoreBook[]>([]);
+  const [activeLorebookId, setActiveLorebookId] = useState<string | null>(null);
 
   // User persona
   const [personas, setPersonas] = useState<UserPersona[]>([]);
@@ -190,6 +236,7 @@ export function ChatScreen() {
   const [inspectorSection, setInspectorSection] = useState<Record<string, boolean>>({
     scene: true, sampler: false, blocks: false, context: false
   });
+  const [toolPanelsExpanded, setToolPanelsExpanded] = useState<Record<string, boolean>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -203,6 +250,26 @@ export function ChatScreen() {
     () => messages.reduce((sum, m) => sum + (m.tokenCount || 0), 0),
     [messages]
   );
+  const visibleMessages = useMemo(
+    () => messages.filter((msg) => msg.role !== "tool"),
+    [messages]
+  );
+  const toolMessagesByParent = useMemo(() => {
+    const grouped = new Map<string, ChatMessage[]>();
+    for (const msg of messages) {
+      if (msg.role !== "tool") continue;
+      const parentId = String(msg.parentId || "").trim();
+      if (!parentId) continue;
+      const bucket = grouped.get(parentId) || [];
+      bucket.push(msg);
+      grouped.set(parentId, bucket);
+    }
+    for (const [key, bucket] of grouped.entries()) {
+      bucket.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      grouped.set(key, bucket);
+    }
+    return grouped;
+  }, [messages]);
   const activePersonaPayload = useMemo(() => {
     if (!activePersona) return null;
     return {
@@ -232,6 +299,7 @@ export function ChatScreen() {
       if (settings.samplerConfig) setSamplerConfig(settings.samplerConfig);
     });
     api.characterList().then(setCharacters).catch(() => {});
+    api.lorebookList().then(setLorebooks).catch(() => {});
     api.providerList().then(setProviders).catch(() => {});
     api.personaList().then((list) => {
       setPersonas(list);
@@ -262,9 +330,11 @@ export function ChatScreen() {
       setActiveBranchId(null);
       setBlocks([]);
       setChatCharacterIds([]);
+      setActiveLorebookId(null);
       setSceneState({ chatId: "", ...DEFAULT_SCENE_STATE });
       setAuthorNote(DEFAULT_AUTHOR_NOTE);
       setActivePreset(null);
+      setToolPanelsExpanded({});
       return;
     }
     const chatId = activeChat.id;
@@ -339,8 +409,15 @@ export function ChatScreen() {
       setActivePreset(null);
     });
 
+    api.lorebookList().then((list) => {
+      if (cancelled) return;
+      setLorebooks(list);
+    }).catch(() => {});
+
     // Load multi-char state
     setChatCharacterIds(activeChat.characterIds || (activeChat.characterId ? [activeChat.characterId] : []));
+    setActiveLorebookId(activeChat.lorebookId || null);
+    setToolPanelsExpanded({});
     setSamplerSaved(false);
     return () => {
       cancelled = true;
@@ -401,6 +478,54 @@ export function ChatScreen() {
     if (!activeChat) return;
     setMessages(await api.chatTimeline(activeChat.id, activeBranchId || undefined));
   }, [activeChat, activeBranchId]);
+
+  function startStreamingUi(characterName: string | null) {
+    setStreamText("");
+    setStreaming(true);
+    setStreamingCharacterName(characterName);
+    setStreamingToolCalls([]);
+    setStreamingToolsExpanded(false);
+  }
+
+  function stopStreamingUi() {
+    setStreaming(false);
+    setStreamText("");
+    setStreamingCharacterName(null);
+    setStreamingToolCalls([]);
+    setStreamingToolsExpanded(false);
+  }
+
+  function handleStreamingToolEvent(event: {
+    phase: "start" | "done";
+    callId: string;
+    name: string;
+    args?: string;
+    result?: string;
+  }) {
+    setStreamingToolCalls((prev) => {
+      const callId = String(event.callId || "").trim() || `${event.name || "tool"}-${Date.now()}`;
+      const idx = prev.findIndex((item) => item.callId === callId);
+      if (idx === -1) {
+        const next: StreamingToolCall = {
+          callId,
+          name: event.name || "tool",
+          args: event.args || "{}",
+          status: event.phase === "done" ? "done" : "running",
+          result: event.result
+        };
+        return [...prev, next];
+      }
+      const updated = [...prev];
+      updated[idx] = {
+        ...updated[idx],
+        name: event.name || updated[idx].name,
+        args: event.args ?? updated[idx].args,
+        status: event.phase === "done" ? "done" : "running",
+        result: event.phase === "done" ? event.result : updated[idx].result
+      };
+      return updated;
+    });
+  }
 
   const saveBlocksToServer = useCallback(
     (chatId: string, newBlocks: PromptBlock[]) => {
@@ -475,19 +600,16 @@ export function ChatScreen() {
         role: "user", content: outgoing, attachments: currentAttachments, tokenCount: 0, createdAt: new Date().toISOString()
       };
       setMessages((prev) => [...prev, optimisticMsg]);
-      setStreamText("");
-      setStreaming(true);
-      setStreamingCharacterName(null);
+      startStreamingUi(null);
 
       const updated = await api.chatSend(chatId, outgoing, branchId || undefined, {
         onDelta: (delta) => setStreamText((prev) => prev + delta),
-        onDone: () => { setStreaming(false); setStreamText(""); setStreamingCharacterName(null); }
+        onToolEvent: handleStreamingToolEvent,
+        onDone: () => { stopStreamingUi(); }
       }, activePersonaPayload, currentAttachments);
       setMessages(updated);
     } catch (error) {
-      setStreaming(false);
-      setStreamText("");
-      setStreamingCharacterName(null);
+      stopStreamingUi();
       setErrorText(String(error));
     }
   }
@@ -496,9 +618,7 @@ export function ChatScreen() {
     if (!activeChat) return;
     try {
       await api.chatAbort(activeChat.id);
-      setStreaming(false);
-      setStreamText("");
-      setStreamingCharacterName(null);
+      stopStreamingUi();
       autoConvoRef.current = false;
       setAutoConvoRunning(false);
       await refreshActiveTimeline();
@@ -511,23 +631,20 @@ export function ChatScreen() {
     if (!activeChat || autoConvoRunning) return;
     setErrorText("");
     try {
-      setStreamText("");
-      setStreaming(true);
-      setStreamingCharacterName(null);
+      startStreamingUi(null);
       setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.role === "assistant") return prev.slice(0, -1);
-        return prev;
+        const lastAssistant = [...prev].reverse().find((msg) => msg.role === "assistant");
+        if (!lastAssistant) return prev;
+        return prev.filter((msg) => msg.id !== lastAssistant.id && msg.parentId !== lastAssistant.id);
       });
       const updated = await api.chatRegenerate(activeChat.id, activeBranchId || undefined, {
         onDelta: (delta) => setStreamText((prev) => prev + delta),
-        onDone: () => { setStreaming(false); setStreamText(""); setStreamingCharacterName(null); }
+        onToolEvent: handleStreamingToolEvent,
+        onDone: () => { stopStreamingUi(); }
       });
       setMessages(updated);
     } catch (error) {
-      setStreaming(false);
-      setStreamText("");
-      setStreamingCharacterName(null);
+      stopStreamingUi();
       setErrorText(String(error));
     }
   }
@@ -662,23 +779,46 @@ export function ChatScreen() {
     await api.chatUpdateCharacters(activeChat.id, newIds);
   }
 
+  async function selectLorebookForChat(nextLorebookId: string | null) {
+    if (!activeChat) return;
+    setActiveLorebookId(nextLorebookId);
+    setActiveChat({ ...activeChat, lorebookId: nextLorebookId });
+    setChats((prev) => prev.map((chat) => (
+      chat.id === activeChat.id ? { ...chat, lorebookId: nextLorebookId } : chat
+    )));
+
+    if (nextLorebookId) {
+      const hasEnabledLoreBlock = blocks.some((block) => block.kind === "lore" && block.enabled);
+      if (!hasEnabledLoreBlock) {
+        const updatedBlocks = blocks.map((block) => (
+          block.kind === "lore" ? { ...block, enabled: true } : block
+        ));
+        setBlocks(updatedBlocks);
+        saveBlocksToServer(activeChat.id, updatedBlocks);
+      }
+    }
+
+    try {
+      await api.chatSaveLorebook(activeChat.id, nextLorebookId);
+    } catch (error) {
+      setErrorText(String(error));
+    }
+  }
+
   // Next turn for a specific character (multi-char)
   async function handleNextTurn(characterName: string) {
     if (!activeChat || streaming || autoConvoRunning) return;
     setErrorText("");
-    setStreamText("");
-    setStreaming(true);
-    setStreamingCharacterName(characterName);
+    startStreamingUi(characterName);
     try {
       const updated = await api.chatNextTurn(activeChat.id, characterName, activeBranchId || undefined, {
         onDelta: (delta) => setStreamText((prev) => prev + delta),
-        onDone: () => { setStreaming(false); setStreamText(""); setStreamingCharacterName(null); }
+        onToolEvent: handleStreamingToolEvent,
+        onDone: () => { stopStreamingUi(); }
       }, false, activePersonaPayload);
       setMessages(updated);
     } catch (error) {
-      setStreaming(false);
-      setStreamText("");
-      setStreamingCharacterName(null);
+      stopStreamingUi();
       setErrorText(String(error));
     }
   }
@@ -705,18 +845,17 @@ export function ChatScreen() {
       if (!autoConvoRef.current) break;
 
       const charName = charNames[turn % charNames.length];
-      setStreamText("");
-      setStreaming(true);
-      setStreamingCharacterName(charName);
+      startStreamingUi(charName);
 
       try {
         const updated = await api.chatNextTurn(activeChat.id, charName, activeBranchId || undefined, {
           onDelta: (delta) => setStreamText((prev) => prev + delta),
-          onDone: () => { setStreaming(false); setStreamText(""); setStreamingCharacterName(null); }
+          onToolEvent: handleStreamingToolEvent,
+          onDone: () => { stopStreamingUi(); }
         }, true, activePersonaPayload); // isAutoConvo = true
         setMessages(updated);
       } catch (error) {
-        setStreamingCharacterName(null);
+        stopStreamingUi();
         setErrorText(String(error));
         break;
       }
@@ -728,16 +867,13 @@ export function ChatScreen() {
 
     autoConvoRef.current = false;
     setAutoConvoRunning(false);
-    setStreaming(false);
-    setStreamingCharacterName(null);
+    stopStreamingUi();
   }
 
   function stopAutoConversation() {
     autoConvoRef.current = false;
     setAutoConvoRunning(false);
-    setStreaming(false);
-    setStreamText("");
-    setStreamingCharacterName(null);
+    stopStreamingUi();
     if (activeChat) {
       api.chatAbort(activeChat.id).catch(() => {});
     }
@@ -1103,6 +1239,20 @@ export function ChatScreen() {
               )}
             </div>
 
+            <div className="mt-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">LoreBook</label>
+              <select
+                value={activeLorebookId || ""}
+                onChange={(e) => { void selectLorebookForChat(e.target.value || null); }}
+                className="w-full rounded-md border border-border bg-bg-secondary px-2 py-1.5 text-xs text-text-primary"
+              >
+                <option value="">None</option>
+                {lorebooks.map((book) => (
+                  <option key={book.id} value={book.id}>{book.name}</option>
+                ))}
+              </select>
+            </div>
+
             {/* User Persona — compact, opens modal */}
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.userPersona")}:</span>
@@ -1276,7 +1426,9 @@ export function ChatScreen() {
                 <EmptyState title={t("chat.startConvo")} description={t("chat.startConvoDesc")} />
               )}
 
-              {messages.map((msg) => {
+              {visibleMessages.map((msg) => {
+                const relatedToolMessages = toolMessagesByParent.get(msg.id) || [];
+                const toolPanelOpen = toolPanelsExpanded[msg.id] === true;
                 const msgChar = msg.role === "assistant" ? getCharacterForMessage(msg) : null;
                 return (
                   <article key={msg.id}
@@ -1297,7 +1449,9 @@ export function ChatScreen() {
                       ) : msg.role === "user" && msg.characterName ? (
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">{msg.characterName}</span>
                       ) : (
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{msg.role === "user" ? (activePersona?.name || "user") : msg.role}</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
+                          {msg.role === "user" ? (activePersona?.name || "user") : msg.role}
+                        </span>
                       )}
                       {msg.tokenCount > 0 && <Badge>{msg.tokenCount} tok</Badge>}
                     </div>
@@ -1367,6 +1521,39 @@ export function ChatScreen() {
                             })}
                           </div>
                         )}
+                        {relatedToolMessages.length > 0 && (
+                          <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">
+                            <button
+                              onClick={() => {
+                                setToolPanelsExpanded((prev) => ({ ...prev, [msg.id]: !toolPanelOpen }));
+                              }}
+                              className="flex w-full items-center justify-between px-2 py-1.5 text-left"
+                            >
+                              <span className="text-[11px] font-semibold text-text-secondary">
+                                {t("chat.toolCall")} ({relatedToolMessages.length})
+                              </span>
+                              <svg className={`h-3.5 w-3.5 text-text-tertiary transition-transform ${toolPanelOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </button>
+                            {toolPanelOpen && (
+                              <div className="space-y-1.5 border-t border-warning-border/60 px-2 py-2">
+                                {relatedToolMessages.map((toolMessage) => {
+                                  const payload = parseToolCallContent(toolMessage.content);
+                                  return (
+                                    <div key={toolMessage.id} className="rounded-md border border-warning-border/60 bg-bg-primary px-2 py-1.5">
+                                      <div className="text-[11px] font-semibold text-text-primary">{payload.name}</div>
+                                      <div className="mt-1 text-[10px] text-text-tertiary">Args</div>
+                                      <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">{payload.args || "{}"}</pre>
+                                      <div className="mt-1 text-[10px] text-text-tertiary">Result</div>
+                                      <pre className="mt-0.5 max-h-28 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">{payload.result || "(empty)"}</pre>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </>
                     )}
 
@@ -1408,6 +1595,50 @@ export function ChatScreen() {
                   <div className="prose-chat" dangerouslySetInnerHTML={{
                     __html: streamText ? renderContent(streamText, activeChatCharacter?.name, activePersona?.name || "User") : "..."
                   }} />
+                  {streamingToolCalls.length > 0 && (
+                    <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">
+                      <button
+                        onClick={() => setStreamingToolsExpanded((prev) => !prev)}
+                        className="flex w-full items-center justify-between px-2 py-1.5 text-left"
+                      >
+                        <span className="flex items-center gap-1 text-[11px] font-semibold text-text-secondary">
+                          {streamingToolCalls.some((call) => call.status === "running") && (
+                            <svg className="h-3 w-3 animate-spin text-warning" viewBox="0 0 24 24" fill="none">
+                              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" className="opacity-30" />
+                              <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                            </svg>
+                          )}
+                          {t("chat.toolCall")} ({streamingToolCalls.length})
+                        </span>
+                        <svg className={`h-3.5 w-3.5 text-text-tertiary transition-transform ${streamingToolsExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      {streamingToolsExpanded && (
+                        <div className="space-y-1.5 border-t border-warning-border/60 px-2 py-2">
+                          {streamingToolCalls.map((call) => (
+                            <div key={call.callId} className="rounded-md border border-warning-border/60 bg-bg-primary px-2 py-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="truncate text-[11px] font-semibold text-text-primary">{call.name}</span>
+                                {call.status === "running" ? (
+                                  <span className="flex items-center gap-1 text-[10px] text-warning">
+                                    <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" className="opacity-30" />
+                                      <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                                    </svg>
+                                    {t("chat.running")}
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-success">{t("chat.done")}</span>
+                                )}
+                              </div>
+                              <pre className="mt-1 max-h-16 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">{call.args || "{}"}</pre>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </article>
               )}
 

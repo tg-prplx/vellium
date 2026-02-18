@@ -58,6 +58,7 @@ export interface ChatSession {
   title: string;
   characterId?: Id | null;
   characterIds?: Id[];
+  lorebookId?: Id | null;
   autoConversation?: boolean;
   createdAt: string;
 }
@@ -180,6 +181,48 @@ export interface FileAttachment {
   content?: string;
 }
 
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  command: string;
+  args: string;
+  env: string;
+  enabled: boolean;
+  timeoutMs: number;
+}
+
+export interface McpToolInfo {
+  name: string;
+  description: string;
+}
+
+export interface McpDiscoveredTool {
+  serverId: string;
+  serverName: string;
+  toolName: string;
+  callName: string;
+  description: string;
+}
+
+export interface McpServerTestResult {
+  ok: boolean;
+  tools: McpToolInfo[];
+  error?: string;
+}
+
+export interface McpImportResult {
+  ok: boolean;
+  servers: McpServerConfig[];
+  sourceType: "url" | "json";
+  error?: string;
+}
+
+export interface McpDiscoverResult {
+  ok: boolean;
+  tools: McpDiscoveredTool[];
+  error?: string;
+}
+
 export interface AppSettings {
   onboardingCompleted: boolean;
   theme: "dark" | "light" | "custom";
@@ -188,7 +231,7 @@ export interface AppSettings {
   censorshipMode: CensorshipMode;
   fullLocalMode: boolean;
   responseLanguage: string;
-  interfaceLanguage: "en" | "ru";
+  interfaceLanguage: "en" | "ru" | "zh" | "ja";
   activeProviderId?: string | null;
   activeModel?: string | null;
   compressProviderId?: string | null;
@@ -200,6 +243,15 @@ export interface AppSettings {
   contextTailBudgetWithSummaryPercent: number;
   contextTailBudgetWithoutSummaryPercent: number;
   promptTemplates: PromptTemplates;
+  toolCallingEnabled: boolean;
+  toolCallingPolicy: "conservative" | "balanced" | "aggressive";
+  mcpAutoAttachTools: boolean;
+  maxToolCallsPerTurn: number;
+  mcpToolAllowlist: string[];
+  mcpToolDenylist: string[];
+  mcpDiscoveredTools: McpDiscoveredTool[];
+  mcpToolStates: Record<string, boolean>;
+  mcpServers: McpServerConfig[];
 }
 
 export interface ChatCharacterLink {
@@ -223,6 +275,7 @@ export interface CharacterListItem {
   id: Id;
   name: string;
   avatarUrl: string | null;
+  lorebookId?: Id | null;
   tags: string[];
   greeting: string;
   systemPrompt: string;
@@ -236,4 +289,25 @@ export interface CharacterDetail extends CharacterListItem {
   mesExample: string;
   creatorNotes: string;
   cardJson: string;
+}
+
+export interface LoreBookEntry {
+  id: string;
+  name: string;
+  keys: string[];
+  content: string;
+  enabled: boolean;
+  constant: boolean;
+  position: string;
+  insertionOrder: number;
+}
+
+export interface LoreBook {
+  id: Id;
+  name: string;
+  description: string;
+  entries: LoreBookEntry[];
+  sourceCharacterId?: Id | null;
+  createdAt: string;
+  updatedAt: string;
 }
