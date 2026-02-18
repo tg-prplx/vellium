@@ -19,9 +19,9 @@ function InputField({ value, onChange, placeholder, type = "text" }: { value: st
   );
 }
 
-function SelectField({ value, onChange, children }: { value: string; onChange: (v: string) => void; children: React.ReactNode }) {
+function SelectField({ value, onChange, children, disabled = false }: { value: string; onChange: (v: string) => void; children: React.ReactNode; disabled?: boolean }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}
+    <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
       className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary">
       {children}
     </select>
@@ -380,6 +380,14 @@ export function SettingsScreen() {
       tools: [...tools].sort((a, b) => a.toolName.localeCompare(b.toolName))
     }));
   }, [mcpDiscoveredTools]);
+
+  const activeProviderType = useMemo<"openai" | "koboldcpp">(() => {
+    const activeId = settings?.activeProviderId;
+    if (!activeId) return "openai";
+    const row = providers.find((provider) => provider.id === activeId);
+    return row?.providerType === "koboldcpp" ? "koboldcpp" : "openai";
+  }, [providers, settings?.activeProviderId]);
+  const toolCallingLocked = activeProviderType === "koboldcpp";
 
   const tabMeta: Array<{ id: "basic" | "advanced" | "prompts"; label: string; desc: string }> = [
     { id: "basic", label: t("settings.basic"), desc: t("settings.tabBasicDesc") },
@@ -823,7 +831,12 @@ export function SettingsScreen() {
             <div id="settings-tools-mcp" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
               <SectionTitle>{t("settings.tools")}</SectionTitle>
               <div className="space-y-4">
-                <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
+                {toolCallingLocked && (
+                  <div className="rounded-lg border border-warning-border bg-warning-subtle px-3 py-2 text-xs text-warning">
+                    {t("settings.toolCallingKoboldDisabled")}
+                  </div>
+                )}
+                <div className={`flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5 ${toolCallingLocked ? "opacity-60" : ""}`}>
                   <div>
                     <div className="text-sm font-medium text-text-primary">{t("settings.toolCallingEnabled")}</div>
                     <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.toolCallingDesc")}</div>
@@ -831,15 +844,17 @@ export function SettingsScreen() {
                   <input
                     type="checkbox"
                     checked={settings.toolCallingEnabled ?? false}
+                    disabled={toolCallingLocked}
                     onChange={(e) => patch({ toolCallingEnabled: e.target.checked })}
                   />
                 </div>
 
-                <div>
+                <div className={toolCallingLocked ? "opacity-60" : ""}>
                   <FieldLabel>{t("settings.toolCallingPolicy")}</FieldLabel>
                   <SelectField
                     value={settings.toolCallingPolicy ?? "balanced"}
                     onChange={(v) => patch({ toolCallingPolicy: v as AppSettings["toolCallingPolicy"] })}
+                    disabled={toolCallingLocked}
                   >
                     <option value="conservative">{t("settings.toolPolicyConservative")}</option>
                     <option value="balanced">{t("settings.toolPolicyBalanced")}</option>
@@ -848,13 +863,14 @@ export function SettingsScreen() {
                   <p className="mt-1 text-[10px] text-text-tertiary">{t("settings.toolCallingPolicyDesc")}</p>
                 </div>
 
-                <div>
+                <div className={toolCallingLocked ? "opacity-60" : ""}>
                   <FieldLabel>{t("settings.maxToolCalls")}</FieldLabel>
                   <input
                     type="number"
                     min={1}
                     max={12}
                     value={settings.maxToolCallsPerTurn ?? 4}
+                    disabled={toolCallingLocked}
                     onChange={(e) => {
                       const raw = Number(e.target.value);
                       const next = Number.isFinite(raw) ? Math.max(1, Math.min(12, Math.floor(raw))) : 4;
@@ -864,7 +880,7 @@ export function SettingsScreen() {
                   />
                 </div>
 
-                <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
+                <div className={`flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5 ${toolCallingLocked ? "opacity-60" : ""}`}>
                   <div>
                     <div className="text-sm font-medium text-text-primary">{t("settings.mcpAutoAttachTools")}</div>
                     <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.mcpAutoAttachToolsDesc")}</div>
@@ -872,11 +888,12 @@ export function SettingsScreen() {
                   <input
                     type="checkbox"
                     checked={settings.mcpAutoAttachTools ?? true}
+                    disabled={toolCallingLocked}
                     onChange={(e) => patch({ mcpAutoAttachTools: e.target.checked })}
                   />
                 </div>
 
-                <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                <div className={`rounded-lg border border-border-subtle bg-bg-primary p-3 ${toolCallingLocked ? "opacity-60" : ""}`}>
                   <div className="mb-2 flex items-center justify-between">
                     <div>
                       <div className="text-sm font-medium text-text-primary">{t("settings.mcpFunctions")}</div>
@@ -884,7 +901,7 @@ export function SettingsScreen() {
                     </div>
                     <button
                       onClick={() => void discoverMcpFunctions()}
-                      disabled={mcpDiscoveryLoading}
+                      disabled={mcpDiscoveryLoading || toolCallingLocked}
                       className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60"
                     >
                       {mcpDiscoveryLoading ? t("settings.mcpLoadingFunctions") : t("settings.mcpLoadFunctions")}
@@ -917,6 +934,7 @@ export function SettingsScreen() {
                                   <input
                                     type="checkbox"
                                     checked={enabled}
+                                    disabled={toolCallingLocked}
                                     onChange={(e) => {
                                       void setToolEnabled(tool.callName, e.target.checked);
                                     }}
