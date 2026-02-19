@@ -329,6 +329,8 @@ export const api = {
   writerProjectList: () => get<BookProject[]>("/writer/projects"),
   writerProjectUpdate: (projectId: string, data: { name?: string; description?: string }) =>
     patchReq<BookProject>(`/writer/projects/${projectId}`, data),
+  writerProjectDelete: (projectId: string) =>
+    del<{ ok: boolean; id: string }>(`/writer/projects/${projectId}`),
   writerProjectSetCharacters: (projectId: string, characterIds: string[]) =>
     patchReq<BookProject>(`/writer/projects/${projectId}/characters`, { characterIds }),
   writerProjectOpen: (projectId: string) =>
