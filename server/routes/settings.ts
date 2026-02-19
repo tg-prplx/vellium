@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
 import { discoverMcpToolCatalog, isAllowedMcpCommand, testMcpServerConnection, type McpServerConfig } from "../services/mcp.js";
+import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 
 const router = Router();
 
@@ -13,6 +14,7 @@ function getSettings() {
     ...DEFAULT_SETTINGS,
     ...stored,
     samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
+    apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) },
     mcpServers
   };
@@ -193,7 +195,16 @@ router.get("/", (_req, res) => {
 router.patch("/", (req, res) => {
   const patch = req.body;
   const current = getSettings();
-  const updated = { ...current, ...patch };
+  const updated = {
+    ...current,
+    ...patch,
+    samplerConfig: { ...current.samplerConfig, ...(patch?.samplerConfig ?? {}) },
+    apiParamPolicy: normalizeApiParamPolicy({
+      ...(current.apiParamPolicy ?? {}),
+      ...((patch && typeof patch === "object" && !Array.isArray(patch)) ? ((patch as { apiParamPolicy?: unknown }).apiParamPolicy ?? {}) : {})
+    }),
+    promptTemplates: { ...current.promptTemplates, ...(patch?.promptTemplates ?? {}) }
+  };
   db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(updated));
   res.json(updated);
 });

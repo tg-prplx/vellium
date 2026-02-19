@@ -14,6 +14,7 @@ import {
   requestKoboldGenerate,
   requestKoboldGenerateStream
 } from "../services/providerApi.js";
+import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 
 const router = Router();
 
@@ -110,10 +111,12 @@ function getSettings() {
   const row = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string };
   const stored = JSON.parse(row.payload);
   const mcpServers = Array.isArray(stored.mcpServers) ? stored.mcpServers : DEFAULT_SETTINGS.mcpServers;
+  const apiParamPolicy = normalizeApiParamPolicy(stored.apiParamPolicy);
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
     samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
+    apiParamPolicy,
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) },
     mcpServers
   };
@@ -694,6 +697,18 @@ async function runToolCallingCompletion(params: {
       }
     ] as Array<Record<string, unknown>>;
     const sc = params.samplerConfig;
+    const openAiSampling = buildOpenAiSamplingPayload({
+      samplerConfig: sc,
+      apiParamPolicy: params.settings.apiParamPolicy,
+      fields: ["temperature", "topP", "frequencyPenalty", "presencePenalty", "maxTokens", "stop"],
+      defaults: {
+        temperature: 0.9,
+        topP: 1,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+        maxTokens: 2048
+      }
+    });
     const toolTraces: ToolCallTrace[] = [];
     let executedTools = 0;
 
@@ -701,12 +716,7 @@ async function runToolCallingCompletion(params: {
       const body = await requestChatCompletion(params.provider, params.modelId, {
         messages: workingMessages,
         stream: false,
-        temperature: sc.temperature ?? 0.9,
-        top_p: sc.topP ?? 1,
-        frequency_penalty: sc.frequencyPenalty ?? 0,
-        presence_penalty: sc.presencePenalty ?? 0,
-        max_tokens: sc.maxTokens ?? 2048,
-        ...(Array.isArray(sc.stop) && (sc.stop as string[]).length > 0 ? { stop: sc.stop } : {}),
+        ...openAiSampling,
         tools: exposedTools,
         ...(policy === "aggressive" ? { tool_choice: "auto" } : {})
       }, params.signal);
@@ -827,6 +837,7 @@ async function streamProviderCompletion(params: {
   modelId: string;
   messages: Array<{ role: string; content: unknown }>;
   samplerConfig: Record<string, unknown>;
+  apiParamPolicy?: unknown;
   chatId: string;
   res: Response;
   signal: AbortSignal;
@@ -883,11 +894,17 @@ async function streamProviderCompletion(params: {
   };
 
   if (providerType === "koboldcpp") {
-    const { prompt, memory } = buildKoboldPromptFromMessages(params.messages, sc);
+    const koboldPolicy = normalizeApiParamPolicy(params.apiParamPolicy).kobold;
+    const koboldSamplerConfig = buildKoboldSamplerConfig({
+      samplerConfig: sc,
+      apiParamPolicy: params.apiParamPolicy
+    });
+    const { prompt, memory } = buildKoboldPromptFromMessages(params.messages, koboldSamplerConfig);
     const body = buildKoboldGenerateBody({
       prompt,
       memory,
-      samplerConfig: sc
+      samplerConfig: koboldSamplerConfig,
+      includeMemory: koboldPolicy.memory
     });
 
     const streamResponse = await requestKoboldGenerateStream(params.provider, body, params.signal);
@@ -954,6 +971,18 @@ async function streamProviderCompletion(params: {
   }
 
   const baseUrl = String(params.provider.base_url || "").replace(/\/+$/, "");
+  const openAiSampling = buildOpenAiSamplingPayload({
+    samplerConfig: sc,
+    apiParamPolicy: params.apiParamPolicy,
+    fields: ["temperature", "topP", "frequencyPenalty", "presencePenalty", "maxTokens", "stop"],
+    defaults: {
+      temperature: 0.9,
+      topP: 1,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      maxTokens: 2048
+    }
+  });
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -964,12 +993,7 @@ async function streamProviderCompletion(params: {
       model: params.modelId,
       messages: params.messages,
       stream: true,
-      temperature: sc.temperature ?? 0.9,
-      top_p: sc.topP ?? 1,
-      frequency_penalty: sc.frequencyPenalty ?? 0,
-      presence_penalty: sc.presencePenalty ?? 0,
-      max_tokens: sc.maxTokens ?? 2048,
-      ...(Array.isArray(sc.stop) && (sc.stop as string[]).length > 0 ? { stop: sc.stop } : {})
+      ...openAiSampling
     }),
     signal: params.signal
   });
@@ -1033,12 +1057,14 @@ async function completeProviderOnce(params: {
   systemPrompt: string;
   userPrompt: string;
   samplerConfig?: Record<string, unknown>;
+  apiParamPolicy?: unknown;
   signal?: AbortSignal;
 }): Promise<string> {
   const providerType = normalizeProviderType(params.provider.provider_type);
   const sc = params.samplerConfig || {};
 
   if (providerType === "koboldcpp") {
+    const koboldPolicy = normalizeApiParamPolicy(params.apiParamPolicy).kobold;
     const customMemory = String(sc.koboldMemory || "").trim();
     const memory = [
       customMemory,
@@ -1046,13 +1072,18 @@ async function completeProviderOnce(params: {
         ? `${KOBOLD_TAGS.systemOpen}\n${params.systemPrompt}\n${KOBOLD_TAGS.systemClose}`
         : ""
     ].filter(Boolean).join("\n\n");
-    const body = buildKoboldGenerateBody({
-      prompt: `${KOBOLD_TAGS.inputOpen}\n${params.userPrompt}\n${KOBOLD_TAGS.inputClose}\n\n${KOBOLD_TAGS.outputOpen}`,
-      memory,
+    const koboldSamplerConfig = buildKoboldSamplerConfig({
       samplerConfig: {
         ...sc,
         maxTokens: sc.maxTokens ?? 1024
-      }
+      },
+      apiParamPolicy: params.apiParamPolicy
+    });
+    const body = buildKoboldGenerateBody({
+      prompt: `${KOBOLD_TAGS.inputOpen}\n${params.userPrompt}\n${KOBOLD_TAGS.inputClose}\n\n${KOBOLD_TAGS.outputOpen}`,
+      memory,
+      samplerConfig: koboldSamplerConfig,
+      includeMemory: koboldPolicy.memory
     });
     const response = await requestKoboldGenerate(params.provider, body, params.signal);
     if (!response.ok) return "";
@@ -1061,6 +1092,15 @@ async function completeProviderOnce(params: {
   }
 
   const baseUrl = String(params.provider.base_url || "").replace(/\/+$/, "");
+  const openAiSampling = buildOpenAiSamplingPayload({
+    samplerConfig: sc,
+    apiParamPolicy: params.apiParamPolicy,
+    fields: ["temperature", "maxTokens"],
+    defaults: {
+      temperature: 0.3,
+      maxTokens: 1024
+    }
+  });
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -1073,8 +1113,7 @@ async function completeProviderOnce(params: {
         { role: "system", content: params.systemPrompt },
         { role: "user", content: params.userPrompt }
       ],
-      temperature: sc.temperature ?? 0.3,
-      max_tokens: sc.maxTokens ?? 1024
+      ...openAiSampling
     }),
     signal: params.signal
   });
@@ -1338,6 +1377,7 @@ async function streamLlmResponse(
             modelId,
             messages: toolResult.streamMessages as Array<{ role: string; content: unknown }>,
             samplerConfig: sc,
+            apiParamPolicy: settings.apiParamPolicy,
             chatId,
             res,
             signal: abortController.signal
@@ -1410,6 +1450,7 @@ async function streamLlmResponse(
       modelId,
       messages: apiMessages,
       samplerConfig: sc,
+      apiParamPolicy: settings.apiParamPolicy,
       chatId,
       res,
       signal: abortController.signal
@@ -1834,7 +1875,8 @@ router.post("/:id/compress", async (req, res: Response) => {
       modelId,
       systemPrompt: compressTemplate,
       userPrompt: messagesToSummarize,
-      samplerConfig: { temperature: 0.3, maxTokens: 1024 }
+      samplerConfig: { temperature: 0.3, maxTokens: 1024 },
+      apiParamPolicy: settings.apiParamPolicy
     });
 
     db.prepare("UPDATE chats SET context_summary = ? WHERE id = ?").run(summary, chatId);
@@ -1883,7 +1925,8 @@ router.post("/messages/:id/translate", async (req, res: Response) => {
       modelId,
       systemPrompt: `Translate the following message to ${lang}. Output ONLY the translation, nothing else. Preserve formatting, line breaks, and markdown.`,
       userPrompt: message.content,
-      samplerConfig: { temperature: 0.2, maxTokens: 2048 }
+      samplerConfig: { temperature: 0.2, maxTokens: 2048 },
+      apiParamPolicy: settings.apiParamPolicy
     });
     res.json({ translation });
   } catch {

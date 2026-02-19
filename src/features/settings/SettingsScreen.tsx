@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
-import type { AppSettings, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
+import type { ApiParamPolicy, AppSettings, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{children}</h2>;
@@ -44,6 +44,51 @@ function StatusMessage({ text, variant = "info" }: { text: string; variant?: "in
   if (!text) return null;
   const styles = { info: "border-border-subtle bg-bg-primary text-text-secondary", success: "border-success-border bg-success-subtle text-success", error: "border-danger-border bg-danger-subtle text-danger" };
   return <div className={`rounded-lg border px-3 py-2 text-xs ${styles[variant]}`}>{text}</div>;
+}
+
+const DEFAULT_API_PARAM_POLICY: ApiParamPolicy = {
+  openai: {
+    sendSampler: true,
+    temperature: true,
+    topP: true,
+    frequencyPenalty: true,
+    presencePenalty: true,
+    maxTokens: true,
+    stop: true
+  },
+  kobold: {
+    sendSampler: true,
+    memory: true,
+    maxTokens: true,
+    temperature: true,
+    topP: true,
+    topK: true,
+    topA: true,
+    minP: true,
+    typical: true,
+    tfs: true,
+    nSigma: true,
+    repetitionPenalty: true,
+    repetitionPenaltyRange: true,
+    repetitionPenaltySlope: true,
+    samplerOrder: true,
+    stop: true,
+    phraseBans: true,
+    useDefaultBadwords: true
+  }
+};
+
+function normalizeApiParamPolicy(raw: ApiParamPolicy | null | undefined): ApiParamPolicy {
+  return {
+    openai: {
+      ...DEFAULT_API_PARAM_POLICY.openai,
+      ...(raw?.openai ?? {})
+    },
+    kobold: {
+      ...DEFAULT_API_PARAM_POLICY.kobold,
+      ...(raw?.kobold ?? {})
+    }
+  };
 }
 
 function scrollToSettingsSection(id: string) {
@@ -90,6 +135,7 @@ export function SettingsScreen() {
   const [mcpDiscoveredTools, setMcpDiscoveredTools] = useState<McpDiscoveredTool[]>([]);
   const [mcpDiscoveryLoading, setMcpDiscoveryLoading] = useState(false);
   const [koboldBansInput, setKoboldBansInput] = useState("");
+  const [quickJumpFilter, setQuickJumpFilter] = useState("");
 
   useEffect(() => {
     void (async () => {
@@ -259,6 +305,25 @@ export function SettingsScreen() {
     if (!settings) return;
     const newSampler = { ...settings.samplerConfig, ...samplerPatch };
     await patch({ samplerConfig: newSampler });
+  }
+
+  async function patchApiParamPolicy(policyPatch: {
+    openai?: Partial<ApiParamPolicy["openai"]>;
+    kobold?: Partial<ApiParamPolicy["kobold"]>;
+  }) {
+    if (!settings) return;
+    const currentPolicy = normalizeApiParamPolicy(settings.apiParamPolicy);
+    const nextPolicy: ApiParamPolicy = {
+      openai: {
+        ...currentPolicy.openai,
+        ...(policyPatch.openai ?? {})
+      },
+      kobold: {
+        ...currentPolicy.kobold,
+        ...(policyPatch.kobold ?? {})
+      }
+    };
+    await patch({ apiParamPolicy: nextPolicy });
   }
 
   function readToolStates(): Record<string, boolean> {
@@ -483,6 +548,14 @@ export function SettingsScreen() {
     return row?.providerType === "koboldcpp" ? "koboldcpp" : "openai";
   }, [providers, settings?.activeProviderId]);
   const toolCallingLocked = activeProviderType === "koboldcpp";
+  const apiParamPolicy = useMemo(
+    () => normalizeApiParamPolicy(settings?.apiParamPolicy),
+    [settings?.apiParamPolicy]
+  );
+  const activeProvider = useMemo(() => {
+    if (!settings?.activeProviderId) return null;
+    return providers.find((provider) => provider.id === settings.activeProviderId) ?? null;
+  }, [providers, settings?.activeProviderId]);
 
   const tabMeta: Array<{ id: "basic" | "advanced" | "prompts"; label: string; desc: string }> = [
     { id: "basic", label: t("settings.basic"), desc: t("settings.tabBasicDesc") },
@@ -505,6 +578,7 @@ export function SettingsScreen() {
     if (activeTab === "advanced") {
       return [
         { id: "settings-sampler-defaults", label: t("settings.samplerDefaults") },
+        { id: "settings-api-param-forwarding", label: t("settings.apiParamForwarding") },
         { id: "settings-default-system-advanced", label: t("settings.defaultSysPrompt") },
         { id: "settings-context-window", label: t("settings.contextWindow") },
         { id: "settings-tools-mcp", label: t("settings.tools") },
@@ -516,6 +590,11 @@ export function SettingsScreen() {
       { id: "settings-default-system-prompts", label: t("settings.defaultSysPrompt") }
     ];
   }, [activeTab, t]);
+  const visibleQuickSections = useMemo(() => {
+    const needle = quickJumpFilter.trim().toLowerCase();
+    if (!needle) return quickSections;
+    return quickSections.filter((section) => section.label.toLowerCase().includes(needle));
+  }, [quickJumpFilter, quickSections]);
 
   if (!settings) {
     return <div className="flex h-full items-center justify-center"><div className="text-sm text-text-tertiary">{t("settings.loading")}</div></div>;
@@ -540,22 +619,72 @@ export function SettingsScreen() {
         ))}
       </div>
 
-      <div className="mb-4 rounded-lg border border-border bg-bg-secondary p-3">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("settings.quickJump")}</div>
-        <div className="flex flex-wrap gap-1.5">
-          {quickSections.map((section) => (
-            <button
-              key={section.id}
-              onClick={() => scrollToSettingsSection(section.id)}
-              className="rounded-md border border-border-subtle bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-            >
-              {section.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="space-y-4 xl:sticky xl:top-3 xl:self-start">
+          <div className="rounded-xl border border-border bg-bg-secondary p-4">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+              {t("settings.activeModel")}
+            </div>
+            <div className="space-y-2">
+              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("settings.provider")}</div>
+                <div className="mt-0.5 truncate text-sm font-medium text-text-primary">{activeProvider?.name || "-"}</div>
+              </div>
+              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.model")}</div>
+                <div className="mt-0.5 truncate text-sm font-medium text-text-primary">{settings.activeModel || "-"}</div>
+              </div>
+              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("settings.interfaceLanguage")}</div>
+                <div className="mt-0.5 text-sm font-medium text-text-primary">
+                  {settings.interfaceLanguage === "ru"
+                    ? t("common.russian")
+                    : settings.interfaceLanguage === "zh"
+                      ? t("common.chinese")
+                      : settings.interfaceLanguage === "ja"
+                        ? t("common.japanese")
+                        : t("common.english")}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3">
+              <StatusMessage text={providerResult} variant={resultVariant} />
+            </div>
+          </div>
 
-      <div key={activeTab} className="settings-content">
+          <div className="rounded-xl border border-border bg-bg-secondary p-3">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("settings.quickJump")}</div>
+            <input
+              type="text"
+              value={quickJumpFilter}
+              onChange={(e) => setQuickJumpFilter(e.target.value)}
+              placeholder={t("settings.searchSections")}
+              className="mb-2 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
+            />
+            <div className="max-h-[55vh] space-y-1 overflow-y-auto pr-1">
+              {visibleQuickSections.length > 0 ? (
+                visibleQuickSections.map((section, index) => (
+                  <button
+                    key={section.id}
+                    onClick={() => scrollToSettingsSection(section.id)}
+                    className="flex w-full items-center gap-2 rounded-md border border-border-subtle bg-bg-primary px-2.5 py-1.5 text-left text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                  >
+                    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded bg-bg-secondary px-1 text-[10px] text-text-tertiary">
+                      {index + 1}
+                    </span>
+                    <span className="truncate">{section.label}</span>
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-md border border-border-subtle bg-bg-primary px-2.5 py-2 text-[11px] text-text-tertiary">
+                  {t("settings.noMatchingSections")}
+                </div>
+              )}
+            </div>
+          </div>
+        </aside>
+
+        <div key={activeTab} className="settings-content">
       {activeTab === "prompts" ? (
         <div className="space-y-4">
           <div id="settings-prompt-templates" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
@@ -791,7 +920,6 @@ export function SettingsScreen() {
                   className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">
                   {t("settings.useModel")}
                 </button>
-                <StatusMessage text={providerResult} variant={resultVariant} />
               </div>
             </div>
 
@@ -983,6 +1111,94 @@ export function SettingsScreen() {
           </div>
 
           <div className="space-y-4">
+            <div id="settings-api-param-forwarding" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
+              <SectionTitle>{t("settings.apiParamForwarding")}</SectionTitle>
+              <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.apiParamForwardingDesc")}</p>
+              <div className="space-y-3">
+                <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                  <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.apiParamsOpenAi")}</div>
+                  <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
+                    <span>{t("settings.sendSampler")}</span>
+                    <input
+                      type="checkbox"
+                      checked={apiParamPolicy.openai.sendSampler}
+                      onChange={(e) => void patchApiParamPolicy({ openai: { sendSampler: e.target.checked } })}
+                    />
+                  </label>
+                  <div className={`mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 ${apiParamPolicy.openai.sendSampler ? "" : "opacity-60"}`}>
+                    {[
+                      { key: "temperature" as const, label: t("inspector.temperature") },
+                      { key: "topP" as const, label: t("inspector.topP") },
+                      { key: "frequencyPenalty" as const, label: t("inspector.freqPenalty") },
+                      { key: "presencePenalty" as const, label: t("inspector.presPenalty") },
+                      { key: "maxTokens" as const, label: t("inspector.maxTokens") },
+                      { key: "stop" as const, label: t("settings.stopSequences") }
+                    ].map((item) => (
+                      <label key={item.key} className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-2.5 py-2 text-xs text-text-secondary">
+                        <span>{item.label}</span>
+                        <input
+                          type="checkbox"
+                          checked={apiParamPolicy.openai[item.key]}
+                          disabled={!apiParamPolicy.openai.sendSampler}
+                          onChange={(e) => void patchApiParamPolicy({
+                            openai: { ...apiParamPolicy.openai, [item.key]: e.target.checked }
+                          })}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                  <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.apiParamsKobold")}</div>
+                  <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
+                    <span>{t("settings.sendSampler")}</span>
+                    <input
+                      type="checkbox"
+                      checked={apiParamPolicy.kobold.sendSampler}
+                      onChange={(e) => void patchApiParamPolicy({ kobold: { sendSampler: e.target.checked } })}
+                    />
+                  </label>
+                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {[
+                      { key: "memory" as const, label: t("settings.koboldMemoryLabel"), disableWhenSamplerOff: false },
+                      { key: "maxTokens" as const, label: t("inspector.maxTokens"), disableWhenSamplerOff: true },
+                      { key: "temperature" as const, label: t("inspector.temperature"), disableWhenSamplerOff: true },
+                      { key: "topP" as const, label: t("inspector.topP"), disableWhenSamplerOff: true },
+                      { key: "topK" as const, label: "Top-K", disableWhenSamplerOff: true },
+                      { key: "topA" as const, label: "Top-A", disableWhenSamplerOff: true },
+                      { key: "minP" as const, label: "Min-P", disableWhenSamplerOff: true },
+                      { key: "typical" as const, label: "Typical", disableWhenSamplerOff: true },
+                      { key: "tfs" as const, label: "TFS", disableWhenSamplerOff: true },
+                      { key: "nSigma" as const, label: "N-Sigma", disableWhenSamplerOff: true },
+                      { key: "repetitionPenalty" as const, label: t("settings.koboldRepetitionPenalty"), disableWhenSamplerOff: true },
+                      { key: "repetitionPenaltyRange" as const, label: t("settings.koboldRepetitionPenaltyRange"), disableWhenSamplerOff: true },
+                      { key: "repetitionPenaltySlope" as const, label: t("settings.koboldRepetitionPenaltySlope"), disableWhenSamplerOff: true },
+                      { key: "samplerOrder" as const, label: t("settings.koboldSamplerOrder"), disableWhenSamplerOff: true },
+                      { key: "stop" as const, label: t("settings.stopSequences"), disableWhenSamplerOff: true },
+                      { key: "phraseBans" as const, label: t("settings.koboldPhraseBansLabel"), disableWhenSamplerOff: true },
+                      { key: "useDefaultBadwords" as const, label: t("settings.koboldUseDefaultBadwordsIds"), disableWhenSamplerOff: true }
+                    ].map((item) => {
+                      const disabled = item.disableWhenSamplerOff && !apiParamPolicy.kobold.sendSampler;
+                      return (
+                        <label key={item.key} className={`flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-2.5 py-2 text-xs text-text-secondary ${disabled ? "opacity-60" : ""}`}>
+                          <span>{item.label}</span>
+                          <input
+                            type="checkbox"
+                            checked={apiParamPolicy.kobold[item.key]}
+                            disabled={disabled}
+                            onChange={(e) => void patchApiParamPolicy({
+                              kobold: { ...apiParamPolicy.kobold, [item.key]: e.target.checked }
+                            })}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div id="settings-default-system-advanced" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
               <SectionTitle>{t("settings.defaultSysPrompt")}</SectionTitle>
               <textarea value={settings.defaultSystemPrompt}
@@ -1319,6 +1535,7 @@ export function SettingsScreen() {
           </div>
         </div>
       )}
+      </div>
       </div>
     </div>
   );

@@ -300,6 +300,37 @@ const DEFAULT_SETTINGS = {
     koboldBannedPhrases: [] as string[],
     koboldUseDefaultBadwords: false
   },
+  apiParamPolicy: {
+    openai: {
+      sendSampler: true,
+      temperature: true,
+      topP: true,
+      frequencyPenalty: true,
+      presencePenalty: true,
+      maxTokens: true,
+      stop: true
+    },
+    kobold: {
+      sendSampler: true,
+      memory: true,
+      maxTokens: true,
+      temperature: true,
+      topP: true,
+      topK: true,
+      topA: true,
+      minP: true,
+      typical: true,
+      tfs: true,
+      nSigma: true,
+      repetitionPenalty: true,
+      repetitionPenaltyRange: true,
+      repetitionPenaltySlope: true,
+      samplerOrder: true,
+      stop: true,
+      phraseBans: true,
+      useDefaultBadwords: true
+    }
+  },
   defaultSystemPrompt: "You are an immersive RP assistant. Keep continuity and character consistency. Stay in character at all times.",
   contextWindowSize: 8192,
   contextTailBudgetWithSummaryPercent: 35,

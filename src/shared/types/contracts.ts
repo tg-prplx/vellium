@@ -38,6 +38,42 @@ export interface SamplerConfig {
   koboldUseDefaultBadwords?: boolean;
 }
 
+export interface OpenAiApiParamPolicy {
+  sendSampler: boolean;
+  temperature: boolean;
+  topP: boolean;
+  frequencyPenalty: boolean;
+  presencePenalty: boolean;
+  maxTokens: boolean;
+  stop: boolean;
+}
+
+export interface KoboldApiParamPolicy {
+  sendSampler: boolean;
+  memory: boolean;
+  maxTokens: boolean;
+  temperature: boolean;
+  topP: boolean;
+  topK: boolean;
+  topA: boolean;
+  minP: boolean;
+  typical: boolean;
+  tfs: boolean;
+  nSigma: boolean;
+  repetitionPenalty: boolean;
+  repetitionPenaltyRange: boolean;
+  repetitionPenaltySlope: boolean;
+  samplerOrder: boolean;
+  stop: boolean;
+  phraseBans: boolean;
+  useDefaultBadwords: boolean;
+}
+
+export interface ApiParamPolicy {
+  openai: OpenAiApiParamPolicy;
+  kobold: KoboldApiParamPolicy;
+}
+
 export interface PromptBlock {
   id: Id;
   kind: "system" | "jailbreak" | "character" | "author_note" | "lore" | "scene" | "history";
@@ -298,6 +334,7 @@ export interface AppSettings {
   compressModel?: string | null;
   mergeConsecutiveRoles: boolean;
   samplerConfig: SamplerConfig;
+  apiParamPolicy: ApiParamPolicy;
   defaultSystemPrompt: string;
   contextWindowSize: number;
   contextTailBudgetWithSummaryPercent: number;
