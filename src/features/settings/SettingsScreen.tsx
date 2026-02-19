@@ -59,7 +59,10 @@ export function SettingsScreen() {
   const [resultVariant, setResultVariant] = useState<"info" | "success" | "error">("info");
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [models, setModels] = useState<ProviderModel[]>([]);
+  const [translateModels, setTranslateModels] = useState<ProviderModel[]>([]);
   const [compressModels, setCompressModels] = useState<ProviderModel[]>([]);
+  const [ttsModels, setTtsModels] = useState<ProviderModel[]>([]);
+  const [ttsVoices, setTtsVoices] = useState<ProviderModel[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [selectedModelId, setSelectedModelId] = useState("");
 
@@ -199,6 +202,50 @@ export function SettingsScreen() {
       const list = await api.providerFetchModels(pid);
       setCompressModels(list);
     } catch { /* ignore */ }
+  }
+
+  async function loadTranslateModels(providerId?: string | null) {
+    const pid = providerId ?? settings?.translateProviderId;
+    if (!pid) {
+      setTranslateModels([]);
+      return;
+    }
+    try {
+      const list = await api.providerFetchModels(pid);
+      setTranslateModels(list);
+    } catch {
+      setTranslateModels([]);
+    }
+  }
+
+  async function loadTtsModels() {
+    if (!settings) return;
+    try {
+      const list = await api.settingsFetchTtsModels(settings.ttsBaseUrl, settings.ttsApiKey);
+      setTtsModels(list);
+      showResult(
+        list.length ? `${t("settings.modelsLoaded")}: ${list.length}` : t("settings.noModelsReturned"),
+        list.length ? "success" : "info"
+      );
+    } catch (error) {
+      setTtsModels([]);
+      showResult(`${t("settings.loadModelsFailed")}: ${String(error)}`, "error");
+    }
+  }
+
+  async function loadTtsVoices() {
+    if (!settings) return;
+    try {
+      const list = await api.settingsFetchTtsVoices(settings.ttsBaseUrl, settings.ttsApiKey);
+      setTtsVoices(list);
+      showResult(
+        list.length ? `${t("settings.voicesLoaded")}: ${list.length}` : t("settings.noVoicesReturned"),
+        list.length ? "success" : "info"
+      );
+    } catch (error) {
+      setTtsVoices([]);
+      showResult(`${t("settings.loadVoicesFailed")}: ${String(error)}`, "error");
+    }
   }
 
   async function applyActiveModel() {
@@ -371,6 +418,15 @@ export function SettingsScreen() {
       .catch(() => setCompressModels([]));
   }, [settings?.compressProviderId]);
 
+  // Auto-load translate models when translate provider changes
+  useEffect(() => {
+    if (!settings?.translateProviderId) {
+      setTranslateModels([]);
+      return;
+    }
+    void loadTranslateModels(settings.translateProviderId);
+  }, [settings?.translateProviderId]);
+
   useEffect(() => {
     if (!settings) return;
     setMcpServersDraft(Array.isArray(settings.mcpServers) ? settings.mcpServers : []);
@@ -438,9 +494,11 @@ export function SettingsScreen() {
     if (activeTab === "basic") {
       return [
         { id: "settings-general", label: t("settings.general") },
+        { id: "settings-translation-model", label: t("settings.translateModel") },
         { id: "settings-quick-presets", label: t("settings.quickPresets") },
         { id: "settings-manual-provider", label: t("settings.manualConfig") },
         { id: "settings-active-model", label: t("settings.activeModel") },
+        { id: "settings-tts", label: t("settings.tts") },
         { id: "settings-compress-model", label: t("settings.compressModel") }
       ];
     }
@@ -577,6 +635,47 @@ export function SettingsScreen() {
                 <InputField value={settings.translateLanguage || settings.responseLanguage || "English"} onChange={(v) => patch({ translateLanguage: v })} />
               </div>
 
+              <div id="settings-translation-model" className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                <div className="mb-2">
+                  <div className="text-sm font-medium text-text-primary">{t("settings.translateModel")}</div>
+                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.translateModelDesc")}</div>
+                </div>
+                <div className="space-y-2">
+                  <div>
+                    <FieldLabel>{t("settings.provider")}</FieldLabel>
+                    <SelectField
+                      value={settings.translateProviderId || ""}
+                      onChange={(v) => {
+                        void patch({ translateProviderId: v || null, translateModel: null });
+                      }}
+                    >
+                      <option value="">({t("settings.activeModel")})</option>
+                      {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                    </SelectField>
+                  </div>
+                  {settings.translateProviderId && (
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <FieldLabel>{t("chat.model")}</FieldLabel>
+                        <button
+                          onClick={() => void loadTranslateModels(settings.translateProviderId)}
+                          className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                        >
+                          {t("settings.loadModels")}
+                        </button>
+                      </div>
+                      <SelectField
+                        value={settings.translateModel || ""}
+                        onChange={(v) => patch({ translateModel: v || null })}
+                      >
+                        <option value="">({t("settings.activeModel")})</option>
+                        {translateModels.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
+                      </SelectField>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
                 <div>
                   <div className="text-sm font-medium text-text-primary">{t("settings.fullLocalMode")}</div>
@@ -693,6 +792,72 @@ export function SettingsScreen() {
                   {t("settings.useModel")}
                 </button>
                 <StatusMessage text={providerResult} variant={resultVariant} />
+              </div>
+            </div>
+
+            <div id="settings-tts" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
+              <SectionTitle>{t("settings.tts")}</SectionTitle>
+              <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ttsDesc")}</p>
+              <div className="space-y-3">
+                <div>
+                  <FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel>
+                  <InputField
+                    value={settings.ttsBaseUrl || ""}
+                    onChange={(v) => patch({ ttsBaseUrl: v })}
+                    placeholder="https://api.openai.com/v1"
+                  />
+                </div>
+                <div>
+                  <FieldLabel>{t("settings.apiKey")}</FieldLabel>
+                  <InputField
+                    type="password"
+                    value={settings.ttsApiKey || ""}
+                    onChange={(v) => patch({ ttsApiKey: v })}
+                    placeholder={t("settings.apiKey")}
+                  />
+                </div>
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <FieldLabel>{t("settings.ttsModel")}</FieldLabel>
+                    <button
+                      onClick={() => void loadTtsModels()}
+                      className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                    >
+                      {t("settings.loadModels")}
+                    </button>
+                  </div>
+                  <SelectField value={settings.ttsModel || ""} onChange={(v) => patch({ ttsModel: v })}>
+                    <option value="">{t("settings.selectModel")}</option>
+                    {ttsModels.map((model) => (<option key={model.id} value={model.id}>{model.id}</option>))}
+                  </SelectField>
+                </div>
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <FieldLabel>{t("settings.ttsVoice")}</FieldLabel>
+                    <button
+                      onClick={() => void loadTtsVoices()}
+                      className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                    >
+                      {t("settings.loadVoices")}
+                    </button>
+                  </div>
+                  <input
+                    list="tts-voice-options"
+                    value={settings.ttsVoice || ""}
+                    onChange={(e) => patch({ ttsVoice: e.target.value })}
+                    placeholder="alloy"
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary"
+                  />
+                  <datalist id="tts-voice-options">
+                    <option value="alloy" />
+                    <option value="echo" />
+                    <option value="fable" />
+                    <option value="onyx" />
+                    <option value="nova" />
+                    <option value="shimmer" />
+                    {ttsVoices.map((voice) => (<option key={voice.id} value={voice.id} />))}
+                  </datalist>
+                </div>
               </div>
             </div>
 

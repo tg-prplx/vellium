@@ -102,6 +102,33 @@ async function del<T>(path: string): Promise<T> {
   return request<T>("DELETE", path);
 }
 
+async function requestBlob(method: string, path: string, body?: unknown): Promise<Blob> {
+  const bases = requestBases();
+  let lastErr: unknown = new Error("Request failed");
+
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        method,
+        headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+        body: body !== undefined ? JSON.stringify(body) : undefined
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      return await res.blob();
+    } catch (err) {
+      lastErr = err;
+      if (!isNetworkError(err) || import.meta.env.DEV) {
+        throw err;
+      }
+    }
+  }
+
+  throw lastErr;
+}
+
 export type StreamCallbacks = {
   onDelta?: (delta: string) => void;
   onToolEvent?: (event: {
@@ -211,6 +238,10 @@ export const api = {
   settingsGet: () => get<AppSettings>("/settings"),
   settingsUpdate: (patchData: Partial<AppSettings>) => patchReq<AppSettings>("/settings", patchData),
   settingsReset: () => post<AppSettings>("/settings/reset"),
+  settingsFetchTtsModels: (baseUrl?: string, apiKey?: string) =>
+    post<ProviderModel[]>("/settings/tts/models", { baseUrl, apiKey }),
+  settingsFetchTtsVoices: (baseUrl?: string, apiKey?: string) =>
+    post<ProviderModel[]>("/settings/tts/voices", { baseUrl, apiKey }),
   settingsTestMcpServer: (server: McpServerConfig) => post<McpServerTestResult>("/settings/mcp/test", { server }),
   settingsImportMcpSource: (source: string) => post<McpImportResult>("/settings/mcp/import", { source }),
   settingsDiscoverMcpTools: (serverIds?: string[]) => post<McpDiscoverResult>("/settings/mcp/discover", { serverIds }),
@@ -279,6 +310,8 @@ export const api = {
     del<{ ok: boolean; timeline: ChatMessage[] }>(`/messages/${messageId}`),
   chatTranslateMessage: (messageId: string, targetLanguage?: string) =>
     post<{ translation: string }>(`/chats/messages/${messageId}/translate`, { targetLanguage }),
+  chatTtsMessage: (messageId: string) =>
+    requestBlob("POST", `/chats/messages/${messageId}/tts`),
   chatSaveSampler: (chatId: string, samplerConfig: SamplerConfig) =>
     patchReq<{ ok: boolean }>(`/chats/${chatId}/sampler`, { samplerConfig }),
   chatGetSampler: (chatId: string) =>
