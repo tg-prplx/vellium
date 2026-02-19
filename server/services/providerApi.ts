@@ -68,36 +68,81 @@ export function buildKoboldGenerateBody(params: {
   prompt: string;
   memory: string;
   samplerConfig: Record<string, unknown>;
+  includeMemory?: boolean;
 }): Record<string, unknown> {
   const sc = params.samplerConfig || {};
-  const stop = parseStopSequences(sc.stop);
-  const bannedStrings = parsePhraseBans(sc.koboldBannedPhrases);
-  const samplerOrder = parseSamplerOrder(sc.samplerOrder);
-  const useDefaultBadwords = sc.koboldUseDefaultBadwords === true;
-  const nSigma = parseNumber(sc.nSigma, 0, 0, 1);
-
-  return {
+  const out: Record<string, unknown> = {
     prompt: params.prompt,
-    memory: params.memory,
-    max_length: Math.floor(parseNumber(sc.maxTokens, 2048, 16, 8192)),
-    temperature: parseNumber(sc.temperature, 0.9, 0, 5),
-    top_p: parseNumber(sc.topP, 1, 0, 1),
-    top_k: Math.floor(parseNumber(sc.topK, 100, 0, 1000)),
-    top_a: parseNumber(sc.topA, 0, 0, 1),
-    min_p: parseNumber(sc.minP, 0, 0, 1),
-    typical: parseNumber(sc.typical, 1, 0, 1),
-    tfs: parseNumber(sc.tfs, 1, 0, 1),
-    rep_pen: parseNumber(sc.repetitionPenalty, 1.1, 0, 3),
-    rep_pen_range: Math.floor(parseNumber(sc.repetitionPenaltyRange, 0, 0, 4096)),
-    rep_pen_slope: parseNumber(sc.repetitionPenaltySlope, 1, 0, 10),
-    use_default_badwordsids: useDefaultBadwords,
     trim_stop: true,
-    replace_instruct_placeholders: true,
-    ...(stop.length > 0 ? { stop_sequence: stop } : {}),
-    ...(bannedStrings.length > 0 ? { banned_strings: bannedStrings, banned_tokens: bannedStrings } : {}),
-    ...(samplerOrder.length > 0 ? { sampler_order: samplerOrder } : {}),
-    ...(nSigma > 0 ? { nsigma: nSigma, n_sigma: nSigma, smoothing_factor: nSigma } : {})
+    replace_instruct_placeholders: true
   };
+
+  if (params.includeMemory !== false) {
+    out.memory = params.memory;
+  }
+  if (sc.maxTokens !== undefined) {
+    out.max_length = Math.floor(parseNumber(sc.maxTokens, 2048, 16, 8192));
+  }
+  if (sc.temperature !== undefined) {
+    out.temperature = parseNumber(sc.temperature, 0.9, 0, 5);
+  }
+  if (sc.topP !== undefined) {
+    out.top_p = parseNumber(sc.topP, 1, 0, 1);
+  }
+  if (sc.topK !== undefined) {
+    out.top_k = Math.floor(parseNumber(sc.topK, 100, 0, 1000));
+  }
+  if (sc.topA !== undefined) {
+    out.top_a = parseNumber(sc.topA, 0, 0, 1);
+  }
+  if (sc.minP !== undefined) {
+    out.min_p = parseNumber(sc.minP, 0, 0, 1);
+  }
+  if (sc.typical !== undefined) {
+    out.typical = parseNumber(sc.typical, 1, 0, 1);
+  }
+  if (sc.tfs !== undefined) {
+    out.tfs = parseNumber(sc.tfs, 1, 0, 1);
+  }
+  if (sc.repetitionPenalty !== undefined) {
+    out.rep_pen = parseNumber(sc.repetitionPenalty, 1.1, 0, 3);
+  }
+  if (sc.repetitionPenaltyRange !== undefined) {
+    out.rep_pen_range = Math.floor(parseNumber(sc.repetitionPenaltyRange, 0, 0, 4096));
+  }
+  if (sc.repetitionPenaltySlope !== undefined) {
+    out.rep_pen_slope = parseNumber(sc.repetitionPenaltySlope, 1, 0, 10);
+  }
+  if (sc.koboldUseDefaultBadwords !== undefined) {
+    out.use_default_badwordsids = sc.koboldUseDefaultBadwords === true;
+  }
+
+  const stop = parseStopSequences(sc.stop);
+  if (stop.length > 0) {
+    out.stop_sequence = stop;
+  }
+
+  const bannedStrings = parsePhraseBans(sc.koboldBannedPhrases);
+  if (bannedStrings.length > 0) {
+    out.banned_strings = bannedStrings;
+    out.banned_tokens = bannedStrings;
+  }
+
+  const samplerOrder = parseSamplerOrder(sc.samplerOrder);
+  if (samplerOrder.length > 0) {
+    out.sampler_order = samplerOrder;
+  }
+
+  if (sc.nSigma !== undefined) {
+    const nSigma = parseNumber(sc.nSigma, 0, 0, 1);
+    if (nSigma > 0) {
+      out.nsigma = nSigma;
+      out.n_sigma = nSigma;
+      out.smoothing_factor = nSigma;
+    }
+  }
+
+  return out;
 }
 
 export async function requestKoboldGenerate(

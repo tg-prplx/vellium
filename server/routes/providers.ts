@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { db, maskApiKey, isLocalhostUrl } from "../db.js";
+import { db, maskApiKey, isLocalhostUrl, DEFAULT_SETTINGS } from "../db.js";
 import { fetchKoboldModels, normalizeProviderType, testKoboldConnection } from "../services/providerApi.js";
+import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 
 const router = Router();
 
@@ -28,7 +29,14 @@ function rowToProfile(row: ProviderRow) {
 
 function getSettings() {
   const row = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string };
-  return JSON.parse(row.payload);
+  const stored = JSON.parse(row.payload);
+  return {
+    ...DEFAULT_SETTINGS,
+    ...stored,
+    samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
+    apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
+    promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) }
+  };
 }
 
 router.post("/", (req, res) => {

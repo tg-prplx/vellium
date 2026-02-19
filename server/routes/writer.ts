@@ -4,6 +4,7 @@ import { join } from "path";
 import { db, newId, now, DATA_DIR, DEFAULT_SETTINGS } from "../db.js";
 import { runConsistency } from "../domain/writerEngine.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
+import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 
 const router = Router();
 const KOBOLD_TAGS = {
@@ -471,6 +472,7 @@ function getSettings() {
     ...DEFAULT_SETTINGS,
     ...stored,
     samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
+    apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) }
   };
 }
@@ -490,6 +492,7 @@ async function callLlm(systemPrompt: string, userPrompt: string, sampler?: Write
   try {
     const providerType = normalizeProviderType(provider.provider_type);
     if (providerType === "koboldcpp") {
+      const koboldPolicy = normalizeApiParamPolicy(settings.apiParamPolicy).kobold;
       const customMemory = String(settings.samplerConfig.koboldMemory || "").trim();
       const memory = [
         customMemory,
@@ -497,9 +500,7 @@ async function callLlm(systemPrompt: string, userPrompt: string, sampler?: Write
           ? `${KOBOLD_TAGS.systemOpen}\n${systemPrompt}\n${KOBOLD_TAGS.systemClose}`
           : ""
       ].filter(Boolean).join("\n\n");
-      const body = buildKoboldGenerateBody({
-        prompt: `${KOBOLD_TAGS.inputOpen}\n${userPrompt}\n${KOBOLD_TAGS.inputClose}\n\n${KOBOLD_TAGS.outputOpen}`,
-        memory,
+      const koboldSamplerConfig = buildKoboldSamplerConfig({
         samplerConfig: {
           temperature: sampler?.temperature ?? settings.samplerConfig.temperature ?? 0.9,
           maxTokens: sampler?.maxTokens ?? settings.samplerConfig.maxTokens ?? 2048,
@@ -518,7 +519,14 @@ async function callLlm(systemPrompt: string, userPrompt: string, sampler?: Write
           koboldMemory: settings.samplerConfig.koboldMemory,
           koboldUseDefaultBadwords: settings.samplerConfig.koboldUseDefaultBadwords,
           koboldBannedPhrases: settings.samplerConfig.koboldBannedPhrases
-        }
+        },
+        apiParamPolicy: settings.apiParamPolicy
+      });
+      const body = buildKoboldGenerateBody({
+        prompt: `${KOBOLD_TAGS.inputOpen}\n${userPrompt}\n${KOBOLD_TAGS.inputClose}\n\n${KOBOLD_TAGS.outputOpen}`,
+        memory,
+        samplerConfig: koboldSamplerConfig,
+        includeMemory: koboldPolicy.memory
       });
       const response = await requestKoboldGenerate(provider, body);
       if (!response.ok) {
@@ -529,6 +537,18 @@ async function callLlm(systemPrompt: string, userPrompt: string, sampler?: Write
       return extractKoboldGeneratedText(payload) || "[Empty response]";
     }
 
+    const openAiSampling = buildOpenAiSamplingPayload({
+      samplerConfig: {
+        temperature: sampler?.temperature ?? settings.samplerConfig.temperature ?? 0.9,
+        maxTokens: sampler?.maxTokens ?? settings.samplerConfig.maxTokens ?? 2048
+      },
+      apiParamPolicy: settings.apiParamPolicy,
+      fields: ["temperature", "maxTokens"],
+      defaults: {
+        temperature: 0.9,
+        maxTokens: 2048
+      }
+    });
     const response = await fetch(`${provider.base_url}/chat/completions`, {
       method: "POST",
       headers: {
@@ -541,8 +561,7 @@ async function callLlm(systemPrompt: string, userPrompt: string, sampler?: Write
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        temperature: sampler?.temperature ?? settings.samplerConfig.temperature ?? 0.9,
-        max_tokens: sampler?.maxTokens ?? settings.samplerConfig.maxTokens ?? 2048
+        ...openAiSampling
       })
     });
 
