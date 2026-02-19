@@ -1083,6 +1083,13 @@ async function completeProviderOnce(params: {
   return body.choices?.[0]?.message?.content?.trim() ?? "";
 }
 
+function normalizeOpenAiBaseUrl(raw: string): string {
+  const trimmed = String(raw || "").trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  if (/\/v1$/i.test(trimmed)) return trimmed;
+  return `${trimmed}/v1`;
+}
+
 // Core LLM streaming function — used by send, regenerate, auto-conversation
 async function streamLlmResponse(
   chatId: string,
@@ -1846,8 +1853,11 @@ router.post("/messages/:id/translate", async (req, res: Response) => {
   if (!message) { res.status(404).json({ error: "Message not found" }); return; }
 
   const settings = getSettings();
-  const providerId = settings.activeProviderId;
-  const modelId = settings.activeModel;
+  const providerId = settings.translateProviderId || settings.activeProviderId;
+  let modelId = settings.translateModel || settings.activeModel;
+  if (settings.translateProviderId && !settings.translateModel && settings.translateProviderId !== settings.activeProviderId) {
+    modelId = null;
+  }
 
   if (!providerId || !modelId) {
     res.json({ translation: `[No model configured] ${message.content}` });
@@ -1856,6 +1866,14 @@ router.post("/messages/:id/translate", async (req, res: Response) => {
 
   const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
   if (!provider) { res.json({ translation: message.content }); return; }
+  if (settings.fullLocalMode && !isLocalhostUrl(provider.base_url)) {
+    res.json({ translation: message.content });
+    return;
+  }
+  if (provider.full_local_only && !isLocalhostUrl(provider.base_url)) {
+    res.json({ translation: message.content });
+    return;
+  }
 
   const lang = targetLanguage || settings.translateLanguage || settings.responseLanguage || "English";
 
@@ -1870,6 +1888,59 @@ router.post("/messages/:id/translate", async (req, res: Response) => {
     res.json({ translation });
   } catch {
     res.json({ translation: message.content });
+  }
+});
+
+// --- TTS message (OpenAI-compatible audio/speech) ---
+router.post("/messages/:id/tts", async (req, res: Response) => {
+  const messageId = req.params.id;
+  const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId) as MessageRow | undefined;
+  if (!message) {
+    res.status(404).json({ error: "Message not found" });
+    return;
+  }
+
+  const settings = getSettings();
+  const baseUrl = normalizeOpenAiBaseUrl(String(settings.ttsBaseUrl || ""));
+  const apiKey = String(settings.ttsApiKey || "").trim();
+  const model = String(settings.ttsModel || "").trim();
+  const voice = String(settings.ttsVoice || "alloy").trim() || "alloy";
+  if (!baseUrl || !model) {
+    res.status(400).json({ error: "TTS endpoint/model not configured" });
+    return;
+  }
+
+  if (settings.fullLocalMode && !isLocalhostUrl(baseUrl)) {
+    res.status(403).json({ error: "TTS endpoint blocked by Full Local Mode" });
+    return;
+  }
+
+  try {
+    const response = await fetch(`${baseUrl}/audio/speech`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+      },
+      body: JSON.stringify({
+        model,
+        voice,
+        input: String(message.content || "")
+      })
+    });
+    if (!response.ok) {
+      const details = await response.text().catch(() => "");
+      res.status(response.status).json({ error: `TTS failed: ${details.slice(0, 500) || response.statusText}` });
+      return;
+    }
+
+    const contentType = response.headers.get("content-type") || "audio/mpeg";
+    const arrayBuffer = await response.arrayBuffer();
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(Buffer.from(arrayBuffer));
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "TTS request failed" });
   }
 });
 

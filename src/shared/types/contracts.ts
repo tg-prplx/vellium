@@ -285,9 +285,15 @@ export interface AppSettings {
   fullLocalMode: boolean;
   responseLanguage: string;
   translateLanguage: string;
+  translateProviderId?: string | null;
+  translateModel?: string | null;
   interfaceLanguage: "en" | "ru" | "zh" | "ja";
   activeProviderId?: string | null;
   activeModel?: string | null;
+  ttsBaseUrl: string;
+  ttsApiKey: string;
+  ttsModel: string;
+  ttsVoice: string;
   compressProviderId?: string | null;
   compressModel?: string | null;
   mergeConsecutiveRoles: boolean;

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, DEFAULT_SETTINGS } from "../db.js";
+import { db, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
 import { discoverMcpToolCatalog, isAllowedMcpCommand, testMcpServerConnection, type McpServerConfig } from "../services/mcp.js";
 
 const router = Router();
@@ -16,6 +16,89 @@ function getSettings() {
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) },
     mcpServers
   };
+}
+
+function normalizeOpenAiBaseUrl(raw: string): string {
+  const trimmed = String(raw || "").trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  if (/\/v1$/i.test(trimmed)) return trimmed;
+  return `${trimmed}/v1`;
+}
+
+async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string): Promise<Array<{ id: string }>> {
+  const baseUrl = normalizeOpenAiBaseUrl(baseUrlRaw);
+  if (!baseUrl) return [];
+  const apiKey = String(apiKeyRaw || "").trim();
+  const response = await fetch(`${baseUrl}/models`, {
+    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined
+  });
+  if (!response.ok) return [];
+  const body = await response.json() as { data?: Array<{ id?: unknown }>; models?: Array<{ id?: unknown }>; };
+  const out: Array<{ id: string }> = [];
+  if (Array.isArray(body.data)) {
+    for (const item of body.data) {
+      const id = String(item?.id || "").trim();
+      if (id) out.push({ id });
+    }
+  }
+  if (Array.isArray(body.models)) {
+    for (const item of body.models) {
+      const id = String(item?.id || "").trim();
+      if (id) out.push({ id });
+    }
+  }
+  const uniq = new Map<string, { id: string }>();
+  for (const row of out) uniq.set(row.id, row);
+  return Array.from(uniq.values());
+}
+
+function extractVoiceIds(payload: unknown): Array<{ id: string }> {
+  const out: Array<{ id: string }> = [];
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      if (typeof item === "string") {
+        const id = item.trim();
+        if (id) out.push({ id });
+        continue;
+      }
+      if (!item || typeof item !== "object") continue;
+      const row = item as { id?: unknown; name?: unknown; voice?: unknown };
+      const id = String(row.id ?? row.voice ?? row.name ?? "").trim();
+      if (id) out.push({ id });
+    }
+  } else if (payload && typeof payload === "object") {
+    const row = payload as { data?: unknown; voices?: unknown; items?: unknown };
+    if (row.data !== undefined) out.push(...extractVoiceIds(row.data));
+    if (row.voices !== undefined) out.push(...extractVoiceIds(row.voices));
+    if (row.items !== undefined) out.push(...extractVoiceIds(row.items));
+  }
+  const uniq = new Map<string, { id: string }>();
+  for (const item of out) uniq.set(item.id, item);
+  return Array.from(uniq.values());
+}
+
+async function fetchOpenAiCompatibleVoices(baseUrlRaw: string, apiKeyRaw: string): Promise<Array<{ id: string }>> {
+  const baseUrl = normalizeOpenAiBaseUrl(baseUrlRaw);
+  if (!baseUrl) return [];
+  const apiKey = String(apiKeyRaw || "").trim();
+  const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
+  const candidates = [
+    `${baseUrl}/audio/voices`,
+    `${baseUrl}/voices`,
+    `${baseUrl}/audio/speech/voices`
+  ];
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, { headers });
+      if (!response.ok) continue;
+      const body = await response.json().catch(() => null);
+      const voices = extractVoiceIds(body);
+      if (voices.length > 0) return voices;
+    } catch {
+      // try next candidate endpoint
+    }
+  }
+  return [];
 }
 
 function normalizeMcpServer(raw: unknown, fallbackIndex = 1): McpServerConfig | null {
@@ -113,6 +196,54 @@ router.patch("/", (req, res) => {
   const updated = { ...current, ...patch };
   db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(updated));
   res.json(updated);
+});
+
+router.post("/tts/models", async (req, res) => {
+  const current = getSettings();
+  const body = req.body as { baseUrl?: unknown; apiKey?: unknown } | undefined;
+  const baseUrl = String(body?.baseUrl ?? current.ttsBaseUrl ?? "").trim();
+  const apiKey = String(body?.apiKey ?? current.ttsApiKey ?? "").trim();
+
+  if (!baseUrl) {
+    res.json([]);
+    return;
+  }
+
+  if (current.fullLocalMode && !isLocalhostUrl(baseUrl)) {
+    res.status(403).json({ error: "TTS endpoint blocked by Full Local Mode" });
+    return;
+  }
+
+  try {
+    const models = await fetchOpenAiCompatibleModels(baseUrl, apiKey);
+    res.json(models);
+  } catch {
+    res.json([]);
+  }
+});
+
+router.post("/tts/voices", async (req, res) => {
+  const current = getSettings();
+  const body = req.body as { baseUrl?: unknown; apiKey?: unknown } | undefined;
+  const baseUrl = String(body?.baseUrl ?? current.ttsBaseUrl ?? "").trim();
+  const apiKey = String(body?.apiKey ?? current.ttsApiKey ?? "").trim();
+
+  if (!baseUrl) {
+    res.json([]);
+    return;
+  }
+
+  if (current.fullLocalMode && !isLocalhostUrl(baseUrl)) {
+    res.status(403).json({ error: "TTS endpoint blocked by Full Local Mode" });
+    return;
+  }
+
+  try {
+    const voices = await fetchOpenAiCompatibleVoices(baseUrl, apiKey);
+    res.json(voices);
+  } catch {
+    res.json([]);
+  }
 });
 
 router.post("/reset", (_req, res) => {

@@ -229,6 +229,10 @@ export function ChatScreen() {
   const [translatingId, setTranslatingId] = useState<string | null>(null);
   const [translatedTexts, setTranslatedTexts] = useState<Record<string, string>>({});
   const [inPlaceTranslations, setInPlaceTranslations] = useState<Record<string, string>>({});
+  const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null);
+  const [ttsPlayingId, setTtsPlayingId] = useState<string | null>(null);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsAudioUrlRef = useRef<string | null>(null);
 
   // Active preset
   const [activePreset, setActivePreset] = useState<string | null>(null);
@@ -379,6 +383,19 @@ export function ChatScreen() {
       const def = list.find((p) => p.isDefault);
       if (def) setActivePersona(def);
     }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.pause();
+        ttsAudioRef.current = null;
+      }
+      if (ttsAudioUrlRef.current) {
+        URL.revokeObjectURL(ttsAudioUrlRef.current);
+        ttsAudioUrlRef.current = null;
+      }
+    };
   }, []);
 
   // Auto-load models when provider changes
@@ -803,6 +820,48 @@ export function ChatScreen() {
       setErrorText(String(error));
     }
     setTranslatingId(null);
+  }
+
+  async function handleTts(msgId: string) {
+    if (ttsLoadingId) return;
+
+    if (ttsPlayingId === msgId && ttsAudioRef.current) {
+      ttsAudioRef.current.pause();
+      ttsAudioRef.current.currentTime = 0;
+      setTtsPlayingId(null);
+      return;
+    }
+
+    setTtsLoadingId(msgId);
+    try {
+      const blob = await api.chatTtsMessage(msgId);
+
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.pause();
+        ttsAudioRef.current = null;
+      }
+      if (ttsAudioUrlRef.current) {
+        URL.revokeObjectURL(ttsAudioUrlRef.current);
+      }
+
+      const objectUrl = URL.createObjectURL(blob);
+      ttsAudioUrlRef.current = objectUrl;
+      const audio = new Audio(objectUrl);
+      ttsAudioRef.current = audio;
+      audio.onended = () => {
+        setTtsPlayingId((prev) => (prev === msgId ? null : prev));
+      };
+      audio.onerror = () => {
+        setTtsPlayingId((prev) => (prev === msgId ? null : prev));
+      };
+      setTtsPlayingId(msgId);
+      await audio.play();
+    } catch (error) {
+      setTtsPlayingId(null);
+      setErrorText(String(error));
+    } finally {
+      setTtsLoadingId(null);
+    }
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1877,6 +1936,18 @@ export function ChatScreen() {
                           title={t("chat.translateInPlace")}>
                           {t("chat.translateReplace")}
                         </button>
+                        {(msg.role === "assistant" || msg.role === "user") && String(msg.content || "").trim() && (
+                          <button
+                            onClick={() => { void handleTts(msg.id); }}
+                            disabled={ttsLoadingId === msg.id}
+                            className="rounded-md px-2 py-0.5 text-[11px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50"
+                            title={t("chat.tts")}
+                          >
+                            {ttsLoadingId === msg.id
+                              ? t("chat.ttsLoading")
+                              : (ttsPlayingId === msg.id ? t("chat.ttsStop") : t("chat.tts"))}
+                          </button>
+                        )}
                         <button onClick={() => handleDelete(msg.id)}
                           className="rounded-md px-2 py-0.5 text-[11px] text-danger/60 hover:bg-danger-subtle hover:text-danger">{t("chat.delete")}</button>
                       </div>
