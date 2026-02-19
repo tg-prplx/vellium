@@ -131,7 +131,9 @@ export function WritingScreen() {
   const [editingContent, setEditingContent] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  const [bookSearchQuery, setBookSearchQuery] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
+  const [chapterDynamicsCollapsed, setChapterDynamicsCollapsed] = useState(false);
   const [bgTasks, setBgTasks] = useState<BackgroundTask[]>(getBackgroundTasks());
   const [chapterSettings, setChapterSettings] = useState<WriterChapterSettings>({ ...DEFAULT_CHAPTER_SETTINGS });
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
@@ -234,6 +236,32 @@ export function WritingScreen() {
       setRenameDraft(updated.name || "");
       setProjects((prev) => prev.map((project) => (project.id === updated.id ? updated : project)));
       log(`${t("writing.logBookRenamed")}: ${updated.name}`);
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+    }
+  }
+
+  async function deleteActiveProject() {
+    if (!activeProject) return;
+    if (!confirm(t("writing.confirmDeleteBook"))) return;
+    const deletingId = activeProject.id;
+    const deletingName = activeProject.name;
+    try {
+      await api.writerProjectDelete(deletingId);
+      const remaining = projects.filter((project) => project.id !== deletingId);
+      setProjects(remaining);
+      if (remaining.length > 0) {
+        await openProject(remaining[0]);
+      } else {
+        setActiveProject(null);
+        setRenameDraft("");
+        setChapters([]);
+        setScenes([]);
+        setSelectedChapterId(null);
+        setSelectedSceneId(null);
+        setChapterSettings({ ...DEFAULT_CHAPTER_SETTINGS });
+      }
+      log(`${t("writing.logBookDeleted")}: ${deletingName}`);
     } catch (err) {
       log(`${t("writing.logError")}: ${String(err)}`);
     }
@@ -611,6 +639,14 @@ export function WritingScreen() {
   }
 
   const selectedScene = useMemo(() => scenes.find((s) => s.id === selectedSceneId) ?? null, [scenes, selectedSceneId]);
+  const filteredProjects = useMemo(() => {
+    const q = bookSearchQuery.trim().toLowerCase();
+    if (!q) return projects;
+    return projects.filter((project) => {
+      const haystack = `${project.name || ""} ${project.description || ""}`.toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [projects, bookSearchQuery]);
 
   function startEditing() {
     if (!selectedScene) return;
@@ -702,13 +738,32 @@ export function WritingScreen() {
             >
               {t("writing.rename")}
             </button>
+            <button
+              onClick={deleteActiveProject}
+              disabled={!activeProject}
+              className="rounded-md border border-danger-border px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger-subtle disabled:opacity-40"
+              title={t("chat.delete")}
+            >
+              {t("chat.delete")}
+            </button>
+          </div>
+
+          <div className="mb-2">
+            <input
+              value={bookSearchQuery}
+              onChange={(e) => setBookSearchQuery(e.target.value)}
+              placeholder={t("writing.searchBooks")}
+              className="w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-[11px] text-text-primary placeholder:text-text-tertiary"
+            />
           </div>
 
           <div className="list-animate flex-1 space-y-1.5 overflow-y-auto">
             {projects.length === 0 ? (
               <EmptyState title={t("writing.noProjects")} description={t("writing.noProjectsDesc")} />
+            ) : filteredProjects.length === 0 ? (
+              <EmptyState title={t("writing.noBookSearchResults")} description={t("writing.noBookSearchResultsDesc")} />
             ) : (
-              projects.map((project) => (
+              filteredProjects.map((project) => (
                 <button
                   key={project.id}
                   onClick={() => openProject(project)}
@@ -718,8 +773,8 @@ export function WritingScreen() {
                       : "text-text-secondary hover:bg-bg-hover"
                   }`}
                 >
-                  <div className="truncate text-sm font-medium">{project.name || t("writing.untitledBook")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{project.description}</div>
+                  <div className="break-words whitespace-normal text-sm font-medium leading-snug">{project.name || t("writing.untitledBook")}</div>
+                  <div className="mt-0.5 break-words text-[11px] text-text-tertiary">{project.description}</div>
                 </button>
               ))
             )}
@@ -893,80 +948,97 @@ export function WritingScreen() {
 
           <div className="float-card mb-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
             <div className="mb-2 flex items-center justify-between">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-                {t("writing.chapterDynamics")}
-              </div>
+              <button
+                onClick={() => setChapterDynamicsCollapsed((prev) => !prev)}
+                className="flex items-center gap-1.5 text-left"
+                title={chapterDynamicsCollapsed ? t("writing.expandSection") : t("writing.collapseSection")}
+              >
+                <svg
+                  className={`h-3 w-3 text-text-tertiary transition-transform ${chapterDynamicsCollapsed ? "-rotate-90" : ""}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+                  {t("writing.chapterDynamics")}
+                </div>
+              </button>
               <span className="text-[11px] text-text-secondary">
                 {selectedChapter ? selectedChapter.title : t("writing.selectChapter")}
               </span>
             </div>
-            {selectedChapter ? (
-              <div className="space-y-2">
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                  <label className="text-[10px] text-text-tertiary">
-                    {t("writing.tone")}
-                    <input
-                      value={chapterSettings.tone}
-                      onChange={(e) => updateSelectedChapterSettings({ tone: e.target.value })}
-                      className="mt-1 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
-                    />
-                  </label>
-                  <label className="text-[10px] text-text-tertiary">
-                    {t("inspector.pacing")}
-                    <select
-                      value={chapterSettings.pacing}
-                      onChange={(e) => updateSelectedChapterSettings({ pacing: e.target.value as WriterChapterSettings["pacing"] })}
-                      className="mt-1 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
-                    >
-                      <option value="slow">{t("inspector.slow")}</option>
-                      <option value="balanced">{t("inspector.balanced")}</option>
-                      <option value="fast">{t("inspector.fast")}</option>
-                    </select>
-                  </label>
-                  <label className="text-[10px] text-text-tertiary">
-                    {t("writing.pov")}
-                    <select
-                      value={chapterSettings.pov}
-                      onChange={(e) => updateSelectedChapterSettings({ pov: e.target.value as WriterChapterSettings["pov"] })}
-                      className="mt-1 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
-                    >
-                      <option value="first_person">{t("writing.povFirstPerson")}</option>
-                      <option value="third_limited">{t("writing.povThirdLimited")}</option>
-                      <option value="third_omniscient">{t("writing.povThirdOmniscient")}</option>
-                    </select>
-                  </label>
-                </div>
-                {[
-                  { key: "creativity", label: t("writing.creativity") },
-                  { key: "tension", label: t("writing.tension") },
-                  { key: "detail", label: t("writing.detail") },
-                  { key: "dialogue", label: t("writing.dialogueShare") }
-                ].map((item) => {
-                  const key = item.key as "creativity" | "tension" | "detail" | "dialogue";
-                  const value = chapterSettings[key];
-                  return (
-                    <div key={item.key}>
-                      <div className="mb-1 flex items-center justify-between text-[10px] text-text-tertiary">
-                        <span>{item.label}</span>
-                        <span className="font-medium text-text-secondary">{Math.round(value * 100)}%</span>
-                      </div>
+            {!chapterDynamicsCollapsed && (
+              selectedChapter ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                    <label className="text-[10px] text-text-tertiary">
+                      {t("writing.tone")}
                       <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={value}
-                        onChange={(e) => updateSelectedChapterSettings({ [key]: Number(e.target.value) } as Partial<WriterChapterSettings>)}
-                        className="w-full"
+                        value={chapterSettings.tone}
+                        onChange={(e) => updateSelectedChapterSettings({ tone: e.target.value })}
+                        className="mt-1 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
                       />
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-md border border-border-subtle bg-bg-secondary px-2 py-2 text-[11px] text-text-tertiary">
-                {t("writing.dynamicSettingsHint")}
-              </div>
+                    </label>
+                    <label className="text-[10px] text-text-tertiary">
+                      {t("inspector.pacing")}
+                      <select
+                        value={chapterSettings.pacing}
+                        onChange={(e) => updateSelectedChapterSettings({ pacing: e.target.value as WriterChapterSettings["pacing"] })}
+                        className="mt-1 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                      >
+                        <option value="slow">{t("inspector.slow")}</option>
+                        <option value="balanced">{t("inspector.balanced")}</option>
+                        <option value="fast">{t("inspector.fast")}</option>
+                      </select>
+                    </label>
+                    <label className="text-[10px] text-text-tertiary">
+                      {t("writing.pov")}
+                      <select
+                        value={chapterSettings.pov}
+                        onChange={(e) => updateSelectedChapterSettings({ pov: e.target.value as WriterChapterSettings["pov"] })}
+                        className="mt-1 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                      >
+                        <option value="first_person">{t("writing.povFirstPerson")}</option>
+                        <option value="third_limited">{t("writing.povThirdLimited")}</option>
+                        <option value="third_omniscient">{t("writing.povThirdOmniscient")}</option>
+                      </select>
+                    </label>
+                  </div>
+                  {[
+                    { key: "creativity", label: t("writing.creativity") },
+                    { key: "tension", label: t("writing.tension") },
+                    { key: "detail", label: t("writing.detail") },
+                    { key: "dialogue", label: t("writing.dialogueShare") }
+                  ].map((item) => {
+                    const key = item.key as "creativity" | "tension" | "detail" | "dialogue";
+                    const value = chapterSettings[key];
+                    return (
+                      <div key={item.key}>
+                        <div className="mb-1 flex items-center justify-between text-[10px] text-text-tertiary">
+                          <span>{item.label}</span>
+                          <span className="font-medium text-text-secondary">{Math.round(value * 100)}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={value}
+                          onChange={(e) => updateSelectedChapterSettings({ [key]: Number(e.target.value) } as Partial<WriterChapterSettings>)}
+                          className="w-full"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-md border border-border-subtle bg-bg-secondary px-2 py-2 text-[11px] text-text-tertiary">
+                  {t("writing.dynamicSettingsHint")}
+                </div>
+              )
             )}
           </div>
 

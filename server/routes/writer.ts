@@ -843,6 +843,29 @@ router.patch("/projects/:id", (req, res) => {
   });
 });
 
+router.delete("/projects/:id", (req, res) => {
+  const projectId = req.params.id;
+  const row = db.prepare("SELECT id FROM writer_projects WHERE id = ?")
+    .get(projectId) as { id: string } | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+
+  const deleteTx = db.transaction((id: string) => {
+    db.prepare("DELETE FROM writer_scenes WHERE chapter_id IN (SELECT id FROM writer_chapters WHERE project_id = ?)")
+      .run(id);
+    db.prepare("DELETE FROM writer_chapters WHERE project_id = ?").run(id);
+    db.prepare("DELETE FROM writer_beats WHERE project_id = ?").run(id);
+    db.prepare("DELETE FROM writer_consistency_reports WHERE project_id = ?").run(id);
+    db.prepare("DELETE FROM writer_exports WHERE project_id = ?").run(id);
+    db.prepare("DELETE FROM writer_projects WHERE id = ?").run(id);
+  });
+
+  deleteTx(projectId);
+  res.json({ ok: true, id: projectId });
+});
+
 // --- Chapters ---
 
 router.post("/chapters", (req, res) => {

@@ -1398,7 +1398,7 @@ export function ChatScreen() {
                   const isRenaming = renamingChatId === chat.id;
                   return (
                     <div key={chat.id}
-                      className={`group relative flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+                      className={`group relative flex items-start gap-2 rounded-lg px-3 py-2 transition-colors ${
                         activeChat?.id === chat.id ? "bg-accent-subtle text-text-primary" : "text-text-secondary hover:bg-bg-hover"
                       }`}>
                       {isRenaming ? (
@@ -1441,7 +1441,7 @@ export function ChatScreen() {
                         </div>
                       ) : (
                         <>
-                          <button onClick={() => setActiveChat(chat)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                          <button onClick={() => setActiveChat(chat)} className="flex min-w-0 flex-1 items-start gap-2 text-left">
                             {chatChar?.avatarUrl ? (
                               <img src={resolveApiAssetUrl(chatChar.avatarUrl) ?? undefined}
                                 alt="" className="h-6 w-6 flex-shrink-0 rounded-full object-cover" />
@@ -1451,7 +1451,7 @@ export function ChatScreen() {
                               </div>
                             ) : null}
                             <div className="min-w-0 flex-1">
-                              <div className="truncate text-sm font-medium">{chat.title}</div>
+                              <div className="break-words whitespace-normal text-sm font-medium leading-snug">{chat.title}</div>
                               <div className="mt-0.5 flex items-center gap-1.5">
                                 <span className="text-[11px] text-text-tertiary">{new Date(chat.createdAt).toLocaleTimeString()}</span>
                                 {multiCount > 1 && <Badge>{multiCount} chars</Badge>}
