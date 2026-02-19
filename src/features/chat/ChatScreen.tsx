@@ -898,16 +898,52 @@ export function ChatScreen() {
   // Multi-character: add/remove characters from chat
   async function addCharacterToChat(charId: string) {
     if (!activeChat || chatCharacterIds.includes(charId)) return;
+    const chatId = activeChat.id;
+    const prevIds = [...chatCharacterIds];
     const newIds = [...chatCharacterIds, charId];
     setChatCharacterIds(newIds);
-    await api.chatUpdateCharacters(activeChat.id, newIds);
+    try {
+      const result = await api.chatUpdateCharacters(chatId, newIds);
+      setChatCharacterIds(result.characterIds);
+      setActiveChat((prev) => (
+        prev && prev.id === chatId
+          ? { ...prev, characterIds: result.characterIds, characterId: result.characterId }
+          : prev
+      ));
+      setChats((prev) => prev.map((chat) => (
+        chat.id === chatId
+          ? { ...chat, characterIds: result.characterIds, characterId: result.characterId }
+          : chat
+      )));
+    } catch (error) {
+      setChatCharacterIds(prevIds);
+      setErrorText(String(error));
+    }
   }
 
   async function removeCharacterFromChat(charId: string) {
     if (!activeChat) return;
+    const chatId = activeChat.id;
+    const prevIds = [...chatCharacterIds];
     const newIds = chatCharacterIds.filter((id) => id !== charId);
     setChatCharacterIds(newIds);
-    await api.chatUpdateCharacters(activeChat.id, newIds);
+    try {
+      const result = await api.chatUpdateCharacters(chatId, newIds);
+      setChatCharacterIds(result.characterIds);
+      setActiveChat((prev) => (
+        prev && prev.id === chatId
+          ? { ...prev, characterIds: result.characterIds, characterId: result.characterId }
+          : prev
+      ));
+      setChats((prev) => prev.map((chat) => (
+        chat.id === chatId
+          ? { ...chat, characterIds: result.characterIds, characterId: result.characterId }
+          : chat
+      )));
+    } catch (error) {
+      setChatCharacterIds(prevIds);
+      setErrorText(String(error));
+    }
   }
 
   async function selectLorebookForChat(nextLorebookId: string | null) {
@@ -970,12 +1006,19 @@ export function ChatScreen() {
       setAutoConvoRunning(false);
       return;
     }
+    const lastAssistantChar = [...messages]
+      .reverse()
+      .find((msg) => msg.role === "assistant" && msg.characterName && charNames.includes(msg.characterName))
+      ?.characterName;
+    const startIndex = lastAssistantChar
+      ? (Math.max(0, charNames.indexOf(lastAssistantChar)) + 1) % charNames.length
+      : 0;
     const turns = Number.isFinite(autoTurnsCount) ? Math.max(1, Math.min(50, Math.floor(autoTurnsCount))) : 1;
 
     for (let turn = 0; turn < turns; turn++) {
       if (!autoConvoRef.current) break;
 
-      const charName = charNames[turn % charNames.length];
+      const charName = charNames[(startIndex + turn) % charNames.length];
       startStreamingUi(charName);
 
       try {
@@ -1349,7 +1392,8 @@ export function ChatScreen() {
                 <EmptyState title={t("chat.noSearchResults")} description={t("chat.noSearchResultsDesc")} />
               ) : (
                 filteredChats.map((chat) => {
-                  const chatChar = chat.characterId ? characters.find((c) => c.id === chat.characterId) : null;
+                  const primaryChatCharacterId = chat.characterId || chat.characterIds?.[0] || null;
+                  const chatChar = primaryChatCharacterId ? characters.find((c) => c.id === primaryChatCharacterId) : null;
                   const multiCount = chat.characterIds?.length || 0;
                   const isRenaming = renamingChatId === chat.id;
                   return (
@@ -1397,7 +1441,7 @@ export function ChatScreen() {
                         </div>
                       ) : (
                         <>
-                          <button onClick={() => setActiveChat(chat)} className="flex flex-1 items-center gap-2 text-left">
+                          <button onClick={() => setActiveChat(chat)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                             {chatChar?.avatarUrl ? (
                               <img src={resolveApiAssetUrl(chatChar.avatarUrl) ?? undefined}
                                 alt="" className="h-6 w-6 flex-shrink-0 rounded-full object-cover" />
@@ -1414,25 +1458,29 @@ export function ChatScreen() {
                               </div>
                             </div>
                           </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startRenameChat(chat);
-                            }}
-                            className="flex-shrink-0 rounded-md p-1 text-text-tertiary opacity-0 transition-opacity hover:bg-bg-hover hover:text-text-primary group-hover:opacity-100"
-                            title={t("chat.renameChat")}
-                          >
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z" />
-                            </svg>
-                          </button>
-                          <button onClick={(e) => { e.stopPropagation(); if (confirm(t("chat.confirmDeleteChat"))) handleDeleteChat(chat.id); }}
-                            className="flex-shrink-0 rounded-md p-1 text-text-tertiary opacity-0 transition-opacity hover:bg-danger-subtle hover:text-danger group-hover:opacity-100"
-                            title={t("chat.deleteChat")}>
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
+                          <div className={`flex flex-shrink-0 items-center gap-0.5 ${
+                            activeChat?.id === chat.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
+                          }`}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startRenameChat(chat);
+                              }}
+                              className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+                              title={t("chat.renameChat")}
+                            >
+                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z" />
+                              </svg>
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); if (confirm(t("chat.confirmDeleteChat"))) handleDeleteChat(chat.id); }}
+                              className="rounded-md p-1 text-text-tertiary hover:bg-danger-subtle hover:text-danger"
+                              title={t("chat.deleteChat")}>
+                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
                         </>
                       )}
                     </div>
@@ -1663,6 +1711,7 @@ export function ChatScreen() {
                   .filter(Boolean)
                   .join("\n\n");
                 const msgChar = msg.role === "assistant" ? getCharacterForMessage(msg) : null;
+                const renderCharName = msgChar?.name || activeChatCharacter?.name;
                 return (
                   <article key={msg.id}
                     className={`chat-message group max-w-[88%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
@@ -1725,7 +1774,7 @@ export function ChatScreen() {
                         <div className="prose-chat" dangerouslySetInnerHTML={{
                           __html: renderContent(
                             inPlaceTranslations[msg.id] || msg.content,
-                            activeChatCharacter?.name,
+                            renderCharName,
                             activePersona?.name || t("chat.user")
                           )
                         }} />
@@ -1737,7 +1786,7 @@ export function ChatScreen() {
                           <div className="mt-2 rounded-md border border-border-subtle bg-bg-tertiary p-2">
                             <span className="mb-1 block text-[10px] font-semibold uppercase text-text-tertiary">{t("chat.translate")}</span>
                             <div className="prose-chat text-xs text-text-secondary" dangerouslySetInnerHTML={{
-                              __html: renderContent(translatedTexts[msg.id], activeChatCharacter?.name, activePersona?.name || t("chat.user"))
+                              __html: renderContent(translatedTexts[msg.id], renderCharName, activePersona?.name || t("chat.user"))
                             }} />
                           </div>
                         )}
@@ -1838,8 +1887,14 @@ export function ChatScreen() {
 
               {streaming && (
                 <article className="chat-message chat-streaming mr-auto max-w-[88%] rounded-xl border border-accent-border bg-bg-secondary px-4 py-3 text-sm text-text-primary">
+                  {(() => {
+                    const streamChar = streamingCharacterName
+                      ? (chatCharacters.find((item) => item.name === streamingCharacterName) ?? null)
+                      : activeChatCharacter;
+                    return (
+                      <>
                   <div className="mb-1.5 flex items-center gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">{streamingCharacterName || activeChatCharacter?.name || t("chat.assistant")}</span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">{streamingCharacterName || streamChar?.name || t("chat.assistant")}</span>
                     <span className="flex items-center gap-1">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                       <span className="text-[10px] text-accent">{t("chat.streaming")}</span>
@@ -1874,7 +1929,7 @@ export function ChatScreen() {
                     </div>
                   )}
                   <div className="prose-chat" dangerouslySetInnerHTML={{
-                    __html: streamText ? renderContent(streamText, activeChatCharacter?.name, activePersona?.name || t("chat.user")) : "..."
+                    __html: streamText ? renderContent(streamText, streamChar?.name, activePersona?.name || t("chat.user")) : "..."
                   }} />
                   {streamingToolCalls.length > 0 && (
                     <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">
@@ -1923,6 +1978,9 @@ export function ChatScreen() {
                       )}
                     </div>
                   )}
+                      </>
+                    );
+                  })()}
                 </article>
               )}
 

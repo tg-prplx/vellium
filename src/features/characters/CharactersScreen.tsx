@@ -32,9 +32,11 @@ export function CharactersScreen() {
 
   // Avatar
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarVersion, setAvatarVersion] = useState<Record<string, number>>({});
 
   // File import
   const jsonFileRef = useRef<HTMLInputElement>(null);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
 
   // Status
   const [saveStatus, setSaveStatus] = useState("");
@@ -230,19 +232,21 @@ export function CharactersScreen() {
   }
 
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!selected || !e.target.files?.[0]) return;
+    const file = e.target.files?.[0];
+    if (!selected || !file) return;
     setAvatarUploading(true);
     try {
-      const file = e.target.files[0];
       const base64 = await fileToBase64(file);
       const result = await api.characterUploadAvatar(selected.id, base64, file.name);
       const updated = { ...selected, avatarUrl: result.avatarUrl };
       setSelected(updated);
       setCharacters((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+      setAvatarVersion((prev) => ({ ...prev, [selected.id]: Date.now() }));
     } catch {
       // ignore
     }
     setAvatarUploading(false);
+    e.target.value = "";
   }
 
   function fileToBase64(file: File): Promise<string> {
@@ -287,8 +291,12 @@ export function CharactersScreen() {
     }
   }, [rawJson]);
 
-  function avatarSrc(url: string | null) {
-    return resolveApiAssetUrl(url);
+  function avatarSrc(url: string | null, characterId?: string) {
+    const resolved = resolveApiAssetUrl(url);
+    if (!resolved || !characterId) return resolved;
+    const version = avatarVersion[characterId];
+    if (!version) return resolved;
+    return resolved.includes("?") ? `${resolved}&v=${version}` : `${resolved}?v=${version}`;
   }
 
   return (
@@ -373,7 +381,7 @@ export function CharactersScreen() {
                   }`}
                 >
                   {char.avatarUrl ? (
-                    <img src={avatarSrc(char.avatarUrl)!} alt="" className="h-8 w-8 flex-shrink-0 rounded-full object-cover" />
+                    <img src={avatarSrc(char.avatarUrl, char.id)!} alt="" className="h-8 w-8 flex-shrink-0 rounded-full object-cover" />
                   ) : (
                     <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-accent-subtle text-xs font-bold text-accent">
                       {char.name.charAt(0).toUpperCase()}
@@ -402,7 +410,7 @@ export function CharactersScreen() {
             <div className="mb-4 flex items-center gap-3">
               <label className="group relative cursor-pointer">
                 {selected.avatarUrl ? (
-                  <img src={avatarSrc(selected.avatarUrl)!} alt="" className="h-14 w-14 rounded-full object-cover ring-2 ring-border" />
+                  <img src={avatarSrc(selected.avatarUrl, selected.id)!} alt="" className="h-14 w-14 rounded-full object-cover ring-2 ring-border" />
                 ) : (
                   <div className="flex h-14 w-14 items-center justify-center rounded-full bg-accent-subtle text-lg font-bold text-accent ring-2 ring-border">
                     {name.charAt(0).toUpperCase() || "?"}
@@ -414,7 +422,7 @@ export function CharactersScreen() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 </div>
-                <input type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={avatarUploading} />
+                <input ref={avatarFileRef} type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={avatarUploading} />
               </label>
               <div className="flex-1">
                 <PanelTitle>{t("chars.editor")}</PanelTitle>
@@ -517,7 +525,7 @@ export function CharactersScreen() {
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.preview")}</div>
               <div className="flex items-center gap-2">
                 {selected.avatarUrl ? (
-                  <img src={avatarSrc(selected.avatarUrl)!} alt="" className="h-8 w-8 rounded-full object-cover" />
+                  <img src={avatarSrc(selected.avatarUrl, selected.id)!} alt="" className="h-8 w-8 rounded-full object-cover" />
                 ) : (
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-subtle text-xs font-bold text-accent">
                     {name.charAt(0).toUpperCase() || "?"}
