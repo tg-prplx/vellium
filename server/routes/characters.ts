@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { writeFileSync } from "fs";
+import { existsSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { db, newId, now, AVATARS_DIR } from "../db.js";
 import { parseCharacterLoreBook } from "../domain/lorebooks.js";
@@ -196,12 +196,31 @@ router.put("/:id", (req, res) => {
 // Upload avatar
 router.post("/:id/avatar", (req, res) => {
   const { base64Data, filename } = req.body;
-  const ext = (filename || "avatar.png").split(".").pop() || "png";
-  const avatarFilename = `${req.params.id}.${ext}`;
+  const existing = db.prepare("SELECT avatar_path FROM characters WHERE id = ?").get(req.params.id) as { avatar_path: string | null } | undefined;
+  if (!existing) {
+    res.status(404).json({ error: "Character not found" });
+    return;
+  }
+
+  const rawExt = String((filename || "avatar.png").split(".").pop() || "png").toLowerCase();
+  const safeExt = rawExt.replace(/[^a-z0-9]/g, "") || "png";
+  const avatarFilename = `${req.params.id}-${Date.now()}.${safeExt}`;
   const filePath = join(AVATARS_DIR, avatarFilename);
 
   const buffer = Buffer.from(base64Data, "base64");
   writeFileSync(filePath, buffer);
+
+  const previousAvatar = String(existing.avatar_path || "");
+  if (previousAvatar && !previousAvatar.startsWith("http")) {
+    const previousPath = join(AVATARS_DIR, previousAvatar);
+    try {
+      if (existsSync(previousPath) && previousPath !== filePath) {
+        unlinkSync(previousPath);
+      }
+    } catch {
+      // Ignore old avatar cleanup errors.
+    }
+  }
 
   db.prepare("UPDATE characters SET avatar_path = ? WHERE id = ?").run(avatarFilename, req.params.id);
   res.json({ avatarUrl: `/api/avatars/${avatarFilename}` });

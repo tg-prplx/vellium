@@ -260,6 +260,58 @@ function toChatAttachments(input: MessageAttachmentPayload[] | null | undefined)
   return out;
 }
 
+function normalizeCharacterIdList(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of input) {
+    const id = String(item || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+function tokenizeWords(input: string): string[] {
+  return String(input || "")
+    .toLocaleLowerCase()
+    .match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+function selectFirstResponderByMention(content: string, orderedCharacterNames: string[]): string | undefined {
+  if (!orderedCharacterNames.length) return undefined;
+  const messageWords = tokenizeWords(content);
+  if (!messageWords.length) return undefined;
+
+  const firstWordPos = new Map<string, number>();
+  messageWords.forEach((word, idx) => {
+    if (!firstWordPos.has(word)) firstWordPos.set(word, idx);
+  });
+
+  let best: { name: string; score: number; order: number } | null = null;
+
+  orderedCharacterNames.forEach((name, order) => {
+    const rawWords = tokenizeWords(name);
+    if (!rawWords.length) return;
+    const filtered = rawWords.filter((word) => word.length > 1);
+    const nameWords = [...new Set((filtered.length > 0 ? filtered : rawWords))];
+    let score = Number.POSITIVE_INFINITY;
+
+    for (const word of nameWords) {
+      const pos = firstWordPos.get(word);
+      if (pos !== undefined && pos < score) score = pos;
+    }
+
+    if (!Number.isFinite(score)) return;
+    if (!best || score < best.score || (score === best.score && order < best.order)) {
+      best = { name, score, order };
+    }
+  });
+
+  return best?.name;
+}
+
 function getContextWindowBudget(settings: Record<string, unknown>): number {
   const raw = Number(settings.contextWindowSize);
   if (!Number.isFinite(raw) || raw <= 0) return 8192;
@@ -1515,9 +1567,11 @@ router.delete("/:id", (req, res) => {
 // Update chat character list
 router.patch("/:id/characters", (req, res) => {
   const chatId = req.params.id;
-  const { characterIds } = req.body;
-  db.prepare("UPDATE chats SET character_ids = ? WHERE id = ?").run(JSON.stringify(characterIds || []), chatId);
-  res.json({ ok: true, characterIds });
+  const ids = normalizeCharacterIdList(req.body?.characterIds);
+  const primaryCharacterId = ids[0] || null;
+  db.prepare("UPDATE chats SET character_ids = ?, character_id = ? WHERE id = ?")
+    .run(JSON.stringify(ids), primaryCharacterId, chatId);
+  res.json({ ok: true, characterIds: ids, characterId: primaryCharacterId });
 });
 
 router.patch("/:id/lorebook", (req, res) => {
@@ -1628,10 +1682,16 @@ router.post("/:id/send", async (req, res: Response) => {
     nextSortOrder(chatId, branchId)
   );
 
-  // In multi-char mode, the first character responds by default after user message
+  // In multi-char mode, pick first responder by mentioned character name (fallback: first in chat order)
   if (isMultiChar && charIds.length > 0) {
-    const firstChar = db.prepare("SELECT name FROM characters WHERE id = ?").get(charIds[0]) as { name: string } | undefined;
-    await streamLlmResponse(chatId, branchId, res, userId, firstChar?.name, false, persona);
+    const placeholders = charIds.map(() => "?").join(",");
+    const rows = db.prepare(`SELECT id, name FROM characters WHERE id IN (${placeholders})`).all(...charIds) as { id: string; name: string }[];
+    const nameById = new Map(rows.map((row) => [row.id, row.name]));
+    const orderedNames = charIds
+      .map((id) => nameById.get(id))
+      .filter((name): name is string => Boolean(name));
+    const firstResponder = selectFirstResponderByMention(String(content || ""), orderedNames) ?? orderedNames[0];
+    await streamLlmResponse(chatId, branchId, res, userId, firstResponder, false, persona);
   } else {
     await streamLlmResponse(chatId, branchId, res, userId, undefined, false, persona);
   }
@@ -1711,7 +1771,13 @@ router.post("/:id/regenerate", async (req, res: Response) => {
     "SELECT id FROM messages WHERE chat_id = ? AND branch_id = ? AND role = 'user' AND deleted = 0 ORDER BY created_at DESC LIMIT 1"
   ).get(chatId, branchId) as { id: string } | undefined;
 
-  await streamLlmResponse(chatId, branchId, res, lastUser?.id ?? null);
+  await streamLlmResponse(
+    chatId,
+    branchId,
+    res,
+    lastUser?.id ?? null,
+    lastAssistant?.character_name || undefined
+  );
 });
 
 // Multi-character: generate next turn for a specific character

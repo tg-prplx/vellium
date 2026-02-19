@@ -233,7 +233,7 @@ export const api = {
   chatDelete: (chatId: string) => del<{ ok: boolean }>(`/chats/${chatId}`),
   chatBranches: (chatId: string) => get<BranchNode[]>(`/chats/${chatId}/branches`),
   chatUpdateCharacters: (chatId: string, characterIds: string[]) =>
-    patchReq<{ ok: boolean }>(`/chats/${chatId}/characters`, { characterIds }),
+    patchReq<{ ok: boolean; characterIds: string[]; characterId: string | null }>(`/chats/${chatId}/characters`, { characterIds }),
   chatNextTurn: async (chatId: string, characterName: string, branchId?: string, callbacks?: StreamCallbacks, isAutoConvo?: boolean, userPersona?: UserPersonaPayload | null): Promise<ChatMessage[]> => {
     if (callbacks) {
       await streamPost(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userPersona }, callbacks);
