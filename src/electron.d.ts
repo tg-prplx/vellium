@@ -4,6 +4,7 @@ export interface ElectronAPI {
   close: () => Promise<void>;
   isMaximized: () => Promise<boolean>;
   getPlatform: () => Promise<string>;
+  saveFile: (filename: string, base64Data: string) => Promise<{ ok: boolean; canceled: boolean; filePath?: string }>;
   onMaximizedChange: (callback: (maximized: boolean) => void) => void;
 }
 
