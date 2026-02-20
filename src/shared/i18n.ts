@@ -137,6 +137,8 @@ export const translations = {
     "chat.assistant": "assistant",
     "chat.enable": "Enable",
     "chat.disable": "Disable",
+    "chat.zenMode": "Zen Mode",
+    "chat.exitZenMode": "Exit Zen",
 
     // Inspector
     "inspector.title": "Inspector",
@@ -775,6 +777,8 @@ export const translations = {
     "chat.assistant": "ассистент",
     "chat.enable": "Включить",
     "chat.disable": "Отключить",
+    "chat.zenMode": "Zen режим",
+    "chat.exitZenMode": "Выйти из Zen",
 
     // Inspector
     "inspector.title": "Инспектор",
@@ -1410,6 +1414,8 @@ export const translations = {
     "chat.assistant": "assistant",
     "chat.enable": "启用",
     "chat.disable": "禁用",
+    "chat.zenMode": "禅模式",
+    "chat.exitZenMode": "退出禅模式",
 
     // Inspector
     "inspector.title": "检查器",
@@ -2051,6 +2057,8 @@ export const translations = {
     "chat.assistant": "assistant",
     "chat.enable": "有効化",
     "chat.disable": "無効化",
+    "chat.zenMode": "Zenモード",
+    "chat.exitZenMode": "Zen終了",
 
     // Inspector
     "inspector.title": "インスペクター",
