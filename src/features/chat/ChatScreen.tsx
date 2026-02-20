@@ -257,6 +257,7 @@ export function ChatScreen() {
 
   // Collapsible sections in left sidebar
   const [presetsCollapsed, setPresetsCollapsed] = useState(true);
+  const [zenMode, setZenMode] = useState(false);
 
   // Inspector collapse
   const [inspectorSection, setInspectorSection] = useState<Record<string, boolean>>({
@@ -355,6 +356,17 @@ export function ChatScreen() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamText]);
+
+  useEffect(() => {
+    if (!zenMode) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setZenMode(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [zenMode]);
 
   // Load chats, settings, characters, providers
   useEffect(() => {
@@ -1314,6 +1326,7 @@ export function ChatScreen() {
       )}
 
       <ThreePanelLayout
+        layout={zenMode ? "center" : "three"}
         left={
           <>
             <PanelTitle
@@ -1603,8 +1616,8 @@ export function ChatScreen() {
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <PanelTitle>{activeChat ? activeChat.title : t("tab.chat")}</PanelTitle>
-                {totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
-                {branches.length > 0 && (
+                {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
+                {!zenMode && branches.length > 0 && (
                   <select
                     value={activeBranchId || ""}
                     onChange={(e) => setActiveBranchId(e.target.value || null)}
@@ -1619,10 +1632,22 @@ export function ChatScreen() {
                   </select>
                 )}
               </div>
+              <button
+                onClick={() => setZenMode((prev) => !prev)}
+                className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  zenMode
+                    ? "border-accent-border bg-accent-subtle text-accent"
+                    : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                }`}
+                title={zenMode ? t("chat.exitZenMode") : t("chat.zenMode")}
+              >
+                {zenMode ? t("chat.exitZenMode") : t("chat.zenMode")}
+              </button>
             </div>
 
             {/* Model selector bar */}
-            <div className="mb-3 flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
+            {!zenMode && (
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
               {activeModelLabel ? (
                 <>
                   <div className="h-1.5 w-1.5 rounded-full bg-success" />
@@ -1662,10 +1687,11 @@ export function ChatScreen() {
                   {compressing ? t("chat.compressing") : t("chat.compress")}
                 </button>
               </div>
-            </div>
+              </div>
+            )}
 
             {/* Inline model selector */}
-            {showModelSelector && (
+            {!zenMode && showModelSelector && (
               <div className="mb-3 rounded-lg border border-accent-border bg-bg-secondary p-3">
                 <div className="flex gap-2">
                   <select value={chatProviderId} onChange={(e) => setChatProviderId(e.target.value)}
@@ -1701,7 +1727,7 @@ export function ChatScreen() {
             )}
 
             {/* Multi-character bar */}
-            {chatCharacters.length > 0 && (
+            {!zenMode && chatCharacters.length > 0 && (
               <div className="mb-3 flex items-center gap-2 rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2">
                 <div className="flex items-center gap-1.5">
                   {chatCharacters.map((ch) => (
@@ -1810,7 +1836,7 @@ export function ChatScreen() {
                       </div>
                     ) : (
                       <>
-                        {reasoningText && (
+                        {!zenMode && reasoningText && (
                           <div className="mb-2 rounded-md border border-border-subtle bg-bg-tertiary/80">
                             <button
                               onClick={() => {
@@ -1882,7 +1908,7 @@ export function ChatScreen() {
                             })}
                           </div>
                         )}
-                        {relatedToolMessages.length > 0 && (
+                        {!zenMode && relatedToolMessages.length > 0 && (
                           <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">
                             <button
                               onClick={() => {
@@ -1918,7 +1944,7 @@ export function ChatScreen() {
                       </>
                     )}
 
-                    {!msg.id.startsWith("temp-") && (
+                    {!zenMode && !msg.id.startsWith("temp-") && (
                       <div className="message-actions mt-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                         <button onClick={() => handleFork(msg)}
                           className="rounded-md px-2 py-0.5 text-[11px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary">{t("chat.fork")}</button>
@@ -1971,7 +1997,7 @@ export function ChatScreen() {
                       <span className="text-[10px] text-accent">{t("chat.streaming")}</span>
                     </span>
                   </div>
-                  {streamingReasoningCalls.length > 0 && (
+                  {!zenMode && streamingReasoningCalls.length > 0 && (
                     <div className="mb-2 rounded-md border border-border-subtle bg-bg-tertiary/80">
                       <button
                         onClick={() => setStreamingReasoningExpanded((prev) => !prev)}
@@ -2002,7 +2028,7 @@ export function ChatScreen() {
                   <div className="prose-chat" dangerouslySetInnerHTML={{
                     __html: streamText ? renderContent(streamText, streamChar?.name, activePersona?.name || t("chat.user")) : "..."
                   }} />
-                  {streamingToolCalls.length > 0 && (
+                  {!zenMode && streamingToolCalls.length > 0 && (
                     <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">
                       <button
                         onClick={() => setStreamingToolsExpanded((prev) => !prev)}

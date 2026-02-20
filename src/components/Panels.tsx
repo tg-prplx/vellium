@@ -1,6 +1,24 @@
 import type { PropsWithChildren, ReactNode } from "react";
 
-export function ThreePanelLayout({ left, center, right }: { left: ReactNode; center: ReactNode; right: ReactNode }) {
+export function ThreePanelLayout({
+  left,
+  center,
+  right,
+  layout = "three"
+}: {
+  left: ReactNode;
+  center: ReactNode;
+  right: ReactNode;
+  layout?: "three" | "center";
+}) {
+  if (layout === "center") {
+    return (
+      <div className="three-panel-layout grid h-full grid-cols-1">
+        <section className="panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{center}</section>
+      </div>
+    );
+  }
+
   return (
     <div className="three-panel-layout grid h-full grid-cols-1 gap-4 xl:grid-cols-[272px_minmax(480px,1fr)_320px]">
       <aside className="panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{left}</aside>
