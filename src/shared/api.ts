@@ -27,6 +27,9 @@ import type {
   WriterDocxImportResult,
   WriterProjectNotes,
   WriterProjectSummaryResult,
+  WriterSummaryLens,
+  WriterSummaryLensRunResult,
+  WriterSummaryLensScope,
   UserPersona
 } from "./types/contracts";
 
@@ -377,6 +380,16 @@ export const api = {
     post<WriterDocxImportResult>(`/writer/projects/${projectId}/import/docx`, { base64Data, filename }),
   writerProjectSummarize: (projectId: string, force = false) =>
     post<WriterProjectSummaryResult>(`/writer/projects/${projectId}/summarize`, { force }),
+  writerSummaryLensList: (projectId: string) =>
+    get<WriterSummaryLens[]>(`/writer/projects/${projectId}/lenses`),
+  writerSummaryLensCreate: (projectId: string, payload: { name: string; prompt: string; scope?: WriterSummaryLensScope; targetId?: string | null }) =>
+    post<WriterSummaryLens>(`/writer/projects/${projectId}/lenses`, payload),
+  writerSummaryLensUpdate: (projectId: string, lensId: string, payload: { name?: string; prompt?: string; scope?: WriterSummaryLensScope; targetId?: string | null }) =>
+    patchReq<WriterSummaryLens>(`/writer/projects/${projectId}/lenses/${lensId}`, payload),
+  writerSummaryLensDelete: (projectId: string, lensId: string) =>
+    del<{ ok: boolean; id: string }>(`/writer/projects/${projectId}/lenses/${lensId}`),
+  writerSummaryLensRun: (projectId: string, lensId: string, force = false) =>
+    post<WriterSummaryLensRunResult>(`/writer/projects/${projectId}/lenses/${lensId}/run`, { force }),
   writerChapterCreate: (projectId: string, title: string) =>
     post<Chapter>("/writer/chapters", { projectId, title }),
   writerChapterUpdateSettings: (chapterId: string, settings: WriterChapterSettings) =>
