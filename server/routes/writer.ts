@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import { writeFileSync } from "fs";
 import { join } from "path";
 import mammoth from "mammoth";
+import { Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
 import { db, newId, now, DATA_DIR, DEFAULT_SETTINGS } from "../db.js";
 import { runConsistency } from "../domain/writerEngine.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
@@ -79,6 +80,13 @@ interface WriterSummaryLensRow {
   source_hash: string;
   created_at: string;
   updated_at: string;
+}
+
+type WriterDocxParseMode = "auto" | "chapter_markers" | "heading_lines" | "single_book";
+
+interface ParsedDocxChapter {
+  title: string;
+  content: string;
 }
 
 interface WriterCharacterAdvancedInput {
@@ -416,6 +424,11 @@ function normalizeProjectName(input: unknown, fallback = "Untitled Book"): strin
   return value || fallback;
 }
 
+function normalizeChapterTitle(input: unknown, fallback = "Untitled Chapter"): string {
+  const value = String(input ?? "").replace(/\s+/g, " ").trim().slice(0, 160);
+  return value || fallback;
+}
+
 function normalizeProjectNotes(input: unknown): WriterProjectNotes {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { ...DEFAULT_PROJECT_NOTES };
@@ -451,6 +464,24 @@ function decodeBase64Payload(value: string): Buffer {
   return Buffer.from(payload, "base64");
 }
 
+function normalizeDocxParseMode(raw: unknown): WriterDocxParseMode {
+  const value = String(raw || "").trim();
+  if (value === "chapter_markers" || value === "heading_lines" || value === "single_book") {
+    return value;
+  }
+  return "auto";
+}
+
+function inferBookNameFromFilename(filename: string): string {
+  const base = String(filename || "")
+    .replace(/^.*[\\/]/, "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalizeProjectName(base, "Imported Book").slice(0, 120);
+}
+
 function normalizeDocxText(raw: string): string {
   return String(raw || "")
     .replace(/\r\n/g, "\n")
@@ -458,6 +489,20 @@ function normalizeDocxText(raw: string): string {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function decodeHtmlEntities(raw: string): string {
+  return raw
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+}
+
+function stripHtml(raw: string): string {
+  return decodeHtmlEntities(String(raw || "").replace(/<[^>]*>/g, " "));
 }
 
 function splitLongText(text: string, maxChars: number): string[] {
@@ -482,11 +527,20 @@ function splitLongText(text: string, maxChars: number): string[] {
   return out.length > 0 ? out : [normalized];
 }
 
-function splitDocxIntoChapters(text: string): Array<{ title: string; content: string }> {
+function isHeadingLineCandidate(line: string): boolean {
+  const clean = String(line || "").trim();
+  if (!clean || clean.length > 90) return false;
+  if (/[.!?;:]$/.test(clean)) return false;
+  if (clean.split(/\s+/).length > 11) return false;
+  if (!/[A-Za-zА-Яа-я0-9]/.test(clean)) return false;
+  return true;
+}
+
+function splitDocxIntoChaptersByMarkers(text: string): Array<{ title: string; content: string }> {
   const lines = normalizeDocxText(text).split("\n");
-  const chapterMarkers = /^((chapter|ch\.)\s*\d+|prologue|epilogue)\b[:\-\s]*/i;
+  const chapterMarkers = /^((chapter|ch\.|part|act)\s*\d+|prologue|epilogue)\b[:\-\s]*/i;
   const items: Array<{ title: string; content: string }> = [];
-  let currentTitle = "Imported Chapter";
+  let currentTitle = "Chapter";
   let buffer: string[] = [];
 
   const flush = () => {
@@ -502,7 +556,7 @@ function splitDocxIntoChapters(text: string): Array<{ title: string; content: st
       buffer.push("");
       continue;
     }
-    if (chapterMarkers.test(line) && line.length <= 90) {
+    if (chapterMarkers.test(line) && line.length <= 110) {
       flush();
       currentTitle = line.replace(/\s+/g, " ").trim().slice(0, 120);
       continue;
@@ -511,8 +565,170 @@ function splitDocxIntoChapters(text: string): Array<{ title: string; content: st
   }
   flush();
 
-  if (items.length > 0) return items;
-  return [{ title: "Imported Chapter", content: normalizeDocxText(text) }];
+  return items;
+}
+
+function splitDocxIntoChaptersByHeadingLines(text: string): Array<{ title: string; content: string }> {
+  const lines = normalizeDocxText(text).split("\n");
+  const items: Array<{ title: string; content: string }> = [];
+  let currentTitle = "Chapter";
+  let buffer: string[] = [];
+
+  const flush = () => {
+    const content = normalizeDocxText(buffer.join("\n"));
+    if (!content) return;
+    items.push({ title: currentTitle, content });
+    buffer = [];
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const lineRaw = lines[i];
+    const line = lineRaw.trim();
+    const prev = i > 0 ? lines[i - 1].trim() : "";
+    const next = i < (lines.length - 1) ? lines[i + 1].trim() : "";
+    const headingLike = isHeadingLineCandidate(line) && (!prev || !next);
+
+    if (headingLike) {
+      flush();
+      currentTitle = line.replace(/\s+/g, " ").trim().slice(0, 120);
+      continue;
+    }
+    buffer.push(lineRaw);
+  }
+  flush();
+  return items;
+}
+
+async function splitDocxIntoChaptersFromHtmlHeadings(buffer: Buffer): Promise<Array<{ title: string; content: string }>> {
+  const html = (await mammoth.convertToHtml({ buffer })).value || "";
+  const nodeRegex = /<(h[1-6]|p|li)[^>]*>([\s\S]*?)<\/\1>/gi;
+  const items: Array<{ title: string; content: string }> = [];
+  let currentTitle = "Chapter";
+  let lines: string[] = [];
+
+  const flush = () => {
+    const content = normalizeDocxText(lines.join("\n"));
+    if (!content) return;
+    items.push({ title: currentTitle, content });
+    lines = [];
+  };
+
+  let match: RegExpExecArray | null = null;
+  while ((match = nodeRegex.exec(html)) !== null) {
+    const tag = String(match[1] || "").toLowerCase();
+    const text = normalizeDocxText(stripHtml(match[2] || ""));
+    if (!text) continue;
+    if (tag.startsWith("h")) {
+      flush();
+      currentTitle = text.slice(0, 120);
+      continue;
+    }
+    lines.push(text);
+  }
+  flush();
+  return items;
+}
+
+function splitDocxIntoChaptersAuto(text: string): Array<{ title: string; content: string }> {
+  const byMarkers = splitDocxIntoChaptersByMarkers(text);
+  if (byMarkers.length >= 2) return byMarkers;
+  const byHeadings = splitDocxIntoChaptersByHeadingLines(text);
+  if (byHeadings.length >= 2) return byHeadings;
+  return [{ title: "Chapter", content: normalizeDocxText(text) }];
+}
+
+function finalizeChapterTitle(rawTitle: string, fallbackIndex: number): string {
+  const clean = normalizeProjectName(rawTitle, "").replace(/\s+/g, " ").trim().slice(0, 140);
+  if (!clean) return `Chapter ${fallbackIndex + 1}`;
+  if (/^(chapter|imported chapter)$/i.test(clean)) return `Chapter ${fallbackIndex + 1}`;
+  return clean;
+}
+
+async function parseDocxIntoChapters(base64Data: string, filename: string, parseMode: WriterDocxParseMode): Promise<ParsedDocxChapter[]> {
+  const buffer = decodeBase64Payload(base64Data);
+  const extracted = await mammoth.extractRawText({ buffer });
+  const text = normalizeDocxText(extracted.value || "");
+  if (!text) {
+    throw new Error("DOCX appears empty or unsupported");
+  }
+
+  let chunks: Array<{ title: string; content: string }> = [];
+  if (parseMode === "single_book") {
+    chunks = [{ title: inferBookNameFromFilename(filename), content: text }];
+  } else if (parseMode === "chapter_markers") {
+    chunks = splitDocxIntoChaptersByMarkers(text);
+  } else if (parseMode === "heading_lines") {
+    const byHtmlHeadings = await splitDocxIntoChaptersFromHtmlHeadings(buffer);
+    chunks = byHtmlHeadings.length > 0 ? byHtmlHeadings : splitDocxIntoChaptersByHeadingLines(text);
+  } else {
+    chunks = splitDocxIntoChaptersAuto(text);
+    if (chunks.length <= 1) {
+      const byHtmlHeadings = await splitDocxIntoChaptersFromHtmlHeadings(buffer);
+      if (byHtmlHeadings.length >= 2) chunks = byHtmlHeadings;
+    }
+  }
+
+  const normalized = chunks
+    .map((chunk, index) => ({
+      title: finalizeChapterTitle(chunk.title, index),
+      content: normalizeDocxText(chunk.content)
+    }))
+    .filter((chunk) => Boolean(chunk.content));
+
+  if (normalized.length === 0) {
+    return [{ title: "Chapter 1", content: text }];
+  }
+  return normalized.slice(0, 96);
+}
+
+function importParsedDocxChapters(projectId: string, chunks: ParsedDocxChapter[]) {
+  const chapterCountRow = db.prepare(
+    "SELECT COALESCE(MAX(position), 0) AS max_pos FROM writer_chapters WHERE project_id = ?"
+  ).get(projectId) as { max_pos: number | null };
+  let nextPosition = (chapterCountRow.max_pos ?? 0) + 1;
+  let chaptersCreated = 0;
+  let scenesCreated = 0;
+  const chapterTitles: string[] = [];
+
+  const tx = db.transaction(() => {
+    for (const chunk of chunks) {
+      const chapterId = newId();
+      const chapterTitle = finalizeChapterTitle(chunk.title, nextPosition - 1).slice(0, 160);
+      const parts = splitLongText(chunk.content, 6500).slice(0, 24);
+      const chapterSettings = { ...DEFAULT_CHAPTER_SETTINGS };
+      db.prepare(
+        "INSERT INTO writer_chapters (id, project_id, title, position, settings_json, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).run(chapterId, projectId, chapterTitle, nextPosition, JSON.stringify(chapterSettings), now());
+      nextPosition += 1;
+      chaptersCreated += 1;
+      chapterTitles.push(chapterTitle);
+
+      parts.forEach((contentPart, index) => {
+        const sceneId = newId();
+        const sceneTitle = parts.length > 1 ? `${chapterTitle} (Part ${index + 1})` : chapterTitle;
+        db.prepare(
+          "INSERT INTO writer_scenes (id, chapter_id, title, content, goals, conflicts, outcomes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).run(
+          sceneId,
+          chapterId,
+          sceneTitle.slice(0, 180),
+          contentPart,
+          "Imported from DOCX",
+          "",
+          "",
+          now()
+        );
+        scenesCreated += 1;
+      });
+    }
+  });
+  tx();
+  return {
+    ok: true,
+    chaptersCreated,
+    scenesCreated,
+    chapterTitles
+  };
 }
 
 function hashContent(content: string): string {
@@ -769,6 +985,115 @@ function createWriterSampler(base: { temperature?: number; maxTokens?: number },
   const temperature = Math.max(0, Math.min(2, baseTemperature * (0.75 + chapter.creativity * 0.9)));
   const maxTokens = Math.max(256, Math.min(4096, Math.round(baseMaxTokens * (0.75 + chapter.detail * 0.7))));
   return { temperature, maxTokens };
+}
+
+function sanitizeExportFileName(name: string, fallback: string): string {
+  const clean = String(name || "")
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+  return clean || fallback;
+}
+
+function sanitizeHeaderFilenameAscii(name: string, fallback: string): string {
+  const clean = String(name || "")
+    .replace(/[\r\n]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]/g, "_")
+    .replace(/["\\]/g, "_")
+    .slice(0, 120);
+  return clean || fallback;
+}
+
+function encode5987Value(value: string): string {
+  return encodeURIComponent(String(value || ""))
+    .replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function buildAttachmentDisposition(filename: string, fallback: string): string {
+  const cleanName = String(filename || "").replace(/[\r\n]/g, " ").trim() || fallback;
+  const asciiName = sanitizeHeaderFilenameAscii(cleanName, fallback);
+  const utf8Name = encode5987Value(cleanName);
+  return `attachment; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`;
+}
+
+interface WriterExportBundle {
+  projectId: string;
+  projectName: string;
+  markdown: string;
+  filenameBase: string;
+}
+
+function normalizeTitleForExportCompare(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase();
+}
+
+function buildWriterExportBundle(projectId: string): WriterExportBundle | null {
+  const project = db.prepare("SELECT name FROM writer_projects WHERE id = ?").get(projectId) as { name: string } | undefined;
+  if (!project) return null;
+
+  const chapters = db.prepare("SELECT * FROM writer_chapters WHERE project_id = ? ORDER BY position ASC")
+    .all(projectId) as { id: string; title: string }[];
+
+  const lines: string[] = [`# ${project.name}`, ""];
+  for (const chapter of chapters) {
+    lines.push(`## ${chapter.title}`, "");
+    const scenes = db.prepare("SELECT title, content FROM writer_scenes WHERE chapter_id = ? ORDER BY created_at ASC")
+      .all(chapter.id) as { title: string; content: string }[];
+    const chapterTitleKey = normalizeTitleForExportCompare(chapter.title);
+    for (const scene of scenes) {
+      const sceneTitle = String(scene.title || "").trim();
+      const sceneTitleKey = normalizeTitleForExportCompare(sceneTitle);
+      const shouldRenderSceneHeading = Boolean(sceneTitle) && sceneTitleKey !== chapterTitleKey;
+      if (shouldRenderSceneHeading) {
+        lines.push(`### ${sceneTitle}`, "");
+      }
+      lines.push(scene.content, "");
+    }
+  }
+
+  return {
+    projectId,
+    projectName: project.name,
+    markdown: lines.join("\n"),
+    filenameBase: sanitizeExportFileName(project.name, `book-${projectId}`)
+  };
+}
+
+async function buildDocxBufferFromBundle(bundle: WriterExportBundle): Promise<Buffer> {
+  const lines = bundle.markdown.split("\n");
+  const paragraphs: Paragraph[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\r/g, "");
+    if (line.startsWith("# ")) {
+      paragraphs.push(new Paragraph({ text: line.slice(2), heading: HeadingLevel.HEADING_1 }));
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      paragraphs.push(new Paragraph({ text: line.slice(3), heading: HeadingLevel.HEADING_2 }));
+      continue;
+    }
+    if (line.startsWith("### ")) {
+      paragraphs.push(new Paragraph({ text: line.slice(4), heading: HeadingLevel.HEADING_3 }));
+      continue;
+    }
+    if (!line.trim()) {
+      paragraphs.push(new Paragraph({ text: "" }));
+      continue;
+    }
+    paragraphs.push(new Paragraph({ children: [new TextRun(line)] }));
+  }
+
+  const doc = new Document({
+    sections: [{ children: paragraphs }]
+  });
+  return Packer.toBuffer(doc);
 }
 
 function buildChapterDirective(chapter: WriterChapterSettings): string {
@@ -1297,72 +1622,60 @@ router.post("/projects/:id/import/docx", async (req, res) => {
   }
 
   const base64Data = String((req.body as { base64Data?: unknown })?.base64Data || "");
+  const filename = String((req.body as { filename?: unknown })?.filename || "import.docx");
+  const parseMode = normalizeDocxParseMode((req.body as { parseMode?: unknown })?.parseMode);
   if (!base64Data.trim()) {
     res.status(400).json({ error: "base64Data is required" });
     return;
   }
 
   try {
-    const buffer = decodeBase64Payload(base64Data);
-    const extracted = await mammoth.extractRawText({ buffer });
-    const text = normalizeDocxText(extracted.value || "");
-    if (!text) {
-      res.status(400).json({ error: "DOCX appears empty or unsupported" });
-      return;
-    }
-
-    const chapterChunks = splitDocxIntoChapters(text).slice(0, 64);
-    const chapterCountRow = db.prepare(
-      "SELECT COALESCE(MAX(position), 0) AS max_pos FROM writer_chapters WHERE project_id = ?"
-    ).get(projectId) as { max_pos: number | null };
-    let nextPosition = (chapterCountRow.max_pos ?? 0) + 1;
-    let chaptersCreated = 0;
-    let scenesCreated = 0;
-    const chapterTitles: string[] = [];
-
-    const tx = db.transaction(() => {
-      for (const chunk of chapterChunks) {
-        const chapterId = newId();
-        const chapterTitle = normalizeProjectName(chunk.title, `Imported Chapter ${nextPosition}`).slice(0, 160);
-        const parts = splitLongText(chunk.content, 6500).slice(0, 24);
-        const chapterSettings = { ...DEFAULT_CHAPTER_SETTINGS };
-        db.prepare(
-          "INSERT INTO writer_chapters (id, project_id, title, position, settings_json, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-        ).run(chapterId, projectId, chapterTitle, nextPosition, JSON.stringify(chapterSettings), now());
-        nextPosition += 1;
-        chaptersCreated += 1;
-        chapterTitles.push(chapterTitle);
-
-        parts.forEach((contentPart, index) => {
-          const sceneId = newId();
-          const sceneTitle = parts.length > 1 ? `${chapterTitle} (Part ${index + 1})` : chapterTitle;
-          db.prepare(
-            "INSERT INTO writer_scenes (id, chapter_id, title, content, goals, conflicts, outcomes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-          ).run(
-            sceneId,
-            chapterId,
-            sceneTitle.slice(0, 180),
-            contentPart,
-            "Imported from DOCX",
-            "",
-            "",
-            now()
-          );
-          scenesCreated += 1;
-        });
-      }
-    });
-    tx();
-
-    res.json({
-      ok: true,
-      chaptersCreated,
-      scenesCreated,
-      chapterTitles
-    });
+    const chunks = await parseDocxIntoChapters(base64Data, filename, parseMode);
+    const result = importParsedDocxChapters(projectId, chunks);
+    res.json(result);
   } catch (err) {
     res.status(400).json({
       error: err instanceof Error ? err.message : "Failed to import DOCX"
+    });
+  }
+});
+
+router.post("/import/docx-book", async (req, res) => {
+  const base64Data = String((req.body as { base64Data?: unknown })?.base64Data || "");
+  const filename = String((req.body as { filename?: unknown })?.filename || "import.docx");
+  const parseMode = normalizeDocxParseMode((req.body as { parseMode?: unknown })?.parseMode);
+  const requestedName = normalizeProjectName((req.body as { bookName?: unknown })?.bookName, "");
+  if (!base64Data.trim()) {
+    res.status(400).json({ error: "base64Data is required" });
+    return;
+  }
+
+  try {
+    const chunks = await parseDocxIntoChapters(base64Data, filename, parseMode);
+    const id = newId();
+    const ts = now();
+    const projectName = requestedName || inferBookNameFromFilename(filename);
+    const projectDescription = `Imported from DOCX (${parseMode})`;
+    const notes = { ...DEFAULT_PROJECT_NOTES };
+    db.prepare(
+      "INSERT INTO writer_projects (id, name, description, character_ids, notes_json, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(id, projectName, projectDescription, "[]", JSON.stringify(notes), ts);
+
+    const result = importParsedDocxChapters(id, chunks);
+    res.json({
+      ...result,
+      project: {
+        id,
+        name: projectName,
+        description: projectDescription,
+        characterIds: [],
+        notes,
+        createdAt: ts
+      }
+    });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "Failed to import DOCX as book"
     });
   }
 });
@@ -1595,12 +1908,13 @@ router.post("/chapters", (req, res) => {
 
   const posRow = db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS next_pos FROM writer_chapters WHERE project_id = ?")
     .get(projectId) as { next_pos: number };
+  const normalizedTitle = normalizeChapterTitle(title, `Chapter ${posRow.next_pos}`);
 
   const chapterSettings = { ...DEFAULT_CHAPTER_SETTINGS };
   db.prepare("INSERT INTO writer_chapters (id, project_id, title, position, settings_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(id, projectId, title, posRow.next_pos, JSON.stringify(chapterSettings), ts);
+    .run(id, projectId, normalizedTitle, posRow.next_pos, JSON.stringify(chapterSettings), ts);
 
-  res.json({ id, projectId, title, position: posRow.next_pos, settings: chapterSettings, createdAt: ts });
+  res.json({ id, projectId, title: normalizedTitle, position: posRow.next_pos, settings: chapterSettings, createdAt: ts });
 });
 
 router.post("/chapters/reorder", (req, res) => {
@@ -1611,6 +1925,78 @@ router.post("/chapters/reorder", (req, res) => {
   });
   txn();
   res.json({ ok: true });
+});
+
+router.patch("/chapters/:id", (req, res) => {
+  const chapterId = req.params.id;
+  const row = db.prepare("SELECT id, project_id, title, position, settings_json, created_at FROM writer_chapters WHERE id = ?")
+    .get(chapterId) as {
+      id: string;
+      project_id: string;
+      title: string;
+      position: number;
+      settings_json: string | null;
+      created_at: string;
+    } | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Chapter not found" });
+    return;
+  }
+
+  const body = (req.body && typeof req.body === "object")
+    ? req.body as { title?: unknown }
+    : {};
+  const hasTitle = Object.prototype.hasOwnProperty.call(body, "title");
+  const nextTitle = hasTitle
+    ? normalizeChapterTitle(body.title, row.title)
+    : row.title;
+
+  db.prepare("UPDATE writer_chapters SET title = ? WHERE id = ?")
+    .run(nextTitle, chapterId);
+
+  res.json({
+    id: row.id,
+    projectId: row.project_id,
+    title: nextTitle,
+    position: row.position,
+    settings: parseChapterSettings(row.settings_json),
+    createdAt: row.created_at
+  });
+});
+
+router.delete("/chapters/:id", (req, res) => {
+  const chapterId = req.params.id;
+  const chapter = db.prepare("SELECT id, project_id, position FROM writer_chapters WHERE id = ?")
+    .get(chapterId) as { id: string; project_id: string; position: number } | undefined;
+  if (!chapter) {
+    res.status(404).json({ error: "Chapter not found" });
+    return;
+  }
+
+  const tx = db.transaction((targetChapterId: string, projectId: string, position: number) => {
+    const sceneIds = db.prepare("SELECT id FROM writer_scenes WHERE chapter_id = ?")
+      .all(targetChapterId) as Array<{ id: string }>;
+    db.prepare("DELETE FROM writer_scenes WHERE chapter_id = ?").run(targetChapterId);
+    db.prepare("DELETE FROM writer_chapter_summaries WHERE chapter_id = ?").run(targetChapterId);
+    db.prepare("DELETE FROM writer_chapters WHERE id = ?").run(targetChapterId);
+    db.prepare("UPDATE writer_chapters SET position = position - 1 WHERE project_id = ? AND position > ?")
+      .run(projectId, position);
+    db.prepare(
+      "DELETE FROM writer_summary_lenses WHERE project_id = ? AND scope = 'chapter' AND target_id = ?"
+    ).run(projectId, targetChapterId);
+    if (sceneIds.length > 0) {
+      const placeholders = sceneIds.map(() => "?").join(",");
+      db.prepare(
+        `DELETE FROM writer_summary_lenses
+         WHERE project_id = ?
+           AND scope = 'scene'
+           AND target_id IN (${placeholders})`
+      ).run(projectId, ...sceneIds.map((row) => row.id));
+    }
+  });
+
+  tx(chapter.id, chapter.project_id, chapter.position);
+  res.json({ ok: true, id: chapter.id });
 });
 
 router.patch("/chapters/:id/settings", (req, res) => {
@@ -1834,6 +2220,34 @@ router.patch("/scenes/:id", (req, res) => {
   });
 });
 
+router.delete("/scenes/:id", (req, res) => {
+  const sceneId = req.params.id;
+  const row = db.prepare(
+    `SELECT s.id, s.chapter_id, c.project_id
+     FROM writer_scenes s
+     JOIN writer_chapters c ON c.id = s.chapter_id
+     WHERE s.id = ?`
+  ).get(sceneId) as {
+    id: string;
+    chapter_id: string;
+    project_id: string;
+  } | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Scene not found" });
+    return;
+  }
+
+  const tx = db.transaction((id: string, projectId: string) => {
+    db.prepare("DELETE FROM writer_scenes WHERE id = ?").run(id);
+    db.prepare(
+      "DELETE FROM writer_summary_lenses WHERE project_id = ? AND scope = 'scene' AND target_id = ?"
+    ).run(projectId, id);
+  });
+
+  tx(row.id, row.project_id);
+  res.json({ ok: true, id: row.id });
+});
+
 // --- Consistency ---
 
 router.post("/projects/:id/consistency", (req, res) => {
@@ -1862,24 +2276,11 @@ router.post("/projects/:id/consistency", (req, res) => {
 
 router.post("/projects/:id/export/markdown", (req, res) => {
   const projectId = req.params.id;
-  const project = db.prepare("SELECT name FROM writer_projects WHERE id = ?").get(projectId) as { name: string } | undefined;
-  if (!project) { res.status(404).json({ error: "Project not found" }); return; }
+  const bundle = buildWriterExportBundle(projectId);
+  if (!bundle) { res.status(404).json({ error: "Project not found" }); return; }
 
-  const chapters = db.prepare("SELECT * FROM writer_chapters WHERE project_id = ? ORDER BY position ASC")
-    .all(projectId) as { id: string; title: string }[];
-
-  let markdown = `# ${project.name}\n\n`;
-  for (const ch of chapters) {
-    markdown += `## ${ch.title}\n\n`;
-    const scenes = db.prepare("SELECT title, content FROM writer_scenes WHERE chapter_id = ? ORDER BY created_at ASC")
-      .all(ch.id) as { title: string; content: string }[];
-    for (const sc of scenes) {
-      markdown += `### ${sc.title}\n\n${sc.content}\n\n`;
-    }
-  }
-
-  const outputPath = join(DATA_DIR, `book-${projectId}.md`);
-  writeFileSync(outputPath, markdown);
+  const outputPath = join(DATA_DIR, `${bundle.filenameBase}.md`);
+  writeFileSync(outputPath, bundle.markdown);
 
   db.prepare("INSERT INTO writer_exports (id, project_id, export_type, output_path, created_at) VALUES (?, ?, ?, ?, ?)")
     .run(newId(), projectId, "markdown", outputPath, now());
@@ -1887,31 +2288,48 @@ router.post("/projects/:id/export/markdown", (req, res) => {
   res.json(outputPath);
 });
 
-router.post("/projects/:id/export/docx", (req, res) => {
+router.post("/projects/:id/export/docx", async (req, res) => {
   const projectId = req.params.id;
-  const project = db.prepare("SELECT name FROM writer_projects WHERE id = ?").get(projectId) as { name: string } | undefined;
-  if (!project) { res.status(404).json({ error: "Project not found" }); return; }
+  const bundle = buildWriterExportBundle(projectId);
+  if (!bundle) { res.status(404).json({ error: "Project not found" }); return; }
 
-  const chapters = db.prepare("SELECT * FROM writer_chapters WHERE project_id = ? ORDER BY position ASC")
-    .all(projectId) as { id: string; title: string }[];
-
-  let text = `${project.name}\n\n`;
-  for (const ch of chapters) {
-    text += `${ch.title}\n\n`;
-    const scenes = db.prepare("SELECT title, content FROM writer_scenes WHERE chapter_id = ? ORDER BY created_at ASC")
-      .all(ch.id) as { title: string; content: string }[];
-    for (const sc of scenes) {
-      text += `${sc.title}\n${sc.content}\n\n`;
-    }
-  }
-
-  const outputPath = join(DATA_DIR, `book-${projectId}.docx`);
-  writeFileSync(outputPath, text);
+  const outputPath = join(DATA_DIR, `${bundle.filenameBase}.docx`);
+  const buffer = await buildDocxBufferFromBundle(bundle);
+  writeFileSync(outputPath, buffer);
 
   db.prepare("INSERT INTO writer_exports (id, project_id, export_type, output_path, created_at) VALUES (?, ?, ?, ?, ?)")
     .run(newId(), projectId, "docx", outputPath, now());
 
   res.json(outputPath);
+});
+
+router.post("/projects/:id/export/markdown/download", (req, res) => {
+  const projectId = req.params.id;
+  const bundle = buildWriterExportBundle(projectId);
+  if (!bundle) { res.status(404).json({ error: "Project not found" }); return; }
+  const filename = `${bundle.filenameBase}.md`;
+
+  db.prepare("INSERT INTO writer_exports (id, project_id, export_type, output_path, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(newId(), projectId, "markdown", filename, now());
+
+  res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+  res.setHeader("Content-Disposition", buildAttachmentDisposition(filename, `book-${projectId}.md`));
+  res.send(bundle.markdown);
+});
+
+router.post("/projects/:id/export/docx/download", async (req, res) => {
+  const projectId = req.params.id;
+  const bundle = buildWriterExportBundle(projectId);
+  if (!bundle) { res.status(404).json({ error: "Project not found" }); return; }
+  const filename = `${bundle.filenameBase}.docx`;
+
+  const buffer = await buildDocxBufferFromBundle(bundle);
+  db.prepare("INSERT INTO writer_exports (id, project_id, export_type, output_path, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(newId(), projectId, "docx", filename, now());
+
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  res.setHeader("Content-Disposition", buildAttachmentDisposition(filename, `book-${projectId}.docx`));
+  res.send(buffer);
 });
 
 export default router;

@@ -24,7 +24,9 @@ import type {
   WriterCharacterEditRequest,
   WriterCharacterEditResponse,
   WriterCharacterGenerateRequest,
+  WriterDocxImportBookResult,
   WriterDocxImportResult,
+  WriterDocxParseMode,
   WriterProjectNotes,
   WriterProjectSummaryResult,
   WriterSummaryLens,
@@ -376,8 +378,10 @@ export const api = {
     get<{ project: BookProject; chapters: Chapter[]; scenes: Scene[] }>(`/writer/projects/${projectId}`),
   writerProjectUpdateNotes: (projectId: string, notes: Partial<WriterProjectNotes>) =>
     patchReq<{ project: BookProject }>(`/writer/projects/${projectId}/notes`, { notes }),
-  writerProjectImportDocx: (projectId: string, base64Data: string, filename: string) =>
-    post<WriterDocxImportResult>(`/writer/projects/${projectId}/import/docx`, { base64Data, filename }),
+  writerProjectImportDocx: (projectId: string, base64Data: string, filename: string, parseMode: WriterDocxParseMode = "auto") =>
+    post<WriterDocxImportResult>(`/writer/projects/${projectId}/import/docx`, { base64Data, filename, parseMode }),
+  writerImportDocxAsBook: (base64Data: string, filename: string, parseMode: WriterDocxParseMode = "auto", bookName?: string) =>
+    post<WriterDocxImportBookResult>("/writer/import/docx-book", { base64Data, filename, parseMode, bookName }),
   writerProjectSummarize: (projectId: string, force = false) =>
     post<WriterProjectSummaryResult>(`/writer/projects/${projectId}/summarize`, { force }),
   writerSummaryLensList: (projectId: string) =>
@@ -392,6 +396,10 @@ export const api = {
     post<WriterSummaryLensRunResult>(`/writer/projects/${projectId}/lenses/${lensId}/run`, { force }),
   writerChapterCreate: (projectId: string, title: string) =>
     post<Chapter>("/writer/chapters", { projectId, title }),
+  writerChapterUpdate: (chapterId: string, data: { title?: string }) =>
+    patchReq<Chapter>(`/writer/chapters/${chapterId}`, data),
+  writerChapterDelete: (chapterId: string) =>
+    del<{ ok: boolean; id: string }>(`/writer/chapters/${chapterId}`),
   writerChapterUpdateSettings: (chapterId: string, settings: WriterChapterSettings) =>
     patchReq<Chapter>(`/writer/chapters/${chapterId}/settings`, { settings }),
   writerGenerateDraft: (chapterId: string, prompt: string) =>
@@ -406,8 +414,14 @@ export const api = {
     post<string>(`/writer/projects/${projectId}/export/markdown`),
   writerExportDocx: (projectId: string) =>
     post<string>(`/writer/projects/${projectId}/export/docx`),
+  writerExportMarkdownDownload: (projectId: string) =>
+    requestBlob("POST", `/writer/projects/${projectId}/export/markdown/download`),
+  writerExportDocxDownload: (projectId: string) =>
+    requestBlob("POST", `/writer/projects/${projectId}/export/docx/download`),
   writerSceneUpdate: (sceneId: string, data: Partial<Scene>) =>
     patchReq<Scene>(`/writer/scenes/${sceneId}`, data),
+  writerSceneDelete: (sceneId: string) =>
+    del<{ ok: boolean; id: string }>(`/writer/scenes/${sceneId}`),
   writerGenerateCharacter: (payload: WriterCharacterGenerateRequest) =>
     post<CharacterDetail>("/writer/characters/generate", payload),
   writerEditCharacter: (characterId: string, payload: WriterCharacterEditRequest) =>

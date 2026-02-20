@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import path from "path";
 import { existsSync } from "fs";
+import { writeFile } from "fs/promises";
 import { pathToFileURL } from "url";
 
 const isDev = !app.isPackaged;
@@ -211,6 +212,29 @@ ipcMain.handle("window:isMaximized", () => {
 
 ipcMain.handle("window:getPlatform", () => {
   return process.platform;
+});
+
+ipcMain.handle("file:save", async (_event, payload: { filename?: unknown; base64Data?: unknown }) => {
+  if (!payload || typeof payload !== "object") {
+    return { ok: false, canceled: true };
+  }
+  const filename = String(payload.filename || "export.txt").trim() || "export.txt";
+  const base64Data = String(payload.base64Data || "").trim();
+  if (!base64Data) {
+    throw new Error("Missing file payload");
+  }
+
+  const result = await dialog.showSaveDialog(mainWindow ?? undefined, {
+    defaultPath: filename,
+    buttonLabel: "Save"
+  });
+  if (result.canceled || !result.filePath) {
+    return { ok: false, canceled: true };
+  }
+
+  const buffer = Buffer.from(base64Data, "base64");
+  await writeFile(result.filePath, buffer);
+  return { ok: true, canceled: false, filePath: result.filePath };
 });
 
 app.on("second-instance", () => {

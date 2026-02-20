@@ -1,7 +1,7 @@
 {
   "name": "vellium",
   "private": true,
-  "version": "0.3.1",
+  "version": "0.3.5",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -28,6 +28,7 @@
     "better-sqlite3": "^12.6.2",
     "clsx": "^2.1.1",
     "cors": "^2.8.5",
+    "docx": "^9.5.3",
     "express": "^4.21.0",
     "mammoth": "^1.11.0",
     "marked": "^17.0.3",

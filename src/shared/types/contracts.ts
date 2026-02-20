@@ -168,6 +168,12 @@ export interface WriterDocxImportResult {
   chapterTitles: string[];
 }
 
+export type WriterDocxParseMode = "auto" | "chapter_markers" | "heading_lines" | "single_book";
+
+export interface WriterDocxImportBookResult extends WriterDocxImportResult {
+  project: BookProject;
+}
+
 export interface WriterProjectSummaryResult {
   summary: string;
   cached: boolean;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../components/Panels";
+import { ThreePanelLayout, Badge, EmptyState } from "../../components/Panels";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import type {
@@ -13,6 +13,7 @@ import type {
   WriterChapterSettings,
   WriterCharacterAdvancedOptions,
   WriterCharacterEditField,
+  WriterDocxParseMode,
   WriterProjectNotes,
   WriterSummaryLens,
   WriterSummaryLensScope
@@ -74,7 +75,7 @@ interface CollapsibleSectionProps {
 
 function CollapsibleSection({ title, collapsed, onToggle, children, action }: CollapsibleSectionProps) {
   return (
-    <section className="mb-2 rounded-lg border border-border-subtle bg-bg-primary">
+    <section className="rounded-lg border border-border-subtle bg-bg-primary">
       <div className="flex items-center justify-between gap-2 px-2.5 py-2">
         <button
           type="button"
@@ -150,6 +151,36 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+async function blobToBase64(blob: Blob): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read export blob"));
+    reader.onload = () => {
+      const raw = String(reader.result || "");
+      const comma = raw.indexOf(",");
+      resolve(comma >= 0 ? raw.slice(comma + 1) : raw);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function triggerBlobDownload(blob: Blob, filename: string) {
+  if (window.electronAPI?.saveFile) {
+    const base64Data = await blobToBase64(blob);
+    const saved = await window.electronAPI.saveFile(filename, base64Data);
+    if (!saved.canceled && saved.ok) return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
 // Background task tracking — persists across mounts
 interface BackgroundTask {
   id: string;
@@ -190,11 +221,14 @@ export function WritingScreen() {
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [generationLog, setGenerationLog] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [editingContent, setEditingContent] = useState("");
-  const [isEditing, setIsEditing] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
+  const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
+  const [editingSceneContent, setEditingSceneContent] = useState("");
+  const [sceneEditBusyId, setSceneEditBusyId] = useState<string | null>(null);
   const [bookSearchQuery, setBookSearchQuery] = useState("");
-  const [renameDraft, setRenameDraft] = useState("");
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
+  const [renamingProjectTitle, setRenamingProjectTitle] = useState("");
+  const [renamingChapterId, setRenamingChapterId] = useState<string | null>(null);
+  const [renamingChapterTitle, setRenamingChapterTitle] = useState("");
   const [chapterDynamicsCollapsed, setChapterDynamicsCollapsed] = useState(false);
   const [rightSidebarTab, setRightSidebarTab] = useState<"planning" | "lenses" | "diagnostics">("planning");
   const [bookBibleCollapsed, setBookBibleCollapsed] = useState(false);
@@ -217,6 +251,9 @@ export function WritingScreen() {
   const [lensTargetDraft, setLensTargetDraft] = useState("");
   const [lensBusyId, setLensBusyId] = useState<string | null>(null);
   const [lensOutputExpanded, setLensOutputExpanded] = useState<Record<string, boolean>>({});
+  const [docxParseMode, setDocxParseMode] = useState<WriterDocxParseMode>("auto");
+  const [docxImportAsBook, setDocxImportAsBook] = useState(false);
+  const [docxBookNameDraft, setDocxBookNameDraft] = useState("");
   const [characterPrompt, setCharacterPrompt] = useState("");
   const [characterAdvancedMode, setCharacterAdvancedMode] = useState(false);
   const [characterAdvanced, setCharacterAdvanced] = useState<WriterCharacterAdvancedOptions>({ ...DEFAULT_WRITER_CHARACTER_ADVANCED });
@@ -290,13 +327,14 @@ export function WritingScreen() {
 
   async function createProject() {
     const defaultName = `${t("writing.defaultBookPrefix")} ${projects.length + 1}`;
-    const name = newProjectName.trim() || defaultName;
-    const project = await api.writerProjectCreate(name, t("writing.defaultProjectDescription"), []);
+    const project = await api.writerProjectCreate(defaultName, t("writing.defaultProjectDescription"), []);
     setProjects((prev) => [project, ...prev]);
     setActiveProject(project);
     setProjectNotes(project.notes || { ...DEFAULT_PROJECT_NOTES });
-    setNewProjectName("");
-    setRenameDraft(project.name || "");
+    setRenamingProjectId(null);
+    setRenamingProjectTitle("");
+    setRenamingChapterId(null);
+    setRenamingChapterTitle("");
     setChapters([]);
     setScenes([]);
     setSelectedChapterId(null);
@@ -310,36 +348,47 @@ export function WritingScreen() {
     setLensTargetDraft("");
   }
 
-  async function renameActiveProject() {
-    if (!activeProject) return;
-    const nextName = renameDraft.trim();
-    if (!nextName || nextName === activeProject.name) return;
+  function startRenameProject(project: BookProject) {
+    setRenamingProjectId(project.id);
+    setRenamingProjectTitle(project.name || "");
+  }
+
+  function cancelRenameProject() {
+    setRenamingProjectId(null);
+    setRenamingProjectTitle("");
+  }
+
+  async function submitRenameProject(project: BookProject) {
+    const nextName = renamingProjectTitle.trim();
+    if (!nextName || nextName === project.name) {
+      cancelRenameProject();
+      return;
+    }
     try {
-      const updated = await api.writerProjectUpdate(activeProject.id, { name: nextName });
-      setActiveProject(updated);
-      setRenameDraft(updated.name || "");
+      const updated = await api.writerProjectUpdate(project.id, { name: nextName });
+      if (activeProject?.id === updated.id) setActiveProject(updated);
       setProjects((prev) => prev.map((project) => (project.id === updated.id ? updated : project)));
       log(`${t("writing.logBookRenamed")}: ${updated.name}`);
+      cancelRenameProject();
     } catch (err) {
       log(`${t("writing.logError")}: ${String(err)}`);
     }
   }
 
-  async function deleteActiveProject() {
-    if (!activeProject) return;
+  async function deleteProject(project: BookProject) {
     if (!confirm(t("writing.confirmDeleteBook"))) return;
-    const deletingId = activeProject.id;
-    const deletingName = activeProject.name;
+    const deletingId = project.id;
+    const deletingName = project.name;
     try {
       await api.writerProjectDelete(deletingId);
       const remaining = projects.filter((project) => project.id !== deletingId);
       setProjects(remaining);
-      if (remaining.length > 0) {
+      cancelRenameProject();
+      if (remaining.length > 0 && activeProject?.id === deletingId) {
         await openProject(remaining[0]);
-      } else {
+      } else if (remaining.length === 0) {
         setActiveProject(null);
         setProjectNotes({ ...DEFAULT_PROJECT_NOTES });
-        setRenameDraft("");
         setChapters([]);
         setScenes([]);
         setSelectedChapterId(null);
@@ -349,6 +398,79 @@ export function WritingScreen() {
         setLensOutputExpanded({});
       }
       log(`${t("writing.logBookDeleted")}: ${deletingName}`);
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+    }
+  }
+
+  function startRenameChapter(chapter: Chapter) {
+    setRenamingChapterId(chapter.id);
+    setRenamingChapterTitle(chapter.title || "");
+  }
+
+  function cancelRenameChapter() {
+    setRenamingChapterId(null);
+    setRenamingChapterTitle("");
+  }
+
+  async function submitRenameChapter(chapter: Chapter) {
+    const nextTitle = renamingChapterTitle.trim();
+    if (!nextTitle || nextTitle === chapter.title) {
+      cancelRenameChapter();
+      return;
+    }
+    try {
+      const updated = await api.writerChapterUpdate(chapter.id, { title: nextTitle });
+      setChapters((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      if (selectedChapterId === updated.id) {
+        setChapterSettings(updated.settings ?? { ...DEFAULT_CHAPTER_SETTINGS });
+      }
+      log(`${t("writing.logChapterRenamed")}: ${updated.title}`);
+      cancelRenameChapter();
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+    }
+  }
+
+  async function deleteChapter(chapter: Chapter) {
+    if (!confirm(t("writing.confirmDeleteChapter"))) return;
+    const deletingId = chapter.id;
+    const deletingTitle = chapter.title;
+    const removedSceneIds = new Set(
+      scenes.filter((scene) => scene.chapterId === deletingId).map((scene) => scene.id)
+    );
+
+    try {
+      await api.writerChapterDelete(deletingId);
+      const remainingChapters = chapters
+        .filter((item) => item.id !== deletingId)
+        .map((item, index) => ({ ...item, position: index + 1 }));
+      const remainingScenes = scenes.filter((scene) => scene.chapterId !== deletingId);
+
+      const nextSelectedChapterId =
+        selectedChapterId === deletingId
+          ? (remainingChapters[0]?.id ?? null)
+          : selectedChapterId;
+
+      let nextSelectedSceneId = selectedSceneId;
+      if (!nextSelectedSceneId || removedSceneIds.has(nextSelectedSceneId)) {
+        if (nextSelectedChapterId) {
+          nextSelectedSceneId =
+            remainingScenes.find((scene) => scene.chapterId === nextSelectedChapterId)?.id
+            ?? null;
+        } else {
+          nextSelectedSceneId = null;
+        }
+      }
+
+      setChapters(remainingChapters);
+      setScenes(remainingScenes);
+      setSelectedChapterId(nextSelectedChapterId);
+      setSelectedSceneId(nextSelectedSceneId);
+      if (renamingChapterId === deletingId) {
+        cancelRenameChapter();
+      }
+      log(`${t("writing.logChapterDeleted")}: ${deletingTitle}`);
     } catch (err) {
       log(`${t("writing.logError")}: ${String(err)}`);
     }
@@ -376,6 +498,9 @@ export function WritingScreen() {
       api.writerProjectOpen(project.id),
       api.writerSummaryLensList(project.id).catch(() => [])
     ]);
+    cancelRenameProject();
+    setRenamingChapterId(null);
+    setRenamingChapterTitle("");
     setActiveProject(loaded.project);
     setProjectNotes(loaded.project.notes || { ...DEFAULT_PROJECT_NOTES });
     setChapters(loaded.chapters);
@@ -390,6 +515,8 @@ export function WritingScreen() {
   async function createChapter() {
     if (!activeProject) return;
     const chapter = await api.writerChapterCreate(activeProject.id, `${t("writing.defaultChapterPrefix")} ${chapters.length + 1}`);
+    setRenamingChapterId(null);
+    setRenamingChapterTitle("");
     setChapters((prev) => [...prev, chapter]);
     setSelectedChapterId(chapter.id);
     setChapterSettings(chapter.settings ?? { ...DEFAULT_CHAPTER_SETTINGS });
@@ -474,13 +601,58 @@ export function WritingScreen() {
     setBusy(false);
   }
 
-  async function saveSceneContent() {
-    if (!selectedSceneId) return;
+  function startInlineSceneEdit(scene: Scene) {
+    setSelectedSceneId(scene.id);
+    setEditingSceneId(scene.id);
+    setEditingSceneContent(scene.content);
+  }
+
+  function cancelInlineSceneEdit() {
+    setEditingSceneId(null);
+    setEditingSceneContent("");
+  }
+
+  async function saveInlineSceneContent(scene: Scene) {
+    const nextContent = editingSceneContent;
+    if (editingSceneId !== scene.id) return;
+    if (nextContent === scene.content) {
+      cancelInlineSceneEdit();
+      return;
+    }
+    setSceneEditBusyId(scene.id);
     try {
-      const updated = await api.writerSceneUpdate(selectedSceneId, { content: editingContent });
-      setScenes((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-      setIsEditing(false);
+      const updated = await api.writerSceneUpdate(scene.id, { content: nextContent });
+      setScenes((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      cancelInlineSceneEdit();
       log(t("writing.logSceneSaved"));
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+    } finally {
+      setSceneEditBusyId(null);
+    }
+  }
+
+  async function deleteScene(scene: Scene) {
+    if (!confirm(t("writing.confirmDeleteScene"))) return;
+    const deletingId = scene.id;
+    const deletingTitle = scene.title;
+
+    try {
+      await api.writerSceneDelete(deletingId);
+      const remainingScenes = scenes.filter((item) => item.id !== deletingId);
+      const nextSelectedSceneId =
+        selectedSceneId === deletingId
+          ? (remainingScenes.find((item) => item.chapterId === scene.chapterId)?.id
+            ?? remainingScenes[0]?.id
+            ?? null)
+          : selectedSceneId;
+
+      setScenes(remainingScenes);
+      setSelectedSceneId(nextSelectedSceneId);
+      if (editingSceneId === deletingId) {
+        cancelInlineSceneEdit();
+      }
+      log(`${t("writing.logSceneDeleted")}: ${deletingTitle}`);
     } catch (err) {
       log(`${t("writing.logError")}: ${String(err)}`);
     }
@@ -488,14 +660,26 @@ export function WritingScreen() {
 
   async function exportMarkdown() {
     if (!activeProject) return;
-    const path = await api.writerExportMarkdown(activeProject.id);
-    log(`${t("writing.logMarkdownExported")}: ${path}`);
+    try {
+      const blob = await api.writerExportMarkdownDownload(activeProject.id);
+      const filename = `${(activeProject.name || "book").replace(/[<>:\"/\\|?*\u0000-\u001F]/g, " ").trim() || "book"}.md`;
+      await triggerBlobDownload(blob, filename);
+      log(`${t("writing.logMarkdownExported")}: ${filename}`);
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+    }
   }
 
   async function exportDocx() {
     if (!activeProject) return;
-    const path = await api.writerExportDocx(activeProject.id);
-    log(`${t("writing.logDocxExported")}: ${path}`);
+    try {
+      const blob = await api.writerExportDocxDownload(activeProject.id);
+      const filename = `${(activeProject.name || "book").replace(/[<>:\"/\\|?*\u0000-\u001F]/g, " ").trim() || "book"}.docx`;
+      await triggerBlobDownload(blob, filename);
+      log(`${t("writing.logDocxExported")}: ${filename}`);
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+    }
   }
 
   function updateProjectNotes(patch: Partial<WriterProjectNotes>) {
@@ -536,10 +720,12 @@ export function WritingScreen() {
   }
 
   async function handleDocxImport(file: File | null) {
-    if (!file || !activeProject) return;
+    if (!file) return;
+    if (!docxImportAsBook && !activeProject) return;
     if (busy) return;
     setBusy(true);
-    const taskId = startBgTask("generate", `${t("writing.importDocx")}: ${file.name}`);
+    const taskLabel = docxImportAsBook ? t("writing.importDocxAsBook") : t("writing.importDocx");
+    const taskId = startBgTask("generate", `${taskLabel}: ${file.name}`);
     try {
       const base64Data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -547,10 +733,24 @@ export function WritingScreen() {
         reader.onload = () => resolve(String(reader.result || ""));
         reader.readAsDataURL(file);
       });
-      const payload = await api.writerProjectImportDocx(activeProject.id, base64Data, file.name);
-      await openProject(activeProject);
-      log(`${t("writing.logDocxImported")}: ${payload.chaptersCreated} ${t("writing.chShort")}, ${payload.scenesCreated} ${t("writing.scenesShort")}`);
-      finishBgTask(taskId, "done", `${payload.chaptersCreated}/${payload.scenesCreated}`);
+      if (docxImportAsBook) {
+        const payload = await api.writerImportDocxAsBook(
+          base64Data,
+          file.name,
+          docxParseMode,
+          docxBookNameDraft.trim() || undefined
+        );
+        setProjects((prev) => [payload.project, ...prev.filter((project) => project.id !== payload.project.id)]);
+        await openProject(payload.project);
+        setDocxBookNameDraft("");
+        log(`${t("writing.logBookImported")}: ${payload.project.name} (${payload.chaptersCreated} ${t("writing.chShort")})`);
+        finishBgTask(taskId, "done", `${payload.chaptersCreated}/${payload.scenesCreated}`);
+      } else if (activeProject) {
+        const payload = await api.writerProjectImportDocx(activeProject.id, base64Data, file.name, docxParseMode);
+        await openProject(activeProject);
+        log(`${t("writing.logDocxImported")}: ${payload.chaptersCreated} ${t("writing.chShort")}, ${payload.scenesCreated} ${t("writing.scenesShort")}`);
+        finishBgTask(taskId, "done", `${payload.chaptersCreated}/${payload.scenesCreated}`);
+      }
     } catch (err) {
       log(`${t("writing.logError")}: ${String(err)}`);
       finishBgTask(taskId, "error", String(err));
@@ -559,6 +759,19 @@ export function WritingScreen() {
       if (docxImportInputRef.current) {
         docxImportInputRef.current.value = "";
       }
+    }
+  }
+
+  function docxParseModeLabel(mode: WriterDocxParseMode): string {
+    switch (mode) {
+      case "chapter_markers":
+        return t("writing.docxModeChapterMarkers");
+      case "heading_lines":
+        return t("writing.docxModeHeadingLines");
+      case "single_book":
+        return t("writing.docxModeSingleBook");
+      default:
+        return t("writing.docxModeAuto");
     }
   }
 
@@ -885,10 +1098,6 @@ export function WritingScreen() {
   }, [selectedChapterId, selectedChapter]);
 
   useEffect(() => {
-    setRenameDraft(activeProject?.name || "");
-  }, [activeProject?.id, activeProject?.name]);
-
-  useEffect(() => {
     setProjectNotes(activeProject?.notes || { ...DEFAULT_PROJECT_NOTES });
   }, [activeProject?.id]);
 
@@ -959,124 +1168,61 @@ export function WritingScreen() {
     return scenes;
   }, [scenes, lensScopeDraft, lensTargetDraft, selectedChapterId]);
 
-  function startEditing() {
-    if (!selectedScene) return;
-    setEditingContent(selectedScene.content);
-    setIsEditing(true);
-  }
+  useEffect(() => {
+    if (editingSceneId && !scenes.some((scene) => scene.id === editingSceneId)) {
+      cancelInlineSceneEdit();
+    }
+  }, [editingSceneId, scenes]);
 
   const runningTasks = bgTasks.filter((t) => t.status === "running");
 
-  return (
-    <div className="flex h-full flex-col gap-1.5">
-      <div className="flex justify-center">
-        <div className="inline-flex items-center rounded-md border border-border-subtle bg-bg-primary p-[2px]">
-          <button
-            onClick={() => setWorkspaceMode("books")}
-            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold leading-4 transition-colors ${
-              workspaceMode === "books"
-                ? "bg-accent text-text-inverse"
-                : "text-text-secondary hover:bg-bg-hover"
-            }`}
-          >
-            {t("writing.modeBooks")}
-          </button>
-          <button
-            onClick={() => setWorkspaceMode("characters")}
-            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold leading-4 transition-colors ${
-              workspaceMode === "characters"
-                ? "bg-accent text-text-inverse"
-                : "text-text-secondary hover:bg-bg-hover"
-            }`}
-          >
-            {t("writing.modeCharacters")}
-          </button>
-        </div>
+  function renderWorkspaceModeSwitch() {
+    return (
+      <div className="inline-flex items-center rounded-md border border-border-subtle bg-bg-primary p-[2px]">
+        <button
+          onClick={() => setWorkspaceMode("books")}
+          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold leading-4 transition-colors ${
+            workspaceMode === "books"
+              ? "bg-accent text-text-inverse"
+              : "text-text-secondary hover:bg-bg-hover"
+          }`}
+        >
+          {t("writing.modeBooks")}
+        </button>
+        <button
+          onClick={() => setWorkspaceMode("characters")}
+          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold leading-4 transition-colors ${
+            workspaceMode === "characters"
+              ? "bg-accent text-text-inverse"
+              : "text-text-secondary hover:bg-bg-hover"
+          }`}
+        >
+          {t("writing.modeCharacters")}
+        </button>
       </div>
+    );
+  }
 
+  return (
+    <div className="flex h-full flex-col gap-3 px-1 pb-1">
       {workspaceMode === "books" ? (
         <ThreePanelLayout
       left={
-        <>
-          <PanelTitle
-            action={
-              <div className="flex items-center gap-1">
-                <input
-                  value={newProjectName}
-                  onChange={(e) => setNewProjectName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void createProject();
-                    }
-                  }}
-                  placeholder={t("writing.bookTitle")}
-                  className="w-28 rounded-md border border-border bg-bg-primary px-2 py-1 text-[11px] text-text-primary placeholder:text-text-tertiary"
-                />
-                <button
-                  onClick={createProject}
-                  className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
-                  {t("chat.new")}
-                </button>
-                <button
-                  onClick={openDocxPicker}
-                  disabled={!activeProject}
-                  className="rounded-lg border border-border px-2 py-1 text-[11px] font-semibold text-text-secondary hover:bg-bg-hover disabled:opacity-40"
-                >
-                  {t("writing.importDocx")}
-                </button>
-                <input
-                  ref={docxImportInputRef}
-                  type="file"
-                  accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null;
-                    void handleDocxImport(file);
-                  }}
-                />
-              </div>
-            }
-          >
-            {t("writing.projects")}
-          </PanelTitle>
-
-          <div className="mb-2 flex items-center gap-1">
-            <input
-              value={renameDraft}
-              onChange={(e) => setRenameDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void renameActiveProject();
-                }
-              }}
-              disabled={!activeProject}
-              placeholder={t("writing.renameSelectedBook")}
-              className="min-w-0 flex-1 rounded-md border border-border bg-bg-primary px-2 py-1 text-[11px] text-text-primary placeholder:text-text-tertiary disabled:opacity-40"
-            />
+        <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.projects")}</h2>
             <button
-              onClick={renameActiveProject}
-              disabled={!activeProject}
-              className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+              onClick={() => { void createProject(); }}
+              className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover"
             >
-              {t("writing.rename")}
-            </button>
-            <button
-              onClick={deleteActiveProject}
-              disabled={!activeProject}
-              className="rounded-md border border-danger-border px-2 py-1 text-[11px] font-semibold text-danger hover:bg-danger-subtle disabled:opacity-40"
-              title={t("chat.delete")}
-            >
-              {t("chat.delete")}
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              {t("chat.new")}
             </button>
           </div>
 
-          <div className="mb-2">
+          <div>
             <input
               value={bookSearchQuery}
               onChange={(e) => setBookSearchQuery(e.target.value)}
@@ -1085,43 +1231,236 @@ export function WritingScreen() {
             />
           </div>
 
-          <div className="list-animate flex-1 space-y-1.5 overflow-y-auto">
+          <div className="rounded-lg border border-border-subtle bg-bg-primary p-2.5">
+            <button
+              onClick={openDocxPicker}
+              disabled={busy || (!docxImportAsBook && !activeProject)}
+              className="w-full rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+            >
+              {docxImportAsBook ? t("writing.importDocxAsBook") : t("writing.importDocx")}
+            </button>
+            <input
+              ref={docxImportInputRef}
+              type="file"
+              accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                void handleDocxImport(file);
+              }}
+            />
+            <div className="mt-1.5 grid grid-cols-1 gap-1">
+              <label className="text-[10px] text-text-tertiary">
+                {t("writing.docxParseMode")}
+                <select
+                  value={docxParseMode}
+                  onChange={(e) => setDocxParseMode(e.target.value as WriterDocxParseMode)}
+                  className="mt-1 w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-[11px] text-text-primary"
+                >
+                  {(["auto", "chapter_markers", "heading_lines", "single_book"] as WriterDocxParseMode[]).map((mode) => (
+                    <option key={mode} value={mode}>{docxParseModeLabel(mode)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[11px] text-text-secondary">
+                <input
+                  type="checkbox"
+                  checked={docxImportAsBook}
+                  onChange={(e) => setDocxImportAsBook(e.target.checked)}
+                />
+                {t("writing.docxImportAsBook")}
+              </label>
+              {docxImportAsBook && (
+                <input
+                  value={docxBookNameDraft}
+                  onChange={(e) => setDocxBookNameDraft(e.target.value)}
+                  placeholder={t("writing.docxBookName")}
+                  className="w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-[11px] text-text-primary placeholder:text-text-tertiary"
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="list-animate min-h-0 flex-1 space-y-1 overflow-y-auto">
             {projects.length === 0 ? (
               <EmptyState title={t("writing.noProjects")} description={t("writing.noProjectsDesc")} />
             ) : filteredProjects.length === 0 ? (
               <EmptyState title={t("writing.noBookSearchResults")} description={t("writing.noBookSearchResultsDesc")} />
             ) : (
-              filteredProjects.map((project) => (
-                <button
-                  key={project.id}
-                  onClick={() => openProject(project)}
-                  className={`float-card block w-full rounded-lg px-3 py-2 text-left transition-colors ${
-                    activeProject?.id === project.id
-                      ? "bg-accent-subtle text-text-primary"
-                      : "text-text-secondary hover:bg-bg-hover"
-                  }`}
-                >
-                  <div className="break-words whitespace-normal text-sm font-medium leading-snug">{project.name || t("writing.untitledBook")}</div>
-                  <div className="mt-0.5 break-words text-[11px] text-text-tertiary">{project.description}</div>
-                </button>
-              ))
+              filteredProjects.map((project) => {
+                const isRenaming = renamingProjectId === project.id;
+                return (
+                  <div
+                    key={project.id}
+                    className={`group relative flex items-start gap-2 rounded-lg px-3 py-2 transition-colors ${
+                      activeProject?.id === project.id
+                        ? "bg-accent-subtle text-text-primary"
+                        : "text-text-secondary hover:bg-bg-hover"
+                    }`}
+                  >
+                    {isRenaming ? (
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <input
+                          value={renamingProjectTitle}
+                          onChange={(e) => setRenamingProjectTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void submitRenameProject(project);
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              cancelRenameProject();
+                            }
+                          }}
+                          className="w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary"
+                          autoFocus
+                        />
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void submitRenameProject(project);
+                          }}
+                          className="rounded-md border border-border px-2 py-1 text-[10px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                          title={t("chat.save")}
+                        >
+                          {t("chat.save")}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            cancelRenameProject();
+                          }}
+                          className="rounded-md border border-border px-2 py-1 text-[10px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                          title={t("chat.cancel")}
+                        >
+                          {t("chat.cancel")}
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button onClick={() => openProject(project)} className="flex min-w-0 flex-1 text-left">
+                          <div className="min-w-0 flex-1">
+                            <div className="break-words whitespace-normal text-sm font-medium leading-snug">{project.name || t("writing.untitledBook")}</div>
+                            <div className="mt-0.5 break-words text-[11px] text-text-tertiary">{project.description}</div>
+                          </div>
+                        </button>
+                        <div className={`flex flex-shrink-0 items-center gap-0.5 ${
+                          activeProject?.id === project.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
+                        }`}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startRenameProject(project);
+                            }}
+                            className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+                            title={t("writing.rename")}
+                          >
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void deleteProject(project);
+                            }}
+                            className="rounded-md p-1 text-text-tertiary hover:bg-danger-subtle hover:text-danger"
+                            title={t("chat.delete")}
+                          >
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
 
-          <div className="float-card mt-3 rounded-lg border border-border-subtle bg-bg-primary p-3">
+          <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-3">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{t("writing.chapters")}</div>
             <div className="max-h-40 space-y-1 overflow-y-auto">
-              {chapters.map((ch) => (
-                <button
-                  key={ch.id}
-                  onClick={() => setSelectedChapterId(ch.id)}
-                  className={`block w-full rounded-md px-2 py-1 text-left text-xs ${
-                    selectedChapterId === ch.id ? "bg-accent-subtle text-text-primary font-medium" : "text-text-secondary hover:bg-bg-hover"
-                  }`}
-                >
-                  {ch.title}
-                </button>
-              ))}
+              {chapters.map((ch) => {
+                const isRenaming = renamingChapterId === ch.id;
+                return (
+                  <div
+                    key={ch.id}
+                    className={`group flex items-start gap-1 rounded-md px-1.5 py-1 ${
+                      selectedChapterId === ch.id ? "bg-accent-subtle" : "hover:bg-bg-hover"
+                    }`}
+                  >
+                    {isRenaming ? (
+                      <div className="flex min-w-0 flex-1 items-center gap-1">
+                        <input
+                          value={renamingChapterTitle}
+                          onChange={(e) => setRenamingChapterTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void submitRenameChapter(ch);
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              cancelRenameChapter();
+                            }
+                          }}
+                          className="w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => void submitRenameChapter(ch)}
+                          className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                          title={t("chat.save")}
+                        >
+                          {t("chat.save")}
+                        </button>
+                        <button
+                          onClick={cancelRenameChapter}
+                          className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                          title={t("chat.cancel")}
+                        >
+                          {t("chat.cancel")}
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => setSelectedChapterId(ch.id)}
+                          className={`min-w-0 flex-1 text-left text-xs ${
+                            selectedChapterId === ch.id ? "font-medium text-text-primary" : "text-text-secondary"
+                          }`}
+                        >
+                          <span className="break-words whitespace-normal">{ch.title}</span>
+                        </button>
+                        <div className={`flex items-center gap-0.5 ${
+                          selectedChapterId === ch.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
+                        }`}>
+                          <button
+                            onClick={() => startRenameChapter(ch)}
+                            className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+                            title={t("writing.rename")}
+                          >
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => void deleteChapter(ch)}
+                            className="rounded-md p-1 text-text-tertiary hover:bg-danger-subtle hover:text-danger"
+                            title={t("chat.delete")}
+                          >
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className="mt-2 flex items-center gap-2 text-[11px] text-text-tertiary">
               <span><span className="font-medium text-text-secondary">{chapters.length}</span> {t("writing.chShort")}</span>
@@ -1130,7 +1469,7 @@ export function WritingScreen() {
             </div>
           </div>
 
-          <div className="float-card mt-3 rounded-lg border border-border-subtle bg-bg-primary p-3">
+          <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-3">
             <div className="mb-2 flex items-center justify-between">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{t("writing.cast")}</div>
               <Badge>{activeProject?.characterIds?.length ?? 0}</Badge>
@@ -1164,7 +1503,7 @@ export function WritingScreen() {
 
           {/* Background tasks indicator */}
           {runningTasks.length > 0 && (
-            <div className="float-card mt-3 rounded-lg border border-accent-border bg-accent-subtle p-3">
+            <div className="float-card rounded-lg border border-accent-border bg-accent-subtle p-3">
               <div className="mb-1.5 flex items-center gap-1.5">
                 <svg className="h-3.5 w-3.5 animate-spin text-accent" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -1177,26 +1516,29 @@ export function WritingScreen() {
               ))}
             </div>
           )}
-        </>
+        </div>
       }
       center={
-        <>
-          <div className="mb-2 flex items-center justify-between">
-            <PanelTitle>
-              {activeProject ? activeProject.name : t("writing.creativeWriting")}
-            </PanelTitle>
-            {busy && (
-              <div className="flex items-center gap-1.5">
-                <svg className="h-3.5 w-3.5 animate-spin text-accent" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                <span className="text-[11px] text-accent">{t("writing.working")}</span>
-              </div>
-            )}
+        <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-0.5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="min-w-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+              <span className="block truncate">{activeProject ? activeProject.name : t("writing.creativeWriting")}</span>
+            </h2>
+            <div className="flex items-center gap-2">
+              {renderWorkspaceModeSwitch()}
+              {busy && (
+                <div className="flex items-center gap-1.5">
+                  <svg className="h-3.5 w-3.5 animate-spin text-accent" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  <span className="text-[11px] text-accent">{t("writing.working")}</span>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="float-card mb-2 rounded-lg border border-border-subtle bg-bg-primary p-2">
+          <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-2.5">
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.model")}</span>
               <span className="truncate text-xs text-text-secondary">{activeModelLabel || t("chat.noModel")}</span>
@@ -1235,7 +1577,7 @@ export function WritingScreen() {
             </div>
           </div>
 
-          <div className="mb-2 flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1.5">
             <button onClick={createChapter} disabled={!activeProject}
               className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-40">
               {t("writing.chapter")}
@@ -1262,7 +1604,7 @@ export function WritingScreen() {
             </button>
           </div>
 
-          <div className="mb-2 flex gap-1.5">
+          <div className="flex gap-1.5">
             <textarea
               value={chapterPrompt}
               onChange={(e) => setChapterPrompt(e.target.value)}
@@ -1277,8 +1619,8 @@ export function WritingScreen() {
               {t("writing.generate")}
             </button>
           </div>
-
-          <div className="float-card mb-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
+ 
+          <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-3">
             <div className="mb-2 flex items-center justify-between">
               <button
                 onClick={() => setChapterDynamicsCollapsed((prev) => !prev)}
@@ -1374,7 +1716,7 @@ export function WritingScreen() {
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div>
             {chapters.length === 0 ? (
               <EmptyState
                 title={t("writing.noChapters")}
@@ -1382,21 +1724,79 @@ export function WritingScreen() {
               />
             ) : (
               <div className="list-animate space-y-3">
-                {chapters.map((chapter) => (
-                  <div
-                    key={chapter.id}
-                    className={`float-card rounded-lg border p-2.5 transition-colors ${
-                      selectedChapterId === chapter.id
-                        ? "border-accent-border bg-accent-subtle/50"
-                        : "border-border bg-bg-primary"
-                    }`}
-                  >
-                    <button
-                      className="mb-1.5 text-left text-xs font-semibold text-text-primary hover:text-accent"
-                      onClick={() => setSelectedChapterId(chapter.id)}
+                {chapters.map((chapter) => {
+                  const isRenaming = renamingChapterId === chapter.id;
+                  return (
+                    <div
+                      key={chapter.id}
+                      className={`group float-card rounded-lg border p-2.5 transition-colors ${
+                        selectedChapterId === chapter.id
+                          ? "border-accent-border bg-accent-subtle/50"
+                          : "border-border bg-bg-primary"
+                      }`}
                     >
-                      {chapter.title}
-                    </button>
+                      {isRenaming ? (
+                        <div className="mb-1.5 flex items-center gap-1.5">
+                          <input
+                            value={renamingChapterTitle}
+                            onChange={(e) => setRenamingChapterTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void submitRenameChapter(chapter);
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                cancelRenameChapter();
+                              }
+                            }}
+                            className="w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => void submitRenameChapter(chapter)}
+                            className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                          >
+                            {t("chat.save")}
+                          </button>
+                          <button
+                            onClick={cancelRenameChapter}
+                            className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                          >
+                            {t("chat.cancel")}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="mb-1.5 flex items-start gap-1.5">
+                          <button
+                            className="min-w-0 flex-1 break-words text-left text-xs font-semibold text-text-primary hover:text-accent"
+                            onClick={() => setSelectedChapterId(chapter.id)}
+                          >
+                            {chapter.title}
+                          </button>
+                          <div className={`flex items-center gap-0.5 ${
+                            selectedChapterId === chapter.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
+                          }`}>
+                            <button
+                              onClick={() => startRenameChapter(chapter)}
+                              className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+                              title={t("writing.rename")}
+                            >
+                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => void deleteChapter(chapter)}
+                              className="rounded-md p-1 text-text-tertiary hover:bg-danger-subtle hover:text-danger"
+                              title={t("chat.delete")}
+                            >
+                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     <div className="mb-1.5 flex flex-wrap gap-1 text-[10px] text-text-tertiary">
                       <Badge>{chapter.settings.tone}</Badge>
                       <Badge>{chapter.settings.pacing}</Badge>
@@ -1404,60 +1804,108 @@ export function WritingScreen() {
                     </div>
                     {scenes
                       .filter((scene) => scene.chapterId === chapter.id)
-                      .map((scene) => (
-                        <article
-                          key={scene.id}
-                          onClick={() => setSelectedSceneId(scene.id)}
-                          className={`float-card mb-1 cursor-pointer rounded-md border p-2 text-xs transition-colors ${
-                            selectedSceneId === scene.id
-                              ? "border-accent-border bg-accent-subtle"
-                              : "border-border-subtle hover:bg-bg-hover"
-                          }`}
-                        >
-                          <div className="font-semibold text-text-primary">{scene.title}</div>
-                          <p className="mt-0.5 line-clamp-2 text-text-tertiary">{scene.content}</p>
-                        </article>
-                      ))}
+                      .map((scene) => {
+                        const isInlineEditing = editingSceneId === scene.id;
+                        const isSavingInline = sceneEditBusyId === scene.id;
+                        return (
+                          <article
+                            key={scene.id}
+                            onClick={() => {
+                              if (!isInlineEditing) setSelectedSceneId(scene.id);
+                            }}
+                            className={`group float-card mb-1 rounded-md border p-2 text-xs transition-colors ${
+                              selectedSceneId === scene.id
+                                ? "border-accent-border bg-accent-subtle"
+                                : "border-border-subtle hover:bg-bg-hover"
+                            } ${isInlineEditing ? "" : "cursor-pointer"}`}
+                          >
+                            <div className="mb-0.5 flex items-center justify-between gap-2">
+                              <div className="min-w-0 truncate font-semibold text-text-primary">{scene.title}</div>
+                              {!isInlineEditing && (
+                                <div className={`flex items-center gap-1 ${
+                                  selectedSceneId === scene.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
+                                }`}>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      startInlineSceneEdit(scene);
+                                    }}
+                                    className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                                  >
+                                    {t("chat.edit")}
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void deleteScene(scene);
+                                    }}
+                                    className="rounded-md border border-danger-border px-1.5 py-0.5 text-[10px] text-danger hover:bg-danger-subtle"
+                                  >
+                                    {t("chat.delete")}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                            {isInlineEditing ? (
+                              <div className="space-y-1">
+                                <textarea
+                                  value={editingSceneContent}
+                                  onChange={(e) => setEditingSceneContent(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="h-28 w-full resize-y rounded-md border border-border bg-bg-secondary p-2 text-xs leading-relaxed text-text-primary"
+                                />
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void saveInlineSceneContent(scene);
+                                    }}
+                                    disabled={isSavingInline}
+                                    className="rounded-md bg-accent px-2 py-0.5 text-[10px] font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40"
+                                  >
+                                    {isSavingInline ? t("writing.working") : t("chat.save")}
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      cancelInlineSceneEdit();
+                                    }}
+                                    disabled={isSavingInline}
+                                    className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                                  >
+                                    {t("chat.cancel")}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="mt-0.5 line-clamp-2 text-text-tertiary">{scene.content}</p>
+                            )}
+                          </article>
+                        );
+                      })}
                   </div>
-                ))}
+                );
+              })}
               </div>
             )}
           </div>
 
           {selectedScene && (
-            <div className="float-card mt-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
+            <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-3">
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="text-xs font-semibold text-text-primary">{selectedScene.title}</span>
-                <div className="flex gap-1">
-                  {isEditing ? (
-                    <>
-                      <button onClick={saveSceneContent} className="rounded-md bg-accent px-2 py-0.5 text-[10px] font-semibold text-text-inverse hover:bg-accent-hover">{t("chat.save")}</button>
-                      <button onClick={() => setIsEditing(false)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("chat.cancel")}</button>
-                    </>
-                  ) : (
-                    <button onClick={startEditing} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("chat.edit")}</button>
-                  )}
-                </div>
               </div>
-              {isEditing ? (
-                <textarea
-                  value={editingContent}
-                  onChange={(e) => setEditingContent(e.target.value)}
-                  className="h-40 w-full resize-y rounded-md border border-border bg-bg-secondary p-2 text-xs leading-relaxed text-text-primary"
-                />
-              ) : (
-                <p className="max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">
-                  {selectedScene.content}
-                </p>
-              )}
+              <p className="max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">
+                {selectedScene.content}
+              </p>
             </div>
           )}
-        </>
+        </div>
       }
       right={
-        <div className="flex h-full min-h-0 flex-col">
-          <PanelTitle>{t("writing.outline")}</PanelTitle>
-          <div className="mb-2 inline-flex w-full items-center rounded-md border border-border-subtle bg-bg-primary p-[2px]">
+        <div className="flex h-full min-h-0 flex-col gap-3">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.outline")}</h2>
+          <div className="inline-flex w-full items-center rounded-md border border-border-subtle bg-bg-primary p-[2px]">
             {([
               ["planning", t("writing.sidebarPlanning")],
               ["lenses", t("writing.sidebarLenses")],
@@ -1478,10 +1926,10 @@ export function WritingScreen() {
             ))}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-0.5">
             {rightSidebarTab === "planning" && (
-              <>
-                <div className="mb-2 flex gap-1.5">
+              <div className="space-y-2">
+                <div className="flex gap-1.5">
                   <button onClick={exportMarkdown} className="flex-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover">
                     {t("writing.exportMD")}
                   </button>
@@ -1549,7 +1997,7 @@ export function WritingScreen() {
                     />
                   </div>
                 </CollapsibleSection>
-              </>
+              </div>
             )}
 
             {rightSidebarTab === "lenses" && (
@@ -1648,7 +2096,7 @@ export function WritingScreen() {
                                 <div className="truncate text-xs font-semibold text-text-primary">{lens.name}</div>
                                 <div className="text-[10px] text-text-tertiary">{scopeLabel}{targetLabel ? ` · ${targetLabel}` : ""}</div>
                               </div>
-                              <div className="flex gap-1">
+                              <div className="flex max-w-[180px] flex-wrap justify-end gap-1">
                                 <button
                                   type="button"
                                   onClick={() => loadLensToDraft(lens)}
@@ -1712,7 +2160,7 @@ export function WritingScreen() {
             )}
 
             {rightSidebarTab === "diagnostics" && (
-              <>
+              <div className="space-y-2">
                 <CollapsibleSection
                   title={t("writing.tasks")}
                   collapsed={tasksCollapsed}
@@ -1793,7 +2241,7 @@ export function WritingScreen() {
                     )}
                   </div>
                 </CollapsibleSection>
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -1802,6 +2250,9 @@ export function WritingScreen() {
       ) : (
         <section className="mx-auto flex h-full w-full max-w-[1500px] flex-col rounded-xl border border-border bg-bg-secondary p-4">
           <div className="flex w-full flex-1 flex-col gap-3 overflow-y-auto">
+            <div className="flex justify-end">
+              {renderWorkspaceModeSwitch()}
+            </div>
             <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-3">
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-xs font-semibold text-text-primary">{t("writing.characterForge")}</div>
