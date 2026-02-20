@@ -174,6 +174,27 @@ export interface WriterProjectSummaryResult {
   chapterCount: number;
 }
 
+export type WriterSummaryLensScope = "project" | "chapter" | "scene";
+
+export interface WriterSummaryLens {
+  id: Id;
+  projectId: Id;
+  name: string;
+  scope: WriterSummaryLensScope;
+  targetId: Id | null;
+  prompt: string;
+  output: string;
+  sourceHash: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WriterSummaryLensRunResult {
+  lens: WriterSummaryLens;
+  cached: boolean;
+  sourceChars: number;
+}
+
 export interface WriterChapterSettings {
   tone: string;
   pacing: "slow" | "balanced" | "fast";

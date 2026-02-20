@@ -66,6 +66,21 @@ interface WriterProjectNotes {
   summary: string;
 }
 
+type WriterSummaryLensScope = "project" | "chapter" | "scene";
+
+interface WriterSummaryLensRow {
+  id: string;
+  project_id: string;
+  name: string;
+  scope: WriterSummaryLensScope;
+  target_id: string | null;
+  prompt: string;
+  output: string;
+  source_hash: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface WriterCharacterAdvancedInput {
   name?: unknown;
   role?: unknown;
@@ -502,6 +517,136 @@ function splitDocxIntoChapters(text: string): Array<{ title: string; content: st
 
 function hashContent(content: string): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function normalizeLensScope(raw: unknown): WriterSummaryLensScope {
+  const value = String(raw || "").trim();
+  if (value === "chapter" || value === "scene") return value;
+  return "project";
+}
+
+function normalizeLensName(raw: unknown): string {
+  const value = toCleanText(raw, 120);
+  return value || "Custom Lens";
+}
+
+function normalizeLensPrompt(raw: unknown): string {
+  return toCleanText(raw, 8000);
+}
+
+function lensRowToJson(row: WriterSummaryLensRow) {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    scope: row.scope,
+    targetId: row.target_id,
+    prompt: row.prompt,
+    output: row.output,
+    sourceHash: row.source_hash,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function buildProjectSourceText(projectId: string): string {
+  const chapters = db.prepare(
+    "SELECT id, title, position FROM writer_chapters WHERE project_id = ? ORDER BY position ASC"
+  ).all(projectId) as Array<{ id: string; title: string; position: number }>;
+  if (chapters.length === 0) return "";
+  const sceneStmt = db.prepare(
+    "SELECT id, title, content FROM writer_scenes WHERE chapter_id = ? ORDER BY created_at ASC"
+  );
+  const blocks = chapters.map((chapter) => {
+    const scenes = sceneStmt.all(chapter.id) as Array<{ id: string; title: string; content: string }>;
+    const sceneText = scenes.map((scene) => `[Scene] ${scene.title}\n${scene.content}`).join("\n\n");
+    return `# ${chapter.title}\n${sceneText}`.trim();
+  }).filter(Boolean);
+  return blocks.join("\n\n");
+}
+
+function resolveLensSource(projectId: string, scope: WriterSummaryLensScope, targetId: string | null): { targetId: string | null; sourceText: string } {
+  if (scope === "project") {
+    return { targetId: null, sourceText: buildProjectSourceText(projectId) };
+  }
+
+  if (!targetId) {
+    throw new Error(`targetId is required for ${scope} scope`);
+  }
+
+  if (scope === "chapter") {
+    const chapter = db.prepare(
+      "SELECT id FROM writer_chapters WHERE id = ? AND project_id = ?"
+    ).get(targetId, projectId) as { id: string } | undefined;
+    if (!chapter) {
+      throw new Error("Chapter target not found in this project");
+    }
+    const scenes = db.prepare(
+      "SELECT title, content FROM writer_scenes WHERE chapter_id = ? ORDER BY created_at ASC"
+    ).all(targetId) as Array<{ title: string; content: string }>;
+    const sourceText = scenes.map((scene) => `[Scene] ${scene.title}\n${scene.content}`).join("\n\n");
+    return { targetId, sourceText };
+  }
+
+  const scene = db.prepare(
+    `SELECT s.id, s.title, s.content
+     FROM writer_scenes s
+     JOIN writer_chapters c ON c.id = s.chapter_id
+     WHERE s.id = ? AND c.project_id = ?`
+  ).get(targetId, projectId) as { id: string; title: string; content: string } | undefined;
+  if (!scene) {
+    throw new Error("Scene target not found in this project");
+  }
+  return { targetId: scene.id, sourceText: `[Scene] ${scene.title}\n${scene.content}` };
+}
+
+async function runSummaryLens(projectId: string, row: WriterSummaryLensRow, force = false): Promise<{ lens: ReturnType<typeof lensRowToJson>; cached: boolean; sourceChars: number }> {
+  const resolved = resolveLensSource(projectId, row.scope, row.target_id);
+  const sourceText = truncateForPrompt(resolved.sourceText, 120000);
+  const sourceChars = sourceText.length;
+  const sourceHash = hashContent(`${row.scope}|${resolved.targetId || ""}|${row.prompt}|${sourceText}`);
+
+  if (!force && row.source_hash === sourceHash && row.output.trim()) {
+    return {
+      lens: lensRowToJson(row),
+      cached: true,
+      sourceChars
+    };
+  }
+
+  const output = sourceText
+    ? (await callLlm(
+      [
+        "You are a novel analysis assistant.",
+        "Follow the user's analysis lens exactly.",
+        "Produce an actionable, structured summary without markdown overload."
+      ].join("\n"),
+      [
+        `[Lens Name]\n${row.name}`,
+        `[Lens Prompt]\n${row.prompt}`,
+        `[Source Material]\n${sourceText}`
+      ].join("\n\n"),
+      { temperature: 0.3, maxTokens: 1400 }
+    )).trim()
+    : "(No source material available for this scope yet.)";
+
+  const outputText = output || "(empty lens output)";
+  const updatedAt = now();
+  db.prepare(
+    `UPDATE writer_summary_lenses
+     SET target_id = ?, output = ?, source_hash = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(resolved.targetId, outputText, sourceHash, updatedAt, row.id);
+
+  const updated = db.prepare("SELECT * FROM writer_summary_lenses WHERE id = ?").get(row.id) as WriterSummaryLensRow | undefined;
+  if (!updated) {
+    throw new Error("Failed to load updated lens");
+  }
+  return {
+    lens: lensRowToJson(updated),
+    cached: false,
+    sourceChars
+  };
 }
 
 function truncateForPrompt(text: string, maxChars: number): string {
@@ -1132,6 +1277,7 @@ router.delete("/projects/:id", (req, res) => {
       .run(id);
     db.prepare("DELETE FROM writer_chapters WHERE project_id = ?").run(id);
     db.prepare("DELETE FROM writer_project_summaries WHERE project_id = ?").run(id);
+    db.prepare("DELETE FROM writer_summary_lenses WHERE project_id = ?").run(id);
     db.prepare("DELETE FROM writer_beats WHERE project_id = ?").run(id);
     db.prepare("DELETE FROM writer_consistency_reports WHERE project_id = ?").run(id);
     db.prepare("DELETE FROM writer_exports WHERE project_id = ?").run(id);
@@ -1313,6 +1459,131 @@ router.post("/projects/:id/summarize", async (req, res) => {
     cached: !force && projectResult.cached && !anyCacheMiss,
     chapterCount: chapters.length
   });
+});
+
+router.get("/projects/:id/lenses", (req, res) => {
+  const projectId = req.params.id;
+  const project = db.prepare("SELECT id FROM writer_projects WHERE id = ?").get(projectId) as { id: string } | undefined;
+  if (!project) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+  const rows = db.prepare(
+    "SELECT * FROM writer_summary_lenses WHERE project_id = ? ORDER BY created_at DESC"
+  ).all(projectId) as WriterSummaryLensRow[];
+  res.json(rows.map((row) => lensRowToJson(row)));
+});
+
+router.post("/projects/:id/lenses", (req, res) => {
+  const projectId = req.params.id;
+  const project = db.prepare("SELECT id FROM writer_projects WHERE id = ?").get(projectId) as { id: string } | undefined;
+  if (!project) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+  const scope = normalizeLensScope((req.body as { scope?: unknown })?.scope);
+  const name = normalizeLensName((req.body as { name?: unknown })?.name);
+  const prompt = normalizeLensPrompt((req.body as { prompt?: unknown })?.prompt);
+  const rawTarget = (req.body as { targetId?: unknown })?.targetId;
+  const targetInput = typeof rawTarget === "string" ? rawTarget.trim() : "";
+  if (!prompt) {
+    res.status(400).json({ error: "Lens prompt is required" });
+    return;
+  }
+  try {
+    const resolved = resolveLensSource(projectId, scope, scope === "project" ? null : (targetInput || null));
+    const id = newId();
+    const ts = now();
+    db.prepare(
+      `INSERT INTO writer_summary_lenses
+       (id, project_id, name, scope, target_id, prompt, output, source_hash, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, '', '', ?, ?)`
+    ).run(id, projectId, name, scope, resolved.targetId, prompt, ts, ts);
+    const row = db.prepare("SELECT * FROM writer_summary_lenses WHERE id = ?").get(id) as WriterSummaryLensRow | undefined;
+    if (!row) {
+      res.status(500).json({ error: "Failed to load created lens" });
+      return;
+    }
+    res.json(lensRowToJson(row));
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Invalid lens target" });
+  }
+});
+
+router.patch("/projects/:id/lenses/:lensId", (req, res) => {
+  const projectId = req.params.id;
+  const lensId = req.params.lensId;
+  const row = db.prepare(
+    "SELECT * FROM writer_summary_lenses WHERE id = ? AND project_id = ?"
+  ).get(lensId, projectId) as WriterSummaryLensRow | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Lens not found" });
+    return;
+  }
+
+  const body = (req.body && typeof req.body === "object") ? req.body as Record<string, unknown> : {};
+  const hasName = Object.prototype.hasOwnProperty.call(body, "name");
+  const hasPrompt = Object.prototype.hasOwnProperty.call(body, "prompt");
+  const hasScope = Object.prototype.hasOwnProperty.call(body, "scope");
+  const hasTarget = Object.prototype.hasOwnProperty.call(body, "targetId");
+
+  const nextScope = hasScope ? normalizeLensScope(body.scope) : row.scope;
+  const nextName = hasName ? normalizeLensName(body.name) : row.name;
+  const nextPrompt = hasPrompt ? normalizeLensPrompt(body.prompt) : row.prompt;
+  if (!nextPrompt) {
+    res.status(400).json({ error: "Lens prompt is required" });
+    return;
+  }
+  const targetInput = hasTarget
+    ? (typeof body.targetId === "string" ? body.targetId.trim() : "")
+    : (row.target_id || "");
+  try {
+    const resolved = resolveLensSource(projectId, nextScope, nextScope === "project" ? null : (targetInput || null));
+    db.prepare(
+      "UPDATE writer_summary_lenses SET name = ?, scope = ?, target_id = ?, prompt = ?, source_hash = '', updated_at = ? WHERE id = ?"
+    ).run(nextName, nextScope, resolved.targetId, nextPrompt, now(), row.id);
+    const updated = db.prepare("SELECT * FROM writer_summary_lenses WHERE id = ?").get(row.id) as WriterSummaryLensRow | undefined;
+    if (!updated) {
+      res.status(500).json({ error: "Failed to load updated lens" });
+      return;
+    }
+    res.json(lensRowToJson(updated));
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Invalid lens target" });
+  }
+});
+
+router.delete("/projects/:id/lenses/:lensId", (req, res) => {
+  const projectId = req.params.id;
+  const lensId = req.params.lensId;
+  const existing = db.prepare(
+    "SELECT id FROM writer_summary_lenses WHERE id = ? AND project_id = ?"
+  ).get(lensId, projectId) as { id: string } | undefined;
+  if (!existing) {
+    res.status(404).json({ error: "Lens not found" });
+    return;
+  }
+  db.prepare("DELETE FROM writer_summary_lenses WHERE id = ?").run(lensId);
+  res.json({ ok: true, id: lensId });
+});
+
+router.post("/projects/:id/lenses/:lensId/run", async (req, res) => {
+  const projectId = req.params.id;
+  const lensId = req.params.lensId;
+  const force = Boolean((req.body as { force?: unknown } | undefined)?.force);
+  const row = db.prepare(
+    "SELECT * FROM writer_summary_lenses WHERE id = ? AND project_id = ?"
+  ).get(lensId, projectId) as WriterSummaryLensRow | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Lens not found" });
+    return;
+  }
+  try {
+    const result = await runSummaryLens(projectId, row, force);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Failed to run lens" });
+  }
 });
 
 // --- Chapters ---

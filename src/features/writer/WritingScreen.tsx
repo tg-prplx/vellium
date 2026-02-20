@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../components/Panels";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
@@ -13,7 +13,9 @@ import type {
   WriterChapterSettings,
   WriterCharacterAdvancedOptions,
   WriterCharacterEditField,
-  WriterProjectNotes
+  WriterProjectNotes,
+  WriterSummaryLens,
+  WriterSummaryLensScope
 } from "../../shared/types/contracts";
 
 const SEVERITY_STYLES: Record<string, { badge: "warning" | "danger" | "default"; border: string }> = {
@@ -51,6 +53,55 @@ const DEFAULT_PROJECT_NOTES: WriterProjectNotes = {
   contextMode: "balanced",
   summary: ""
 };
+
+const LENS_PRESET_IDS = [
+  "characterArc",
+  "objectTracker",
+  "settingEvolution",
+  "timelineProgression",
+  "themeDevelopment"
+] as const;
+
+type LensPresetId = typeof LENS_PRESET_IDS[number];
+
+interface CollapsibleSectionProps {
+  title: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  action?: ReactNode;
+}
+
+function CollapsibleSection({ title, collapsed, onToggle, children, action }: CollapsibleSectionProps) {
+  return (
+    <section className="mb-2 rounded-lg border border-border-subtle bg-bg-primary">
+      <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex min-w-0 items-center gap-1.5 text-left"
+        >
+          <svg
+            className={`h-3 w-3 text-text-tertiary transition-transform ${collapsed ? "-rotate-90" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+          <span className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{title}</span>
+        </button>
+        {action}
+      </div>
+      {!collapsed && (
+        <div className="border-t border-border-subtle px-2.5 py-2">
+          {children}
+        </div>
+      )}
+    </section>
+  );
+}
 
 type WritingWorkspaceMode = "books" | "characters";
 
@@ -145,6 +196,12 @@ export function WritingScreen() {
   const [bookSearchQuery, setBookSearchQuery] = useState("");
   const [renameDraft, setRenameDraft] = useState("");
   const [chapterDynamicsCollapsed, setChapterDynamicsCollapsed] = useState(false);
+  const [rightSidebarTab, setRightSidebarTab] = useState<"planning" | "lenses" | "diagnostics">("planning");
+  const [bookBibleCollapsed, setBookBibleCollapsed] = useState(false);
+  const [lensesCollapsed, setLensesCollapsed] = useState(false);
+  const [consistencyCollapsed, setConsistencyCollapsed] = useState(false);
+  const [tasksCollapsed, setTasksCollapsed] = useState(true);
+  const [logCollapsed, setLogCollapsed] = useState(true);
   const [bgTasks, setBgTasks] = useState<BackgroundTask[]>(getBackgroundTasks());
   const [chapterSettings, setChapterSettings] = useState<WriterChapterSettings>({ ...DEFAULT_CHAPTER_SETTINGS });
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
@@ -153,6 +210,13 @@ export function WritingScreen() {
   const [writerModelId, setWriterModelId] = useState("");
   const [activeModelLabel, setActiveModelLabel] = useState("");
   const [loadingModels, setLoadingModels] = useState(false);
+  const [summaryLenses, setSummaryLenses] = useState<WriterSummaryLens[]>([]);
+  const [lensNameDraft, setLensNameDraft] = useState("");
+  const [lensPromptDraft, setLensPromptDraft] = useState("");
+  const [lensScopeDraft, setLensScopeDraft] = useState<WriterSummaryLensScope>("project");
+  const [lensTargetDraft, setLensTargetDraft] = useState("");
+  const [lensBusyId, setLensBusyId] = useState<string | null>(null);
+  const [lensOutputExpanded, setLensOutputExpanded] = useState<Record<string, boolean>>({});
   const [characterPrompt, setCharacterPrompt] = useState("");
   const [characterAdvancedMode, setCharacterAdvancedMode] = useState(false);
   const [characterAdvanced, setCharacterAdvanced] = useState<WriterCharacterAdvancedOptions>({ ...DEFAULT_WRITER_CHARACTER_ADVANCED });
@@ -238,6 +302,12 @@ export function WritingScreen() {
     setSelectedChapterId(null);
     setSelectedSceneId(null);
     setChapterSettings({ ...DEFAULT_CHAPTER_SETTINGS });
+    setSummaryLenses([]);
+    setLensOutputExpanded({});
+    setLensNameDraft("");
+    setLensPromptDraft("");
+    setLensScopeDraft("project");
+    setLensTargetDraft("");
   }
 
   async function renameActiveProject() {
@@ -275,6 +345,8 @@ export function WritingScreen() {
         setSelectedChapterId(null);
         setSelectedSceneId(null);
         setChapterSettings({ ...DEFAULT_CHAPTER_SETTINGS });
+        setSummaryLenses([]);
+        setLensOutputExpanded({});
       }
       log(`${t("writing.logBookDeleted")}: ${deletingName}`);
     } catch (err) {
@@ -300,7 +372,10 @@ export function WritingScreen() {
   }
 
   async function openProject(project: BookProject) {
-    const loaded = await api.writerProjectOpen(project.id);
+    const [loaded, lenses] = await Promise.all([
+      api.writerProjectOpen(project.id),
+      api.writerSummaryLensList(project.id).catch(() => [])
+    ]);
     setActiveProject(loaded.project);
     setProjectNotes(loaded.project.notes || { ...DEFAULT_PROJECT_NOTES });
     setChapters(loaded.chapters);
@@ -308,6 +383,8 @@ export function WritingScreen() {
     setSelectedChapterId(loaded.chapters[0]?.id ?? null);
     setSelectedSceneId(loaded.scenes[0]?.id ?? null);
     setChapterSettings(loaded.chapters[0]?.settings ?? { ...DEFAULT_CHAPTER_SETTINGS });
+    setSummaryLenses(lenses);
+    setLensOutputExpanded(Object.fromEntries(lenses.map((lens) => [lens.id, false])));
   }
 
   async function createChapter() {
@@ -482,6 +559,132 @@ export function WritingScreen() {
       if (docxImportInputRef.current) {
         docxImportInputRef.current.value = "";
       }
+    }
+  }
+
+  function applyLensPreset(presetId: LensPresetId) {
+    switch (presetId) {
+      case "characterArc":
+        setLensNameDraft(t("writing.lensPresetCharacterArc"));
+        setLensPromptDraft(t("writing.lensPresetCharacterArcPrompt"));
+        setLensScopeDraft("project");
+        setLensTargetDraft("");
+        break;
+      case "objectTracker":
+        setLensNameDraft(t("writing.lensPresetObjectTracker"));
+        setLensPromptDraft(t("writing.lensPresetObjectTrackerPrompt"));
+        setLensScopeDraft("project");
+        setLensTargetDraft("");
+        break;
+      case "settingEvolution":
+        setLensNameDraft(t("writing.lensPresetSettingEvolution"));
+        setLensPromptDraft(t("writing.lensPresetSettingEvolutionPrompt"));
+        setLensScopeDraft("project");
+        setLensTargetDraft("");
+        break;
+      case "timelineProgression":
+        setLensNameDraft(t("writing.lensPresetTimeline"));
+        setLensPromptDraft(t("writing.lensPresetTimelinePrompt"));
+        setLensScopeDraft("project");
+        setLensTargetDraft("");
+        break;
+      case "themeDevelopment":
+        setLensNameDraft(t("writing.lensPresetTheme"));
+        setLensPromptDraft(t("writing.lensPresetThemePrompt"));
+        setLensScopeDraft("project");
+        setLensTargetDraft("");
+        break;
+      default:
+        break;
+    }
+  }
+
+  async function createSummaryLens() {
+    if (!activeProject) return;
+    const prompt = lensPromptDraft.trim();
+    if (!prompt) {
+      log(`${t("writing.logError")}: ${t("writing.lensPromptRequired")}`);
+      return;
+    }
+    const targetId = lensScopeDraft === "project"
+      ? null
+      : (lensTargetDraft || (lensScopeDraft === "chapter" ? selectedChapterId : selectedSceneId) || null);
+    try {
+      const created = await api.writerSummaryLensCreate(activeProject.id, {
+        name: lensNameDraft.trim() || t("writing.lensDefaultName"),
+        prompt,
+        scope: lensScopeDraft,
+        targetId
+      });
+      setSummaryLenses((prev) => [created, ...prev]);
+      setLensOutputExpanded((prev) => ({ ...prev, [created.id]: false }));
+      setLensNameDraft("");
+      setLensPromptDraft("");
+      log(`${t("writing.logLensCreated")}: ${created.name}`);
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+    }
+  }
+
+  async function runSummaryLens(lensId: string, force = false) {
+    if (!activeProject || lensBusyId) return;
+    const lens = summaryLenses.find((item) => item.id === lensId);
+    if (!lens) return;
+    const taskId = startBgTask("summarize", `${t("writing.taskLensRun")}: ${lens.name}`);
+    setLensBusyId(lensId);
+    try {
+      const result = await api.writerSummaryLensRun(activeProject.id, lensId, force);
+      setSummaryLenses((prev) => prev.map((item) => (item.id === lensId ? result.lens : item)));
+      setLensOutputExpanded((prev) => ({ ...prev, [lensId]: true }));
+      log(`${t("writing.logLensReady")}: ${result.lens.name}${result.cached ? ` (${t("writing.summaryCached")})` : ""}`);
+      finishBgTask(taskId, "done", `${Math.round(result.sourceChars / 1000)}k`);
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+      finishBgTask(taskId, "error", String(err));
+    } finally {
+      setLensBusyId(null);
+    }
+  }
+
+  async function removeSummaryLens(lensId: string) {
+    if (!activeProject) return;
+    if (!confirm(t("writing.confirmDeleteLens"))) return;
+    try {
+      await api.writerSummaryLensDelete(activeProject.id, lensId);
+      setSummaryLenses((prev) => prev.filter((item) => item.id !== lensId));
+      setLensOutputExpanded((prev) => {
+        const next = { ...prev };
+        delete next[lensId];
+        return next;
+      });
+      log(t("writing.logLensDeleted"));
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+    }
+  }
+
+  function loadLensToDraft(lens: WriterSummaryLens) {
+    setLensNameDraft(lens.name);
+    setLensPromptDraft(lens.prompt);
+    setLensScopeDraft(lens.scope);
+    setLensTargetDraft(lens.targetId || "");
+    setRightSidebarTab("lenses");
+  }
+
+  function lensPresetLabel(presetId: LensPresetId): string {
+    switch (presetId) {
+      case "characterArc":
+        return t("writing.lensPresetCharacterArc");
+      case "objectTracker":
+        return t("writing.lensPresetObjectTracker");
+      case "settingEvolution":
+        return t("writing.lensPresetSettingEvolution");
+      case "timelineProgression":
+        return t("writing.lensPresetTimeline");
+      case "themeDevelopment":
+        return t("writing.lensPresetTheme");
+      default:
+        return presetId;
     }
   }
 
@@ -690,6 +893,20 @@ export function WritingScreen() {
   }, [activeProject?.id]);
 
   useEffect(() => {
+    if (lensScopeDraft === "project") {
+      if (lensTargetDraft) setLensTargetDraft("");
+      return;
+    }
+    if (lensScopeDraft === "chapter" && !lensTargetDraft && selectedChapterId) {
+      setLensTargetDraft(selectedChapterId);
+      return;
+    }
+    if (lensScopeDraft === "scene" && !lensTargetDraft && selectedSceneId) {
+      setLensTargetDraft(selectedSceneId);
+    }
+  }, [lensScopeDraft, lensTargetDraft, selectedChapterId, selectedSceneId]);
+
+  useEffect(() => {
     return () => {
       if (chapterSettingsTimerRef.current) clearTimeout(chapterSettingsTimerRef.current);
       if (projectNotesTimerRef.current) clearTimeout(projectNotesTimerRef.current);
@@ -732,6 +949,15 @@ export function WritingScreen() {
       return haystack.includes(q);
     });
   }, [projects, bookSearchQuery]);
+  const lensSceneOptions = useMemo(() => {
+    if (lensScopeDraft === "chapter" && lensTargetDraft) {
+      return scenes.filter((scene) => scene.chapterId === lensTargetDraft);
+    }
+    if (selectedChapterId) {
+      return scenes.filter((scene) => scene.chapterId === selectedChapterId);
+    }
+    return scenes;
+  }, [scenes, lensScopeDraft, lensTargetDraft, selectedChapterId]);
 
   function startEditing() {
     if (!selectedScene) return;
@@ -1229,146 +1455,346 @@ export function WritingScreen() {
         </>
       }
       right={
-        <div className="flex h-full flex-col overflow-y-auto">
+        <div className="flex h-full min-h-0 flex-col">
           <PanelTitle>{t("writing.outline")}</PanelTitle>
-
-          <div className="mb-3 flex gap-1.5">
-            <button onClick={exportMarkdown} className="flex-1 rounded-md border border-border px-2 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover">
-              {t("writing.exportMD")}
-            </button>
-            <button onClick={exportDocx} className="flex-1 rounded-md border border-border px-2 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover">
-              {t("writing.exportDOCX")}
-            </button>
-          </div>
-
-          <div className="mb-3 rounded-lg border border-border-subtle bg-bg-primary p-2.5">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.bookBible")}</div>
+          <div className="mb-2 inline-flex w-full items-center rounded-md border border-border-subtle bg-bg-primary p-[2px]">
+            {([
+              ["planning", t("writing.sidebarPlanning")],
+              ["lenses", t("writing.sidebarLenses")],
+              ["diagnostics", t("writing.sidebarDiagnostics")]
+            ] as const).map(([key, label]) => (
               <button
-                onClick={() => void summarizeBook(true)}
-                disabled={!activeProject || busy}
-                className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                key={key}
+                type="button"
+                onClick={() => setRightSidebarTab(key)}
+                className={`flex-1 rounded px-1.5 py-1 text-[10px] font-semibold transition-colors ${
+                  rightSidebarTab === key
+                    ? "bg-accent text-text-inverse"
+                    : "text-text-secondary hover:bg-bg-hover"
+                }`}
               >
-                {t("writing.refreshSummary")}
+                {label}
               </button>
-            </div>
-            <div className="space-y-1.5">
-              <label className="block text-[10px] text-text-tertiary">
-                {t("writing.contextMode")}
-                <select
-                  value={projectNotes.contextMode}
-                  onChange={(e) => updateProjectNotes({ contextMode: e.target.value as WriterProjectNotes["contextMode"] })}
-                  className="mt-1 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
-                >
-                  <option value="economy">{t("writing.contextModeEconomy")}</option>
-                  <option value="balanced">{t("writing.contextModeBalanced")}</option>
-                  <option value="rich">{t("writing.contextModeRich")}</option>
-                </select>
-              </label>
-              <textarea
-                value={projectNotes.premise}
-                onChange={(e) => updateProjectNotes({ premise: e.target.value })}
-                placeholder={t("writing.bookPremise")}
-                className="h-14 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
-              />
-              <textarea
-                value={projectNotes.styleGuide}
-                onChange={(e) => updateProjectNotes({ styleGuide: e.target.value })}
-                placeholder={t("writing.styleGuide")}
-                className="h-14 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
-              />
-              <textarea
-                value={projectNotes.worldRules}
-                onChange={(e) => updateProjectNotes({ worldRules: e.target.value })}
-                placeholder={t("writing.worldRules")}
-                className="h-14 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
-              />
-              <textarea
-                value={projectNotes.characterNotes}
-                onChange={(e) => updateProjectNotes({ characterNotes: e.target.value })}
-                placeholder={t("writing.characterLedger")}
-                className="h-14 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
-              />
-              <textarea
-                value={projectNotes.summary}
-                onChange={(e) => updateProjectNotes({ summary: e.target.value })}
-                placeholder={t("writing.bookSummary")}
-                className="h-20 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
-              />
-            </div>
+            ))}
           </div>
 
-          {/* Background tasks history */}
-          {bgTasks.length > 0 && (
-            <div className="mb-3">
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-                {t("writing.tasks")}
-              </div>
-              <div className="list-animate max-h-32 space-y-1 overflow-y-auto">
-                {bgTasks.slice(0, 10).map((task) => (
-                  <div key={task.id} className={`float-card flex items-center gap-2 rounded-md border px-2 py-1 text-[10px] ${
-                    task.status === "running" ? "border-accent-border bg-accent-subtle" :
-                    task.status === "error" ? "border-danger-border bg-danger-subtle" :
-                    "border-border-subtle bg-bg-primary"
-                  }`}>
-                    {task.status === "running" ? (
-                      <svg className="h-2.5 w-2.5 animate-spin text-accent" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                    ) : task.status === "error" ? (
-                      <div className="h-2 w-2 rounded-full bg-danger" />
-                    ) : (
-                      <div className="h-2 w-2 rounded-full bg-success" />
-                    )}
-                    <span className={`flex-1 truncate ${task.status === "error" ? "text-danger" : "text-text-secondary"}`}>
-                      {task.label}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="mb-3">
-            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-              {t("writing.consistencyIssues")}
-            </div>
-            {issues.length === 0 ? (
-              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-center text-xs text-text-tertiary">
-                {t("writing.noIssues")}
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                {issues.map((issue) => {
-                  const style = SEVERITY_STYLES[issue.severity] ?? SEVERITY_STYLES.low;
-                  return (
-                    <article key={issue.id} className={`rounded-lg border ${style.border} bg-bg-primary p-2`}>
-                      <div className="mb-0.5 flex items-center gap-2">
-                        <Badge variant={style.badge}>{issue.severity}</Badge>
-                        <span className="text-[10px] font-semibold uppercase text-text-tertiary">{issue.category}</span>
-                      </div>
-                      <p className="text-xs text-text-secondary">{issue.message}</p>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-auto">
-            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.generationLog")}</div>
-            <div className="max-h-48 overflow-auto rounded-lg border border-border-subtle bg-bg-primary p-2">
-              {generationLog.length === 0 ? (
-                <div className="py-2 text-center text-[11px] text-text-tertiary">{t("writing.noActivity")}</div>
-              ) : (
-                <div className="space-y-0.5 font-mono text-[10px] text-text-tertiary">
-                  {generationLog.map((line, idx) => (
-                    <div key={`${line}-${idx}`}>{line}</div>
-                  ))}
+          <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+            {rightSidebarTab === "planning" && (
+              <>
+                <div className="mb-2 flex gap-1.5">
+                  <button onClick={exportMarkdown} className="flex-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover">
+                    {t("writing.exportMD")}
+                  </button>
+                  <button onClick={exportDocx} className="flex-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover">
+                    {t("writing.exportDOCX")}
+                  </button>
                 </div>
-              )}
-            </div>
+
+                <CollapsibleSection
+                  title={t("writing.bookBible")}
+                  collapsed={bookBibleCollapsed}
+                  onToggle={() => setBookBibleCollapsed((prev) => !prev)}
+                  action={(
+                    <button
+                      onClick={() => void summarizeBook(true)}
+                      disabled={!activeProject || busy}
+                      className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                    >
+                      {t("writing.refreshSummary")}
+                    </button>
+                  )}
+                >
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] text-text-tertiary">
+                      {t("writing.contextMode")}
+                      <select
+                        value={projectNotes.contextMode}
+                        onChange={(e) => updateProjectNotes({ contextMode: e.target.value as WriterProjectNotes["contextMode"] })}
+                        className="mt-1 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                      >
+                        <option value="economy">{t("writing.contextModeEconomy")}</option>
+                        <option value="balanced">{t("writing.contextModeBalanced")}</option>
+                        <option value="rich">{t("writing.contextModeRich")}</option>
+                      </select>
+                    </label>
+                    <textarea
+                      value={projectNotes.premise}
+                      onChange={(e) => updateProjectNotes({ premise: e.target.value })}
+                      placeholder={t("writing.bookPremise")}
+                      className="h-12 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
+                    />
+                    <textarea
+                      value={projectNotes.styleGuide}
+                      onChange={(e) => updateProjectNotes({ styleGuide: e.target.value })}
+                      placeholder={t("writing.styleGuide")}
+                      className="h-12 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
+                    />
+                    <textarea
+                      value={projectNotes.worldRules}
+                      onChange={(e) => updateProjectNotes({ worldRules: e.target.value })}
+                      placeholder={t("writing.worldRules")}
+                      className="h-12 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
+                    />
+                    <textarea
+                      value={projectNotes.characterNotes}
+                      onChange={(e) => updateProjectNotes({ characterNotes: e.target.value })}
+                      placeholder={t("writing.characterLedger")}
+                      className="h-12 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
+                    />
+                    <textarea
+                      value={projectNotes.summary}
+                      onChange={(e) => updateProjectNotes({ summary: e.target.value })}
+                      placeholder={t("writing.bookSummary")}
+                      className="h-16 w-full rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
+                    />
+                  </div>
+                </CollapsibleSection>
+              </>
+            )}
+
+            {rightSidebarTab === "lenses" && (
+              <CollapsibleSection
+                title={t("writing.summaryLenses")}
+                collapsed={lensesCollapsed}
+                onToggle={() => setLensesCollapsed((prev) => !prev)}
+              >
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 gap-1">
+                    <input
+                      value={lensNameDraft}
+                      onChange={(e) => setLensNameDraft(e.target.value)}
+                      placeholder={t("writing.lensName")}
+                      className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
+                    />
+                    <textarea
+                      value={lensPromptDraft}
+                      onChange={(e) => setLensPromptDraft(e.target.value)}
+                      placeholder={t("writing.lensPrompt")}
+                      className="h-20 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
+                    />
+                    <div className="grid grid-cols-2 gap-1">
+                      <select
+                        value={lensScopeDraft}
+                        onChange={(e) => setLensScopeDraft(e.target.value as WriterSummaryLensScope)}
+                        className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                      >
+                        <option value="project">{t("writing.lensScopeProject")}</option>
+                        <option value="chapter">{t("writing.lensScopeChapter")}</option>
+                        <option value="scene">{t("writing.lensScopeScene")}</option>
+                      </select>
+                      {lensScopeDraft === "project" ? (
+                        <div className="rounded-md border border-border-subtle bg-bg-secondary px-2 py-1 text-[10px] text-text-tertiary">
+                          {t("writing.lensScopeAll")}
+                        </div>
+                      ) : (
+                        <select
+                          value={lensTargetDraft}
+                          onChange={(e) => setLensTargetDraft(e.target.value)}
+                          className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                        >
+                          <option value="">
+                            ({lensScopeDraft === "chapter" ? t("writing.selectChapter") : t("writing.selectScene")})
+                          </option>
+                          {(lensScopeDraft === "chapter" ? chapters : lensSceneOptions).map((item) => (
+                            <option key={item.id} value={item.id}>{item.title}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    <button
+                      onClick={createSummaryLens}
+                      disabled={!activeProject || !lensPromptDraft.trim()}
+                      className="rounded-md bg-accent px-2 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40"
+                    >
+                      {t("writing.createLens")}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1">
+                    {LENS_PRESET_IDS.map((presetId) => (
+                      <button
+                        key={presetId}
+                        type="button"
+                        onClick={() => applyLensPreset(presetId)}
+                        className="rounded-md border border-border-subtle px-2 py-0.5 text-[10px] text-text-tertiary hover:bg-bg-hover"
+                      >
+                        {lensPresetLabel(presetId)}
+                      </button>
+                    ))}
+                  </div>
+
+                  {summaryLenses.length === 0 ? (
+                    <div className="rounded-md border border-border-subtle bg-bg-secondary px-2 py-2 text-[11px] text-text-tertiary">
+                      {t("writing.noLenses")}
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {summaryLenses.map((lens) => {
+                        const scopeLabel = lens.scope === "chapter"
+                          ? t("writing.lensScopeChapter")
+                          : lens.scope === "scene"
+                            ? t("writing.lensScopeScene")
+                            : t("writing.lensScopeProject");
+                        const targetLabel = lens.scope === "chapter"
+                          ? chapters.find((chapter) => chapter.id === lens.targetId)?.title
+                          : lens.scope === "scene"
+                            ? scenes.find((scene) => scene.id === lens.targetId)?.title
+                            : t("writing.lensScopeAll");
+                        const expanded = Boolean(lensOutputExpanded[lens.id]);
+                        return (
+                          <article key={lens.id} className="rounded-md border border-border-subtle bg-bg-secondary p-2">
+                            <div className="mb-1 flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate text-xs font-semibold text-text-primary">{lens.name}</div>
+                                <div className="text-[10px] text-text-tertiary">{scopeLabel}{targetLabel ? ` · ${targetLabel}` : ""}</div>
+                              </div>
+                              <div className="flex gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => loadLensToDraft(lens)}
+                                  className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                                >
+                                  {t("writing.loadLens")}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void runSummaryLens(lens.id, false)}
+                                  disabled={lensBusyId === lens.id}
+                                  className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                                >
+                                  {lensBusyId === lens.id ? t("writing.working") : t("writing.runLens")}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void runSummaryLens(lens.id, true)}
+                                  disabled={lensBusyId === lens.id}
+                                  className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                                  title={t("writing.refreshSummary")}
+                                >
+                                  ↻
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void removeSummaryLens(lens.id)}
+                                  className="rounded-md border border-danger-border px-1.5 py-0.5 text-[10px] text-danger hover:bg-danger-subtle"
+                                  title={t("chat.delete")}
+                                >
+                                  {t("chat.delete")}
+                                </button>
+                              </div>
+                            </div>
+                            <p className="mb-1 whitespace-pre-wrap text-[10px] text-text-tertiary">
+                              {lens.prompt}
+                            </p>
+                            {lens.output && (
+                              <div>
+                                <button
+                                  type="button"
+                                  onClick={() => setLensOutputExpanded((prev) => ({ ...prev, [lens.id]: !expanded }))}
+                                  className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                                >
+                                  {expanded ? t("writing.hideOutput") : t("writing.showOutput")}
+                                </button>
+                                {expanded && (
+                                  <div className="mt-1 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-bg-primary px-2 py-1 text-[11px] text-text-secondary">
+                                    {lens.output}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </CollapsibleSection>
+            )}
+
+            {rightSidebarTab === "diagnostics" && (
+              <>
+                <CollapsibleSection
+                  title={t("writing.tasks")}
+                  collapsed={tasksCollapsed}
+                  onToggle={() => setTasksCollapsed((prev) => !prev)}
+                >
+                  {bgTasks.length === 0 ? (
+                    <div className="rounded-md border border-border-subtle bg-bg-secondary px-2 py-2 text-[11px] text-text-tertiary">
+                      {t("writing.noActivity")}
+                    </div>
+                  ) : (
+                    <div className="list-animate max-h-40 space-y-1 overflow-y-auto">
+                      {bgTasks.slice(0, 12).map((task) => (
+                        <div key={task.id} className={`float-card flex items-center gap-2 rounded-md border px-2 py-1 text-[10px] ${
+                          task.status === "running" ? "border-accent-border bg-accent-subtle" :
+                          task.status === "error" ? "border-danger-border bg-danger-subtle" :
+                          "border-border-subtle bg-bg-primary"
+                        }`}>
+                          {task.status === "running" ? (
+                            <svg className="h-2.5 w-2.5 animate-spin text-accent" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                          ) : task.status === "error" ? (
+                            <div className="h-2 w-2 rounded-full bg-danger" />
+                          ) : (
+                            <div className="h-2 w-2 rounded-full bg-success" />
+                          )}
+                          <span className={`flex-1 truncate ${task.status === "error" ? "text-danger" : "text-text-secondary"}`}>
+                            {task.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CollapsibleSection>
+
+                <CollapsibleSection
+                  title={t("writing.consistencyIssues")}
+                  collapsed={consistencyCollapsed}
+                  onToggle={() => setConsistencyCollapsed((prev) => !prev)}
+                >
+                  {issues.length === 0 ? (
+                    <div className="rounded-lg border border-border-subtle bg-bg-secondary px-2 py-2 text-center text-xs text-text-tertiary">
+                      {t("writing.noIssues")}
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {issues.map((issue) => {
+                        const style = SEVERITY_STYLES[issue.severity] ?? SEVERITY_STYLES.low;
+                        return (
+                          <article key={issue.id} className={`rounded-lg border ${style.border} bg-bg-secondary p-2`}>
+                            <div className="mb-0.5 flex items-center gap-2">
+                              <Badge variant={style.badge}>{issue.severity}</Badge>
+                              <span className="text-[10px] font-semibold uppercase text-text-tertiary">{issue.category}</span>
+                            </div>
+                            <p className="text-xs text-text-secondary">{issue.message}</p>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CollapsibleSection>
+
+                <CollapsibleSection
+                  title={t("writing.generationLog")}
+                  collapsed={logCollapsed}
+                  onToggle={() => setLogCollapsed((prev) => !prev)}
+                >
+                  <div className="max-h-48 overflow-auto rounded-lg border border-border-subtle bg-bg-secondary p-2">
+                    {generationLog.length === 0 ? (
+                      <div className="py-2 text-center text-[11px] text-text-tertiary">{t("writing.noActivity")}</div>
+                    ) : (
+                      <div className="space-y-0.5 font-mono text-[10px] text-text-tertiary">
+                        {generationLog.map((line, idx) => (
+                          <div key={`${line}-${idx}`}>{line}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </CollapsibleSection>
+              </>
+            )}
           </div>
         </div>
       }
