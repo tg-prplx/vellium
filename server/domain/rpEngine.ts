@@ -16,6 +16,11 @@ export interface CharacterCardData {
   systemPrompt: string;
   mesExample: string;
   greeting: string;
+  postHistoryInstructions: string;
+  alternateGreetings: string[];
+  creator: string;
+  characterVersion: string;
+  extensions: Record<string, unknown>;
 }
 
 export interface SceneState {
@@ -34,6 +39,7 @@ export interface PromptContext {
   censorshipMode: string;
   contextSummary: string;
   defaultSystemPrompt: string;
+  strictGrounding?: boolean;
   userName?: string;
 }
 
@@ -82,6 +88,19 @@ function buildMessageContent(text: string, visionParts: ChatCompletionContentPar
   return content;
 }
 
+function buildGroundingRules(charName?: string, userName?: string): string {
+  const lines = [
+    "[Grounding Rules]",
+    "Follow instruction priority: system rules > recent chat history > summary/knowledge snippets.",
+    "Treat recent visible chat messages as canonical events.",
+    "If a required fact is missing, do not invent it; ask briefly or stay neutral.",
+    "Do not rewrite established facts unless the user explicitly requests it."
+  ];
+  if (charName) lines.push(`Reply only as ${charName}.`);
+  if (userName) lines.push(`Do not write dialogue/actions for ${userName}.`);
+  return lines.join("\n");
+}
+
 export function buildSystemPrompt(ctx: PromptContext): string {
   const parts: string[] = [];
   const ordered = [...ctx.blocks].sort((a, b) => a.order - b.order).filter((b) => b.enabled);
@@ -115,6 +134,10 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     }
   }
 
+  if (ctx.strictGrounding !== false) {
+    parts.push(buildGroundingRules(ctx.characterCard?.name, ctx.userName));
+  }
+
   // Intensity instruction
   if (ctx.intensity >= 0.8) {
     parts.push("Write with extreme detail, vivid sensory descriptions, and emotional depth. Use slow, deliberate pacing.");
@@ -146,7 +169,8 @@ export function buildMessageArray(
   authorNote: string,
   contextSummary: string,
   charName?: string,
-  userName?: string
+  userName?: string,
+  postHistoryInstructions?: string
 ): ChatCompletionMessage[] {
   const messages: ChatCompletionMessage[] = [];
 
@@ -155,7 +179,10 @@ export function buildMessageArray(
 
   // Context summary (compressed previous context)
   if (contextSummary) {
-    messages.push({ role: "system", content: `[Previous context summary]\n${contextSummary}` });
+    messages.push({
+      role: "system",
+      content: `[Previous context summary]\nUse this as soft memory. Prefer recent visible messages when conflicts appear.\n${contextSummary}`
+    });
   }
 
   // Build message array — replace placeholders in message content
@@ -179,6 +206,11 @@ export function buildMessageArray(
   }
 
   messages.push(...timelineMessages);
+
+  const postHistory = replacePlaceholders(String(postHistoryInstructions || ""), charName, userName).trim();
+  if (postHistory) {
+    messages.push({ role: "system", content: `[Post-History Instructions]\n${postHistory}` });
+  }
 
   return messages;
 }
@@ -207,14 +239,18 @@ export function buildMultiCharMessageArray(
   currentCharacterName: string,
   authorNote: string,
   contextSummary: string,
-  userName?: string
+  userName?: string,
+  postHistoryInstructions?: string
 ): ChatCompletionMessage[] {
   const messages: ChatCompletionMessage[] = [];
 
   messages.push({ role: "system", content: systemPrompt });
 
   if (contextSummary) {
-    messages.push({ role: "system", content: `[Previous context summary]\n${contextSummary}` });
+    messages.push({
+      role: "system",
+      content: `[Previous context summary]\nUse this as soft memory. Prefer recent visible messages when conflicts appear.\n${contextSummary}`
+    });
   }
 
   // Remap roles from the perspective of currentCharacterName
@@ -244,6 +280,11 @@ export function buildMultiCharMessageArray(
   }
 
   messages.push(...remapped);
+
+  const postHistory = replacePlaceholders(String(postHistoryInstructions || ""), currentCharacterName, userName).trim();
+  if (postHistory) {
+    messages.push({ role: "system", content: `[Post-History Instructions]\n${postHistory}` });
+  }
   return messages;
 }
 
@@ -281,6 +322,10 @@ export function buildMultiCharSystemPrompt(
         if (block.content) parts.push(block.content);
         break;
     }
+  }
+
+  if (ctx.strictGrounding !== false) {
+    parts.push(buildGroundingRules(currentCharacterName, ctx.userName));
   }
 
   if (ctx.intensity >= 0.8) {

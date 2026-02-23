@@ -172,7 +172,33 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function parseCardData(cardJson: string | null | undefined): Record<string, unknown> {
+  if (!cardJson) return {};
+  try {
+    const parsed = JSON.parse(cardJson) as { data?: unknown };
+    if (parsed?.data && typeof parsed.data === "object" && !Array.isArray(parsed.data)) {
+      return parsed.data as Record<string, unknown>;
+    }
+  } catch {
+    // Ignore invalid card payloads.
+  }
+  return {};
+}
+
+function parseStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function parseObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
 function characterToJson(row: CharacterRow) {
+  const cardData = parseCardData(row.card_json);
   let tags: string[] = [];
   try {
     const parsed = JSON.parse(row.tags || "[]");
@@ -193,6 +219,12 @@ function characterToJson(row: CharacterRow) {
     scenario: row.scenario || "",
     mesExample: row.mes_example || "",
     creatorNotes: row.creator_notes || "",
+    alternateGreetings: parseStringArray(cardData.alternate_greetings),
+    postHistoryInstructions: typeof cardData.post_history_instructions === "string" ? cardData.post_history_instructions : "",
+    creator: typeof cardData.creator === "string" ? cardData.creator : "",
+    characterVersion: typeof cardData.character_version === "string" ? cardData.character_version : "",
+    creatorNotesMultilingual: parseObject(cardData.creator_notes_multilingual),
+    extensions: parseObject(cardData.extensions),
     cardJson: row.card_json,
     createdAt: row.created_at
   };

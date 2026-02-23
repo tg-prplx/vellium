@@ -17,6 +17,10 @@ import type {
   PromptBlock,
   ProviderModel,
   ProviderProfile,
+  RagBinding,
+  RagCollection,
+  RagDocument,
+  RagIngestResult,
   RpSceneState,
   Scene,
   SamplerConfig,
@@ -332,6 +336,10 @@ export const api = {
     patchReq<{ ok: boolean; lorebookId: string | null }>(`/chats/${chatId}/lorebook`, { lorebookId }),
   chatGetLorebook: (chatId: string) =>
     get<{ lorebookId: string | null }>(`/chats/${chatId}/lorebook`),
+  chatSaveRag: (chatId: string, enabled: boolean, collectionIds: string[]) =>
+    patchReq<RagBinding>(`/chats/${chatId}/rag`, { enabled, collectionIds }),
+  chatGetRag: (chatId: string) =>
+    get<RagBinding>(`/chats/${chatId}/rag`),
 
   // --- RP ---
   rpSetSceneState: (state: RpSceneState) => post<void>("/rp/scene-state", state),
@@ -350,6 +358,8 @@ export const api = {
   characterList: () => get<CharacterDetail[]>("/characters"),
   characterGet: (id: string) => get<CharacterDetail>(`/characters/${id}`),
   characterImportV2: (rawJson: string) => post<CharacterDetail>("/characters/import", { rawJson }),
+  characterTranslateCopy: (id: string, targetLanguage?: string) =>
+    post<CharacterDetail>(`/characters/${id}/translate-copy`, { targetLanguage }),
   characterValidateV2: (rawJson: string) =>
     post<{ valid: boolean; errors: string[] }>("/characters/validate", { rawJson }),
   characterUpdate: (id: string, data: Partial<CharacterDetail>) => put<CharacterDetail>(`/characters/${id}`, data),
@@ -363,6 +373,24 @@ export const api = {
   lorebookCreate: (data: Partial<LoreBook>) => post<LoreBook>("/lorebooks", data),
   lorebookUpdate: (id: string, data: Partial<LoreBook>) => put<LoreBook>(`/lorebooks/${id}`, data),
   lorebookDelete: (id: string) => del<{ ok: boolean }>(`/lorebooks/${id}`),
+
+  // --- RAG ---
+  ragCollectionList: () => get<RagCollection[]>("/rag/collections"),
+  ragCollectionCreate: (data: { name: string; description?: string; scope?: "global" | "chat" | "writer" }) =>
+    post<RagCollection>("/rag/collections", data),
+  ragCollectionUpdate: (id: string, data: { name?: string; description?: string; scope?: "global" | "chat" | "writer" }) =>
+    patchReq<RagCollection>(`/rag/collections/${id}`, data),
+  ragCollectionDelete: (id: string) => del<{ ok: boolean; id: string }>(`/rag/collections/${id}`),
+  ragDocumentList: (collectionId: string) => get<RagDocument[]>(`/rag/collections/${collectionId}/documents`),
+  ragIngestDocument: (collectionId: string, payload: {
+    title: string;
+    text: string;
+    sourceType?: string;
+    sourceId?: string | null;
+    metadata?: Record<string, unknown>;
+    force?: boolean;
+  }) => post<RagIngestResult>(`/rag/collections/${collectionId}/documents`, payload),
+  ragDocumentDelete: (documentId: string) => del<{ ok: boolean; id: string }>(`/rag/documents/${documentId}`),
 
   // --- Writer ---
   writerProjectCreate: (name: string, description: string, characterIds: string[] = []) =>

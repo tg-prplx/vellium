@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { mkdirSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { DEFAULT_PROMPT_BLOCKS } from "./domain/rpEngine.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.SLV_DATA_DIR || join(__dirname, "..", "data");
@@ -216,7 +217,72 @@ db.exec(`
     is_default INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS rag_collections (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    scope TEXT NOT NULL DEFAULT 'global',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS rag_documents (
+    id TEXT PRIMARY KEY,
+    collection_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'manual',
+    source_id TEXT,
+    content_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'indexed_lexical',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (collection_id) REFERENCES rag_collections(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS rag_chunks (
+    id TEXT PRIMARY KEY,
+    collection_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    token_count INTEGER NOT NULL DEFAULT 0,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (collection_id) REFERENCES rag_collections(id) ON DELETE CASCADE,
+    FOREIGN KEY (document_id) REFERENCES rag_documents(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS rag_vectors (
+    chunk_id TEXT NOT NULL,
+    model_key TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    vector_blob BLOB NOT NULL,
+    norm REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (chunk_id, model_key),
+    FOREIGN KEY (chunk_id) REFERENCES rag_chunks(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS chat_rag_bindings (
+    chat_id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    collection_ids TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
+  );
 `);
+
+try {
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rag_documents_collection ON rag_documents(collection_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rag_chunks_collection ON rag_chunks(collection_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rag_chunks_document ON rag_chunks(document_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_rag_vectors_model ON rag_vectors(model_key)");
+  db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunk_fts USING fts5(chunk_id UNINDEXED, content, tokenize='unicode61')");
+} catch {
+  // Keep startup resilient if a platform SQLite build lacks FTS5.
+}
 
 // --- Migrations (add columns to existing tables) ---
 const migrations = [
@@ -241,6 +307,7 @@ const migrations = [
   "ALTER TABLE chats ADD COLUMN author_note TEXT DEFAULT ''",
   "ALTER TABLE chats ADD COLUMN lorebook_id TEXT",
   "ALTER TABLE characters ADD COLUMN lorebook_id TEXT",
+  "ALTER TABLE messages ADD COLUMN rag_sources TEXT DEFAULT '[]'",
   "ALTER TABLE writer_projects ADD COLUMN character_ids TEXT NOT NULL DEFAULT '[]'",
   "ALTER TABLE writer_projects ADD COLUMN notes_json TEXT NOT NULL DEFAULT '{}'",
   "ALTER TABLE writer_chapters ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'",
@@ -294,10 +361,20 @@ const DEFAULT_SETTINGS = {
   density: "comfortable",
   censorshipMode: "Unfiltered",
   fullLocalMode: false,
+  useAlternateGreetings: false,
   responseLanguage: "English",
   translateLanguage: "English",
   translateProviderId: null,
   translateModel: null,
+  ragProviderId: null,
+  ragModel: null,
+  ragTopK: 6,
+  ragCandidateCount: 80,
+  ragSimilarityThreshold: 0.15,
+  ragMaxContextTokens: 900,
+  ragChunkSize: 1200,
+  ragChunkOverlap: 220,
+  ragEnabledByDefault: false,
   interfaceLanguage: "en",
   activeProviderId: null,
   activeModel: null,
@@ -361,6 +438,7 @@ const DEFAULT_SETTINGS = {
     }
   },
   defaultSystemPrompt: "You are an immersive RP assistant. Keep continuity and character consistency. Stay in character at all times.",
+  strictGrounding: true,
   contextWindowSize: 8192,
   contextTailBudgetWithSummaryPercent: 35,
   contextTailBudgetWithoutSummaryPercent: 75,
@@ -395,7 +473,8 @@ const DEFAULT_SETTINGS = {
     writerRewrite: "Rewrite the following scene in a {{tone}} tone. Keep the same plot points but change the style and voice. Output ONLY the rewritten scene.",
     writerSummarize: "Summarize the following scene in 2-3 concise sentences. Focus on key events and character actions. Output ONLY the summary.",
     creativeWriting: "You are a creative writing assistant. Help the user craft compelling fiction with rich prose, vivid imagery, and engaging narratives. Focus on literary quality and emotional resonance."
-  }
+  },
+  promptStack: DEFAULT_PROMPT_BLOCKS.map((block) => ({ ...block }))
 };
 
 const existingSettings = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string } | undefined;
