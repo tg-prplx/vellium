@@ -4,6 +4,77 @@ import { useI18n } from "../../shared/i18n";
 import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../components/Panels";
 import type { CharacterDetail } from "../../shared/types/contracts";
 
+const ALT_GREETING_SEPARATOR = "\n\n---\n\n";
+
+function parseAlternateGreetingsInput(raw: string): string[] {
+  const input = String(raw || "").trim();
+  if (!input) return [];
+  if (input.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+      }
+    } catch {
+      // Fallback to separator parsing below.
+    }
+  }
+  return input
+    .split(/\n\s*---+\s*\n/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatAlternateGreetings(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(ALT_GREETING_SEPARATOR);
+}
+
+function parseObjectJson(raw: string, fallback: Record<string, unknown> = {}): Record<string, unknown> {
+  const input = String(raw || "").trim();
+  if (!input) return {};
+  try {
+    const parsed = JSON.parse(input);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return fallback;
+  }
+  return fallback;
+}
+
+function toPlainObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function parseObjectJsonStrict(raw: string): Record<string, unknown> {
+  const input = String(raw || "").trim();
+  if (!input) return {};
+  const parsed = JSON.parse(input);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Expected a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function formatObjectJson(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "{}";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "{}";
+  }
+}
+
 export function CharactersScreen() {
   const { t } = useI18n();
   const [characters, setCharacters] = useState<CharacterDetail[]>([]);
@@ -20,6 +91,12 @@ export function CharactersScreen() {
   const [mesExample, setMesExample] = useState("");
   const [creatorNotes, setCreatorNotes] = useState("");
   const [tags, setTags] = useState("");
+  const [creator, setCreator] = useState("");
+  const [characterVersion, setCharacterVersion] = useState("");
+  const [postHistoryInstructions, setPostHistoryInstructions] = useState("");
+  const [alternateGreetingsText, setAlternateGreetingsText] = useState("");
+  const [creatorNotesMultilingualJson, setCreatorNotesMultilingualJson] = useState("{}");
+  const [extensionsJson, setExtensionsJson] = useState("{}");
 
   // Raw JSON panel
   const [rawJson, setRawJson] = useState("{}");
@@ -33,6 +110,7 @@ export function CharactersScreen() {
   // Avatar
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarVersion, setAvatarVersion] = useState<Record<string, number>>({});
+  const [translateCopyLoading, setTranslateCopyLoading] = useState(false);
 
   // File import
   const jsonFileRef = useRef<HTMLInputElement>(null);
@@ -69,6 +147,12 @@ export function CharactersScreen() {
       setMesExample("");
       setCreatorNotes("");
       setTags("");
+      setCreator("");
+      setCharacterVersion("");
+      setPostHistoryInstructions("");
+      setAlternateGreetingsText("");
+      setCreatorNotesMultilingualJson("{}");
+      setExtensionsJson("{}");
       setRawJson("{}");
       return;
     }
@@ -81,6 +165,12 @@ export function CharactersScreen() {
     setMesExample(selected.mesExample || "");
     setCreatorNotes(selected.creatorNotes || "");
     setTags((selected.tags || []).join(", "));
+    setCreator(selected.creator || "");
+    setCharacterVersion(selected.characterVersion || "");
+    setPostHistoryInstructions(selected.postHistoryInstructions || "");
+    setAlternateGreetingsText(formatAlternateGreetings(selected.alternateGreetings));
+    setCreatorNotesMultilingualJson(formatObjectJson(selected.creatorNotesMultilingual));
+    setExtensionsJson(formatObjectJson(selected.extensions));
     setRawJson(selected.cardJson || "{}");
     setJsonSyncDirection("gui");
   }, [selected]);
@@ -100,27 +190,57 @@ export function CharactersScreen() {
       data.mes_example = mesExample;
       data.creator_notes = creatorNotes;
       data.tags = tags.split(",").map((t: string) => t.trim()).filter(Boolean);
+      data.creator = creator;
+      data.character_version = characterVersion;
+      data.post_history_instructions = postHistoryInstructions;
+      data.alternate_greetings = parseAlternateGreetingsInput(alternateGreetingsText);
+      data.creator_notes_multilingual = parseObjectJson(creatorNotesMultilingualJson, toPlainObject(data.creator_notes_multilingual));
+      data.extensions = parseObjectJson(extensionsJson, toPlainObject(data.extensions));
       setRawJson(JSON.stringify({ spec: "chara_card_v2", spec_version: "2.0", data }, null, 2));
     } catch {
       // ignore sync error
     }
-  }, [name, description, personality, scenario, greeting, systemPrompt, mesExample, creatorNotes, tags, jsonSyncDirection, selected]);
+  }, [
+    name,
+    description,
+    personality,
+    scenario,
+    greeting,
+    systemPrompt,
+    mesExample,
+    creatorNotes,
+    tags,
+    creator,
+    characterVersion,
+    postHistoryInstructions,
+    alternateGreetingsText,
+    creatorNotesMultilingualJson,
+    extensionsJson,
+    jsonSyncDirection,
+    selected
+  ]);
 
   // Sync JSON → GUI
   function applyJsonToGui() {
     try {
       const parsed = JSON.parse(rawJson);
-      const data = (parsed.data || {}) as Record<string, string>;
-      setName(data.name || "");
-      setDescription(data.description || "");
-      setPersonality(data.personality || "");
-      setScenario(data.scenario || "");
-      setGreeting(data.first_mes || "");
-      setSystemPrompt(data.system_prompt || "");
-      setMesExample(data.mes_example || "");
-      setCreatorNotes(data.creator_notes || "");
+      const data = (parsed.data || {}) as Record<string, unknown>;
+      setName(asString(data.name));
+      setDescription(asString(data.description));
+      setPersonality(asString(data.personality));
+      setScenario(asString(data.scenario));
+      setGreeting(asString(data.first_mes));
+      setSystemPrompt(asString(data.system_prompt));
+      setMesExample(asString(data.mes_example));
+      setCreatorNotes(asString(data.creator_notes));
       const parsedTags = parsed.data?.tags;
       setTags(Array.isArray(parsedTags) ? parsedTags.join(", ") : "");
+      setCreator(typeof data.creator === "string" ? data.creator : "");
+      setCharacterVersion(typeof data.character_version === "string" ? data.character_version : "");
+      setPostHistoryInstructions(typeof data.post_history_instructions === "string" ? data.post_history_instructions : "");
+      setAlternateGreetingsText(formatAlternateGreetings(data.alternate_greetings));
+      setCreatorNotesMultilingualJson(formatObjectJson(data.creator_notes_multilingual));
+      setExtensionsJson(formatObjectJson(data.extensions));
       setJsonSyncDirection("gui");
     } catch {
       // ignore
@@ -133,6 +253,8 @@ export function CharactersScreen() {
     setSaveStatusType(null);
     try {
       const tagsArr = tags.split(",").map((t) => t.trim()).filter(Boolean);
+      const creatorNotesMultilingual = parseObjectJsonStrict(creatorNotesMultilingualJson);
+      const extensions = parseObjectJsonStrict(extensionsJson);
       const updated = await api.characterUpdate(selected.id, {
         name,
         description,
@@ -142,7 +264,13 @@ export function CharactersScreen() {
         systemPrompt,
         mesExample,
         creatorNotes,
-        tags: tagsArr
+        tags: tagsArr,
+        creator,
+        characterVersion,
+        postHistoryInstructions,
+        alternateGreetings: parseAlternateGreetingsInput(alternateGreetingsText),
+        creatorNotesMultilingual,
+        extensions
       });
       setSelected(updated);
       setCharacters((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
@@ -163,6 +291,29 @@ export function CharactersScreen() {
     await api.characterDelete(selected.id);
     setCharacters((prev) => prev.filter((c) => c.id !== selected.id));
     setSelected(null);
+  }
+
+  async function handleTranslateCopy() {
+    if (!selected || translateCopyLoading) return;
+    setSaveStatus("");
+    setSaveStatusType(null);
+    setTranslateCopyLoading(true);
+    try {
+      const copied = await api.characterTranslateCopy(selected.id);
+      setCharacters((prev) => [copied, ...prev]);
+      setSelected(copied);
+      setSaveStatus(`${t("chars.translatedCopyCreated")}: ${copied.name}`);
+      setSaveStatusType("success");
+      setTimeout(() => {
+        setSaveStatus("");
+        setSaveStatusType(null);
+      }, 2500);
+    } catch (error) {
+      setSaveStatus(`${t("chars.errorPrefix")}: ${String(error)}`);
+      setSaveStatusType("error");
+    } finally {
+      setTranslateCopyLoading(false);
+    }
   }
 
   async function handleImport() {
@@ -218,7 +369,13 @@ export function CharactersScreen() {
           tags: [],
           system_prompt: "",
           mes_example: "",
-          creator_notes: ""
+          creator_notes: "",
+          alternate_greetings: [],
+          post_history_instructions: "",
+          creator: "",
+          character_version: "main",
+          creator_notes_multilingual: {},
+          extensions: {}
         }
       });
       const result = await api.characterImportV2(blankCard);
@@ -275,7 +432,13 @@ export function CharactersScreen() {
         tags: ["fantasy", "mystery"],
         system_prompt: "",
         mes_example: "",
-        creator_notes: t("chars.sampleCreatorNotes")
+        creator_notes: t("chars.sampleCreatorNotes"),
+        alternate_greetings: [],
+        post_history_instructions: "",
+        creator: "",
+        character_version: "main",
+        creator_notes_multilingual: {},
+        extensions: {}
       }
     }, null, 2));
     setImportError("");
@@ -432,6 +595,13 @@ export function CharactersScreen() {
               </div>
               <div className="flex gap-1.5">
                 <button onClick={handleSave} className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-text-inverse hover:bg-accent-hover">{t("chat.save")}</button>
+                <button
+                  onClick={handleTranslateCopy}
+                  disabled={translateCopyLoading}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {translateCopyLoading ? t("chars.translatingCopy") : t("chars.translateCopy")}
+                </button>
                 <button onClick={handleDelete} className="rounded-md border border-danger-border px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger-subtle">{t("chat.delete")}</button>
               </div>
             </div>
@@ -479,11 +649,46 @@ export function CharactersScreen() {
                 <textarea value={creatorNotes} onChange={(e) => { setCreatorNotes(e.target.value); setJsonSyncDirection("gui"); }}
                   className="h-14 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
               </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.creator")}</label>
+                  <input value={creator} onChange={(e) => { setCreator(e.target.value); setJsonSyncDirection("gui"); }}
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.characterVersion")}</label>
+                  <input value={characterVersion} onChange={(e) => { setCharacterVersion(e.target.value); setJsonSyncDirection("gui"); }}
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
+                </div>
+              </div>
               <div>
                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.tags")}</label>
                 <input value={tags} onChange={(e) => { setTags(e.target.value); setJsonSyncDirection("gui"); }}
                   className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary"
                   placeholder={t("chars.tagsPlaceholder")} />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.postHistoryInstructions")}</label>
+                <textarea value={postHistoryInstructions} onChange={(e) => { setPostHistoryInstructions(e.target.value); setJsonSyncDirection("gui"); }}
+                  className="h-16 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.alternateGreetings")}</label>
+                <textarea value={alternateGreetingsText} onChange={(e) => { setAlternateGreetingsText(e.target.value); setJsonSyncDirection("gui"); }}
+                  className="h-24 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary"
+                  placeholder={t("chars.alternateGreetingsPlaceholder")} />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.creatorNotesMultilingual")}</label>
+                <textarea value={creatorNotesMultilingualJson} onChange={(e) => { setCreatorNotesMultilingualJson(e.target.value); setJsonSyncDirection("gui"); }}
+                  className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 font-mono text-[11px] text-text-primary"
+                  placeholder={t("chars.creatorNotesMultilingualPlaceholder")} />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.extensions")}</label>
+                <textarea value={extensionsJson} onChange={(e) => { setExtensionsJson(e.target.value); setJsonSyncDirection("gui"); }}
+                  className="h-24 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 font-mono text-[11px] text-text-primary"
+                  placeholder={t("chars.extensionsPlaceholder")} />
               </div>
             </div>
           </div>

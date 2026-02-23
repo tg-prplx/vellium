@@ -10,6 +10,7 @@ interface MessageRow {
   role: string;
   content: string;
   attachments: string | null;
+  rag_sources: string | null;
   token_count: number;
   parent_id: string | null;
   deleted: number;
@@ -20,11 +21,18 @@ interface MessageRow {
 
 function messageToJson(row: MessageRow) {
   let attachments: unknown[] = [];
+  let ragSources: unknown[] = [];
   try {
     const parsed = JSON.parse(row.attachments || "[]");
     if (Array.isArray(parsed)) attachments = parsed;
   } catch {
     attachments = [];
+  }
+  try {
+    const parsed = JSON.parse(row.rag_sources || "[]");
+    if (Array.isArray(parsed)) ragSources = parsed;
+  } catch {
+    ragSources = [];
   }
   return {
     id: row.id,
@@ -36,7 +44,8 @@ function messageToJson(row: MessageRow) {
     tokenCount: row.token_count,
     createdAt: row.created_at,
     parentId: row.parent_id,
-    characterName: row.character_name || undefined
+    characterName: row.character_name || undefined,
+    ragSources
   };
 }
 

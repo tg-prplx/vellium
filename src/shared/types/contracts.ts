@@ -93,6 +93,50 @@ export interface ChatMessage {
   parentId?: Id | null;
   characterName?: string;
   attachments?: FileAttachment[];
+  ragSources?: RagSource[];
+}
+
+export interface RagSource {
+  chunkId: string;
+  documentId: string;
+  documentTitle: string;
+  score: number;
+  preview: string;
+}
+
+export interface RagCollection {
+  id: Id;
+  name: string;
+  description: string;
+  scope: "global" | "chat" | "writer";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RagDocument {
+  id: Id;
+  collectionId: Id;
+  title: string;
+  sourceType: string;
+  sourceId?: string | null;
+  contentHash: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RagBinding {
+  enabled: boolean;
+  collectionIds: Id[];
+  updatedAt: string | null;
+}
+
+export interface RagIngestResult {
+  ok: boolean;
+  documentId: Id;
+  chunks: number;
+  embedded: number;
+  status: string;
 }
 
 export interface BranchNode {
@@ -125,6 +169,7 @@ export interface RpSceneState {
   mood: string;
   pacing: "slow" | "balanced" | "fast";
   intensity: number;
+  chatMode?: "rp" | "light_rp" | "pure_chat";
   pureChatMode?: boolean;
 }
 
@@ -369,10 +414,20 @@ export interface AppSettings {
   density: "comfortable" | "compact";
   censorshipMode: CensorshipMode;
   fullLocalMode: boolean;
+  useAlternateGreetings: boolean;
   responseLanguage: string;
   translateLanguage: string;
   translateProviderId?: string | null;
   translateModel?: string | null;
+  ragProviderId?: string | null;
+  ragModel?: string | null;
+  ragTopK: number;
+  ragCandidateCount: number;
+  ragSimilarityThreshold: number;
+  ragMaxContextTokens: number;
+  ragChunkSize: number;
+  ragChunkOverlap: number;
+  ragEnabledByDefault: boolean;
   interfaceLanguage: "en" | "ru" | "zh" | "ja";
   activeProviderId?: string | null;
   activeModel?: string | null;
@@ -386,10 +441,12 @@ export interface AppSettings {
   samplerConfig: SamplerConfig;
   apiParamPolicy: ApiParamPolicy;
   defaultSystemPrompt: string;
+  strictGrounding: boolean;
   contextWindowSize: number;
   contextTailBudgetWithSummaryPercent: number;
   contextTailBudgetWithoutSummaryPercent: number;
   promptTemplates: PromptTemplates;
+  promptStack: PromptBlock[];
   toolCallingEnabled: boolean;
   toolCallingPolicy: "conservative" | "balanced" | "aggressive";
   mcpAutoAttachTools: boolean;
@@ -435,6 +492,12 @@ export interface CharacterDetail extends CharacterListItem {
   scenario: string;
   mesExample: string;
   creatorNotes: string;
+  alternateGreetings: string[];
+  postHistoryInstructions: string;
+  creator: string;
+  characterVersion: string;
+  creatorNotesMultilingual: Record<string, unknown>;
+  extensions: Record<string, unknown>;
   cardJson: string;
 }
 

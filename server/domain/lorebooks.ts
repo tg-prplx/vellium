@@ -21,6 +21,8 @@ export interface LoreBookData {
   updatedAt: string;
 }
 
+const TOKEN_BOUNDARY_CLASS = "\\p{L}\\p{N}_";
+
 function normalizeKeyList(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   const seen = new Set<string>();
@@ -96,9 +98,29 @@ export function getTriggeredLoreEntries(entries: LoreBookEntryData[], timelineTe
     .filter((entry) => {
       if (entry.constant) return true;
       if (entry.keys.length === 0) return false;
-      return entry.keys.some((key) => haystack.includes(key.toLowerCase()));
+      return entry.keys.some((key) => matchesLoreKey(haystack, key));
     })
     .sort((a, b) => a.insertionOrder - b.insertionOrder);
+}
+
+function escapeRegex(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function matchesLoreKey(haystackLower: string, rawKey: string): boolean {
+  const key = String(rawKey || "").trim().toLowerCase();
+  if (!key) return false;
+
+  // For normal words/phrases, use token boundaries to avoid false positives:
+  // "he" should not trigger on "she" or "the".
+  if (/^[\p{L}\p{N}_ ]+$/u.test(key)) {
+    const escaped = escapeRegex(key).replace(/\s+/g, "\\s+");
+    const pattern = new RegExp(`(^|[^${TOKEN_BOUNDARY_CLASS}])${escaped}(?=$|[^${TOKEN_BOUNDARY_CLASS}])`, "u");
+    return pattern.test(haystackLower);
+  }
+
+  // For symbolic keys, fallback to substring matching.
+  return haystackLower.includes(key);
 }
 
 function resolveAnchor(position: string): { anchorKind: PromptBlock["kind"]; place: "before" | "after" } {
@@ -115,10 +137,10 @@ function resolveAnchor(position: string): { anchorKind: PromptBlock["kind"]; pla
     case "after_scenario": return { anchorKind: "scene", place: "after" };
     case "before_scene": return { anchorKind: "scene", place: "before" };
     case "after_scene": return { anchorKind: "scene", place: "after" };
-    case "before_author_note": return { anchorKind: "scene", place: "before" };
-    case "after_author_note": return { anchorKind: "scene", place: "after" };
-    case "before_history": return { anchorKind: "scene", place: "before" };
-    case "after_history": return { anchorKind: "scene", place: "after" };
+    case "before_author_note": return { anchorKind: "author_note", place: "before" };
+    case "after_author_note": return { anchorKind: "author_note", place: "after" };
+    case "before_history": return { anchorKind: "history", place: "before" };
+    case "after_history": return { anchorKind: "history", place: "after" };
     default: return { anchorKind: "character", place: "after" };
   }
 }
@@ -129,7 +151,9 @@ function getAnchorOrder(blocks: PromptBlock[], kind: PromptBlock["kind"]): numbe
   if (kind === "system") return 1;
   if (kind === "jailbreak") return 2;
   if (kind === "character") return 3;
+  if (kind === "author_note") return 4;
   if (kind === "scene") return 6;
+  if (kind === "history") return 7;
   return 5;
 }
 

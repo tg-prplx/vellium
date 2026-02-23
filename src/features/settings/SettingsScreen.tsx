@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
-import type { ApiParamPolicy, AppSettings, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
+import type { ApiParamPolicy, AppSettings, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{children}</h2>;
@@ -78,6 +78,38 @@ const DEFAULT_API_PARAM_POLICY: ApiParamPolicy = {
   }
 };
 
+const DEFAULT_PROMPT_STACK: PromptBlock[] = [
+  { id: "default-1", kind: "system", enabled: true, order: 1, content: "" },
+  { id: "default-2", kind: "jailbreak", enabled: true, order: 2, content: "Never break character. Write as the character would, staying true to their personality." },
+  { id: "default-3", kind: "character", enabled: true, order: 3, content: "" },
+  { id: "default-4", kind: "author_note", enabled: true, order: 4, content: "" },
+  { id: "default-5", kind: "lore", enabled: false, order: 5, content: "" },
+  { id: "default-6", kind: "scene", enabled: true, order: 6, content: "" },
+  { id: "default-7", kind: "history", enabled: true, order: 7, content: "" }
+];
+
+const PROMPT_STACK_COLORS: Record<PromptBlock["kind"], string> = {
+  system: "border-blue-500/30 bg-blue-500/8",
+  jailbreak: "border-red-500/30 bg-red-500/8",
+  character: "border-purple-500/30 bg-purple-500/8",
+  author_note: "border-amber-500/30 bg-amber-500/8",
+  lore: "border-emerald-500/30 bg-emerald-500/8",
+  scene: "border-cyan-500/30 bg-cyan-500/8",
+  history: "border-slate-500/30 bg-slate-500/8"
+};
+
+function normalizePromptStack(raw: PromptBlock[] | null | undefined): PromptBlock[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [...DEFAULT_PROMPT_STACK];
+  return [...raw]
+    .sort((a, b) => a.order - b.order)
+    .map((block, index) => ({ ...block, order: index + 1 }));
+}
+
+function promptBlockLabel(kind: PromptBlock["kind"]): string {
+  if (kind === "jailbreak") return "Character lock";
+  return kind.replace("_", " ");
+}
+
 function normalizeApiParamPolicy(raw: ApiParamPolicy | null | undefined): ApiParamPolicy {
   return {
     openai: {
@@ -105,6 +137,7 @@ export function SettingsScreen() {
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [models, setModels] = useState<ProviderModel[]>([]);
   const [translateModels, setTranslateModels] = useState<ProviderModel[]>([]);
+  const [ragModels, setRagModels] = useState<ProviderModel[]>([]);
   const [compressModels, setCompressModels] = useState<ProviderModel[]>([]);
   const [ttsModels, setTtsModels] = useState<ProviderModel[]>([]);
   const [ttsVoices, setTtsVoices] = useState<ProviderModel[]>([]);
@@ -136,6 +169,7 @@ export function SettingsScreen() {
   const [mcpDiscoveryLoading, setMcpDiscoveryLoading] = useState(false);
   const [koboldBansInput, setKoboldBansInput] = useState("");
   const [quickJumpFilter, setQuickJumpFilter] = useState("");
+  const [draggedPromptBlockId, setDraggedPromptBlockId] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -264,6 +298,20 @@ export function SettingsScreen() {
     }
   }
 
+  async function loadRagModels(providerId?: string | null) {
+    const pid = providerId ?? settings?.ragProviderId;
+    if (!pid) {
+      setRagModels([]);
+      return;
+    }
+    try {
+      const list = await api.providerFetchModels(pid);
+      setRagModels(list);
+    } catch {
+      setRagModels([]);
+    }
+  }
+
   async function loadTtsModels() {
     if (!settings) return;
     try {
@@ -324,6 +372,36 @@ export function SettingsScreen() {
       }
     };
     await patch({ apiParamPolicy: nextPolicy });
+  }
+
+  async function savePromptStack(nextStack: PromptBlock[]) {
+    const normalized = normalizePromptStack(nextStack);
+    await patch({ promptStack: normalized });
+  }
+
+  function togglePromptBlock(blockId: string) {
+    const next = orderedPromptStack.map((block) => (
+      block.id === blockId ? { ...block, enabled: !block.enabled } : block
+    ));
+    void savePromptStack(next);
+  }
+
+  function movePromptBlock(dragId: string, dropId: string) {
+    if (!dragId || dragId === dropId) return;
+    const next = [...orderedPromptStack];
+    const from = next.findIndex((block) => block.id === dragId);
+    const to = next.findIndex((block) => block.id === dropId);
+    if (from < 0 || to < 0 || from === to) return;
+    const [removed] = next.splice(from, 1);
+    next.splice(to, 0, removed);
+    void savePromptStack(next.map((block, index) => ({ ...block, order: index + 1 })));
+  }
+
+  function updatePromptBlockContent(blockId: string, content: string) {
+    const next = orderedPromptStack.map((block) => (
+      block.id === blockId ? { ...block, content } : block
+    ));
+    void savePromptStack(next);
   }
 
   function readToolStates(): Record<string, boolean> {
@@ -492,6 +570,15 @@ export function SettingsScreen() {
     void loadTranslateModels(settings.translateProviderId);
   }, [settings?.translateProviderId]);
 
+  // Auto-load RAG models when RAG provider changes
+  useEffect(() => {
+    if (!settings?.ragProviderId) {
+      setRagModels([]);
+      return;
+    }
+    void loadRagModels(settings.ragProviderId);
+  }, [settings?.ragProviderId]);
+
   useEffect(() => {
     if (!settings) return;
     setMcpServersDraft(Array.isArray(settings.mcpServers) ? settings.mcpServers : []);
@@ -556,6 +643,10 @@ export function SettingsScreen() {
     if (!settings?.activeProviderId) return null;
     return providers.find((provider) => provider.id === settings.activeProviderId) ?? null;
   }, [providers, settings?.activeProviderId]);
+  const orderedPromptStack = useMemo(
+    () => normalizePromptStack(settings?.promptStack),
+    [settings?.promptStack]
+  );
 
   const tabMeta: Array<{ id: "basic" | "advanced" | "prompts"; label: string; desc: string }> = [
     { id: "basic", label: t("settings.basic"), desc: t("settings.tabBasicDesc") },
@@ -568,6 +659,7 @@ export function SettingsScreen() {
       return [
         { id: "settings-general", label: t("settings.general") },
         { id: "settings-translation-model", label: t("settings.translateModel") },
+        { id: "settings-rag-model", label: t("settings.ragModel") },
         { id: "settings-quick-presets", label: t("settings.quickPresets") },
         { id: "settings-manual-provider", label: t("settings.manualConfig") },
         { id: "settings-active-model", label: t("settings.activeModel") },
@@ -581,12 +673,14 @@ export function SettingsScreen() {
         { id: "settings-api-param-forwarding", label: t("settings.apiParamForwarding") },
         { id: "settings-default-system-advanced", label: t("settings.defaultSysPrompt") },
         { id: "settings-context-window", label: t("settings.contextWindow") },
+        { id: "settings-rag-retrieval", label: t("settings.ragRetrieval") },
         { id: "settings-tools-mcp", label: t("settings.tools") },
         { id: "settings-danger-zone", label: t("settings.dangerZone") }
       ];
     }
     return [
       { id: "settings-prompt-templates", label: t("settings.promptTemplates") },
+      { id: "settings-prompt-stack", label: t("inspector.promptStack") },
       { id: "settings-default-system-prompts", label: t("settings.defaultSysPrompt") }
     ];
   }, [activeTab, t]);
@@ -714,6 +808,64 @@ export function SettingsScreen() {
             </div>
           </div>
 
+          <div id="settings-prompt-stack" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
+            <SectionTitle>{t("inspector.promptStack")}</SectionTitle>
+            <p className="mb-3 text-[11px] text-text-tertiary">{t("settings.promptStackDesc")}</p>
+            <div className="space-y-2">
+              {orderedPromptStack.map((block) => (
+                <div
+                  key={block.id}
+                  draggable
+                  onDragStart={() => setDraggedPromptBlockId(block.id)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => {
+                    if (!draggedPromptBlockId) return;
+                    movePromptBlock(draggedPromptBlockId, block.id);
+                    setDraggedPromptBlockId(null);
+                  }}
+                  className={`rounded-lg border p-2 ${PROMPT_STACK_COLORS[block.kind] ?? "border-border bg-bg-primary"}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => togglePromptBlock(block.id)}
+                      className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+                      title={block.enabled ? t("chat.disable") : t("chat.enable")}
+                    >
+                      {block.enabled ? (
+                        <svg className="h-3.5 w-3.5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <svg className="h-3.5 w-3.5 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                    </button>
+                    <svg className="h-3.5 w-3.5 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16" />
+                    </svg>
+                    <span className={`text-xs font-medium capitalize ${block.enabled ? "text-text-primary" : "text-text-tertiary"}`}>
+                      {promptBlockLabel(block.kind)}
+                    </span>
+                  </div>
+                  {(block.kind === "system" || block.kind === "jailbreak") && (
+                    <textarea
+                      value={block.content || ""}
+                      onChange={(e) => updatePromptBlockContent(block.id, e.target.value)}
+                      className="mt-2 h-20 w-full rounded-md border border-border bg-bg-primary px-2 py-1.5 text-xs text-text-primary"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => void savePromptStack(DEFAULT_PROMPT_STACK)}
+              className="mt-3 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover"
+            >
+              {t("settings.promptStackReset")}
+            </button>
+          </div>
+
           <div id="settings-default-system-prompts" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
             <SectionTitle>{t("settings.defaultSysPrompt")}</SectionTitle>
             <p className="mb-2 text-[10px] text-text-tertiary">{t("settings.baseSysPromptDesc")}</p>
@@ -805,12 +957,73 @@ export function SettingsScreen() {
                 </div>
               </div>
 
+              <div id="settings-rag-model" className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                <div className="mb-2">
+                  <div className="text-sm font-medium text-text-primary">{t("settings.ragModel")}</div>
+                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.ragModelDesc")}</div>
+                </div>
+                <div className="space-y-2">
+                  <div>
+                    <FieldLabel>{t("settings.provider")}</FieldLabel>
+                    <SelectField
+                      value={settings.ragProviderId || ""}
+                      onChange={(v) => {
+                        void patch({ ragProviderId: v || null, ragModel: null });
+                      }}
+                    >
+                      <option value="">({t("settings.activeModel")})</option>
+                      {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                    </SelectField>
+                  </div>
+                  {settings.ragProviderId && (
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <FieldLabel>{t("chat.model")}</FieldLabel>
+                        <button
+                          onClick={() => void loadRagModels(settings.ragProviderId)}
+                          className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                        >
+                          {t("settings.loadModels")}
+                        </button>
+                      </div>
+                      <SelectField
+                        value={settings.ragModel || ""}
+                        onChange={(v) => patch({ ragModel: v || null })}
+                      >
+                        <option value="">{t("settings.selectModel")}</option>
+                        {ragModels.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
+                      </SelectField>
+                    </div>
+                  )}
+                  <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
+                    <span>{t("settings.ragEnableByDefault")}</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.ragEnabledByDefault === true}
+                      onChange={(e) => patch({ ragEnabledByDefault: e.target.checked })}
+                    />
+                  </label>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
                 <div>
                   <div className="text-sm font-medium text-text-primary">{t("settings.fullLocalMode")}</div>
                   <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.fullLocalDesc")}</div>
                 </div>
                 <input type="checkbox" checked={settings.fullLocalMode} onChange={(e) => patch({ fullLocalMode: e.target.checked })} />
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
+                <div>
+                  <div className="text-sm font-medium text-text-primary">{t("settings.altGreetingsRandom")}</div>
+                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.altGreetingsRandomDesc")}</div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={settings.useAlternateGreetings === true}
+                  onChange={(e) => patch({ useAlternateGreetings: e.target.checked })}
+                />
               </div>
 
               <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
@@ -1245,7 +1458,116 @@ export function SettingsScreen() {
                     }}
                     className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
                 </div>
+                <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
+                  <div>
+                    <div className="text-sm font-medium text-text-primary">{t("settings.strictGrounding")}</div>
+                    <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.strictGroundingDesc")}</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settings.strictGrounding !== false}
+                    onChange={(e) => patch({ strictGrounding: e.target.checked })}
+                  />
+                </div>
                 <p className="text-[10px] text-text-tertiary">{t("settings.contextDesc")}</p>
+              </div>
+            </div>
+
+            <div id="settings-rag-retrieval" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
+              <SectionTitle>{t("settings.ragRetrieval")}</SectionTitle>
+              <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ragRetrievalDesc")}</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <FieldLabel>{t("settings.ragTopK")}</FieldLabel>
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    value={settings.ragTopK ?? 6}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const next = Number.isFinite(raw) ? Math.max(1, Math.min(12, Math.floor(raw))) : 6;
+                      patch({ ragTopK: next });
+                    }}
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
+                  />
+                </div>
+                <div>
+                  <FieldLabel>{t("settings.ragCandidateCount")}</FieldLabel>
+                  <input
+                    type="number"
+                    min={10}
+                    max={300}
+                    value={settings.ragCandidateCount ?? 80}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const next = Number.isFinite(raw) ? Math.max(10, Math.min(300, Math.floor(raw))) : 80;
+                      patch({ ragCandidateCount: next });
+                    }}
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
+                  />
+                </div>
+                <div>
+                  <FieldLabel>{t("settings.ragSimilarityThreshold")}</FieldLabel>
+                  <input
+                    type="number"
+                    min={-1}
+                    max={1}
+                    step={0.01}
+                    value={settings.ragSimilarityThreshold ?? 0.15}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const next = Number.isFinite(raw) ? Math.max(-1, Math.min(1, raw)) : 0.15;
+                      patch({ ragSimilarityThreshold: Number(next.toFixed(2)) });
+                    }}
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
+                  />
+                </div>
+                <div>
+                  <FieldLabel>{t("settings.ragMaxContextTokens")}</FieldLabel>
+                  <input
+                    type="number"
+                    min={200}
+                    max={4000}
+                    value={settings.ragMaxContextTokens ?? 900}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const next = Number.isFinite(raw) ? Math.max(200, Math.min(4000, Math.floor(raw))) : 900;
+                      patch({ ragMaxContextTokens: next });
+                    }}
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
+                  />
+                </div>
+                <div>
+                  <FieldLabel>{t("settings.ragChunkSize")}</FieldLabel>
+                  <input
+                    type="number"
+                    min={300}
+                    max={8000}
+                    value={settings.ragChunkSize ?? 1200}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const next = Number.isFinite(raw) ? Math.max(300, Math.min(8000, Math.floor(raw))) : 1200;
+                      patch({ ragChunkSize: next });
+                    }}
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
+                  />
+                </div>
+                <div>
+                  <FieldLabel>{t("settings.ragChunkOverlap")}</FieldLabel>
+                  <input
+                    type="number"
+                    min={0}
+                    max={3000}
+                    value={settings.ragChunkOverlap ?? 220}
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
+                      const next = Number.isFinite(raw) ? Math.max(0, Math.min(3000, Math.floor(raw))) : 220;
+                      patch({ ragChunkOverlap: next });
+                    }}
+                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
+                  />
+                </div>
               </div>
             </div>
 

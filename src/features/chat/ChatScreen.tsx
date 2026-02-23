@@ -12,6 +12,7 @@ import type {
   RpSceneState,
   CharacterDetail,
   LoreBook,
+  RagCollection,
   SamplerConfig,
   ProviderProfile,
   ProviderModel,
@@ -68,22 +69,32 @@ function imageSourceFromAttachment(att: FileAttachment): string | null {
   return null;
 }
 
-const BLOCK_COLORS: Record<string, string> = {
-  system: "border-blue-500/30 bg-blue-500/8",
-  jailbreak: "border-red-500/30 bg-red-500/8",
-  character: "border-purple-500/30 bg-purple-500/8",
-  author_note: "border-amber-500/30 bg-amber-500/8",
-  lore: "border-emerald-500/30 bg-emerald-500/8",
-  scene: "border-cyan-500/30 bg-cyan-500/8",
-  history: "border-slate-500/30 bg-slate-500/8"
-};
-
 const RP_PRESETS = ["slowburn", "dominant", "romantic", "action", "mystery", "submissive", "seductive", "gentle_fem", "rough", "passionate"] as const;
 const DEFAULT_AUTHOR_NOTE = "Stay in character, avoid repetition, keep sensual pacing controlled.";
+type ChatMode = "rp" | "light_rp" | "pure_chat";
+const DEFAULT_PROMPT_STACK: PromptBlock[] = [
+  { id: "default-1", kind: "system", enabled: true, order: 1, content: "" },
+  { id: "default-2", kind: "jailbreak", enabled: true, order: 2, content: "Never break character. Write as the character would, staying true to their personality." },
+  { id: "default-3", kind: "character", enabled: true, order: 3, content: "" },
+  { id: "default-4", kind: "author_note", enabled: true, order: 4, content: "" },
+  { id: "default-5", kind: "lore", enabled: false, order: 5, content: "" },
+  { id: "default-6", kind: "scene", enabled: true, order: 6, content: "" },
+  { id: "default-7", kind: "history", enabled: true, order: 7, content: "" }
+];
 
-function promptBlockLabel(kind: PromptBlock["kind"]): string {
-  if (kind === "jailbreak") return "Character lock";
-  return kind.replace("_", " ");
+function normalizePromptStack(raw: PromptBlock[] | null | undefined): PromptBlock[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [...DEFAULT_PROMPT_STACK];
+  return [...raw]
+    .sort((a, b) => a.order - b.order)
+    .map((block, index) => ({ ...block, order: index + 1 }));
+}
+
+function resolveChatMode(state: Partial<RpSceneState> | null | undefined): ChatMode {
+  if (state?.chatMode === "rp" || state?.chatMode === "light_rp" || state?.chatMode === "pure_chat") {
+    return state.chatMode;
+  }
+  if (state?.pureChatMode === true) return "pure_chat";
+  return "rp";
 }
 const DEFAULT_SCENE_STATE: Omit<RpSceneState, "chatId"> = {
   variables: {
@@ -98,6 +109,7 @@ const DEFAULT_SCENE_STATE: Omit<RpSceneState, "chatId"> = {
   mood: "teasing",
   pacing: "slow",
   intensity: 0.7,
+  chatMode: "rp",
   pureChatMode: false
 };
 
@@ -169,7 +181,7 @@ export function ChatScreen() {
     chatId: "",
     ...DEFAULT_SCENE_STATE
   });
-  const [blocks, setBlocks] = useState<PromptBlock[]>([]);
+  const [promptStack, setPromptStack] = useState<PromptBlock[]>([...DEFAULT_PROMPT_STACK]);
   const [contextSummary, setContextSummary] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
@@ -180,7 +192,6 @@ export function ChatScreen() {
   const [streamingReasoningCalls, setStreamingReasoningCalls] = useState<StreamingToolCall[]>([]);
   const [streamingToolsExpanded, setStreamingToolsExpanded] = useState(false);
   const [streamingReasoningExpanded, setStreamingReasoningExpanded] = useState(false);
-  const [draggedBlockId, setDraggedBlockId] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string>("");
   const [activeModelLabel, setActiveModelLabel] = useState<string>("");
   const [chatSearchQuery, setChatSearchQuery] = useState("");
@@ -238,6 +249,10 @@ export function ChatScreen() {
   const [activePreset, setActivePreset] = useState<string | null>(null);
   const [lorebooks, setLorebooks] = useState<LoreBook[]>([]);
   const [activeLorebookId, setActiveLorebookId] = useState<string | null>(null);
+  const [ragCollections, setRagCollections] = useState<RagCollection[]>([]);
+  const [chatRagEnabled, setChatRagEnabled] = useState(false);
+  const [chatRagCollectionIds, setChatRagCollectionIds] = useState<string[]>([]);
+  const [chatRagTopK, setChatRagTopK] = useState(6);
 
   // User persona
   const [personas, setPersonas] = useState<UserPersona[]>([]);
@@ -249,6 +264,7 @@ export function ChatScreen() {
   // Per-chat sampler — auto-save debounce
   const [samplerSaved, setSamplerSaved] = useState(false);
   const samplerSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promptStackSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const samplerInitializedRef = useRef(false);
   const authorNoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sceneStateSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -261,7 +277,7 @@ export function ChatScreen() {
 
   // Inspector collapse
   const [inspectorSection, setInspectorSection] = useState<Record<string, boolean>>({
-    scene: true, sampler: false, blocks: false, context: false
+    scene: true, sampler: false, context: false
   });
   const [toolPanelsExpanded, setToolPanelsExpanded] = useState<Record<string, boolean>>({});
   const [reasoningPanelsExpanded, setReasoningPanelsExpanded] = useState<Record<string, boolean>>({});
@@ -270,13 +286,14 @@ export function ChatScreen() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const orderedBlocks = useMemo(
-    () => [...blocks].sort((a, b) => a.order - b.order),
-    [blocks]
+    () => normalizePromptStack(promptStack),
+    [promptStack]
   );
-  const pureChatMode = sceneState.pureChatMode === true;
+  const chatMode = resolveChatMode(sceneState);
+  const pureChatMode = chatMode === "pure_chat";
   const systemPromptBlock = useMemo(
-    () => blocks.find((block) => block.kind === "system") || null,
-    [blocks]
+    () => orderedBlocks.find((block) => block.kind === "system") || null,
+    [orderedBlocks]
   );
 
   const totalTokens = useMemo(
@@ -386,9 +403,14 @@ export function ChatScreen() {
         setChatModelId("");
       }
       if (settings.samplerConfig) setSamplerConfig(settings.samplerConfig);
+      setPromptStack(normalizePromptStack(settings.promptStack));
+      if (Number.isFinite(Number(settings.ragTopK))) {
+        setChatRagTopK(Math.max(1, Math.min(12, Math.floor(Number(settings.ragTopK)))));
+      }
     });
     api.characterList().then(setCharacters).catch(() => {});
     api.lorebookList().then(setLorebooks).catch(() => {});
+    api.ragCollectionList().then(setRagCollections).catch(() => {});
     api.providerList().then(setProviders).catch(() => {});
     api.personaList().then((list) => {
       setPersonas(list);
@@ -399,6 +421,9 @@ export function ChatScreen() {
 
   useEffect(() => {
     return () => {
+      if (promptStackSaveTimerRef.current) {
+        clearTimeout(promptStackSaveTimerRef.current);
+      }
       if (ttsAudioRef.current) {
         ttsAudioRef.current.pause();
         ttsAudioRef.current = null;
@@ -434,9 +459,10 @@ export function ChatScreen() {
       setMessages([]);
       setBranches([]);
       setActiveBranchId(null);
-      setBlocks([]);
       setChatCharacterIds([]);
       setActiveLorebookId(null);
+      setChatRagEnabled(false);
+      setChatRagCollectionIds([]);
       setSceneState({ chatId: "", ...DEFAULT_SCENE_STATE });
       setAuthorNote(DEFAULT_AUTHOR_NOTE);
       setActivePreset(null);
@@ -463,10 +489,6 @@ export function ChatScreen() {
       setBranches([]);
       setActiveBranchId(null);
     });
-    api.rpGetBlocks(chatId).then((next) => {
-      if (cancelled) return;
-      setBlocks(next);
-    }).catch(() => {});
 
     // Load per-chat sampler config
     api.chatGetSampler(chatId).then((config) => {
@@ -481,13 +503,15 @@ export function ChatScreen() {
     api.rpGetSceneState(chatId).then((state) => {
       if (cancelled) return;
       if (state) {
+        const nextMode = resolveChatMode(state);
         setSceneState({
           chatId,
           mood: state.mood || DEFAULT_SCENE_STATE.mood,
           pacing: state.pacing || DEFAULT_SCENE_STATE.pacing,
           intensity: typeof state.intensity === "number" ? state.intensity : DEFAULT_SCENE_STATE.intensity,
           variables: state.variables || {},
-          pureChatMode: state.pureChatMode === true
+          chatMode: nextMode,
+          pureChatMode: nextMode === "pure_chat"
         });
       } else {
         setSceneState({ chatId, ...DEFAULT_SCENE_STATE });
@@ -525,6 +549,15 @@ export function ChatScreen() {
     // Load multi-char state
     setChatCharacterIds(activeChat.characterIds || (activeChat.characterId ? [activeChat.characterId] : []));
     setActiveLorebookId(activeChat.lorebookId || null);
+    api.chatGetRag(chatId).then((binding) => {
+      if (cancelled) return;
+      setChatRagEnabled(binding.enabled === true);
+      setChatRagCollectionIds(Array.isArray(binding.collectionIds) ? binding.collectionIds : []);
+    }).catch(() => {
+      if (cancelled) return;
+      setChatRagEnabled(false);
+      setChatRagCollectionIds([]);
+    });
     setToolPanelsExpanded({});
     setReasoningPanelsExpanded({});
     setSamplerSaved(false);
@@ -646,10 +679,18 @@ export function ChatScreen() {
     });
   }
 
-  const saveBlocksToServer = useCallback(
-    (chatId: string, newBlocks: PromptBlock[]) => {
-      api.rpSaveBlocks(chatId, newBlocks).catch(() => {});
-    }, []
+  const savePromptStack = useCallback(
+    (newBlocks: PromptBlock[]) => {
+      const normalized = normalizePromptStack(newBlocks);
+      setPromptStack(normalized);
+      if (promptStackSaveTimerRef.current) clearTimeout(promptStackSaveTimerRef.current);
+      promptStackSaveTimerRef.current = setTimeout(() => {
+        api.settingsUpdate({ promptStack: normalized }).then((updated) => {
+          setPromptStack(normalizePromptStack(updated.promptStack));
+        }).catch(() => {});
+      }, 350);
+    },
+    []
   );
 
   async function handleCreateChat(characterId?: string, multiCharIds?: string[]) {
@@ -935,10 +976,18 @@ export function ChatScreen() {
     try {
       const result = await api.rpApplyStylePreset(activeChat.id, preset);
       if (result.sceneState) {
-        setSceneState(result.sceneState);
+        const nextMode = resolveChatMode(result.sceneState);
+        setSceneState({
+          chatId: activeChat.id,
+          mood: result.sceneState.mood || DEFAULT_SCENE_STATE.mood,
+          pacing: result.sceneState.pacing || DEFAULT_SCENE_STATE.pacing,
+          intensity: typeof result.sceneState.intensity === "number" ? result.sceneState.intensity : DEFAULT_SCENE_STATE.intensity,
+          variables: result.sceneState.variables || {},
+          chatMode: nextMode,
+          pureChatMode: nextMode === "pure_chat"
+        });
       }
       setActivePreset(preset);
-      api.rpGetBlocks(activeChat.id).then(setBlocks).catch(() => {});
       api.chatSavePreset(activeChat.id, preset).catch(() => {});
     } catch (error) {
       setErrorText(String(error));
@@ -1026,18 +1075,29 @@ export function ChatScreen() {
     )));
 
     if (nextLorebookId) {
-      const hasEnabledLoreBlock = blocks.some((block) => block.kind === "lore" && block.enabled);
+      const hasEnabledLoreBlock = orderedBlocks.some((block) => block.kind === "lore" && block.enabled);
       if (!hasEnabledLoreBlock) {
-        const updatedBlocks = blocks.map((block) => (
+        const updatedBlocks = orderedBlocks.map((block) => (
           block.kind === "lore" ? { ...block, enabled: true } : block
         ));
-        setBlocks(updatedBlocks);
-        saveBlocksToServer(activeChat.id, updatedBlocks);
+        savePromptStack(updatedBlocks);
       }
     }
 
     try {
       await api.chatSaveLorebook(activeChat.id, nextLorebookId);
+    } catch (error) {
+      setErrorText(String(error));
+    }
+  }
+
+  async function updateChatRag(nextEnabled: boolean, nextCollectionIds: string[]) {
+    if (!activeChat) return;
+    const normalizedIds = Array.from(new Set(nextCollectionIds.map((id) => String(id || "").trim()).filter(Boolean)));
+    setChatRagEnabled(nextEnabled);
+    setChatRagCollectionIds(normalizedIds);
+    try {
+      await api.chatSaveRag(activeChat.id, nextEnabled, normalizedIds);
     } catch (error) {
       setErrorText(String(error));
     }
@@ -1124,42 +1184,26 @@ export function ChatScreen() {
     }
   }
 
-  function moveBlock(dragId: string, dropId: string) {
-    if (pureChatMode) return;
-    const next = [...orderedBlocks];
-    const from = next.findIndex((b) => b.id === dragId);
-    const to = next.findIndex((b) => b.id === dropId);
-    if (from < 0 || to < 0 || from === to) return;
-    const [removed] = next.splice(from, 1);
-    next.splice(to, 0, removed);
-    const reordered = next.map((block, index) => ({ ...block, order: index + 1 }));
-    setBlocks(reordered);
-    if (activeChat) saveBlocksToServer(activeChat.id, reordered);
-  }
-
-  function toggleBlock(blockId: string) {
-    if (pureChatMode) return;
-    const updated = blocks.map((b) => b.id === blockId ? { ...b, enabled: !b.enabled } : b);
-    setBlocks(updated);
-    if (activeChat) saveBlocksToServer(activeChat.id, updated);
-  }
-
-  function setPureChatModeEnabled(enabled: boolean) {
-    setSceneState((prev) => ({ ...prev, pureChatMode: enabled }));
+  function setChatMode(nextMode: ChatMode) {
+    setSceneState((prev) => ({
+      ...prev,
+      chatMode: nextMode,
+      pureChatMode: nextMode === "pure_chat"
+    }));
   }
 
   function setSystemPromptContent(content: string) {
     const normalized = String(content || "");
-    const existing = blocks.find((block) => block.kind === "system");
+    const existing = orderedBlocks.find((block) => block.kind === "system");
     let updated: PromptBlock[];
     if (existing) {
-      updated = blocks.map((block) => (
+      updated = orderedBlocks.map((block) => (
         block.kind === "system" ? { ...block, content: normalized } : block
       ));
     } else {
-      const maxOrder = blocks.reduce((max, block) => Math.max(max, block.order), 0);
+      const maxOrder = orderedBlocks.reduce((max, block) => Math.max(max, block.order), 0);
       updated = [
-        ...blocks,
+        ...orderedBlocks,
         {
           id: `system-${Date.now()}`,
           kind: "system",
@@ -1169,8 +1213,7 @@ export function ChatScreen() {
         }
       ];
     }
-    setBlocks(updated);
-    if (activeChat) saveBlocksToServer(activeChat.id, updated);
+    savePromptStack(updated);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -1199,6 +1242,11 @@ export function ChatScreen() {
       .map((id) => characters.find((c) => c.id === id))
       .filter((c): c is CharacterDetail => Boolean(c));
   }, [chatCharacterIds, characters]);
+
+  const chatRagCollectionsAvailable = useMemo(
+    () => ragCollections.filter((collection) => collection.scope === "global" || collection.scope === "chat"),
+    [ragCollections]
+  );
 
   const activeChatCharacter = useMemo(() => {
     if (!activeChat?.characterId && chatCharacterIds.length === 0) return null;
@@ -1908,6 +1956,21 @@ export function ChatScreen() {
                             })}
                           </div>
                         )}
+                        {!zenMode && msg.ragSources && msg.ragSources.length > 0 && (
+                          <div className="mt-2 rounded-md border border-border-subtle bg-bg-tertiary p-2">
+                            <div className="mb-1 text-[10px] font-semibold uppercase text-text-tertiary">
+                              {t("chat.ragRetrievedSources")} ({msg.ragSources.length})
+                            </div>
+                            <div className="space-y-1">
+                              {msg.ragSources.map((source) => (
+                                <div key={`${msg.id}-${source.chunkId}`} className="rounded border border-border-subtle bg-bg-primary px-2 py-1">
+                                  <div className="text-[10px] font-medium text-text-secondary">{source.documentTitle}</div>
+                                  <div className="mt-0.5 line-clamp-2 text-[10px] text-text-tertiary">{source.preview}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         {!zenMode && relatedToolMessages.length > 0 && (
                           <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">
                             <button
@@ -2127,7 +2190,7 @@ export function ChatScreen() {
                   )}
                 </button>
                 <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} className="hidden"
-                  accept="image/*,.txt,.md,.json,.csv,.log,.xml,.html,.js,.ts,.py,.rb,.yaml,.yml" />
+                  accept="image/*,.txt,.md,.json,.csv,.log,.xml,.html,.js,.ts,.py,.rb,.yaml,.yml,.pdf,.docx" />
               </div>
               <button onClick={streaming ? handleAbort : ((input.trim() || attachments.length > 0) ? handleSend : handleRegenerate)}
                 disabled={!streaming && !input.trim() && attachments.length === 0 && (messages.length === 0 || messages[messages.length - 1]?.role !== "user")}
@@ -2155,17 +2218,24 @@ export function ChatScreen() {
             <PanelTitle>{t("inspector.title")}</PanelTitle>
 
             <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{t("inspector.pureChatMode")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("inspector.pureChatModeDesc")}</div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={pureChatMode}
-                  onChange={(e) => setPureChatModeEnabled(e.target.checked)}
-                />
+              <div>
+                <div className="text-sm font-medium text-text-primary">{t("inspector.chatMode")}</div>
+                <div className="mt-0.5 text-[11px] text-text-tertiary">{t("inspector.chatModeDesc")}</div>
               </div>
+              <div className="mt-3">
+                <select
+                  value={chatMode}
+                  onChange={(e) => setChatMode(e.target.value as ChatMode)}
+                  className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
+                >
+                  <option value="rp">{t("inspector.modeRp")}</option>
+                  <option value="light_rp">{t("inspector.modeLightRp")}</option>
+                  <option value="pure_chat">{t("inspector.modePureChat")}</option>
+                </select>
+              </div>
+              {chatMode === "light_rp" && (
+                <p className="mt-2 text-[10px] text-text-tertiary">{t("inspector.modeLightRpHint")}</p>
+              )}
               <div className="mt-3">
                 <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("inspector.systemPrompt")}</label>
                 <textarea
@@ -2174,6 +2244,47 @@ export function ChatScreen() {
                   className="h-20 w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
                   placeholder={t("inspector.systemPromptPlaceholder")}
                 />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-text-primary">{t("chat.ragEnabled")}</div>
+                  <div className="mt-0.5 text-[11px] text-text-tertiary">
+                    {t("chat.ragTopK")}: {chatRagTopK}
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={chatRagEnabled}
+                  onChange={(e) => { void updateChatRag(e.target.checked, chatRagCollectionIds); }}
+                />
+              </div>
+              <div className="mt-2 space-y-1">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.ragCollections")}</div>
+                {chatRagCollectionsAvailable.length === 0 ? (
+                  <p className="text-[10px] text-text-tertiary">{t("chat.ragNoCollections")}</p>
+                ) : (
+                  chatRagCollectionsAvailable.map((collection) => {
+                    const checked = chatRagCollectionIds.includes(collection.id);
+                    return (
+                      <label key={collection.id} className="flex items-center justify-between rounded-md border border-border bg-bg-secondary px-2 py-1.5">
+                        <span className="truncate text-[11px] text-text-secondary">{collection.name}</span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const nextIds = e.target.checked
+                              ? [...chatRagCollectionIds, collection.id]
+                              : chatRagCollectionIds.filter((id) => id !== collection.id);
+                            void updateChatRag(chatRagEnabled || e.target.checked, nextIds);
+                          }}
+                        />
+                      </label>
+                    );
+                  })
+                )}
               </div>
             </div>
 
@@ -2374,49 +2485,6 @@ export function ChatScreen() {
                       </div>
                     </>
                   )}
-                </div>
-              )}
-            </div>
-
-            {/* Prompt Stack section */}
-            <div>
-              <button onClick={() => toggleSection("blocks")}
-                className="mb-1.5 flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-                {t("inspector.promptStack")}
-                <svg className={`h-3 w-3 transition-transform ${inspectorSection.blocks ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {pureChatMode && (
-                <p className="mb-1 text-[10px] text-text-tertiary">{t("inspector.pureChatPromptStackDisabled")}</p>
-              )}
-              {inspectorSection.blocks && (
-                <div className="space-y-1 rounded-lg border border-border-subtle bg-bg-primary p-2">
-                  {orderedBlocks.map((block) => (
-                    <div key={block.id} draggable
-                      onDragStart={() => { if (pureChatMode) return; setDraggedBlockId(block.id); }}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={() => { if (!draggedBlockId) return; moveBlock(draggedBlockId, block.id); setDraggedBlockId(null); }}
-                      className={`flex cursor-grab items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-medium active:cursor-grabbing ${
-                        block.enabled ? "text-text-secondary" : "text-text-tertiary opacity-50"
-                      } ${pureChatMode ? "opacity-50" : ""} ${BLOCK_COLORS[block.kind] ?? "border-border bg-bg-tertiary"}`}>
-                      <button onClick={() => toggleBlock(block.id)} disabled={pureChatMode} className="flex-shrink-0" title={block.enabled ? t("chat.disable") : t("chat.enable")}>
-                        {block.enabled ? (
-                          <svg className="h-3 w-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        ) : (
-                          <svg className="h-3 w-3 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                          </svg>
-                        )}
-                      </button>
-                      <svg className="h-3 w-3 flex-shrink-0 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16" />
-                      </svg>
-                      <span className="capitalize">{promptBlockLabel(block.kind)}</span>
-                    </div>
-                  ))}
                 </div>
               )}
             </div>

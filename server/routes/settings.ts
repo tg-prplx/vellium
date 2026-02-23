@@ -5,10 +5,44 @@ import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 
 const router = Router();
 
+const PROMPT_BLOCK_KINDS = new Set(["system", "jailbreak", "character", "author_note", "lore", "scene", "history"]);
+
+function normalizePromptStack(raw: unknown): typeof DEFAULT_SETTINGS.promptStack {
+  const fallback = (DEFAULT_SETTINGS.promptStack || []).map((block) => ({ ...block }));
+  if (!Array.isArray(raw)) return fallback;
+  const next = raw
+    .map((item, index) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+      const row = item as {
+        id?: unknown;
+        kind?: unknown;
+        enabled?: unknown;
+        order?: unknown;
+        content?: unknown;
+      };
+      const kind = String(row.kind || "").trim();
+      if (!PROMPT_BLOCK_KINDS.has(kind)) return null;
+      const orderRaw = Number(row.order);
+      return {
+        id: String(row.id || `prompt-${Date.now()}-${index}`),
+        kind: kind as typeof fallback[number]["kind"],
+        enabled: row.enabled !== false,
+        order: Number.isFinite(orderRaw) ? Math.max(1, Math.floor(orderRaw)) : index + 1,
+        content: String(row.content || "")
+      };
+    })
+    .filter((item): item is typeof fallback[number] => item !== null);
+  if (next.length === 0) return fallback;
+  return next
+    .sort((a, b) => a.order - b.order)
+    .map((block, index) => ({ ...block, order: index + 1 }));
+}
+
 function getSettings() {
   const row = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string };
   const stored = JSON.parse(row.payload);
   const mcpServers = Array.isArray(stored.mcpServers) ? stored.mcpServers : DEFAULT_SETTINGS.mcpServers;
+  const promptStack = normalizePromptStack(stored.promptStack);
   // Merge with defaults for backward compat (new fields get default values)
   return {
     ...DEFAULT_SETTINGS,
@@ -16,6 +50,7 @@ function getSettings() {
     samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
     apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) },
+    promptStack,
     mcpServers
   };
 }
@@ -193,17 +228,19 @@ router.get("/", (_req, res) => {
 });
 
 router.patch("/", (req, res) => {
-  const patch = req.body;
+  const patch = req.body as Record<string, unknown> | undefined;
+  const patchData = patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
   const current = getSettings();
   const updated = {
     ...current,
-    ...patch,
-    samplerConfig: { ...current.samplerConfig, ...(patch?.samplerConfig ?? {}) },
+    ...patchData,
+    samplerConfig: { ...current.samplerConfig, ...(patchData.samplerConfig ?? {}) },
     apiParamPolicy: normalizeApiParamPolicy({
       ...(current.apiParamPolicy ?? {}),
-      ...((patch && typeof patch === "object" && !Array.isArray(patch)) ? ((patch as { apiParamPolicy?: unknown }).apiParamPolicy ?? {}) : {})
+      ...((patchData as { apiParamPolicy?: unknown }).apiParamPolicy ?? {})
     }),
-    promptTemplates: { ...current.promptTemplates, ...(patch?.promptTemplates ?? {}) }
+    promptTemplates: { ...current.promptTemplates, ...(patchData.promptTemplates ?? {}) },
+    promptStack: normalizePromptStack((patchData as { promptStack?: unknown }).promptStack ?? current.promptStack)
   };
   db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(updated));
   res.json(updated);

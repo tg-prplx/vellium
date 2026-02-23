@@ -3,6 +3,8 @@ import cors from "cors";
 import { join, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { writeFileSync, existsSync } from "fs";
+import mammoth from "mammoth";
+import pdfParse from "pdf-parse";
 import { newId, UPLOADS_DIR, DATA_DIR } from "./db.js";
 import accountRoutes from "./routes/account.js";
 import settingsRoutes from "./routes/settings.js";
@@ -14,6 +16,7 @@ import characterRoutes from "./routes/characters.js";
 import writerRoutes from "./routes/writer.js";
 import personaRoutes from "./routes/personas.js";
 import lorebookRoutes from "./routes/lorebooks.js";
+import ragRoutes from "./routes/rag.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = Number(process.env.SLV_SERVER_PORT || 3001);
@@ -68,13 +71,41 @@ function mimeByExtension(extRaw: string): string {
     yml: "text/yaml",
     toml: "application/toml",
     ini: "text/plain",
-    cfg: "text/plain"
+    cfg: "text/plain",
+    pdf: "application/pdf",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   };
   return map[ext] || "application/octet-stream";
 }
 
+const INLINE_ATTACHMENT_TEXT_LIMIT = 240_000;
+
+function normalizeExtractedText(raw: string): string {
+  return String(raw || "")
+    .replace(/\u0000/g, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function extractAttachmentText(buffer: Buffer, ext: string): Promise<string> {
+  if (/^(txt|md|json|csv|log|xml|html|js|ts|py|rb|yaml|yml|toml|ini|cfg)$/i.test(ext)) {
+    return normalizeExtractedText(buffer.toString("utf-8")).slice(0, INLINE_ATTACHMENT_TEXT_LIMIT);
+  }
+  if (ext === "docx") {
+    const result = await mammoth.extractRawText({ buffer });
+    return normalizeExtractedText(String(result.value || "")).slice(0, INLINE_ATTACHMENT_TEXT_LIMIT);
+  }
+  if (ext === "pdf") {
+    const parsed = await pdfParse(buffer);
+    return normalizeExtractedText(String(parsed.text || "")).slice(0, INLINE_ATTACHMENT_TEXT_LIMIT);
+  }
+  return "";
+}
+
 // File upload endpoint
-app.post("/api/upload", (req, res) => {
+app.post("/api/upload", async (req, res) => {
   const { base64Data, filename } = req.body;
   if (!base64Data || !filename) {
     res.status(400).json({ error: "base64Data and filename required" });
@@ -87,11 +118,18 @@ app.post("/api/upload", (req, res) => {
   writeFileSync(join(UPLOADS_DIR, storedName), buffer);
 
   const isImage = /^(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(ext);
-  const isText = /^(txt|md|json|csv|log|xml|html|js|ts|py|rb|yaml|yml|toml|ini|cfg)$/i.test(ext);
+  const isTextLike = /^(txt|md|json|csv|log|xml|html|js|ts|py|rb|yaml|yml|toml|ini|cfg|pdf|docx)$/i.test(ext);
 
   let content: string | undefined;
-  if (isText) {
-    content = buffer.toString("utf-8");
+  if (isTextLike) {
+    try {
+      const extracted = await extractAttachmentText(buffer, ext);
+      if (extracted) {
+        content = extracted;
+      }
+    } catch (error) {
+      console.warn(`[upload] Failed to extract text from .${ext} attachment:`, error);
+    }
   }
 
   res.json({
@@ -113,6 +151,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/rp", rpRoutes);
 app.use("/api/characters", characterRoutes);
 app.use("/api/lorebooks", lorebookRoutes);
+app.use("/api/rag", ragRoutes);
 app.use("/api/writer", writerRoutes);
 app.use("/api/personas", personaRoutes);
 
