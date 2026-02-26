@@ -462,6 +462,13 @@ export interface AppSettings {
   mcpDiscoveredTools: McpDiscoveredTool[];
   mcpToolStates: Record<string, boolean>;
   mcpServers: McpServerConfig[];
+  sceneFieldVisibility: {
+    dialogueStyle: boolean;
+    initiative: boolean;
+    descriptiveness: boolean;
+    unpredictability: boolean;
+    emotionalDepth: boolean;
+  };
 }
 
 export interface ChatCharacterLink {

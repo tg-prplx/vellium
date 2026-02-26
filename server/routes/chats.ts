@@ -2207,25 +2207,31 @@ router.post("/:id/regenerate", async (req, res: Response) => {
   const { branchId: reqBranchId } = req.body ?? {};
   const branchId = resolveBranch(chatId, reqBranchId);
 
-  const lastAssistant = db.prepare(
-    "SELECT * FROM messages WHERE chat_id = ? AND branch_id = ? AND role = 'assistant' AND deleted = 0 ORDER BY created_at DESC LIMIT 1"
+  // Regenerate must operate on the timeline tail only:
+  // - tail assistant -> replace that assistant turn
+  // - tail user -> keep history and generate a new assistant reply for that user
+  const tail = db.prepare(
+    "SELECT * FROM messages WHERE chat_id = ? AND branch_id = ? AND role IN ('user', 'assistant') AND deleted = 0 ORDER BY sort_order DESC, created_at DESC, id DESC LIMIT 1"
   ).get(chatId, branchId) as MessageRow | undefined;
 
-  if (lastAssistant) {
-    deleteMessageTree(chatId, branchId, lastAssistant.id);
+  let parentMsgId: string | null = null;
+  let overrideCharacterName: string | undefined;
+
+  if (tail?.role === "assistant") {
+    deleteMessageTree(chatId, branchId, tail.id);
+    overrideCharacterName = tail.character_name || undefined;
+    parentMsgId = tail.parent_id ?? null;
+    if (!parentMsgId) {
+      const previousUser = db.prepare(
+        "SELECT id FROM messages WHERE chat_id = ? AND branch_id = ? AND role = 'user' AND deleted = 0 AND sort_order < ? ORDER BY sort_order DESC, created_at DESC, id DESC LIMIT 1"
+      ).get(chatId, branchId, tail.sort_order) as { id: string } | undefined;
+      parentMsgId = previousUser?.id ?? null;
+    }
+  } else if (tail?.role === "user") {
+    parentMsgId = tail.id;
   }
 
-  const lastUser = db.prepare(
-    "SELECT id FROM messages WHERE chat_id = ? AND branch_id = ? AND role = 'user' AND deleted = 0 ORDER BY created_at DESC LIMIT 1"
-  ).get(chatId, branchId) as { id: string } | undefined;
-
-  await streamLlmResponse(
-    chatId,
-    branchId,
-    res,
-    lastUser?.id ?? null,
-    lastAssistant?.character_name || undefined
-  );
+  await streamLlmResponse(chatId, branchId, res, parentMsgId, overrideCharacterName);
 });
 
 // Multi-character: generate next turn for a specific character

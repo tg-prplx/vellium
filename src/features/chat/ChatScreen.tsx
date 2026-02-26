@@ -81,6 +81,13 @@ const DEFAULT_PROMPT_STACK: PromptBlock[] = [
   { id: "default-6", kind: "scene", enabled: true, order: 6, content: "" },
   { id: "default-7", kind: "history", enabled: true, order: 7, content: "" }
 ];
+const DEFAULT_SCENE_FIELD_VISIBILITY = {
+  dialogueStyle: true,
+  initiative: true,
+  descriptiveness: true,
+  unpredictability: true,
+  emotionalDepth: true
+};
 
 function normalizePromptStack(raw: PromptBlock[] | null | undefined): PromptBlock[] {
   if (!Array.isArray(raw) || raw.length === 0) return [...DEFAULT_PROMPT_STACK];
@@ -98,8 +105,6 @@ function resolveChatMode(state: Partial<RpSceneState> | null | undefined): ChatM
 }
 const DEFAULT_SCENE_STATE: Omit<RpSceneState, "chatId"> = {
   variables: {
-    location: "Private room",
-    time: "Night",
     dialogueStyle: "teasing",
     initiative: "65",
     descriptiveness: "70",
@@ -112,6 +117,13 @@ const DEFAULT_SCENE_STATE: Omit<RpSceneState, "chatId"> = {
   chatMode: "rp",
   pureChatMode: false
 };
+
+function sanitizeSceneVariables(variables: Record<string, string> | null | undefined): Record<string, string> {
+  const next = { ...(variables || {}) };
+  delete next.location;
+  delete next.time;
+  return next;
+}
 
 function readSceneVarPercent(variables: Record<string, string>, key: string, fallback: number): number {
   const raw = Number(variables[key]);
@@ -182,6 +194,7 @@ export function ChatScreen() {
     chatId: "",
     ...DEFAULT_SCENE_STATE
   });
+  const [sceneFieldVisibility, setSceneFieldVisibility] = useState({ ...DEFAULT_SCENE_FIELD_VISIBILITY });
   const [promptStack, setPromptStack] = useState<PromptBlock[]>([...DEFAULT_PROMPT_STACK]);
   const [contextSummary, setContextSummary] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -501,6 +514,10 @@ export function ChatScreen() {
       setPromptStack(normalizePromptStack(settings.promptStack));
       setAlternateSimpleMode(settings.alternateSimpleMode === true);
       setSimpleSidebarOpen(settings.alternateSimpleMode !== true);
+      setSceneFieldVisibility({
+        ...DEFAULT_SCENE_FIELD_VISIBILITY,
+        ...(settings.sceneFieldVisibility || {})
+      });
       if (Number.isFinite(Number(settings.ragTopK))) {
         setChatRagTopK(Math.max(1, Math.min(12, Math.floor(Number(settings.ragTopK)))));
       }
@@ -606,7 +623,7 @@ export function ChatScreen() {
           mood: state.mood || DEFAULT_SCENE_STATE.mood,
           pacing: state.pacing || DEFAULT_SCENE_STATE.pacing,
           intensity: typeof state.intensity === "number" ? state.intensity : DEFAULT_SCENE_STATE.intensity,
-          variables: state.variables || {},
+          variables: sanitizeSceneVariables(state.variables),
           chatMode: nextMode,
           pureChatMode: nextMode === "pure_chat"
         });
@@ -946,11 +963,6 @@ export function ChatScreen() {
     setErrorText("");
     try {
       startStreamingUi(null);
-      setMessages((prev) => {
-        const lastAssistant = [...prev].reverse().find((msg) => msg.role === "assistant");
-        if (!lastAssistant) return prev;
-        return prev.filter((msg) => msg.id !== lastAssistant.id && msg.parentId !== lastAssistant.id);
-      });
       const updated = await api.chatRegenerate(activeChat.id, activeBranchId || undefined, {
         onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
@@ -1118,7 +1130,7 @@ export function ChatScreen() {
           mood: result.sceneState.mood || DEFAULT_SCENE_STATE.mood,
           pacing: result.sceneState.pacing || DEFAULT_SCENE_STATE.pacing,
           intensity: typeof result.sceneState.intensity === "number" ? result.sceneState.intensity : DEFAULT_SCENE_STATE.intensity,
-          variables: result.sceneState.variables || {},
+          variables: sanitizeSceneVariables(result.sceneState.variables),
           chatMode: nextMode,
           pureChatMode: nextMode === "pure_chat"
         });
@@ -1556,24 +1568,6 @@ export function ChatScreen() {
               <fieldset disabled={pureChatMode} className="space-y-2 disabled:opacity-50">
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.location")}</label>
-                    <input
-                      value={sceneState.variables.location || ""}
-                      onChange={(e) => setSceneVariable("location", e.target.value)}
-                      className="chat-simple-scene-input"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.time")}</label>
-                    <input
-                      value={sceneState.variables.time || ""}
-                      onChange={(e) => setSceneVariable("time", e.target.value)}
-                      className="chat-simple-scene-input"
-                    />
-                  </div>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div>
                     <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.mood")}</label>
                     <input
                       value={sceneState.mood}
@@ -1609,27 +1603,29 @@ export function ChatScreen() {
                     className="w-full"
                   />
                 </div>
-                <div>
-                  <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.dialogueStyle")}</label>
-                  <select
-                    value={sceneState.variables.dialogueStyle || "teasing"}
-                    onChange={(e) => setSceneVariable("dialogueStyle", e.target.value)}
-                    className="chat-simple-scene-select"
-                  >
-                    <option value="teasing">{t("inspector.dialogueStyleTeasing")}</option>
-                    <option value="playful">{t("inspector.dialogueStylePlayful")}</option>
-                    <option value="dominant">{t("inspector.dialogueStyleDominant")}</option>
-                    <option value="tender">{t("inspector.dialogueStyleTender")}</option>
-                    <option value="formal">{t("inspector.dialogueStyleFormal")}</option>
-                    <option value="chaotic">{t("inspector.dialogueStyleChaotic")}</option>
-                  </select>
-                </div>
+                {sceneFieldVisibility.dialogueStyle && (
+                  <div>
+                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.dialogueStyle")}</label>
+                    <select
+                      value={sceneState.variables.dialogueStyle || "teasing"}
+                      onChange={(e) => setSceneVariable("dialogueStyle", e.target.value)}
+                      className="chat-simple-scene-select"
+                    >
+                      <option value="teasing">{t("inspector.dialogueStyleTeasing")}</option>
+                      <option value="playful">{t("inspector.dialogueStylePlayful")}</option>
+                      <option value="dominant">{t("inspector.dialogueStyleDominant")}</option>
+                      <option value="tender">{t("inspector.dialogueStyleTender")}</option>
+                      <option value="formal">{t("inspector.dialogueStyleFormal")}</option>
+                      <option value="chaotic">{t("inspector.dialogueStyleChaotic")}</option>
+                    </select>
+                  </div>
+                )}
                 {[
                   { key: "initiative", label: t("inspector.initiative") },
                   { key: "descriptiveness", label: t("inspector.descriptiveness") },
                   { key: "unpredictability", label: t("inspector.unpredictability") },
                   { key: "emotionalDepth", label: t("inspector.emotionalDepth") }
-                ].map((item) => {
+                ].filter((item) => sceneFieldVisibility[item.key as keyof typeof sceneFieldVisibility]).map((item) => {
                   const value = readSceneVarPercent(sceneState.variables, item.key, 60);
                   return (
                     <div key={item.key}>
@@ -3018,27 +3014,29 @@ export function ChatScreen() {
                         onChange={(e) => setSceneState((prev) => ({ ...prev, intensity: Number(e.target.value) }))}
                         className="w-full" />
                     </div>
-                    <div>
-                      <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.dialogueStyle")}</label>
-                      <select
-                        value={sceneState.variables.dialogueStyle || "teasing"}
-                        onChange={(e) => setSceneVariable("dialogueStyle", e.target.value)}
-                        className="w-full rounded-md border border-border bg-bg-primary px-2.5 py-1.5 text-xs text-text-primary"
-                      >
-                        <option value="teasing">{t("inspector.dialogueStyleTeasing")}</option>
-                        <option value="playful">{t("inspector.dialogueStylePlayful")}</option>
-                        <option value="dominant">{t("inspector.dialogueStyleDominant")}</option>
-                        <option value="tender">{t("inspector.dialogueStyleTender")}</option>
-                        <option value="formal">{t("inspector.dialogueStyleFormal")}</option>
-                        <option value="chaotic">{t("inspector.dialogueStyleChaotic")}</option>
-                      </select>
-                    </div>
+                    {sceneFieldVisibility.dialogueStyle && (
+                      <div>
+                        <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.dialogueStyle")}</label>
+                        <select
+                          value={sceneState.variables.dialogueStyle || "teasing"}
+                          onChange={(e) => setSceneVariable("dialogueStyle", e.target.value)}
+                          className="w-full rounded-md border border-border bg-bg-primary px-2.5 py-1.5 text-xs text-text-primary"
+                        >
+                          <option value="teasing">{t("inspector.dialogueStyleTeasing")}</option>
+                          <option value="playful">{t("inspector.dialogueStylePlayful")}</option>
+                          <option value="dominant">{t("inspector.dialogueStyleDominant")}</option>
+                          <option value="tender">{t("inspector.dialogueStyleTender")}</option>
+                          <option value="formal">{t("inspector.dialogueStyleFormal")}</option>
+                          <option value="chaotic">{t("inspector.dialogueStyleChaotic")}</option>
+                        </select>
+                      </div>
+                    )}
                     {[
                       { key: "initiative", label: t("inspector.initiative") },
                       { key: "descriptiveness", label: t("inspector.descriptiveness") },
                       { key: "unpredictability", label: t("inspector.unpredictability") },
                       { key: "emotionalDepth", label: t("inspector.emotionalDepth") }
-                    ].map((item) => {
+                    ].filter((item) => sceneFieldVisibility[item.key as keyof typeof sceneFieldVisibility]).map((item) => {
                       const value = readSceneVarPercent(sceneState.variables, item.key, 60);
                       return (
                         <div key={item.key}>

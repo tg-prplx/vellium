@@ -77,6 +77,13 @@ const DEFAULT_API_PARAM_POLICY: ApiParamPolicy = {
     useDefaultBadwords: true
   }
 };
+const DEFAULT_SCENE_FIELD_VISIBILITY: AppSettings["sceneFieldVisibility"] = {
+  dialogueStyle: true,
+  initiative: true,
+  descriptiveness: true,
+  unpredictability: true,
+  emotionalDepth: true
+};
 
 const DEFAULT_PROMPT_STACK: PromptBlock[] = [
   { id: "default-1", kind: "system", enabled: true, order: 1, content: "" },
@@ -210,6 +217,16 @@ export function SettingsScreen() {
     if (next.theme !== undefined) {
       window.dispatchEvent(new CustomEvent("theme-change", { detail: next.theme }));
     }
+  }
+
+  async function patchSceneFieldVisibility(next: Partial<AppSettings["sceneFieldVisibility"]>) {
+    if (!settings) return;
+    const merged: AppSettings["sceneFieldVisibility"] = {
+      ...DEFAULT_SCENE_FIELD_VISIBILITY,
+      ...(settings.sceneFieldVisibility || {}),
+      ...next
+    };
+    await patch({ sceneFieldVisibility: merged });
   }
 
   async function reset() {
@@ -661,6 +678,7 @@ export function SettingsScreen() {
     if (activeTab === "basic") {
       return [
         { id: "settings-general", label: t("settings.general") },
+        { id: "settings-scene-fields", label: t("settings.sceneFields") },
         { id: "settings-translation-model", label: t("settings.translateModel") },
         { id: "settings-rag-model", label: t("settings.ragModel") },
         { id: "settings-quick-presets", label: t("settings.quickPresets") },
@@ -901,6 +919,33 @@ export function SettingsScreen() {
                     checked={settings.alternateSimpleMode === true}
                     onChange={(e) => patch({ alternateSimpleMode: e.target.checked })}
                   />
+                </div>
+              </div>
+
+              <div id="settings-scene-fields" className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                <div className="mb-2">
+                  <div className="text-sm font-medium text-text-primary">{t("settings.sceneFields")}</div>
+                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.sceneFieldsDesc")}</div>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {[
+                    { key: "dialogueStyle" as const, label: t("inspector.dialogueStyle") },
+                    { key: "initiative" as const, label: t("inspector.initiative") },
+                    { key: "descriptiveness" as const, label: t("inspector.descriptiveness") },
+                    { key: "unpredictability" as const, label: t("inspector.unpredictability") },
+                    { key: "emotionalDepth" as const, label: t("inspector.emotionalDepth") }
+                  ].map((item) => (
+                    <label key={item.key} className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-2.5 py-2 text-xs text-text-secondary">
+                      <span>{item.label}</span>
+                      <input
+                        type="checkbox"
+                        checked={(settings.sceneFieldVisibility?.[item.key] ?? DEFAULT_SCENE_FIELD_VISIBILITY[item.key]) === true}
+                        onChange={(e) => {
+                          void patchSceneFieldVisibility({ [item.key]: e.target.checked });
+                        }}
+                      />
+                    </label>
+                  ))}
                 </div>
               </div>
 
