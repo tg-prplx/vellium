@@ -207,7 +207,9 @@ export function ChatScreen() {
   const [showMultiCharPanel, setShowMultiCharPanel] = useState(false);
   const [autoConvoRunning, setAutoConvoRunning] = useState(false);
   const [autoTurnsCount, setAutoTurnsCount] = useState(5);
+  const [multiCharCollapsed, setMultiCharCollapsed] = useState(false);
   const autoConvoRef = useRef(false);
+  const [draggingCharacterId, setDraggingCharacterId] = useState<string | null>(null);
 
   // Sampler state
   const [samplerConfig, setSamplerConfig] = useState<SamplerConfig>({
@@ -274,6 +276,11 @@ export function ChatScreen() {
   // Collapsible sections in left sidebar
   const [presetsCollapsed, setPresetsCollapsed] = useState(true);
   const [zenMode, setZenMode] = useState(false);
+  const [alternateSimpleMode, setAlternateSimpleMode] = useState(false);
+  const [simpleSidebarOpen, setSimpleSidebarOpen] = useState(false);
+  const [simpleSceneOpen, setSimpleSceneOpen] = useState(false);
+  const [simpleInspectorOpen, setSimpleInspectorOpen] = useState(false);
+  const [simpleGreetingIndex, setSimpleGreetingIndex] = useState(0);
 
   // Inspector collapse
   const [inspectorSection, setInspectorSection] = useState<Record<string, boolean>>({
@@ -284,6 +291,9 @@ export function ChatScreen() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatSearchInputRef = useRef<HTMLInputElement>(null);
+  const modelSelectorRef = useRef<HTMLDivElement>(null);
+  const modelSelectorTriggerRef = useRef<HTMLButtonElement>(null);
 
   const orderedBlocks = useMemo(
     () => normalizePromptStack(promptStack),
@@ -291,6 +301,24 @@ export function ChatScreen() {
   );
   const chatMode = resolveChatMode(sceneState);
   const pureChatMode = chatMode === "pure_chat";
+  const simpleModeActive = alternateSimpleMode && !zenMode;
+  const simpleSidebarCollapsed = simpleModeActive && !simpleSidebarOpen;
+  const simpleHomeState = simpleModeActive && messages.length === 0 && !streaming;
+  const simpleGreetings = [
+    t("chat.simpleGreetingOne"),
+    t("chat.simpleGreetingTwo"),
+    t("chat.simpleGreetingThree"),
+    t("chat.simpleGreetingFour")
+  ];
+  const simpleGreeting = simpleGreetings[simpleGreetingIndex % simpleGreetings.length] || t("chat.simpleGreetingOne");
+  const hasDraftPayload = input.trim().length > 0 || attachments.length > 0;
+  const canResendLast = messages.length > 0 && messages[messages.length - 1]?.role === "user";
+  const simpleHomeComposerWidth = useMemo(() => {
+    if (!simpleHomeState) return "100%";
+    const draftLen = Math.max(input.trim().length, 0);
+    const width = Math.min(92, 58 + Math.ceil(draftLen / 7) + (attachments.length > 0 ? 6 : 0));
+    return `${Math.max(58, width)}%`;
+  }, [simpleHomeState, input, attachments.length]);
   const systemPromptBlock = useMemo(
     () => orderedBlocks.find((block) => block.kind === "system") || null,
     [orderedBlocks]
@@ -385,6 +413,52 @@ export function ChatScreen() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [zenMode]);
 
+  useEffect(() => {
+    if (!simpleModeActive) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (simpleSceneOpen) {
+        setSimpleSceneOpen(false);
+        return;
+      }
+      if (simpleInspectorOpen) {
+        setSimpleInspectorOpen(false);
+        return;
+      }
+      if (simpleSidebarOpen && window.innerWidth < 1280) {
+        setSimpleSidebarOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [simpleModeActive, simpleSceneOpen, simpleInspectorOpen, simpleSidebarOpen]);
+
+  useEffect(() => {
+    if (simpleModeActive) return;
+    setSimpleInspectorOpen(false);
+    setSimpleSceneOpen(false);
+  }, [simpleModeActive]);
+
+  useEffect(() => {
+    if (!showModelSelector) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (modelSelectorRef.current?.contains(target)) return;
+      if (modelSelectorTriggerRef.current?.contains(target)) return;
+      setShowModelSelector(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowModelSelector(false);
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showModelSelector]);
+
   // Load chats, settings, characters, providers
   useEffect(() => {
     api.chatList().then((list) => {
@@ -404,6 +478,8 @@ export function ChatScreen() {
       }
       if (settings.samplerConfig) setSamplerConfig(settings.samplerConfig);
       setPromptStack(normalizePromptStack(settings.promptStack));
+      setAlternateSimpleMode(settings.alternateSimpleMode === true);
+      setSimpleSidebarOpen(settings.alternateSimpleMode !== true);
       if (Number.isFinite(Number(settings.ragTopK))) {
         setChatRagTopK(Math.max(1, Math.min(12, Math.floor(Number(settings.ragTopK)))));
       }
@@ -620,6 +696,21 @@ export function ChatScreen() {
     if (!activeChat) return;
     setMessages(await api.chatTimeline(activeChat.id, activeBranchId || undefined));
   }, [activeChat, activeBranchId]);
+
+  function openSimpleSidebar(next?: boolean) {
+    if (!simpleModeActive) return;
+    setSimpleSidebarOpen((prev) => (typeof next === "boolean" ? next : !prev));
+  }
+
+  function openSimpleInspector(next?: boolean) {
+    if (!simpleModeActive) return;
+    setSimpleInspectorOpen((prev) => (typeof next === "boolean" ? next : !prev));
+  }
+
+  useEffect(() => {
+    if (!simpleHomeState) return;
+    setSimpleGreetingIndex(Math.floor(Math.random() * 4));
+  }, [simpleHomeState, activeChat?.id]);
 
   function startStreamingUi(characterName: string | null) {
     setStreamText("");
@@ -1015,6 +1106,23 @@ export function ChatScreen() {
       .filter(Boolean);
   }
 
+  function applyChatCharactersResult(
+    chatId: string,
+    result: { characterIds: string[]; characterId: string | null }
+  ) {
+    setChatCharacterIds(result.characterIds);
+    setActiveChat((prev) => (
+      prev && prev.id === chatId
+        ? { ...prev, characterIds: result.characterIds, characterId: result.characterId }
+        : prev
+    ));
+    setChats((prev) => prev.map((chat) => (
+      chat.id === chatId
+        ? { ...chat, characterIds: result.characterIds, characterId: result.characterId }
+        : chat
+    )));
+  }
+
   // Multi-character: add/remove characters from chat
   async function addCharacterToChat(charId: string) {
     if (!activeChat || chatCharacterIds.includes(charId)) return;
@@ -1024,17 +1132,7 @@ export function ChatScreen() {
     setChatCharacterIds(newIds);
     try {
       const result = await api.chatUpdateCharacters(chatId, newIds);
-      setChatCharacterIds(result.characterIds);
-      setActiveChat((prev) => (
-        prev && prev.id === chatId
-          ? { ...prev, characterIds: result.characterIds, characterId: result.characterId }
-          : prev
-      ));
-      setChats((prev) => prev.map((chat) => (
-        chat.id === chatId
-          ? { ...chat, characterIds: result.characterIds, characterId: result.characterId }
-          : chat
-      )));
+      applyChatCharactersResult(chatId, result);
     } catch (error) {
       setChatCharacterIds(prevIds);
       setErrorText(String(error));
@@ -1049,17 +1147,29 @@ export function ChatScreen() {
     setChatCharacterIds(newIds);
     try {
       const result = await api.chatUpdateCharacters(chatId, newIds);
-      setChatCharacterIds(result.characterIds);
-      setActiveChat((prev) => (
-        prev && prev.id === chatId
-          ? { ...prev, characterIds: result.characterIds, characterId: result.characterId }
-          : prev
-      ));
-      setChats((prev) => prev.map((chat) => (
-        chat.id === chatId
-          ? { ...chat, characterIds: result.characterIds, characterId: result.characterId }
-          : chat
-      )));
+      applyChatCharactersResult(chatId, result);
+    } catch (error) {
+      setChatCharacterIds(prevIds);
+      setErrorText(String(error));
+    }
+  }
+
+  async function reorderCharactersInChat(sourceId: string, targetId: string) {
+    if (!activeChat || sourceId === targetId) return;
+    const chatId = activeChat.id;
+    const prevIds = [...chatCharacterIds];
+    const sourceIndex = prevIds.indexOf(sourceId);
+    const targetIndex = prevIds.indexOf(targetId);
+    if (sourceIndex === -1 || targetIndex === -1) return;
+
+    const nextIds = [...prevIds];
+    const [moved] = nextIds.splice(sourceIndex, 1);
+    nextIds.splice(targetIndex, 0, moved);
+
+    setChatCharacterIds(nextIds);
+    try {
+      const result = await api.chatUpdateCharacters(chatId, nextIds);
+      applyChatCharactersResult(chatId, result);
     } catch (error) {
       setChatCharacterIds(prevIds);
       setErrorText(String(error));
@@ -1373,41 +1483,246 @@ export function ChatScreen() {
         </div>
       )}
 
+      {simpleModeActive && simpleSidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close sidebar overlay"
+          className="chat-simple-overlay chat-simple-overlay-sidebar xl:hidden"
+          onClick={() => openSimpleSidebar(false)}
+        />
+      )}
+
+      {simpleModeActive && simpleSceneOpen && (
+        <>
+          <div className="chat-simple-scene-modal" role="dialog" aria-modal="true">
+            <div className="chat-simple-scene-modal-header">
+              <div>
+                <h3 className="text-sm font-semibold text-text-primary">{t("inspector.sceneState")}</h3>
+                <p className="mt-0.5 text-[11px] text-text-tertiary">{t("inspector.sceneState")}</p>
+              </div>
+              <button
+                onClick={() => setSimpleSceneOpen(false)}
+                className="rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-secondary"
+              >
+                {t("chat.cancel")}
+              </button>
+            </div>
+            <div className="chat-simple-scene-modal-body">
+              <fieldset disabled={pureChatMode} className="space-y-2 disabled:opacity-50">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.location")}</label>
+                    <input
+                      value={sceneState.variables.location || ""}
+                      onChange={(e) => setSceneVariable("location", e.target.value)}
+                      className="chat-simple-scene-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.time")}</label>
+                    <input
+                      value={sceneState.variables.time || ""}
+                      onChange={(e) => setSceneVariable("time", e.target.value)}
+                      className="chat-simple-scene-input"
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.mood")}</label>
+                    <input
+                      value={sceneState.mood}
+                      onChange={(e) => setSceneState((prev) => ({ ...prev, mood: e.target.value }))}
+                      className="chat-simple-scene-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.pacing")}</label>
+                    <select
+                      value={sceneState.pacing}
+                      onChange={(e) => setSceneState((prev) => ({ ...prev, pacing: e.target.value as "slow" | "balanced" | "fast" }))}
+                      className="chat-simple-scene-select"
+                    >
+                      <option value="slow">{t("inspector.slow")}</option>
+                      <option value="balanced">{t("inspector.balanced")}</option>
+                      <option value="fast">{t("inspector.fast")}</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <label className="text-[10px] text-text-tertiary">{t("inspector.intensity")}</label>
+                    <span className="text-[10px] font-medium text-text-secondary">{Math.round(sceneState.intensity * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={sceneState.intensity}
+                    onChange={(e) => setSceneState((prev) => ({ ...prev, intensity: Number(e.target.value) }))}
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.dialogueStyle")}</label>
+                  <select
+                    value={sceneState.variables.dialogueStyle || "teasing"}
+                    onChange={(e) => setSceneVariable("dialogueStyle", e.target.value)}
+                    className="chat-simple-scene-select"
+                  >
+                    <option value="teasing">{t("inspector.dialogueStyleTeasing")}</option>
+                    <option value="playful">{t("inspector.dialogueStylePlayful")}</option>
+                    <option value="dominant">{t("inspector.dialogueStyleDominant")}</option>
+                    <option value="tender">{t("inspector.dialogueStyleTender")}</option>
+                    <option value="formal">{t("inspector.dialogueStyleFormal")}</option>
+                    <option value="chaotic">{t("inspector.dialogueStyleChaotic")}</option>
+                  </select>
+                </div>
+                {[
+                  { key: "initiative", label: t("inspector.initiative") },
+                  { key: "descriptiveness", label: t("inspector.descriptiveness") },
+                  { key: "unpredictability", label: t("inspector.unpredictability") },
+                  { key: "emotionalDepth", label: t("inspector.emotionalDepth") }
+                ].map((item) => {
+                  const value = readSceneVarPercent(sceneState.variables, item.key, 60);
+                  return (
+                    <div key={item.key}>
+                      <div className="mb-1 flex items-center justify-between">
+                        <label className="text-[10px] text-text-tertiary">{item.label}</label>
+                        <span className="text-[10px] font-medium text-text-secondary">{value}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={value}
+                        onChange={(e) => setSceneVariablePercent(item.key, Number(e.target.value))}
+                        className="w-full"
+                      />
+                    </div>
+                  );
+                })}
+              </fieldset>
+              {pureChatMode && (
+                <p className="text-[10px] text-text-tertiary">{t("inspector.pureChatSceneDisabled")}</p>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
       <ThreePanelLayout
         layout={zenMode ? "center" : "three"}
+        className={simpleModeActive ? `chat-simple-layout ${simpleSidebarOpen ? "is-sidebar-open" : "is-sidebar-closed"} ${simpleInspectorOpen ? "is-inspector-open" : "is-inspector-closed"} ${simpleHomeState ? "is-home" : "is-thread"}` : ""}
+        leftClassName={simpleModeActive ? "chat-simple-sidebar-panel" : ""}
+        centerClassName={simpleModeActive ? "chat-simple-center-panel" : ""}
+        rightClassName={simpleModeActive ? "chat-simple-right-panel" : ""}
         left={
           <>
-            <PanelTitle
-              action={
-                <div className="flex gap-1">
-                  <button onClick={() => setShowMultiCharPanel(!showMultiCharPanel)}
-                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
-                    title={t("chat.multiChar")}>
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            {simpleModeActive ? (
+              <>
+                <div className={`chat-simple-sidebar-header ${simpleSidebarCollapsed ? "is-collapsed" : "is-open"}`}>
+                  <button
+                    onClick={() => openSimpleSidebar()}
+                    className="chat-simple-sidebar-toggle"
+                    title={simpleSidebarCollapsed ? t("chat.title") : t("chat.cancel")}
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
                   </button>
-                  <button onClick={() => setShowCharacterPicker(true)}
-                    className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
-                    title={t("chat.pickCharacter")}>
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  {!simpleSidebarCollapsed && (
+                    <div className="min-w-0">
+                      <div className="truncate text-2xl font-semibold text-text-primary">{t("app.name")}</div>
+                      <div className="mt-0.5 text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.title")}</div>
+                    </div>
+                  )}
+                </div>
+                <div className={`chat-simple-actions ${simpleSidebarCollapsed ? "is-collapsed" : "is-open"}`}>
+                  <button
+                    onClick={() => handleCreateChat()}
+                    className="chat-simple-action-button"
+                    title={t("chat.new")}
+                  >
+                    <span className="chat-simple-action-icon">+</span>
+                    {!simpleSidebarCollapsed && <span>{t("chat.new")}</span>}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSimpleSidebarOpen(true);
+                      setTimeout(() => chatSearchInputRef.current?.focus(), 80);
+                    }}
+                    className="chat-simple-action-button"
+                    title={t("chat.searchChats")}
+                  >
+                    <svg className="chat-simple-action-icon h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.1-5.15a6.25 6.25 0 11-12.5 0 6.25 6.25 0 0112.5 0z" />
+                    </svg>
+                    {!simpleSidebarCollapsed && <span>{t("chat.searchChats")}</span>}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSimpleSidebarOpen(true);
+                      setShowCharacterPicker((prev) => !prev);
+                    }}
+                    className="chat-simple-action-button"
+                    title={t("chat.pickCharacter")}
+                  >
+                    <svg className="chat-simple-action-icon h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
+                    {!simpleSidebarCollapsed && <span>{t("chat.pickCharacter")}</span>}
                   </button>
-                  <button onClick={() => handleCreateChat()}
-                    className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover">
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  <button
+                    onClick={() => {
+                      setSimpleSidebarOpen(true);
+                      setShowMultiCharPanel((prev) => !prev);
+                    }}
+                    className="chat-simple-action-button"
+                    title={t("chat.multiChar")}
+                  >
+                    <svg className="chat-simple-action-icon h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                     </svg>
-                    {t("chat.new")}
+                    {!simpleSidebarCollapsed && <span>{t("chat.multiChar")}</span>}
                   </button>
                 </div>
-              }
-            >
-              {t("chat.title")}
-            </PanelTitle>
+              </>
+            ) : (
+              <PanelTitle
+                action={
+                  <div className="flex gap-1">
+                    <button onClick={() => setShowMultiCharPanel(!showMultiCharPanel)}
+                      className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
+                      title={t("chat.multiChar")}>
+                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                    </button>
+                    <button onClick={() => setShowCharacterPicker(true)}
+                      className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
+                      title={t("chat.pickCharacter")}>
+                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                    </button>
+                    <button onClick={() => handleCreateChat()}
+                      className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover">
+                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      {t("chat.new")}
+                    </button>
+                  </div>
+                }
+              >
+                {t("chat.title")}
+              </PanelTitle>
+            )}
 
-            {showCharacterPicker && (
+            {!simpleSidebarCollapsed && showCharacterPicker && (
               <div className="mb-3 rounded-lg border border-accent-border bg-bg-primary p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chat.pickCharacter")}</span>
@@ -1446,7 +1761,7 @@ export function ChatScreen() {
             )}
 
             {/* Multi-character panel */}
-            {showMultiCharPanel && (
+            {!simpleSidebarCollapsed && showMultiCharPanel && (
               <div className="mb-3 rounded-lg border border-purple-500/30 bg-purple-500/5 p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-purple-400">{t("chat.multiChar")}</span>
@@ -1463,8 +1778,27 @@ export function ChatScreen() {
                       const ch = characters.find((c) => c.id === cid);
                       if (!ch) return null;
                       return (
-                        <div key={cid} className="flex items-center justify-between rounded-md bg-bg-secondary px-2 py-1">
-                          <span className="text-xs text-text-primary">{ch.name}</span>
+                        <div
+                          key={cid}
+                          className={`flex items-center justify-between rounded-md bg-bg-secondary px-2 py-1 ${draggingCharacterId === cid ? "opacity-60" : ""}`}
+                          draggable={chatCharacterIds.length > 1}
+                          onDragStart={(e) => {
+                            setDraggingCharacterId(cid);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          onDragOver={(e) => {
+                            if (!draggingCharacterId || draggingCharacterId === cid) return;
+                            e.preventDefault();
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            if (!draggingCharacterId || draggingCharacterId === cid) return;
+                            void reorderCharactersInChat(draggingCharacterId, cid);
+                            setDraggingCharacterId(null);
+                          }}
+                          onDragEnd={() => setDraggingCharacterId(null)}
+                        >
+                          <span className="truncate text-xs text-text-primary">{ch.name}</span>
                           <button onClick={() => removeCharacterFromChat(cid)}
                             className="text-[10px] text-danger/60 hover:text-danger">{t("chat.removeCharacter")}</button>
                         </div>
@@ -1496,15 +1830,19 @@ export function ChatScreen() {
               </div>
             )}
 
+            {!simpleSidebarCollapsed && (
             <div className="mb-2">
               <input
+                ref={chatSearchInputRef}
                 value={chatSearchQuery}
                 onChange={(e) => setChatSearchQuery(e.target.value)}
                 placeholder={t("chat.searchChats")}
-                className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
+                className="w-full rounded-lg border border-border bg-bg-primary px-2.5 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
               />
             </div>
+            )}
 
+            {!simpleSidebarCollapsed && (
             <div className="flex-1 space-y-1 overflow-y-auto">
               {chats.length === 0 ? (
                 <EmptyState title={t("chat.noChatYet")} description={t("chat.noChatDesc")} />
@@ -1518,7 +1856,7 @@ export function ChatScreen() {
                   const isRenaming = renamingChatId === chat.id;
                   return (
                     <div key={chat.id}
-                      className={`group relative flex items-start gap-2 rounded-lg px-3 py-2 transition-colors ${
+                      className={`group relative flex items-start gap-2 rounded-lg ${simpleModeActive ? "px-2 py-2" : "px-3 py-2"} transition-colors ${
                         activeChat?.id === chat.id ? "bg-accent-subtle text-text-primary" : "text-text-secondary hover:bg-bg-hover"
                       }`}>
                       {isRenaming ? (
@@ -1561,7 +1899,12 @@ export function ChatScreen() {
                         </div>
                       ) : (
                         <>
-                          <button onClick={() => setActiveChat(chat)} className="flex min-w-0 flex-1 items-start gap-2 text-left">
+                          <button onClick={() => {
+                            setActiveChat(chat);
+                            if (simpleModeActive && window.innerWidth < 1280) {
+                              setSimpleSidebarOpen(false);
+                            }
+                          }} className="flex min-w-0 flex-1 items-start gap-2 text-left">
                             {chatChar?.avatarUrl ? (
                               <img src={resolveApiAssetUrl(chatChar.avatarUrl) ?? undefined}
                                 alt="" className="h-6 w-6 flex-shrink-0 rounded-full object-cover" />
@@ -1608,8 +1951,10 @@ export function ChatScreen() {
                 })
               )}
             </div>
+            )}
 
             {/* RP Presets — collapsible */}
+            {!simpleSidebarCollapsed && (
             <div className="mt-3 rounded-lg border border-border-subtle bg-bg-primary p-3">
               <button onClick={() => setPresetsCollapsed(!presetsCollapsed)}
                 className="flex w-full items-center justify-between">
@@ -1633,7 +1978,9 @@ export function ChatScreen() {
                 </div>
               )}
             </div>
+            )}
 
+            {!simpleSidebarCollapsed && (
             <div className="mt-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
               <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.lorebook")}</label>
               <select
@@ -1647,8 +1994,10 @@ export function ChatScreen() {
                 ))}
               </select>
             </div>
+            )}
 
             {/* User Persona — compact, opens modal */}
+            {!simpleSidebarCollapsed && (
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.userPersona")}:</span>
               <span className="flex-1 truncate text-xs font-medium text-text-primary">{activePersona?.name || t("chat.user")}</span>
@@ -1657,13 +2006,38 @@ export function ChatScreen() {
                 {t("chat.edit")}
               </button>
             </div>
+            )}
           </>
         }
         center={
           <>
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <PanelTitle>{activeChat ? activeChat.title : t("tab.chat")}</PanelTitle>
+            {simpleModeActive && (
+              <div className={`chat-simple-ambient ${simpleHomeState ? "is-home" : "is-thread"}`} aria-hidden="true">
+                <span className="chat-simple-blob blob-a" />
+                <span className="chat-simple-blob blob-b" />
+                <span className="chat-simple-blob blob-c" />
+              </div>
+            )}
+            {simpleModeActive && (
+              <div className="chat-simple-top-controls">
+                <button
+                  onClick={() => openSimpleSidebar()}
+                  className="chat-simple-top-button chat-simple-top-sidebar xl:hidden"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                  </svg>
+                  {t("chat.title")}
+                </button>
+              </div>
+            )}
+
+            {(!simpleModeActive || !simpleHomeState) && (
+            <div className={`mb-3 flex items-center justify-between gap-2 ${simpleModeActive ? "chat-simple-thread-header" : ""}`}>
+              <div className="min-w-0 flex items-center gap-2">
+                <h2 className={`truncate ${simpleModeActive ? "chat-simple-thread-title" : "text-sm font-semibold text-text-primary"}`}>
+                  {activeChat ? activeChat.title : t("tab.chat")}
+                </h2>
                 {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
                 {!zenMode && branches.length > 0 && (
                   <select
@@ -1680,21 +2054,68 @@ export function ChatScreen() {
                   </select>
                 )}
               </div>
-              <button
-                onClick={() => setZenMode((prev) => !prev)}
-                className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  zenMode
-                    ? "border-accent-border bg-accent-subtle text-accent"
-                    : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                }`}
-                title={zenMode ? t("chat.exitZenMode") : t("chat.zenMode")}
-              >
-                {zenMode ? t("chat.exitZenMode") : t("chat.zenMode")}
-              </button>
+              {!simpleModeActive ? (
+                <button
+                  onClick={() => setZenMode((prev) => !prev)}
+                  className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    zenMode
+                      ? "border-accent-border bg-accent-subtle text-accent"
+                      : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                  }`}
+                  title={zenMode ? t("chat.exitZenMode") : t("chat.zenMode")}
+                >
+                  {zenMode ? t("chat.exitZenMode") : t("chat.zenMode")}
+                </button>
+              ) : (
+                <div className="chat-simple-thread-actions">
+                  {streaming && (
+                    <button onClick={handleAbort}
+                      className="rounded-md border border-danger-border bg-danger-subtle px-2.5 py-1 text-[11px] font-medium text-danger hover:bg-danger/20">
+                      {t("chat.stop")}
+                    </button>
+                  )}
+                  <button onClick={handleRegenerate}
+                    disabled={streaming || autoConvoRunning || !activeChat || messages.length === 0}
+                    className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40">
+                    {t("chat.regenerate")}
+                  </button>
+                  <button onClick={handleCompress}
+                    disabled={compressing || streaming || !activeChat || messages.length < 4}
+                    className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                      compressing
+                        ? "border-accent bg-accent-subtle text-accent"
+                        : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                    } disabled:cursor-not-allowed disabled:opacity-40`}>
+                    {compressing ? t("chat.compressing") : t("chat.compress")}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSimpleSceneOpen((prev) => {
+                        const next = !prev;
+                        if (next) openSimpleInspector(false);
+                        return next;
+                      });
+                    }}
+                    className={`chat-simple-top-button ${simpleSceneOpen ? "is-active" : ""}`}
+                  >
+                    {t("inspector.sceneState")}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSimpleSceneOpen(false);
+                      openSimpleInspector();
+                    }}
+                    className={`chat-simple-top-button ${simpleInspectorOpen ? "is-active" : ""}`}
+                  >
+                    {t("inspector.title")}
+                  </button>
+                </div>
+              )}
             </div>
+            )}
 
-            {/* Model selector bar */}
-            {!zenMode && (
+            {/* Model selector bar (default UI) */}
+            {!zenMode && !simpleModeActive && (
               <div className="mb-3 flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
               {activeModelLabel ? (
                 <>
@@ -1710,7 +2131,7 @@ export function ChatScreen() {
                 </>
               )}
               <div className="ml-auto flex items-center gap-1.5">
-                <button onClick={() => setShowModelSelector(!showModelSelector)}
+                <button ref={modelSelectorTriggerRef} onClick={() => setShowModelSelector(!showModelSelector)}
                   className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-text-secondary hover:bg-bg-hover">
                   {t("chat.selectModel")}
                 </button>
@@ -1739,8 +2160,8 @@ export function ChatScreen() {
             )}
 
             {/* Inline model selector */}
-            {!zenMode && showModelSelector && (
-              <div className="mb-3 rounded-lg border border-accent-border bg-bg-secondary p-3">
+            {!zenMode && showModelSelector && !simpleModeActive && (
+              <div ref={modelSelectorRef} className="mb-3 rounded-lg border border-accent-border bg-bg-secondary p-3">
                 <div className="flex gap-2">
                   <select value={chatProviderId} onChange={(e) => setChatProviderId(e.target.value)}
                     className="flex-1 rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary">
@@ -1764,7 +2185,7 @@ export function ChatScreen() {
             )}
 
             {errorText && (
-              <div className="mb-3 flex items-center gap-2 rounded-lg border border-danger-border bg-danger-subtle px-3 py-2">
+              <div className={`mb-3 flex items-center gap-2 rounded-lg border border-danger-border bg-danger-subtle px-3 py-2 ${simpleModeActive ? "chat-simple-inline-alert" : ""}`}>
                 <span className="text-xs text-danger">{errorText}</span>
                 <button onClick={() => setErrorText("")} className="ml-auto text-danger hover:text-danger/80">
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1775,31 +2196,102 @@ export function ChatScreen() {
             )}
 
             {/* Multi-character bar */}
-            {!zenMode && chatCharacters.length > 0 && (
-              <div className="mb-3 flex items-center gap-2 rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2">
-                <div className="flex items-center gap-1.5">
-                  {chatCharacters.map((ch) => (
-                    <div key={ch.id} className="flex items-center gap-1">
-                      {ch.avatarUrl ? (
-                        <img src={resolveApiAssetUrl(ch.avatarUrl) ?? undefined}
-                          alt="" className="h-5 w-5 rounded-full object-cover" />
-                      ) : (
-                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500/20 text-[9px] font-bold text-purple-400">
-                          {ch.name.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      {chatCharacters.length > 1 && (
-                        <button onClick={() => handleNextTurn(ch.name)} disabled={streaming || autoConvoRunning}
-                          className="rounded px-1.5 py-0.5 text-[9px] font-medium text-purple-400 hover:bg-purple-500/20 disabled:opacity-40"
-                          title={`${t("chat.nextTurn")}: ${ch.name}`}>
-                          {ch.name}
+            {!zenMode && chatCharacters.length > 0 && (!simpleModeActive || !simpleHomeState) && (
+              <div className={`chat-multi-toolbar mb-3 rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2 ${multiCharCollapsed ? "is-collapsed" : ""}`}>
+                {!multiCharCollapsed && (
+                  <div className="chat-multi-main-row">
+                    <div className="chat-multi-scroll">
+                      <div className="chat-multi-list">
+                        {chatCharacters.map((ch) => (
+                          <div
+                            key={ch.id}
+                            className={`chat-multi-item ${draggingCharacterId === ch.id ? "is-dragging" : ""}`}
+                            draggable={chatCharacters.length > 1 && !streaming && !autoConvoRunning}
+                            onDragStart={(e) => {
+                              setDraggingCharacterId(ch.id);
+                              e.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDragOver={(e) => {
+                              if (!draggingCharacterId || draggingCharacterId === ch.id) return;
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              if (!draggingCharacterId || draggingCharacterId === ch.id) return;
+                              void reorderCharactersInChat(draggingCharacterId, ch.id);
+                              setDraggingCharacterId(null);
+                            }}
+                            onDragEnd={() => setDraggingCharacterId(null)}
+                          >
+                            <div
+                              className="chat-multi-avatar-wrap"
+                              title={chatCharacters.length > 1 ? `${t("chat.nextTurn")}: ${ch.name}` : ch.name}
+                              onClick={() => {
+                                if (chatCharacters.length > 1 && !streaming && !autoConvoRunning) {
+                                  void handleNextTurn(ch.name);
+                                }
+                              }}
+                            >
+                              {ch.avatarUrl ? (
+                                <img src={resolveApiAssetUrl(ch.avatarUrl) ?? undefined}
+                                  alt="" className="h-8 w-8 rounded-full object-cover" />
+                              ) : (
+                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-500/20 text-[11px] font-bold text-purple-300">
+                                  {ch.name.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void removeCharacterFromChat(ch.id);
+                                }}
+                                className="chat-multi-remove-btn"
+                                title={t("chat.removeCharacter")}
+                                aria-label={t("chat.removeCharacter")}
+                              >
+                                ×
+                              </button>
+                            </div>
+                            <button
+                              onClick={() => { if (chatCharacters.length > 1) void handleNextTurn(ch.name); }}
+                              disabled={streaming || autoConvoRunning || chatCharacters.length < 2}
+                              className="chat-multi-turn-btn"
+                              title={`${t("chat.nextTurn")}: ${ch.name}`}
+                            >
+                              {ch.name}
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          onClick={() => {
+                            if (simpleModeActive) setSimpleSidebarOpen(true);
+                            setShowMultiCharPanel(true);
+                          }}
+                          className="chat-multi-add-btn"
+                          title={t("chat.multiChar")}
+                        >
+                          +
                         </button>
-                      )}
+                      </div>
                     </div>
-                  ))}
-                </div>
-                {chatCharacters.length > 1 && (
-                  <div className="ml-auto flex items-center gap-1.5">
+                    <div className="chat-multi-aux text-[10px] text-text-tertiary">
+                      {chatCharacters.length > 1 ? t("chat.multiChar") : t("chat.chattingWith")}
+                    </div>
+                  </div>
+                )}
+                <div className="chat-multi-actions-row">
+                  <button
+                    onClick={() => {
+                      if (simpleModeActive) setSimpleSidebarOpen(true);
+                      setShowMultiCharPanel((prev) => !prev);
+                    }}
+                    className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                  >
+                    {t("chat.multiChar")}
+                  </button>
+                {chatCharacters.length > 1 ? (
+                  <>
                     <input type="number" min={1} max={50} value={autoTurnsCount}
                       onChange={(e) => {
                         const parsed = Number(e.target.value);
@@ -1819,17 +2311,33 @@ export function ChatScreen() {
                         {t("chat.autoConvoStart")}
                       </button>
                     )}
-                  </div>
-                )}
-                {chatCharacters.length === 1 && (
+                  </>
+                ) : (
                   <span className="text-xs text-text-secondary">
                     {t("chat.chattingWith")} <span className="font-medium text-purple-400">{chatCharacters[0].name}</span>
                   </span>
                 )}
+                  <button
+                    onClick={() => setMultiCharCollapsed((prev) => !prev)}
+                    className="chat-multi-collapse-btn"
+                    title={multiCharCollapsed ? t("chat.expandMultiChar") : t("chat.collapseMultiChar")}
+                    aria-label={multiCharCollapsed ? t("chat.expandMultiChar") : t("chat.collapseMultiChar")}
+                  >
+                    {multiCharCollapsed ? "▾" : "▴"}
+                  </button>
+                </div>
               </div>
             )}
 
-            <div className="chat-scroll flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3">
+            {simpleModeActive && simpleHomeState && (
+              <div className="chat-simple-hero">
+                <h2 className="chat-simple-hero-title">
+                  {simpleGreeting}
+                </h2>
+              </div>
+            )}
+
+            <div className={`chat-scroll flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3 ${simpleModeActive ? "chat-simple-scroll chat-simple-surface" : ""} ${simpleHomeState ? "chat-simple-scroll-home" : ""}`}>
               {messages.length === 0 && !streaming && (
                 <EmptyState title={t("chat.startConvo")} description={t("chat.startConvoDesc")} />
               )}
@@ -2148,7 +2656,10 @@ export function ChatScreen() {
             </div>
 
             {attachments.length > 0 && (
-              <div className="list-animate mt-2 flex flex-wrap gap-1.5">
+              <div
+                className={`list-animate mt-2 flex flex-wrap gap-1.5 ${simpleModeActive ? "chat-simple-attachments" : ""} ${simpleHomeState ? "is-home" : "is-docked"}`}
+                style={simpleModeActive && simpleHomeState ? ({ ["--simple-home-composer-width"]: simpleHomeComposerWidth } as Record<string, string>) : undefined}
+              >
                 {attachments.map((att) => (
                   <div key={att.id} className="float-card flex items-center gap-1.5 rounded-md border border-border bg-bg-primary px-2 py-1">
                     {att.type === "image" ? (
@@ -2169,14 +2680,71 @@ export function ChatScreen() {
               </div>
             )}
 
-            <div className="mt-2 flex gap-2">
+            <div
+              className={`mt-2 flex gap-2 ${simpleModeActive ? "chat-simple-composer" : ""} ${simpleHomeState ? "is-home" : "is-docked"}`}
+              style={simpleModeActive && simpleHomeState ? ({ ["--simple-home-composer-width"]: simpleHomeComposerWidth } as Record<string, string>) : undefined}
+            >
               <div className="relative flex-1">
                 <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  className="h-[80px] w-full resize-none rounded-xl border border-border bg-bg-primary px-4 py-2.5 pr-10 text-sm text-text-primary placeholder:text-text-tertiary"
-                  placeholder={t("chat.placeholder")} />
+                  className={`h-[80px] w-full resize-none rounded-xl border border-border bg-bg-primary px-4 py-2.5 pr-10 text-sm text-text-primary placeholder:text-text-tertiary ${simpleModeActive ? "chat-simple-textarea" : ""}`}
+                  placeholder={simpleHomeState ? t("chat.simplePlaceholder") : t("chat.placeholder")} />
+                {simpleModeActive && (
+                  <button
+                    ref={modelSelectorTriggerRef}
+                    onClick={() => setShowModelSelector((prev) => !prev)}
+                    className="chat-simple-model-chip"
+                    title={t("chat.selectModel")}
+                  >
+                    <span className="truncate">{activeModelLabel || t("chat.selectModel")}</span>
+                    <svg className="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                )}
+                {simpleModeActive && showModelSelector && (
+                  <div ref={modelSelectorRef} className="chat-simple-model-popover">
+                    <div className="chat-simple-model-current">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-text-primary">
+                          {activeModelLabel || t("chat.noModel")}
+                        </div>
+                      </div>
+                      {activeModelLabel && (
+                        <svg className="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="chat-simple-model-form">
+                      <label className="chat-simple-model-label">{t("settings.provider")}</label>
+                      <select value={chatProviderId} onChange={(e) => setChatProviderId(e.target.value)}
+                        className="chat-simple-model-select">
+                        <option value="">{t("settings.selectProvider")}</option>
+                        {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                      </select>
+                      <label className="chat-simple-model-label">{t("chat.model")}</label>
+                      <select value={chatModelId} onChange={(e) => setChatModelId(e.target.value)}
+                        className="chat-simple-model-select">
+                        <option value="">{t("settings.selectModel")}</option>
+                        {models.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
+                      </select>
+                    </div>
+                    <div className="chat-simple-model-footer">
+                      {loadingModels && (
+                        <span className="text-[10px] text-text-tertiary">{t("chat.loading")}</span>
+                      )}
+                      <button onClick={() => { void applyModelFromChat(); }}
+                        className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover">
+                        {t("chat.ok")}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-                  className="absolute bottom-2 right-2 rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+                  className={`rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary ${
+                    simpleModeActive ? "absolute bottom-2 left-2" : "absolute bottom-2 right-2"
+                  }`}
                   title={t("chat.attachFile")}>
                   {uploading ? (
                     <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -2192,8 +2760,8 @@ export function ChatScreen() {
                 <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} className="hidden"
                   accept="image/*,.txt,.md,.json,.csv,.log,.xml,.html,.js,.ts,.py,.rb,.yaml,.yml,.pdf,.docx" />
               </div>
-              <button onClick={streaming ? handleAbort : ((input.trim() || attachments.length > 0) ? handleSend : handleRegenerate)}
-                disabled={!streaming && !input.trim() && attachments.length === 0 && (messages.length === 0 || messages[messages.length - 1]?.role !== "user")}
+              <button onClick={streaming ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
+                disabled={!streaming && !hasDraftPayload && !canResendLast}
                 className={`flex h-[80px] w-[80px] flex-col items-center justify-center rounded-xl text-text-inverse ${
                   streaming
                     ? "bg-danger hover:bg-danger/80"
@@ -2208,35 +2776,66 @@ export function ChatScreen() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0l-7 7m7-7l7 7" />
                   </svg>
                 )}
-                <span className="mt-1 text-[10px] font-semibold">{streaming ? t("chat.stop") : ((input.trim() || attachments.length > 0) ? t("chat.send") : t("chat.resend"))}</span>
+                <span className="mt-1 text-[10px] font-semibold">{streaming ? t("chat.stop") : (hasDraftPayload ? t("chat.send") : t("chat.resend"))}</span>
               </button>
             </div>
+            {simpleModeActive && simpleHomeState && (
+              <div className="chat-simple-quick-row">
+                {[
+                  { label: t("chat.simpleQuickWrite"), value: "Write with clear structure and vivid detail." },
+                  { label: t("chat.simpleQuickLearn"), value: "Explain this topic step by step with examples." },
+                  { label: t("chat.simpleQuickCode"), value: "Help me implement this in code with best practices." },
+                  { label: t("chat.simpleQuickLife"), value: "Give practical advice and a short action plan." },
+                  { label: t("chat.simpleQuickChoice"), value: "Choose the best option and justify it briefly." }
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    onClick={() => setInput(item.value)}
+                    className="chat-simple-quick-chip"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         }
-        right={
+        right={(
           <div className="flex h-full flex-col gap-3 overflow-y-auto">
-            <PanelTitle>{t("inspector.title")}</PanelTitle>
-
-            <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-              <div>
-                <div className="text-sm font-medium text-text-primary">{t("inspector.chatMode")}</div>
-                <div className="mt-0.5 text-[11px] text-text-tertiary">{t("inspector.chatModeDesc")}</div>
-              </div>
-              <div className="mt-3">
-                <select
-                  value={chatMode}
-                  onChange={(e) => setChatMode(e.target.value as ChatMode)}
-                  className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
+            <PanelTitle
+              action={simpleModeActive ? (
+                <button
+                  onClick={() => openSimpleInspector(false)}
+                  className="rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-secondary"
                 >
-                  <option value="rp">{t("inspector.modeRp")}</option>
-                  <option value="light_rp">{t("inspector.modeLightRp")}</option>
-                  <option value="pure_chat">{t("inspector.modePureChat")}</option>
-                </select>
-              </div>
-              {chatMode === "light_rp" && (
-                <p className="mt-2 text-[10px] text-text-tertiary">{t("inspector.modeLightRpHint")}</p>
-              )}
-              <div className="mt-3">
+                  {t("chat.cancel")}
+                </button>
+              ) : null}
+            >
+              {t("inspector.title")}
+            </PanelTitle>
+
+            {simpleModeActive ? (
+              <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                <div>
+                  <div className="text-sm font-medium text-text-primary">{t("inspector.chatMode")}</div>
+                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("inspector.chatModeDesc")}</div>
+                </div>
+                <div className="mt-3">
+                  <select
+                    value={chatMode}
+                    onChange={(e) => setChatMode(e.target.value as ChatMode)}
+                    className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
+                  >
+                    <option value="rp">{t("inspector.modeRp")}</option>
+                    <option value="light_rp">{t("inspector.modeLightRp")}</option>
+                    <option value="pure_chat">{t("inspector.modePureChat")}</option>
+                  </select>
+                </div>
+                {chatMode === "light_rp" && (
+                  <p className="mt-2 text-[10px] text-text-tertiary">{t("inspector.modeLightRpHint")}</p>
+                )}
+                <div className="mt-3">
                 <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("inspector.systemPrompt")}</label>
                 <textarea
                   value={systemPromptBlock?.content || ""}
@@ -2244,8 +2843,39 @@ export function ChatScreen() {
                   className="h-20 w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
                   placeholder={t("inspector.systemPromptPlaceholder")}
                 />
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                <div>
+                  <div className="text-sm font-medium text-text-primary">{t("inspector.chatMode")}</div>
+                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("inspector.chatModeDesc")}</div>
+                </div>
+                <div className="mt-3">
+                  <select
+                    value={chatMode}
+                    onChange={(e) => setChatMode(e.target.value as ChatMode)}
+                    className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
+                  >
+                    <option value="rp">{t("inspector.modeRp")}</option>
+                    <option value="light_rp">{t("inspector.modeLightRp")}</option>
+                    <option value="pure_chat">{t("inspector.modePureChat")}</option>
+                  </select>
+                </div>
+                {chatMode === "light_rp" && (
+                  <p className="mt-2 text-[10px] text-text-tertiary">{t("inspector.modeLightRpHint")}</p>
+                )}
+                <div className="mt-3">
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("inspector.systemPrompt")}</label>
+                  <textarea
+                    value={systemPromptBlock?.content || ""}
+                    onChange={(e) => setSystemPromptContent(e.target.value)}
+                    className="h-20 w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
+                    placeholder={t("inspector.systemPromptPlaceholder")}
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
               <div className="flex items-center justify-between gap-3">
@@ -2301,88 +2931,89 @@ export function ChatScreen() {
               )}
             </div>
 
-            {/* Scene section */}
-            <div>
-              <button onClick={() => toggleSection("scene")}
-                className="mb-1.5 flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-                {t("inspector.sceneState")}
-                <svg className={`h-3 w-3 transition-transform ${inspectorSection.scene ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {inspectorSection.scene && (
-                <fieldset disabled={pureChatMode} className="space-y-2 disabled:opacity-50">
-                  <div>
-                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.mood")}</label>
-                    <input value={sceneState.mood}
-                      onChange={(e) => setSceneState((prev) => ({ ...prev, mood: e.target.value }))}
-                      className="w-full rounded-md border border-border bg-bg-primary px-2.5 py-1.5 text-xs text-text-primary" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.pacing")}</label>
-                    <select value={sceneState.pacing}
-                      onChange={(e) => setSceneState((prev) => ({ ...prev, pacing: e.target.value as "slow" | "balanced" | "fast" }))}
-                      className="w-full rounded-md border border-border bg-bg-primary px-2.5 py-1.5 text-xs text-text-primary">
-                      <option value="slow">{t("inspector.slow")}</option>
-                      <option value="balanced">{t("inspector.balanced")}</option>
-                      <option value="fast">{t("inspector.fast")}</option>
-                    </select>
-                  </div>
-                  <div>
-                    <div className="mb-1 flex items-center justify-between">
-                      <label className="text-[10px] text-text-tertiary">{t("inspector.intensity")}</label>
-                      <span className="text-[10px] font-medium text-text-secondary">{Math.round(sceneState.intensity * 100)}%</span>
+            {!simpleModeActive && (
+              <div>
+                <button onClick={() => toggleSection("scene")}
+                  className="mb-1.5 flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+                  {t("inspector.sceneState")}
+                  <svg className={`h-3 w-3 transition-transform ${inspectorSection.scene ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {inspectorSection.scene && (
+                  <fieldset disabled={pureChatMode} className="space-y-2 disabled:opacity-50">
+                    <div>
+                      <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.mood")}</label>
+                      <input value={sceneState.mood}
+                        onChange={(e) => setSceneState((prev) => ({ ...prev, mood: e.target.value }))}
+                        className="w-full rounded-md border border-border bg-bg-primary px-2.5 py-1.5 text-xs text-text-primary" />
                     </div>
-                    <input type="range" min={0} max={1} step={0.05} value={sceneState.intensity}
-                      onChange={(e) => setSceneState((prev) => ({ ...prev, intensity: Number(e.target.value) }))}
-                      className="w-full" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.dialogueStyle")}</label>
-                    <select
-                      value={sceneState.variables.dialogueStyle || "teasing"}
-                      onChange={(e) => setSceneVariable("dialogueStyle", e.target.value)}
-                      className="w-full rounded-md border border-border bg-bg-primary px-2.5 py-1.5 text-xs text-text-primary"
-                    >
-                      <option value="teasing">{t("inspector.dialogueStyleTeasing")}</option>
-                      <option value="playful">{t("inspector.dialogueStylePlayful")}</option>
-                      <option value="dominant">{t("inspector.dialogueStyleDominant")}</option>
-                      <option value="tender">{t("inspector.dialogueStyleTender")}</option>
-                      <option value="formal">{t("inspector.dialogueStyleFormal")}</option>
-                      <option value="chaotic">{t("inspector.dialogueStyleChaotic")}</option>
-                    </select>
-                  </div>
-                  {[
-                    { key: "initiative", label: t("inspector.initiative") },
-                    { key: "descriptiveness", label: t("inspector.descriptiveness") },
-                    { key: "unpredictability", label: t("inspector.unpredictability") },
-                    { key: "emotionalDepth", label: t("inspector.emotionalDepth") }
-                  ].map((item) => {
-                    const value = readSceneVarPercent(sceneState.variables, item.key, 60);
-                    return (
-                      <div key={item.key}>
-                        <div className="mb-1 flex items-center justify-between">
-                          <label className="text-[10px] text-text-tertiary">{item.label}</label>
-                          <span className="text-[10px] font-medium text-text-secondary">{value}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={5}
-                          value={value}
-                          onChange={(e) => setSceneVariablePercent(item.key, Number(e.target.value))}
-                          className="w-full"
-                        />
+                    <div>
+                      <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.pacing")}</label>
+                      <select value={sceneState.pacing}
+                        onChange={(e) => setSceneState((prev) => ({ ...prev, pacing: e.target.value as "slow" | "balanced" | "fast" }))}
+                        className="w-full rounded-md border border-border bg-bg-primary px-2.5 py-1.5 text-xs text-text-primary">
+                        <option value="slow">{t("inspector.slow")}</option>
+                        <option value="balanced">{t("inspector.balanced")}</option>
+                        <option value="fast">{t("inspector.fast")}</option>
+                      </select>
+                    </div>
+                    <div>
+                      <div className="mb-1 flex items-center justify-between">
+                        <label className="text-[10px] text-text-tertiary">{t("inspector.intensity")}</label>
+                        <span className="text-[10px] font-medium text-text-secondary">{Math.round(sceneState.intensity * 100)}%</span>
                       </div>
-                    );
-                  })}
-                </fieldset>
-              )}
-              {pureChatMode && inspectorSection.scene && (
-                <p className="mt-1 text-[10px] text-text-tertiary">{t("inspector.pureChatSceneDisabled")}</p>
-              )}
-            </div>
+                      <input type="range" min={0} max={1} step={0.05} value={sceneState.intensity}
+                        onChange={(e) => setSceneState((prev) => ({ ...prev, intensity: Number(e.target.value) }))}
+                        className="w-full" />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] text-text-tertiary">{t("inspector.dialogueStyle")}</label>
+                      <select
+                        value={sceneState.variables.dialogueStyle || "teasing"}
+                        onChange={(e) => setSceneVariable("dialogueStyle", e.target.value)}
+                        className="w-full rounded-md border border-border bg-bg-primary px-2.5 py-1.5 text-xs text-text-primary"
+                      >
+                        <option value="teasing">{t("inspector.dialogueStyleTeasing")}</option>
+                        <option value="playful">{t("inspector.dialogueStylePlayful")}</option>
+                        <option value="dominant">{t("inspector.dialogueStyleDominant")}</option>
+                        <option value="tender">{t("inspector.dialogueStyleTender")}</option>
+                        <option value="formal">{t("inspector.dialogueStyleFormal")}</option>
+                        <option value="chaotic">{t("inspector.dialogueStyleChaotic")}</option>
+                      </select>
+                    </div>
+                    {[
+                      { key: "initiative", label: t("inspector.initiative") },
+                      { key: "descriptiveness", label: t("inspector.descriptiveness") },
+                      { key: "unpredictability", label: t("inspector.unpredictability") },
+                      { key: "emotionalDepth", label: t("inspector.emotionalDepth") }
+                    ].map((item) => {
+                      const value = readSceneVarPercent(sceneState.variables, item.key, 60);
+                      return (
+                        <div key={item.key}>
+                          <div className="mb-1 flex items-center justify-between">
+                            <label className="text-[10px] text-text-tertiary">{item.label}</label>
+                            <span className="text-[10px] font-medium text-text-secondary">{value}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            step={5}
+                            value={value}
+                            onChange={(e) => setSceneVariablePercent(item.key, Number(e.target.value))}
+                            className="w-full"
+                          />
+                        </div>
+                      );
+                    })}
+                  </fieldset>
+                )}
+                {pureChatMode && inspectorSection.scene && (
+                  <p className="mt-1 text-[10px] text-text-tertiary">{t("inspector.pureChatSceneDisabled")}</p>
+                )}
+              </div>
+            )}
 
             {/* Sampler section — auto-saves */}
             <div>
@@ -2507,7 +3138,7 @@ export function ChatScreen() {
               </div>
             )}
           </div>
-        }
+        )}
       />
     </>
   );

@@ -267,6 +267,9 @@ export function WritingScreen() {
   const [characterAiInstruction, setCharacterAiInstruction] = useState("");
   const [characterAiFields, setCharacterAiFields] = useState<WriterCharacterEditField[]>([]);
   const [characterAiBusy, setCharacterAiBusy] = useState(false);
+  const [alternateSimpleMode, setAlternateSimpleMode] = useState(false);
+  const [simpleWritingLibraryOpen, setSimpleWritingLibraryOpen] = useState(false);
+  const [simpleWritingInspectorOpen, setSimpleWritingInspectorOpen] = useState(false);
   const chapterSettingsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const docxImportInputRef = useRef<HTMLInputElement | null>(null);
@@ -276,6 +279,9 @@ export function WritingScreen() {
     api.characterList().then(setCharacters).catch(() => {});
     api.providerList().then(setProviders).catch(() => {});
     api.settingsGet().then((settings) => {
+      setAlternateSimpleMode(settings.alternateSimpleMode === true);
+      setSimpleWritingLibraryOpen(settings.alternateSimpleMode !== true);
+      setSimpleWritingInspectorOpen(false);
       if (settings.activeProviderId) setWriterProviderId(settings.activeProviderId);
       if (settings.activeModel) {
         setWriterModelId(settings.activeModel);
@@ -285,6 +291,28 @@ export function WritingScreen() {
     // Show any running/completed background tasks from previous visits
     setBgTasks([...getBackgroundTasks()]);
   }, []);
+
+  const writingSimpleModeActive = alternateSimpleMode;
+
+  useEffect(() => {
+    if (!writingSimpleModeActive) {
+      setSimpleWritingLibraryOpen(false);
+      setSimpleWritingInspectorOpen(false);
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (simpleWritingInspectorOpen) {
+        setSimpleWritingInspectorOpen(false);
+        return;
+      }
+      if (simpleWritingLibraryOpen) {
+        setSimpleWritingLibraryOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [writingSimpleModeActive, simpleWritingLibraryOpen, simpleWritingInspectorOpen]);
 
   useEffect(() => {
     if (!writerProviderId) {
@@ -521,6 +549,35 @@ export function WritingScreen() {
     setSelectedChapterId(chapter.id);
     setChapterSettings(chapter.settings ?? { ...DEFAULT_CHAPTER_SETTINGS });
     log(`${t("writing.logChapterCreated")}: ${chapter.title}`);
+  }
+
+  async function generateNextChapter() {
+    if (!activeProject || busy) return;
+    setBusy(true);
+    const taskLabel = chapterPrompt.trim()
+      ? `${t("writing.taskGenerateNextChapter")}: "${chapterPrompt.trim().slice(0, 30)}..."`
+      : t("writing.taskGenerateNextChapter");
+    const taskId = startBgTask("generate", taskLabel);
+    log(t("writing.working"));
+    try {
+      const result = await api.writerGenerateNextChapter(activeProject.id, chapterPrompt.trim() || undefined);
+      const { chapter, scene } = result;
+      setRenamingChapterId(null);
+      setRenamingChapterTitle("");
+      setChapters((prev) => [...prev, chapter].sort((a, b) => a.position - b.position));
+      setScenes((prev) => [...prev, scene]);
+      setSelectedChapterId(chapter.id);
+      setSelectedSceneId(scene.id);
+      setChapterSettings(chapter.settings ?? { ...DEFAULT_CHAPTER_SETTINGS });
+      setChapterPrompt("");
+      log(`${t("writing.logNextChapterGenerated")}: ${chapter.title}`);
+      finishBgTask(taskId, "done", chapter.title);
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+      finishBgTask(taskId, "error", String(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function generateDraft() {
@@ -1204,13 +1261,40 @@ export function WritingScreen() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 px-1 pb-1">
+    <div className={`flex h-full flex-col gap-3 px-1 pb-1 ${writingSimpleModeActive ? "writing-simple-root" : ""}`}>
+      {writingSimpleModeActive && workspaceMode === "books" && (simpleWritingLibraryOpen || simpleWritingInspectorOpen) && (
+        <button
+          type="button"
+          aria-label="Close writing panels"
+          className="writing-simple-overlay xl:hidden"
+          onClick={() => {
+            setSimpleWritingLibraryOpen(false);
+            setSimpleWritingInspectorOpen(false);
+          }}
+        />
+      )}
       {workspaceMode === "books" ? (
         <ThreePanelLayout
+      className={writingSimpleModeActive ? `writing-simple-layout ${simpleWritingLibraryOpen ? "is-library-open" : "is-library-closed"} ${simpleWritingInspectorOpen ? "is-outline-open" : "is-outline-closed"}` : ""}
+      leftClassName={writingSimpleModeActive ? "writing-simple-left-panel" : ""}
+      centerClassName={writingSimpleModeActive ? "writing-simple-center-panel" : ""}
+      rightClassName={writingSimpleModeActive ? "writing-simple-right-panel" : ""}
       left={
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-0.5">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.projects")}</h2>
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.projects")}</h2>
+              {writingSimpleModeActive && (
+                <button
+                  type="button"
+                  onClick={() => setSimpleWritingLibraryOpen(false)}
+                  className="rounded-md border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary hover:bg-bg-hover"
+                  title={t("chat.cancel")}
+                >
+                  ×
+                </button>
+              )}
+            </div>
             <button
               onClick={() => { void createProject(); }}
               className="flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover"
@@ -1520,6 +1604,31 @@ export function WritingScreen() {
       }
       center={
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-0.5">
+          {writingSimpleModeActive && (
+            <div className="writing-simple-ambient" aria-hidden="true">
+              <span className="writing-simple-blob blob-a" />
+              <span className="writing-simple-blob blob-b" />
+              <span className="writing-simple-blob blob-c" />
+            </div>
+          )}
+          {writingSimpleModeActive && (
+            <div className="writing-simple-top-controls">
+              <button
+                type="button"
+                onClick={() => setSimpleWritingLibraryOpen((prev) => !prev)}
+                className={`writing-simple-top-button ${simpleWritingLibraryOpen ? "is-active" : ""}`}
+              >
+                {t("writing.projects")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSimpleWritingInspectorOpen((prev) => !prev)}
+                className={`writing-simple-top-button ${simpleWritingInspectorOpen ? "is-active" : ""}`}
+              >
+                {t("writing.outline")}
+              </button>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-3">
             <h2 className="min-w-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
               <span className="block truncate">{activeProject ? activeProject.name : t("writing.creativeWriting")}</span>
@@ -1581,6 +1690,10 @@ export function WritingScreen() {
             <button onClick={createChapter} disabled={!activeProject}
               className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-40">
               {t("writing.chapter")}
+            </button>
+            <button onClick={generateNextChapter} disabled={!activeProject || busy}
+              className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-40">
+              {t("writing.generateNextChapter")}
             </button>
             <button onClick={runConsistency} disabled={!activeProject}
               className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-40">
@@ -1904,7 +2017,19 @@ export function WritingScreen() {
       }
       right={
         <div className="flex h-full min-h-0 flex-col gap-3">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.outline")}</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.outline")}</h2>
+            {writingSimpleModeActive && (
+              <button
+                type="button"
+                onClick={() => setSimpleWritingInspectorOpen(false)}
+                className="rounded-md border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary hover:bg-bg-hover"
+                title={t("chat.cancel")}
+              >
+                ×
+              </button>
+            )}
+          </div>
           <div className="inline-flex w-full items-center rounded-md border border-border-subtle bg-bg-primary p-[2px]">
             {([
               ["planning", t("writing.sidebarPlanning")],
@@ -2248,14 +2373,15 @@ export function WritingScreen() {
       }
     />
       ) : (
-        <section className="mx-auto flex h-full w-full max-w-[1500px] flex-col rounded-xl border border-border bg-bg-secondary p-4">
+        <section className={`mx-auto flex h-full w-full max-w-[1500px] flex-col rounded-xl border border-border bg-bg-secondary p-4 ${writingSimpleModeActive ? "writing-simple-character-shell" : ""}`}>
           <div className="flex w-full flex-1 flex-col gap-3 overflow-y-auto">
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.characterForge")}</h2>
               {renderWorkspaceModeSwitch()}
             </div>
             <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-3">
               <div className="mb-2 flex items-center justify-between">
-                <div className="text-xs font-semibold text-text-primary">{t("writing.characterForge")}</div>
+                <div className="text-xs font-semibold text-text-primary">{t("writing.characterGenerate")}</div>
                 <button
                   onClick={() => setCharacterAdvancedMode((prev) => !prev)}
                   className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"

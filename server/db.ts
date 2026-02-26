@@ -356,6 +356,7 @@ try {
 
 const DEFAULT_SETTINGS = {
   onboardingCompleted: false,
+  alternateSimpleMode: true,
   theme: "dark",
   fontScale: 1,
   density: "comfortable",
