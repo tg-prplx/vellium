@@ -31,6 +31,7 @@ import type {
   WriterDocxImportBookResult,
   WriterDocxImportResult,
   WriterDocxParseMode,
+  WriterGenerateNextChapterResult,
   WriterProjectNotes,
   WriterProjectSummaryResult,
   WriterSummaryLens,
@@ -424,6 +425,8 @@ export const api = {
     post<WriterSummaryLensRunResult>(`/writer/projects/${projectId}/lenses/${lensId}/run`, { force }),
   writerChapterCreate: (projectId: string, title: string) =>
     post<Chapter>("/writer/chapters", { projectId, title }),
+  writerGenerateNextChapter: (projectId: string, prompt?: string) =>
+    post<WriterGenerateNextChapterResult>(`/writer/projects/${projectId}/generate-next-chapter`, prompt ? { prompt } : {}),
   writerChapterUpdate: (chapterId: string, data: { title?: string }) =>
     patchReq<Chapter>(`/writer/chapters/${chapterId}`, data),
   writerChapterDelete: (chapterId: string) =>

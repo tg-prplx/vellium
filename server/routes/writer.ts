@@ -916,12 +916,7 @@ function buildProjectNotesDirective(notes: WriterProjectNotes): string {
 }
 
 function buildProjectContextPack(projectId: string, chapterId: string, notes: WriterProjectNotes): string {
-  const mode = notes.contextMode;
-  const limits = mode === "economy"
-    ? { prev: 1400, current: 1000, total: 2600 }
-    : mode === "rich"
-      ? { prev: 5200, current: 3200, total: 9000 }
-      : { prev: 2800, current: 1800, total: 5200 };
+  const limits = resolveWriterContextLimits(notes.contextMode);
 
   const chapters = db.prepare(
     "SELECT id, title, position FROM writer_chapters WHERE project_id = ? ORDER BY position ASC"
@@ -955,6 +950,56 @@ function buildProjectContextPack(projectId: string, chapterId: string, notes: Wr
   const out = [
     previousContext ? `[Previous Chapters]\n${truncateForPrompt(previousContext, limits.prev)}` : "",
     currentContext ? `[Current Chapter Progress]\n${truncateForPrompt(currentContext, limits.current)}` : ""
+  ].filter(Boolean).join("\n\n");
+  return truncateForPrompt(out, limits.total);
+}
+
+function resolveWriterContextLimits(mode: WriterProjectNotes["contextMode"]): { prev: number; current: number; total: number } {
+  if (mode === "economy") {
+    return { prev: 1400, current: 1000, total: 2600 };
+  }
+  if (mode === "rich") {
+    return { prev: 5200, current: 3200, total: 9000 };
+  }
+  return { prev: 2800, current: 1800, total: 5200 };
+}
+
+function buildProjectContinuationContextPack(projectId: string, notes: WriterProjectNotes): string {
+  const limits = resolveWriterContextLimits(notes.contextMode);
+  const chapters = db.prepare(
+    "SELECT id, title, position FROM writer_chapters WHERE project_id = ? ORDER BY position ASC"
+  ).all(projectId) as Array<{ id: string; title: string; position: number }>;
+  if (chapters.length === 0) return "";
+
+  const previous = chapters.slice(0, -1);
+  const latest = chapters[chapters.length - 1];
+  let previousContext = "";
+
+  for (let i = previous.length - 1; i >= 0; i -= 1) {
+    const chapter = previous[i];
+    const summaryRow = db.prepare(
+      "SELECT summary FROM writer_chapter_summaries WHERE chapter_id = ?"
+    ).get(chapter.id) as { summary: string } | undefined;
+    const fallbackRow = db.prepare(
+      "SELECT content FROM writer_scenes WHERE chapter_id = ? ORDER BY created_at DESC LIMIT 1"
+    ).get(chapter.id) as { content: string } | undefined;
+    const snippet = truncateForPrompt(summaryRow?.summary || fallbackRow?.content || "", 500);
+    if (!snippet) continue;
+    const block = `${chapter.title}: ${snippet}`;
+    if (previousContext.length + block.length + 2 > limits.prev) break;
+    previousContext = previousContext ? `${block}\n${previousContext}` : block;
+  }
+
+  const latestScenes = db.prepare(
+    "SELECT title, content FROM writer_scenes WHERE chapter_id = ? ORDER BY created_at DESC LIMIT 3"
+  ).all(latest.id) as Array<{ title: string; content: string }>;
+  const latestContext = latestScenes
+    .map((row) => `${row.title}: ${truncateForPrompt(row.content, 500)}`)
+    .join("\n");
+
+  const out = [
+    previousContext ? `[Previous Chapters]\n${truncateForPrompt(previousContext, limits.prev)}` : "",
+    latestContext ? `[Latest Chapter Progress]\n${truncateForPrompt(latestContext, limits.current)}` : ""
   ].filter(Boolean).join("\n\n");
   return truncateForPrompt(out, limits.total);
 }
@@ -2064,6 +2109,94 @@ router.patch("/chapters/:id/settings", (req, res) => {
     position: row.position,
     settings: patch,
     createdAt: row.created_at
+  });
+});
+
+router.post("/projects/:id/generate-next-chapter", async (req, res) => {
+  const projectId = String(req.params.id || "").trim();
+  if (!projectId) {
+    res.status(400).json({ error: "Project id is required" });
+    return;
+  }
+
+  const project = db.prepare(
+    "SELECT id, character_ids, notes_json FROM writer_projects WHERE id = ?"
+  ).get(projectId) as { id: string; character_ids: string | null; notes_json: string | null } | undefined;
+  if (!project) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+
+  const lastChapter = db.prepare(
+    `SELECT id, title, position, settings_json
+     FROM writer_chapters
+     WHERE project_id = ?
+     ORDER BY position DESC
+     LIMIT 1`
+  ).get(projectId) as { id: string; title: string; position: number; settings_json: string | null } | undefined;
+
+  const nextPosition = (lastChapter?.position ?? 0) + 1;
+  const defaultTitle = `Chapter ${nextPosition}`;
+  const chapterSettings = parseChapterSettings(lastChapter?.settings_json);
+  const projectNotes = parseProjectNotes(project.notes_json);
+  const continuationContext = buildProjectContinuationContextPack(projectId, projectNotes);
+  const prompt = toCleanText(req.body?.prompt, 5000);
+
+  const settings = getSettings();
+  const systemPrompt = [
+    settings.promptTemplates.writerGenerate,
+    buildChapterDirective(chapterSettings),
+    buildCharacterContext(parseJsonIdArray(project.character_ids)),
+    buildProjectNotesDirective(projectNotes)
+  ].filter(Boolean).join("\n\n");
+
+  const userPrompt = [
+    "[Writing Task]",
+    "Write the next chapter of this book as a direct continuation of previous events.",
+    "Preserve continuity of facts, relationships, and unresolved threads. Move the story forward with concrete new developments.",
+    prompt ? `[Additional Direction]\n${prompt}` : "",
+    continuationContext ? `[Context Pack]\n${continuationContext}` : ""
+  ].filter(Boolean).join("\n\n");
+
+  const content = String(await callLlm(systemPrompt, userPrompt, createWriterSampler(settings.samplerConfig, chapterSettings)) || "").trim();
+  const chapterTitleMatch = content.match(/^#\s*(.+)$/m);
+  const chapterTitle = normalizeChapterTitle(chapterTitleMatch?.[1] || "", defaultTitle);
+
+  const chapterId = newId();
+  const sceneId = newId();
+  const ts = now();
+  const sceneContent = content || "(empty scene)";
+  const sceneTitle = chapterTitle;
+
+  const tx = db.transaction(() => {
+    db.prepare(
+      "INSERT INTO writer_chapters (id, project_id, title, position, settings_json, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+    ).run(chapterId, projectId, chapterTitle, nextPosition, JSON.stringify(chapterSettings), ts);
+    db.prepare(
+      "INSERT INTO writer_scenes (id, chapter_id, title, content, goals, conflicts, outcomes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(sceneId, chapterId, sceneTitle, sceneContent, "Advance plot", "Escalate conflict", "Open ending", ts);
+  });
+  tx();
+
+  res.json({
+    chapter: {
+      id: chapterId,
+      projectId,
+      title: chapterTitle,
+      position: nextPosition,
+      settings: chapterSettings,
+      createdAt: ts
+    },
+    scene: {
+      id: sceneId,
+      chapterId,
+      title: sceneTitle,
+      content: sceneContent,
+      goals: "Advance plot",
+      conflicts: "Escalate conflict",
+      outcomes: "Open ending",
+      createdAt: ts
+    }
   });
 });
 

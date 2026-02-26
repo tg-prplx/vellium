@@ -198,6 +198,9 @@ export function SettingsScreen() {
     setProviderProxyUrl("");
     setProviderLocalOnly(preset.localOnly);
     setProviderType(preset.providerType);
+    if (preset.key === "openai") {
+      void patchApiParamPolicy({ openai: { sendSampler: false } });
+    }
     showResult(`${t("settings.presetApplied")}: ${preset.label}`, "info");
   }
 
@@ -885,6 +888,20 @@ export function SettingsScreen() {
                   <option value="light">{t("settings.light")}</option>
                   <option value="custom">{t("settings.custom")}</option>
                 </SelectField>
+              </div>
+
+              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-text-primary">{t("settings.alternateSimpleMode")}</div>
+                    <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.alternateSimpleModeDesc")}</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settings.alternateSimpleMode === true}
+                    onChange={(e) => patch({ alternateSimpleMode: e.target.checked })}
+                  />
+                </div>
               </div>
 
               <div>

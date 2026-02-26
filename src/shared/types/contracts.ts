@@ -246,6 +246,11 @@ export interface WriterSummaryLensRunResult {
   sourceChars: number;
 }
 
+export interface WriterGenerateNextChapterResult {
+  chapter: Chapter;
+  scene: Scene;
+}
+
 export interface WriterChapterSettings {
   tone: string;
   pacing: "slow" | "balanced" | "fast";
@@ -409,6 +414,7 @@ export interface McpDiscoverResult {
 
 export interface AppSettings {
   onboardingCompleted: boolean;
+  alternateSimpleMode: boolean;
   theme: "dark" | "light" | "custom";
   fontScale: number;
   density: "comfortable" | "compact";

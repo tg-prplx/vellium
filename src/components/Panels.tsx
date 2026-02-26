@@ -4,26 +4,35 @@ export function ThreePanelLayout({
   left,
   center,
   right,
-  layout = "three"
+  layout = "three",
+  className = "",
+  leftClassName = "",
+  centerClassName = "",
+  rightClassName = ""
 }: {
   left: ReactNode;
   center: ReactNode;
   right: ReactNode;
   layout?: "three" | "center";
+  className?: string;
+  leftClassName?: string;
+  centerClassName?: string;
+  rightClassName?: string;
 }) {
+  const rootClass = `three-panel-layout grid h-full ${className}`.trim();
   if (layout === "center") {
     return (
-      <div className="three-panel-layout grid h-full grid-cols-1">
-        <section className="panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{center}</section>
+      <div className={`${rootClass} grid-cols-1`}>
+        <section className={`panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${centerClassName}`.trim()}>{center}</section>
       </div>
     );
   }
 
   return (
-    <div className="three-panel-layout grid h-full grid-cols-1 gap-4 xl:grid-cols-[272px_minmax(480px,1fr)_320px]">
-      <aside className="panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{left}</aside>
-      <section className="panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{center}</section>
-      <aside className="panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4">{right}</aside>
+    <div className={`${rootClass} grid-cols-1 gap-4 xl:grid-cols-[272px_minmax(480px,1fr)_320px]`}>
+      <aside className={`panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${leftClassName}`.trim()}>{left}</aside>
+      <section className={`panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${centerClassName}`.trim()}>{center}</section>
+      <aside className={`panel-shell flex min-h-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${rightClassName}`.trim()}>{right}</aside>
     </div>
   );
 }
