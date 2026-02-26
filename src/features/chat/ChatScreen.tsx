@@ -127,6 +127,7 @@ interface ParsedToolCallContent {
 }
 
 const REASONING_CALL_NAME = "__reasoning__";
+const MESSAGE_DELETE_ANIMATION_MS = 180;
 
 interface StreamingToolCall {
   callId: string;
@@ -186,6 +187,7 @@ export function ChatScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [streamText, setStreamText] = useState("");
+  const [streamChunks, setStreamChunks] = useState<Array<{ id: number; text: string }>>([]);
   const [streaming, setStreaming] = useState(false);
   const [streamingCharacterName, setStreamingCharacterName] = useState<string | null>(null);
   const [streamingToolCalls, setStreamingToolCalls] = useState<StreamingToolCall[]>([]);
@@ -288,12 +290,14 @@ export function ChatScreen() {
   });
   const [toolPanelsExpanded, setToolPanelsExpanded] = useState<Record<string, boolean>>({});
   const [reasoningPanelsExpanded, setReasoningPanelsExpanded] = useState<Record<string, boolean>>({});
+  const [deletingMessageIds, setDeletingMessageIds] = useState<Record<string, boolean>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatSearchInputRef = useRef<HTMLInputElement>(null);
   const modelSelectorRef = useRef<HTMLDivElement>(null);
   const modelSelectorTriggerRef = useRef<HTMLButtonElement>(null);
+  const streamChunkIdRef = useRef(0);
 
   const orderedBlocks = useMemo(
     () => normalizePromptStack(promptStack),
@@ -412,6 +416,23 @@ export function ChatScreen() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [zenMode]);
+
+  useEffect(() => {
+    setDeletingMessageIds((prev) => {
+      const liveIds = new Set(messages.map((msg) => msg.id));
+      let changed = false;
+      const next: Record<string, boolean> = {};
+      for (const [id, value] of Object.entries(prev)) {
+        if (!value) continue;
+        if (liveIds.has(id)) {
+          next[id] = true;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [messages]);
 
   useEffect(() => {
     if (!simpleModeActive) return;
@@ -714,6 +735,8 @@ export function ChatScreen() {
 
   function startStreamingUi(characterName: string | null) {
     setStreamText("");
+    setStreamChunks([]);
+    streamChunkIdRef.current = 0;
     setStreaming(true);
     setStreamingCharacterName(characterName);
     setStreamingToolCalls([]);
@@ -725,6 +748,8 @@ export function ChatScreen() {
   function stopStreamingUi() {
     setStreaming(false);
     setStreamText("");
+    setStreamChunks([]);
+    streamChunkIdRef.current = 0;
     setStreamingCharacterName(null);
     setStreamingToolCalls([]);
     setStreamingReasoningCalls([]);
@@ -769,6 +794,12 @@ export function ChatScreen() {
       return updated;
     });
   }
+
+  const appendStreamDelta = useCallback((delta: string) => {
+    if (!delta) return;
+    setStreamText((prev) => prev + delta);
+    setStreamChunks((prev) => [...prev, { id: ++streamChunkIdRef.current, text: delta }]);
+  }, []);
 
   const savePromptStack = useCallback(
     (newBlocks: PromptBlock[]) => {
@@ -886,7 +917,7 @@ export function ChatScreen() {
       startStreamingUi(null);
 
       const updated = await api.chatSend(chatId, outgoing, branchId || undefined, {
-        onDelta: (delta) => setStreamText((prev) => prev + delta),
+        onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
         onDone: () => { stopStreamingUi(); }
       }, activePersonaPayload, currentAttachments);
@@ -921,7 +952,7 @@ export function ChatScreen() {
         return prev.filter((msg) => msg.id !== lastAssistant.id && msg.parentId !== lastAssistant.id);
       });
       const updated = await api.chatRegenerate(activeChat.id, activeBranchId || undefined, {
-        onDelta: (delta) => setStreamText((prev) => prev + delta),
+        onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
         onDone: () => { stopStreamingUi(); }
       });
@@ -1051,8 +1082,22 @@ export function ChatScreen() {
   }
 
   async function handleDelete(messageId: string) {
-    const result = await api.chatDeleteMessage(messageId);
-    setMessages(result.timeline);
+    if (deletingMessageIds[messageId]) return;
+    setDeletingMessageIds((prev) => ({ ...prev, [messageId]: true }));
+    try {
+      await new Promise((resolve) => setTimeout(resolve, MESSAGE_DELETE_ANIMATION_MS));
+      const result = await api.chatDeleteMessage(messageId);
+      setMessages(result.timeline);
+    } catch (error) {
+      setErrorText(String(error));
+    } finally {
+      setDeletingMessageIds((prev) => {
+        if (!prev[messageId]) return prev;
+        const next = { ...prev };
+        delete next[messageId];
+        return next;
+      });
+    }
   }
 
   async function saveEdit(messageId: string) {
@@ -1220,7 +1265,7 @@ export function ChatScreen() {
     startStreamingUi(characterName);
     try {
       const updated = await api.chatNextTurn(activeChat.id, characterName, activeBranchId || undefined, {
-        onDelta: (delta) => setStreamText((prev) => prev + delta),
+        onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
         onDone: () => { stopStreamingUi(); }
       }, false, activePersonaPayload);
@@ -1264,7 +1309,7 @@ export function ChatScreen() {
 
       try {
         const updated = await api.chatNextTurn(activeChat.id, charName, activeBranchId || undefined, {
-          onDelta: (delta) => setStreamText((prev) => prev + delta),
+          onDelta: appendStreamDelta,
           onToolEvent: handleStreamingToolEvent,
           onDone: () => { stopStreamingUi(); }
         }, true, activePersonaPayload); // isAutoConvo = true
@@ -1843,20 +1888,21 @@ export function ChatScreen() {
             )}
 
             {!simpleSidebarCollapsed && (
-            <div className="flex-1 space-y-1 overflow-y-auto">
+            <div className="chat-sidebar-list flex-1 space-y-1 overflow-y-auto">
               {chats.length === 0 ? (
                 <EmptyState title={t("chat.noChatYet")} description={t("chat.noChatDesc")} />
               ) : filteredChats.length === 0 ? (
                 <EmptyState title={t("chat.noSearchResults")} description={t("chat.noSearchResultsDesc")} />
               ) : (
-                filteredChats.map((chat) => {
+                filteredChats.map((chat, index) => {
                   const primaryChatCharacterId = chat.characterId || chat.characterIds?.[0] || null;
                   const chatChar = primaryChatCharacterId ? characters.find((c) => c.id === primaryChatCharacterId) : null;
                   const multiCount = chat.characterIds?.length || 0;
                   const isRenaming = renamingChatId === chat.id;
                   return (
                     <div key={chat.id}
-                      className={`group relative flex items-start gap-2 rounded-lg ${simpleModeActive ? "px-2 py-2" : "px-3 py-2"} transition-colors ${
+                      style={{ animationDelay: `${Math.min(index, 20) * 20}ms` }}
+                      className={`chat-sidebar-item group relative flex items-start gap-2 rounded-lg ${simpleModeActive ? "px-2 py-2" : "px-3 py-2"} transition-colors ${
                         activeChat?.id === chat.id ? "bg-accent-subtle text-text-primary" : "text-text-secondary hover:bg-bg-hover"
                       }`}>
                       {isRenaming ? (
@@ -2355,7 +2401,7 @@ export function ChatScreen() {
                 const renderCharName = msgChar?.name || activeChatCharacter?.name;
                 return (
                   <article key={msg.id}
-                    className={`chat-message group max-w-[88%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                    className={`chat-message group max-w-[88%] rounded-xl px-3 py-2 text-sm leading-relaxed ${deletingMessageIds[msg.id] ? "is-deleting" : ""} ${
                       msg.role === "user"
                         ? "chat-message-user ml-auto bg-accent-subtle text-text-primary"
                         : "chat-message-assistant mr-auto border border-border-subtle bg-bg-secondary text-text-primary"
@@ -2546,7 +2592,8 @@ export function ChatScreen() {
                           </button>
                         )}
                         <button onClick={() => handleDelete(msg.id)}
-                          className="rounded-md px-2 py-0.5 text-[11px] text-danger/60 hover:bg-danger-subtle hover:text-danger">{t("chat.delete")}</button>
+                          disabled={deletingMessageIds[msg.id]}
+                          className="rounded-md px-2 py-0.5 text-[11px] text-danger/60 hover:bg-danger-subtle hover:text-danger disabled:opacity-40">{t("chat.delete")}</button>
                       </div>
                     )}
                   </article>
@@ -2596,9 +2643,13 @@ export function ChatScreen() {
                       )}
                     </div>
                   )}
-                  <div className="prose-chat" dangerouslySetInnerHTML={{
-                    __html: streamText ? renderContent(streamText, streamChar?.name, activePersona?.name || t("chat.user")) : "..."
-                  }} />
+                  <div className="chat-stream-content chat-stream-live">
+                    {streamChunks.length > 0
+                      ? streamChunks.map((chunk) => (
+                        <span key={chunk.id} className="chat-stream-chunk">{chunk.text}</span>
+                      ))
+                      : (streamText ? streamText : "...")}
+                  </div>
                   {!zenMode && streamingToolCalls.length > 0 && (
                     <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">
                       <button

@@ -364,6 +364,7 @@ select {
   background: var(--color-bg-primary);
   margin: -1rem;
   min-height: calc(100% + 2rem);
+  transition: grid-template-columns var(--motion-base) var(--motion-spring);
 }
 
 .chat-simple-overlay {
@@ -405,46 +406,6 @@ select {
   position: relative;
   overflow: hidden;
   isolation: isolate;
-}
-
-.writing-simple-ambient {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  overflow: hidden;
-}
-
-.writing-simple-blob {
-  position: absolute;
-  width: min(40vw, 420px);
-  aspect-ratio: 1;
-  border-radius: 46% 54% 61% 39% / 44% 42% 58% 56%;
-  filter: blur(40px);
-  opacity: 0.22;
-  animation: morphBlob 16s ease-in-out infinite, driftBlob 20s linear infinite;
-}
-
-.writing-simple-blob.blob-a {
-  top: -140px;
-  right: -90px;
-  background: color-mix(in srgb, var(--color-accent) 70%, transparent);
-}
-
-.writing-simple-blob.blob-b {
-  bottom: -180px;
-  left: -120px;
-  background: color-mix(in srgb, #6da7ff 52%, transparent);
-  animation-delay: -6s;
-}
-
-.writing-simple-blob.blob-c {
-  top: 38%;
-  left: 30%;
-  width: min(26vw, 300px);
-  opacity: 0.15;
-  background: color-mix(in srgb, #ffd58c 45%, transparent);
-  animation-delay: -10s;
 }
 
 .writing-simple-center-panel > * {
@@ -546,11 +507,15 @@ select {
 
 @media (min-width: 1280px) {
   .chat-simple-layout {
-    grid-template-columns: 76px minmax(0, 1fr) 0 !important;
+    grid-template-columns: auto minmax(0, 1fr) 0 !important;
   }
 
-  .chat-simple-layout.is-sidebar-open {
-    grid-template-columns: 296px minmax(0, 1fr) 0 !important;
+  .chat-simple-layout.is-sidebar-open .chat-simple-sidebar-panel {
+    width: 296px;
+  }
+
+  .chat-simple-layout.is-sidebar-closed .chat-simple-sidebar-panel {
+    width: 76px;
   }
 
   .writing-simple-center-panel {
@@ -564,15 +529,19 @@ select {
 }
 
 .chat-simple-sidebar-panel {
+  width: 76px;
   padding: 8px !important;
   border: none !important;
   border-right: 1px solid var(--color-border-subtle) !important;
   border-radius: 0 !important;
   background: var(--color-bg-primary) !important;
+  overflow: hidden;
+  will-change: width, transform;
   transition:
     width var(--motion-base) var(--motion-spring),
     padding var(--motion-base) var(--motion-spring),
-    transform var(--motion-base) var(--motion-spring);
+    transform var(--motion-base) var(--motion-spring),
+    opacity var(--motion-fast) ease;
 }
 
 .chat-simple-right-panel {
@@ -1134,6 +1103,15 @@ select {
   margin-right: auto;
 }
 
+.chat-sidebar-list {
+  scrollbar-gutter: stable;
+}
+
+.chat-sidebar-item {
+  animation: sidebarItemIn 320ms var(--motion-soft) both;
+  animation-delay: calc(var(--chat-item-index, 0) * 20ms);
+}
+
 .chat-multi-toolbar {
   display: flex;
   flex-direction: column;
@@ -1382,6 +1360,15 @@ select {
 .chat-message {
   animation: bubbleIn 420ms var(--motion-spring) both;
   transform-origin: bottom;
+  max-height: 2200px;
+  overflow: hidden;
+  transition:
+    opacity var(--motion-fast) ease,
+    transform var(--motion-base) var(--motion-soft),
+    max-height var(--motion-base) var(--motion-soft),
+    margin var(--motion-base) var(--motion-soft),
+    padding var(--motion-base) var(--motion-soft),
+    border-width var(--motion-fast) ease;
 }
 
 .chat-message-user {
@@ -1394,6 +1381,40 @@ select {
 
 .chat-streaming {
   animation: streamingIn 300ms var(--motion-soft) both;
+}
+
+.chat-stream-content {
+  transition: opacity var(--motion-fast) ease, filter var(--motion-fast) ease;
+}
+
+.chat-stream-live {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.65;
+}
+
+.chat-stream-chunk {
+  display: inline;
+  animation: streamChunkAppear 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.chat-message.is-deleting {
+  pointer-events: none;
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  border-width: 0 !important;
+}
+
+.chat-message-user.is-deleting {
+  transform: translateX(24px) scale(0.98);
+}
+
+.chat-message-assistant.is-deleting {
+  transform: translateX(-24px) scale(0.98);
 }
 
 .message-actions {
@@ -1471,6 +1492,16 @@ select {
 @keyframes streamingIn {
   0% { opacity: 0; transform: translateY(8px); }
   100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes streamChunkAppear {
+  0% { opacity: 0; filter: blur(1px); transform: translateY(2px); }
+  100% { opacity: 1; filter: blur(0); transform: translateY(0); }
+}
+
+@keyframes sidebarItemIn {
+  0% { opacity: 0; transform: translateX(-8px); }
+  100% { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes simpleHeroIn {

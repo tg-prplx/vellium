@@ -1605,13 +1605,6 @@ export function WritingScreen() {
       center={
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-0.5">
           {writingSimpleModeActive && (
-            <div className="writing-simple-ambient" aria-hidden="true">
-              <span className="writing-simple-blob blob-a" />
-              <span className="writing-simple-blob blob-b" />
-              <span className="writing-simple-blob blob-c" />
-            </div>
-          )}
-          {writingSimpleModeActive && (
             <div className="writing-simple-top-controls">
               <button
                 type="button"
