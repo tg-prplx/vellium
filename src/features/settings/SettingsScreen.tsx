@@ -145,6 +145,7 @@ export function SettingsScreen() {
   const [models, setModels] = useState<ProviderModel[]>([]);
   const [translateModels, setTranslateModels] = useState<ProviderModel[]>([]);
   const [ragModels, setRagModels] = useState<ProviderModel[]>([]);
+  const [ragRerankModels, setRagRerankModels] = useState<ProviderModel[]>([]);
   const [compressModels, setCompressModels] = useState<ProviderModel[]>([]);
   const [ttsModels, setTtsModels] = useState<ProviderModel[]>([]);
   const [ttsVoices, setTtsVoices] = useState<ProviderModel[]>([]);
@@ -329,6 +330,20 @@ export function SettingsScreen() {
       setRagModels(list);
     } catch {
       setRagModels([]);
+    }
+  }
+
+  async function loadRagRerankModels(providerId?: string | null) {
+    const pid = providerId ?? settings?.ragRerankProviderId;
+    if (!pid) {
+      setRagRerankModels([]);
+      return;
+    }
+    try {
+      const list = await api.providerFetchModels(pid);
+      setRagRerankModels(list);
+    } catch {
+      setRagRerankModels([]);
     }
   }
 
@@ -599,6 +614,15 @@ export function SettingsScreen() {
     void loadRagModels(settings.ragProviderId);
   }, [settings?.ragProviderId]);
 
+  // Auto-load reranker models when reranker provider changes
+  useEffect(() => {
+    if (!settings?.ragRerankProviderId) {
+      setRagRerankModels([]);
+      return;
+    }
+    void loadRagRerankModels(settings.ragRerankProviderId);
+  }, [settings?.ragRerankProviderId]);
+
   useEffect(() => {
     if (!settings) return;
     setMcpServersDraft(Array.isArray(settings.mcpServers) ? settings.mcpServers : []);
@@ -681,6 +705,7 @@ export function SettingsScreen() {
         { id: "settings-scene-fields", label: t("settings.sceneFields") },
         { id: "settings-translation-model", label: t("settings.translateModel") },
         { id: "settings-rag-model", label: t("settings.ragModel") },
+        { id: "settings-rag-reranker", label: t("settings.ragReranker") },
         { id: "settings-quick-presets", label: t("settings.quickPresets") },
         { id: "settings-manual-provider", label: t("settings.manualConfig") },
         { id: "settings-active-model", label: t("settings.activeModel") },
@@ -1065,6 +1090,70 @@ export function SettingsScreen() {
                       onChange={(e) => patch({ ragEnabledByDefault: e.target.checked })}
                     />
                   </label>
+                </div>
+              </div>
+
+              <div id="settings-rag-reranker" className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                <div className="mb-2">
+                  <div className="text-sm font-medium text-text-primary">{t("settings.ragReranker")}</div>
+                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.ragRerankerDesc")}</div>
+                </div>
+                <div className="space-y-2">
+                  <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
+                    <span>{t("settings.ragRerankerEnable")}</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.ragRerankEnabled === true}
+                      onChange={(e) => patch({ ragRerankEnabled: e.target.checked })}
+                    />
+                  </label>
+                  <div>
+                    <FieldLabel>{t("settings.provider")}</FieldLabel>
+                    <SelectField
+                      value={settings.ragRerankProviderId || ""}
+                      onChange={(v) => {
+                        void patch({ ragRerankProviderId: v || null, ragRerankModel: null });
+                      }}
+                    >
+                      <option value="">({t("settings.activeModel")})</option>
+                      {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                    </SelectField>
+                  </div>
+                  {settings.ragRerankProviderId && (
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <FieldLabel>{t("chat.model")}</FieldLabel>
+                        <button
+                          onClick={() => void loadRagRerankModels(settings.ragRerankProviderId)}
+                          className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                        >
+                          {t("settings.loadModels")}
+                        </button>
+                      </div>
+                      <SelectField
+                        value={settings.ragRerankModel || ""}
+                        onChange={(v) => patch({ ragRerankModel: v || null })}
+                      >
+                        <option value="">{t("settings.selectModel")}</option>
+                        {ragRerankModels.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
+                      </SelectField>
+                    </div>
+                  )}
+                  <div>
+                    <FieldLabel>{t("settings.ragRerankTopN")}</FieldLabel>
+                    <input
+                      type="number"
+                      min={5}
+                      max={200}
+                      value={settings.ragRerankTopN ?? 40}
+                      onChange={(e) => {
+                        const raw = Number(e.target.value);
+                        const next = Number.isFinite(raw) ? Math.max(5, Math.min(200, Math.floor(raw))) : 40;
+                        patch({ ragRerankTopN: next });
+                      }}
+                      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
+                    />
+                  </div>
                 </div>
               </div>
 

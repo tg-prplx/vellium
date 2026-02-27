@@ -427,6 +427,10 @@ export interface AppSettings {
   translateModel?: string | null;
   ragProviderId?: string | null;
   ragModel?: string | null;
+  ragRerankEnabled: boolean;
+  ragRerankProviderId?: string | null;
+  ragRerankModel?: string | null;
+  ragRerankTopN: number;
   ragTopK: number;
   ragCandidateCount: number;
   ragSimilarityThreshold: number;

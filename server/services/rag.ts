@@ -108,6 +108,12 @@ function chunkText(content: string, chunkSize: number, overlap: number): string[
   return chunks;
 }
 
+function truncateForRerank(text: string, maxChars = 3200): string {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
 function sha256(input: string): string {
   return createHash("sha256").update(input).digest("hex");
 }
@@ -168,7 +174,7 @@ function normalizeEmbeddingRow(input: unknown): number[] | null {
 
 async function requestEmbeddings(provider: ProviderRow, model: string, input: string[]): Promise<number[][]> {
   if (!input.length) return [];
-  const baseUrl = String(provider.base_url || "").replace(/\/+$/, "");
+  const baseUrl = normalizeBaseUrl(provider.base_url);
   const apiKey = String(provider.api_key_cipher || "").trim();
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
@@ -225,6 +231,155 @@ function resolveEmbeddingProvider(settings: Record<string, unknown>): { provider
   if (fullLocalMode && !isLocalhostUrl(provider.base_url)) return null;
   if (provider.full_local_only && !isLocalhostUrl(provider.base_url)) return null;
   return { provider, model };
+}
+
+function normalizeBaseUrl(raw: string): string {
+  return String(raw || "").trim()
+    .replace(/\/+$/, "")
+    .replace(/\/chat\/completions$/i, "")
+    .replace(/\/responses$/i, "")
+    .replace(/\/completions$/i, "")
+    .replace(/\/embeddings$/i, "")
+    .replace(/\/rerank$/i, "");
+}
+
+function buildRerankEndpoints(baseUrlRaw: string): string[] {
+  const baseUrl = normalizeBaseUrl(baseUrlRaw);
+  if (!baseUrl) return [];
+  if (/\/v1$/i.test(baseUrl)) {
+    return [`${baseUrl}/rerank`];
+  }
+  return [`${baseUrl}/rerank`, `${baseUrl}/v1/rerank`];
+}
+
+function resolveRerankerProvider(settings: Record<string, unknown>): { provider: ProviderRow; model: string; topN: number } | null {
+  if (settings.ragRerankEnabled !== true) return null;
+  const providerId = String(settings.ragRerankProviderId || settings.ragProviderId || settings.activeProviderId || "").trim();
+  const model = String(settings.ragRerankModel || "").trim();
+  if (!providerId || !model) return null;
+  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  if (!provider) return null;
+  const fullLocalMode = settings.fullLocalMode === true;
+  if (fullLocalMode && !isLocalhostUrl(provider.base_url)) return null;
+  if (provider.full_local_only && !isLocalhostUrl(provider.base_url)) return null;
+  const topNRaw = Number(settings.ragRerankTopN);
+  const topN = Number.isFinite(topNRaw) ? Math.max(5, Math.min(200, Math.floor(topNRaw))) : 40;
+  return { provider, model, topN };
+}
+
+function parseRerankRows(raw: unknown): Array<{ index: number; score: number }> {
+  if (!Array.isArray(raw)) return [];
+  const rows: Array<{ index: number; score: number }> = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const index = Number(
+      row.index
+      ?? row.document_index
+      ?? row.input_index
+      ?? row.position
+      ?? -1
+    );
+    const score = Number(
+      row.relevance_score
+      ?? row.score
+      ?? row.similarity
+      ?? row.logit
+      ?? Number.NaN
+    );
+    if (!Number.isFinite(index) || index < 0 || !Number.isFinite(score)) continue;
+    rows.push({ index: Math.floor(index), score });
+  }
+  return rows;
+}
+
+function parseRerankResponse(body: unknown, expectedLength: number): Array<number | null> | null {
+  const root = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  const candidates: unknown[] = [
+    body,
+    root.data,
+    root.results,
+    root.rerank,
+    root.rankings
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseRerankRows(candidate);
+    if (!parsed.length) continue;
+    const scores = Array.from({ length: expectedLength }, () => null as number | null);
+    for (const row of parsed) {
+      if (row.index < 0 || row.index >= expectedLength) continue;
+      const current = scores[row.index];
+      if (current === null || row.score > current) {
+        scores[row.index] = row.score;
+      }
+    }
+    if (scores.some((score) => score !== null)) return scores;
+  }
+  return null;
+}
+
+async function requestCrossEncoderRerank(params: {
+  provider: ProviderRow;
+  model: string;
+  query: string;
+  documents: string[];
+}): Promise<Array<number | null>> {
+  if (!params.documents.length) return [];
+  const endpoints = buildRerankEndpoints(params.provider.base_url);
+  if (!endpoints.length) throw new Error("rerank endpoint not configured");
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const apiKey = String(params.provider.api_key_cipher || "").trim();
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  const payloads = [
+    {
+      model: params.model,
+      query: params.query,
+      documents: params.documents.map((text) => ({ text })),
+      top_n: params.documents.length,
+      return_documents: false
+    },
+    {
+      model: params.model,
+      query: params.query,
+      documents: params.documents,
+      top_n: params.documents.length,
+      return_documents: false
+    },
+    {
+      model: params.model,
+      query: params.query,
+      input: params.documents,
+      top_n: params.documents.length
+    }
+  ];
+
+  let lastError = "";
+  for (const endpoint of endpoints) {
+    for (const payload of payloads) {
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+          lastError = await response.text().catch(() => `HTTP ${response.status}`);
+          continue;
+        }
+        const body = await response.json().catch(() => ({}));
+        const parsed = parseRerankResponse(body, params.documents.length);
+        if (parsed) return parsed;
+        lastError = "rerank response mismatch";
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : "rerank request failed";
+      }
+    }
+  }
+  throw new Error(lastError || "rerank request failed");
 }
 
 function selectExistingCollectionIds(ids: string[], scopes?: RagScope[]): string[] {
@@ -332,6 +487,26 @@ export function deleteRagCollection(id: string) {
       const nextIds = currentIds.filter((item) => item !== collectionId);
       const nextEnabled = row.enabled === 1 && nextIds.length > 0 ? 1 : 0;
       update.run(nextEnabled, JSON.stringify(nextIds), ts, row.chat_id);
+    }
+
+    const writerRows = db.prepare(
+      "SELECT project_id, enabled, collection_ids FROM writer_rag_bindings"
+    ).all() as Array<{ project_id: string; enabled: number; collection_ids: string }>;
+
+    const updateWriter = db.prepare(
+      "UPDATE writer_rag_bindings SET enabled = ?, collection_ids = ?, updated_at = ? WHERE project_id = ?"
+    );
+    for (const row of writerRows) {
+      let currentIds: string[] = [];
+      try {
+        currentIds = parseCollectionIds(JSON.parse(row.collection_ids || "[]"));
+      } catch {
+        currentIds = [];
+      }
+      if (!currentIds.includes(collectionId)) continue;
+      const nextIds = currentIds.filter((item) => item !== collectionId);
+      const nextEnabled = row.enabled === 1 && nextIds.length > 0 ? 1 : 0;
+      updateWriter.run(nextEnabled, JSON.stringify(nextIds), ts, row.project_id);
     }
   });
   tx(id);
@@ -544,13 +719,66 @@ export function setChatRagBinding(chatId: string, enabled: boolean, collectionId
   };
 }
 
-export async function retrieveRagContext(params: {
-  chatId: string;
+export function getWriterRagBinding(projectId: string, settings: Record<string, unknown>): RagBinding {
+  const row = db.prepare(
+    "SELECT enabled, collection_ids, updated_at FROM writer_rag_bindings WHERE project_id = ?"
+  ).get(projectId) as { enabled: number; collection_ids: string; updated_at: string } | undefined;
+  if (!row) {
+    return {
+      enabled: settings.ragEnabledByDefault === true,
+      collectionIds: [],
+      updatedAt: null
+    };
+  }
+  let collectionIds: string[] = [];
+  try {
+    collectionIds = parseCollectionIds(JSON.parse(row.collection_ids || "[]"));
+  } catch {
+    collectionIds = [];
+  }
+  const validCollectionIds = selectExistingCollectionIds(collectionIds, ["global", "writer"]);
+  if (validCollectionIds.length !== collectionIds.length) {
+    const ts = now();
+    const nextEnabled = row.enabled === 1 && validCollectionIds.length > 0 ? 1 : 0;
+    db.prepare("UPDATE writer_rag_bindings SET enabled = ?, collection_ids = ?, updated_at = ? WHERE project_id = ?")
+      .run(nextEnabled, JSON.stringify(validCollectionIds), ts, projectId);
+    return {
+      enabled: nextEnabled === 1,
+      collectionIds: validCollectionIds,
+      updatedAt: ts
+    };
+  }
+  return {
+    enabled: row.enabled === 1,
+    collectionIds: validCollectionIds,
+    updatedAt: row.updated_at
+  };
+}
+
+export function setWriterRagBinding(projectId: string, enabled: boolean, collectionIdsRaw: unknown): RagBinding {
+  const ts = now();
+  const normalized = parseCollectionIds(collectionIdsRaw);
+  const validCollectionIds = selectExistingCollectionIds(normalized, ["global", "writer"]);
+  const nextEnabled = enabled && validCollectionIds.length > 0;
+  db.prepare(
+    `INSERT INTO writer_rag_bindings (project_id, enabled, collection_ids, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(project_id) DO UPDATE SET enabled = excluded.enabled, collection_ids = excluded.collection_ids, updated_at = excluded.updated_at`
+  ).run(projectId, nextEnabled ? 1 : 0, JSON.stringify(validCollectionIds), ts);
+  return {
+    enabled: nextEnabled,
+    collectionIds: validCollectionIds,
+    updatedAt: ts
+  };
+}
+
+async function retrieveRagContextForCollections(params: {
+  collectionIds: string[];
   queryText: string;
   settings: Record<string, unknown>;
 }) {
-  const binding = getChatRagBinding(params.chatId, params.settings);
-  if (!binding.enabled || binding.collectionIds.length === 0) {
+  const collectionIds = selectExistingCollectionIds(params.collectionIds);
+  if (!collectionIds.length) {
     return { context: "", sources: [] as RagContextSource[] };
   }
   const queryText = String(params.queryText || "").trim();
@@ -568,7 +796,7 @@ export async function retrieveRagContext(params: {
   const thresholdRaw = Number(params.settings.ragSimilarityThreshold);
   const similarityThreshold = Number.isFinite(thresholdRaw) ? Math.max(-1, Math.min(1, thresholdRaw)) : 0.15;
 
-  const placeholders = binding.collectionIds.map(() => "?").join(",");
+  const placeholders = collectionIds.map(() => "?").join(",");
   const lexical = ftsQuery(queryText);
   let candidates: RagChunkRow[] = [];
 
@@ -584,7 +812,7 @@ export async function retrieveRagContext(params: {
            AND c.collection_id IN (${placeholders})
          ORDER BY lexical_rank ASC
          LIMIT ?`
-      ).all(lexical, ...binding.collectionIds, candidateCount) as RagChunkRow[];
+      ).all(lexical, ...collectionIds, candidateCount) as RagChunkRow[];
     } catch {
       candidates = [];
     }
@@ -601,7 +829,7 @@ export async function retrieveRagContext(params: {
          WHERE c.collection_id IN (${placeholders})
            AND c.content LIKE ?
          LIMIT ?`
-      ).all(...binding.collectionIds, likeValue, candidateCount) as RagChunkRow[];
+      ).all(...collectionIds, likeValue, candidateCount) as RagChunkRow[];
     } else {
       candidates = db.prepare(
         `SELECT c.id, c.document_id, c.content, c.token_count, c.metadata_json,
@@ -611,7 +839,7 @@ export async function retrieveRagContext(params: {
          WHERE c.collection_id IN (${placeholders})
          ORDER BY c.created_at DESC
          LIMIT ?`
-      ).all(...binding.collectionIds, candidateCount) as RagChunkRow[];
+      ).all(...collectionIds, candidateCount) as RagChunkRow[];
     }
   }
 
@@ -623,6 +851,7 @@ export async function retrieveRagContext(params: {
     row,
     lexicalScore: 1 / (1 + Math.max(0, Number(row.lexical_rank || index + 1))),
     semanticScore: null as number | null,
+    rerankScore: null as number | null,
     totalScore: 0
   }));
 
@@ -664,7 +893,35 @@ export async function retrieveRagContext(params: {
     }
   }
 
-  ranked.sort((a, b) => b.totalScore - a.totalScore);
+  const rerankTarget = resolveRerankerProvider(params.settings);
+  if (rerankTarget) {
+    try {
+      const rerankCount = Math.max(topK, Math.min(rerankTarget.topN, ranked.length));
+      const rerankPool = [...ranked]
+        .sort((a, b) => b.totalScore - a.totalScore)
+        .slice(0, rerankCount);
+      const rerankDocs = rerankPool.map((item) => truncateForRerank(`${item.row.document_title}\n${item.row.content}`));
+      const rerankScores = await requestCrossEncoderRerank({
+        provider: rerankTarget.provider,
+        model: rerankTarget.model,
+        query: truncateForRerank(queryText),
+        documents: rerankDocs
+      });
+      for (let index = 0; index < rerankPool.length; index += 1) {
+        const score = rerankScores[index];
+        if (!Number.isFinite(Number(score))) continue;
+        rerankPool[index].rerankScore = Number(score);
+      }
+    } catch {
+      // Cross-encoder rerank is optional; keep hybrid rank when unavailable.
+    }
+  }
+
+  ranked.sort((a, b) => {
+    const aScore = a.rerankScore ?? a.totalScore;
+    const bScore = b.rerankScore ?? b.totalScore;
+    return bScore - aScore;
+  });
   const byDoc = new Map<string, number>();
   const selected: typeof ranked = [];
   for (const item of ranked) {
@@ -703,7 +960,7 @@ export async function retrieveRagContext(params: {
       chunkId: item.row.id,
       documentId: item.row.document_id,
       documentTitle: title,
-      score: Number(item.totalScore.toFixed(4)),
+      score: Number((item.rerankScore ?? item.totalScore).toFixed(4)),
       preview: body.slice(0, 220)
     });
   }
@@ -716,4 +973,36 @@ export async function retrieveRagContext(params: {
     context: contextParts.join("\n\n"),
     sources
   };
+}
+
+export async function retrieveRagContext(params: {
+  chatId: string;
+  queryText: string;
+  settings: Record<string, unknown>;
+}) {
+  const binding = getChatRagBinding(params.chatId, params.settings);
+  if (!binding.enabled || binding.collectionIds.length === 0) {
+    return { context: "", sources: [] as RagContextSource[] };
+  }
+  return retrieveRagContextForCollections({
+    collectionIds: binding.collectionIds,
+    queryText: params.queryText,
+    settings: params.settings
+  });
+}
+
+export async function retrieveWriterRagContext(params: {
+  projectId: string;
+  queryText: string;
+  settings: Record<string, unknown>;
+}) {
+  const binding = getWriterRagBinding(params.projectId, params.settings);
+  if (!binding.enabled || binding.collectionIds.length === 0) {
+    return { context: "", sources: [] as RagContextSource[] };
+  }
+  return retrieveRagContextForCollections({
+    collectionIds: binding.collectionIds,
+    queryText: params.queryText,
+    settings: params.settings
+  });
 }
