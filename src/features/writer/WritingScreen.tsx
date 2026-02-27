@@ -225,6 +225,9 @@ export function WritingScreen() {
   const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
   const [editingSceneContent, setEditingSceneContent] = useState("");
   const [sceneEditBusyId, setSceneEditBusyId] = useState<string | null>(null);
+  const [simpleSceneDraftId, setSimpleSceneDraftId] = useState<string | null>(null);
+  const [simpleSceneDraftContent, setSimpleSceneDraftContent] = useState("");
+  const [simpleSceneDraftSaving, setSimpleSceneDraftSaving] = useState(false);
   const [bookSearchQuery, setBookSearchQuery] = useState("");
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renamingProjectTitle, setRenamingProjectTitle] = useState("");
@@ -274,6 +277,7 @@ export function WritingScreen() {
   const [alternateSimpleMode, setAlternateSimpleMode] = useState(false);
   const [simpleWritingLibraryOpen, setSimpleWritingLibraryOpen] = useState(false);
   const [simpleWritingInspectorOpen, setSimpleWritingInspectorOpen] = useState(false);
+  const [simpleWritingControlsOpen, setSimpleWritingControlsOpen] = useState(false);
   const chapterSettingsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectNotesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const docxImportInputRef = useRef<HTMLInputElement | null>(null);
@@ -287,6 +291,7 @@ export function WritingScreen() {
       setAlternateSimpleMode(settings.alternateSimpleMode === true);
       setSimpleWritingLibraryOpen(settings.alternateSimpleMode !== true);
       setSimpleWritingInspectorOpen(false);
+      setSimpleWritingControlsOpen(false);
       if (settings.activeProviderId) setWriterProviderId(settings.activeProviderId);
       if (settings.activeModel) {
         setWriterModelId(settings.activeModel);
@@ -303,6 +308,7 @@ export function WritingScreen() {
     if (!writingSimpleModeActive) {
       setSimpleWritingLibraryOpen(false);
       setSimpleWritingInspectorOpen(false);
+      setSimpleWritingControlsOpen(false);
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
@@ -311,13 +317,17 @@ export function WritingScreen() {
         setSimpleWritingInspectorOpen(false);
         return;
       }
+      if (simpleWritingControlsOpen) {
+        setSimpleWritingControlsOpen(false);
+        return;
+      }
       if (simpleWritingLibraryOpen) {
         setSimpleWritingLibraryOpen(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [writingSimpleModeActive, simpleWritingLibraryOpen, simpleWritingInspectorOpen]);
+  }, [writingSimpleModeActive, simpleWritingLibraryOpen, simpleWritingInspectorOpen, simpleWritingControlsOpen]);
 
   useEffect(() => {
     if (!writerProviderId) {
@@ -712,6 +722,24 @@ export function WritingScreen() {
       log(`${t("writing.logError")}: ${String(err)}`);
     } finally {
       setSceneEditBusyId(null);
+    }
+  }
+
+  async function saveSimpleSceneContent() {
+    if (!selectedScene || simpleSceneDraftId !== selectedScene.id || simpleSceneDraftSaving) return;
+    const nextContent = simpleSceneDraftContent;
+    if (nextContent === selectedScene.content) return;
+    setSimpleSceneDraftSaving(true);
+    try {
+      const updated = await api.writerSceneUpdate(selectedScene.id, { content: nextContent });
+      setScenes((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setSimpleSceneDraftId(updated.id);
+      setSimpleSceneDraftContent(updated.content);
+      log(t("writing.logSceneSaved"));
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+    } finally {
+      setSimpleSceneDraftSaving(false);
     }
   }
 
@@ -1254,12 +1282,44 @@ export function WritingScreen() {
     }
     return scenes;
   }, [scenes, lensScopeDraft, lensTargetDraft, selectedChapterId]);
+  const selectedChapterScenes = useMemo(() => {
+    if (!selectedChapterId) return [];
+    return scenes.filter((scene) => scene.chapterId === selectedChapterId);
+  }, [scenes, selectedChapterId]);
+  const simpleSceneDraftDirty = Boolean(
+    selectedScene && simpleSceneDraftId === selectedScene.id && simpleSceneDraftContent !== selectedScene.content
+  );
 
   useEffect(() => {
     if (editingSceneId && !scenes.some((scene) => scene.id === editingSceneId)) {
       cancelInlineSceneEdit();
     }
   }, [editingSceneId, scenes]);
+
+  useEffect(() => {
+    if (!writingSimpleModeActive) return;
+    if (!selectedScene) {
+      setSimpleSceneDraftId(null);
+      setSimpleSceneDraftContent("");
+      return;
+    }
+    setSimpleSceneDraftId(selectedScene.id);
+    setSimpleSceneDraftContent(selectedScene.content);
+  }, [writingSimpleModeActive, selectedScene?.id, selectedScene?.content]);
+
+  useEffect(() => {
+    if (!writingSimpleModeActive || !selectedChapterId) return;
+    const chapterScenes = scenes.filter((scene) => scene.chapterId === selectedChapterId);
+    if (chapterScenes.length === 0) {
+      if (selectedSceneId && !scenes.some((scene) => scene.id === selectedSceneId)) {
+        setSelectedSceneId(null);
+      }
+      return;
+    }
+    if (!selectedSceneId || !chapterScenes.some((scene) => scene.id === selectedSceneId)) {
+      setSelectedSceneId(chapterScenes[0].id);
+    }
+  }, [writingSimpleModeActive, selectedChapterId, selectedSceneId, scenes]);
 
   const runningTasks = bgTasks.filter((t) => t.status === "running");
 
@@ -1633,7 +1693,7 @@ export function WritingScreen() {
         </div>
       }
       center={
-        <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-0.5">
+        <div className={`flex h-full min-h-0 flex-col gap-3 pr-0.5 ${writingSimpleModeActive ? "overflow-hidden" : "overflow-y-auto"}`}>
           {writingSimpleModeActive && (
             <div className="writing-simple-top-controls">
               <button
@@ -1649,6 +1709,13 @@ export function WritingScreen() {
                 className={`writing-simple-top-button ${simpleWritingInspectorOpen ? "is-active" : ""}`}
               >
                 {t("writing.outline")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSimpleWritingControlsOpen((prev) => !prev)}
+                className={`writing-simple-top-button ${simpleWritingControlsOpen ? "is-active" : ""}`}
+              >
+                {t("tab.settings")}
               </button>
             </div>
           )}
@@ -1670,6 +1737,8 @@ export function WritingScreen() {
             </div>
           </div>
 
+          {(!writingSimpleModeActive || simpleWritingControlsOpen) && (
+          <>
           <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-2.5">
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.model")}</span>
@@ -1895,190 +1964,306 @@ export function WritingScreen() {
               )
             )}
           </div>
+          </>
+          )}
 
-          <div>
-            {chapters.length === 0 ? (
-              <EmptyState
-                title={t("writing.noChapters")}
-                description={activeProject ? t("writing.noChaptersDesc") : t("writing.selectProject")}
-              />
-            ) : (
-              <div className="list-animate space-y-3">
-                {chapters.map((chapter) => {
-                  const isRenaming = renamingChapterId === chapter.id;
-                  return (
-                    <div
-                      key={chapter.id}
-                      className={`group float-card rounded-lg border p-2.5 transition-colors ${
-                        selectedChapterId === chapter.id
-                          ? "border-accent-border bg-accent-subtle/50"
-                          : "border-border bg-bg-primary"
-                      }`}
-                    >
-                      {isRenaming ? (
-                        <div className="mb-1.5 flex items-center gap-1.5">
-                          <input
-                            value={renamingChapterTitle}
-                            onChange={(e) => setRenamingChapterTitle(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                void submitRenameChapter(chapter);
-                              } else if (e.key === "Escape") {
-                                e.preventDefault();
-                                cancelRenameChapter();
-                              }
-                            }}
-                            className="w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary"
-                            autoFocus
-                          />
-                          <button
-                            onClick={() => void submitRenameChapter(chapter)}
-                            className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
-                          >
-                            {t("chat.save")}
-                          </button>
-                          <button
-                            onClick={cancelRenameChapter}
-                            className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
-                          >
-                            {t("chat.cancel")}
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="mb-1.5 flex items-start gap-1.5">
-                          <button
-                            className="min-w-0 flex-1 break-words text-left text-xs font-semibold text-text-primary hover:text-accent"
-                            onClick={() => setSelectedChapterId(chapter.id)}
-                          >
-                            {chapter.title}
-                          </button>
-                          <div className={`flex items-center gap-0.5 ${
-                            selectedChapterId === chapter.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
-                          }`}>
-                            <button
-                              onClick={() => startRenameChapter(chapter)}
-                              className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
-                              title={t("writing.rename")}
-                            >
-                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z" />
-                              </svg>
-                            </button>
-                            <button
-                              onClick={() => void deleteChapter(chapter)}
-                              className="rounded-md p-1 text-text-tertiary hover:bg-danger-subtle hover:text-danger"
-                              title={t("chat.delete")}
-                            >
-                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    <div className="mb-1.5 flex flex-wrap gap-1 text-[10px] text-text-tertiary">
-                      <Badge>{chapter.settings.tone}</Badge>
-                      <Badge>{chapter.settings.pacing}</Badge>
-                      <Badge>{chapter.settings.pov.replace("_", " ")}</Badge>
+          {writingSimpleModeActive ? (
+            <div className="writing-simple-editor-shell">
+              <div className="writing-simple-editor-main float-card rounded-lg border border-border-subtle bg-bg-primary p-2.5">
+                {selectedScene ? (
+                  <div className="flex h-full min-h-0 flex-col">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="grid min-w-0 flex-1 grid-cols-1 gap-1.5 md:grid-cols-2">
+                        <select
+                          value={selectedChapterId || ""}
+                          onChange={(e) => setSelectedChapterId(e.target.value || null)}
+                          className="min-w-0 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                        >
+                          <option value="">{t("writing.selectChapter")}</option>
+                          {chapters.map((chapter) => (
+                            <option key={chapter.id} value={chapter.id}>{chapter.title}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={selectedSceneId || ""}
+                          onChange={(e) => setSelectedSceneId(e.target.value || null)}
+                          className="min-w-0 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                        >
+                          <option value="">{t("writing.selectScene")}</option>
+                          {selectedChapterScenes.map((scene) => (
+                            <option key={scene.id} value={scene.id}>{scene.title}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => { if (selectedScene) void deleteScene(selectedScene); }}
+                          className="rounded-md border border-danger-border px-2 py-1 text-[10px] text-danger hover:bg-danger-subtle"
+                          title={t("chat.delete")}
+                        >
+                          {t("chat.delete")}
+                        </button>
+                        {simpleSceneDraftDirty && (
+                          <span className="rounded-md border border-warning-border bg-warning-subtle px-1.5 py-0.5 text-[10px] text-warning">
+                            *
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selectedScene) return;
+                            setSimpleSceneDraftId(selectedScene.id);
+                            setSimpleSceneDraftContent(selectedScene.content);
+                          }}
+                          disabled={!simpleSceneDraftDirty || simpleSceneDraftSaving}
+                          className="rounded-md border border-border px-2 py-1 text-[10px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                        >
+                          {t("chat.cancel")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { void saveSimpleSceneContent(); }}
+                          disabled={!simpleSceneDraftDirty || simpleSceneDraftSaving}
+                          className="rounded-md bg-accent px-2 py-1 text-[10px] font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40"
+                        >
+                          {simpleSceneDraftSaving ? t("writing.working") : t("chat.save")}
+                        </button>
+                      </div>
                     </div>
-                    {scenes
-                      .filter((scene) => scene.chapterId === chapter.id)
-                      .map((scene) => {
-                        const isInlineEditing = editingSceneId === scene.id;
-                        const isSavingInline = sceneEditBusyId === scene.id;
-                        return (
-                          <article
-                            key={scene.id}
-                            onClick={() => {
-                              if (!isInlineEditing) setSelectedSceneId(scene.id);
-                            }}
-                            className={`group float-card mb-1 rounded-md border p-2 text-xs transition-colors ${
-                              selectedSceneId === scene.id
-                                ? "border-accent-border bg-accent-subtle"
-                                : "border-border-subtle hover:bg-bg-hover"
-                            } ${isInlineEditing ? "" : "cursor-pointer"}`}
-                          >
-                            <div className="mb-0.5 flex items-center justify-between gap-2">
-                              <div className="min-w-0 truncate font-semibold text-text-primary">{scene.title}</div>
-                              {!isInlineEditing && (
-                                <div className={`flex items-center gap-1 ${
-                                  selectedSceneId === scene.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
-                                }`}>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      startInlineSceneEdit(scene);
-                                    }}
-                                    className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
-                                  >
-                                    {t("chat.edit")}
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void deleteScene(scene);
-                                    }}
-                                    className="rounded-md border border-danger-border px-1.5 py-0.5 text-[10px] text-danger hover:bg-danger-subtle"
-                                  >
-                                    {t("chat.delete")}
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                            {isInlineEditing ? (
-                              <div className="space-y-1">
-                                <textarea
-                                  value={editingSceneContent}
-                                  onChange={(e) => setEditingSceneContent(e.target.value)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="h-28 w-full resize-y rounded-md border border-border bg-bg-secondary p-2 text-xs leading-relaxed text-text-primary"
-                                />
-                                <div className="flex items-center gap-1">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      void saveInlineSceneContent(scene);
-                                    }}
-                                    disabled={isSavingInline}
-                                    className="rounded-md bg-accent px-2 py-0.5 text-[10px] font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40"
-                                  >
-                                    {isSavingInline ? t("writing.working") : t("chat.save")}
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      cancelInlineSceneEdit();
-                                    }}
-                                    disabled={isSavingInline}
-                                    className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
-                                  >
-                                    {t("chat.cancel")}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <p className="mt-0.5 line-clamp-2 text-text-tertiary">{scene.content}</p>
-                            )}
-                          </article>
-                        );
-                      })}
+                    <textarea
+                      value={simpleSceneDraftContent}
+                      onChange={(e) => setSimpleSceneDraftContent(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+                          e.preventDefault();
+                          void saveSimpleSceneContent();
+                        }
+                      }}
+                      className="writing-simple-editor-textarea w-full resize-none rounded-lg border border-border bg-bg-secondary px-3 py-3 text-sm leading-relaxed text-text-primary placeholder:text-text-tertiary"
+                    />
                   </div>
-                );
-              })}
+                ) : (
+                  <div className="flex h-full min-h-0 flex-col">
+                    <div className="mb-2 grid min-w-0 grid-cols-1 gap-1.5 md:grid-cols-2">
+                      <select
+                        value={selectedChapterId || ""}
+                        onChange={(e) => setSelectedChapterId(e.target.value || null)}
+                        className="min-w-0 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                      >
+                        <option value="">{t("writing.selectChapter")}</option>
+                        {chapters.map((chapter) => (
+                          <option key={chapter.id} value={chapter.id}>{chapter.title}</option>
+                        ))}
+                      </select>
+                      <select
+                        value={selectedSceneId || ""}
+                        onChange={(e) => setSelectedSceneId(e.target.value || null)}
+                        className="min-w-0 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                      >
+                        <option value="">{t("writing.selectScene")}</option>
+                        {selectedChapterScenes.map((scene) => (
+                          <option key={scene.id} value={scene.id}>{scene.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex-1 rounded-lg border border-border-subtle bg-bg-secondary">
+                      <EmptyState
+                        title={t("writing.noChapters")}
+                        description={activeProject ? t("writing.noChaptersDesc") : t("writing.selectProject")}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-
-          {selectedScene && (
-            <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-3">
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-xs font-semibold text-text-primary">{selectedScene.title}</span>
-              </div>
-              <p className="max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">
-                {selectedScene.content}
-              </p>
             </div>
+          ) : (
+            <>
+              <div>
+                {chapters.length === 0 ? (
+                  <EmptyState
+                    title={t("writing.noChapters")}
+                    description={activeProject ? t("writing.noChaptersDesc") : t("writing.selectProject")}
+                  />
+                ) : (
+                  <div className="list-animate space-y-3">
+                    {chapters.map((chapter) => {
+                      const isRenaming = renamingChapterId === chapter.id;
+                      return (
+                        <div
+                          key={chapter.id}
+                          className={`group float-card rounded-lg border p-2.5 transition-colors ${
+                            selectedChapterId === chapter.id
+                              ? "border-accent-border bg-accent-subtle/50"
+                              : "border-border bg-bg-primary"
+                          }`}
+                        >
+                          {isRenaming ? (
+                            <div className="mb-1.5 flex items-center gap-1.5">
+                              <input
+                                value={renamingChapterTitle}
+                                onChange={(e) => setRenamingChapterTitle(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    void submitRenameChapter(chapter);
+                                  } else if (e.key === "Escape") {
+                                    e.preventDefault();
+                                    cancelRenameChapter();
+                                  }
+                                }}
+                                className="w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => void submitRenameChapter(chapter)}
+                                className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                              >
+                                {t("chat.save")}
+                              </button>
+                              <button
+                                onClick={cancelRenameChapter}
+                                className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                              >
+                                {t("chat.cancel")}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="mb-1.5 flex items-start gap-1.5">
+                              <button
+                                className="min-w-0 flex-1 break-words text-left text-xs font-semibold text-text-primary hover:text-accent"
+                                onClick={() => setSelectedChapterId(chapter.id)}
+                              >
+                                {chapter.title}
+                              </button>
+                              <div className={`flex items-center gap-0.5 ${
+                                selectedChapterId === chapter.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
+                              }`}>
+                                <button
+                                  onClick={() => startRenameChapter(chapter)}
+                                  className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+                                  title={t("writing.rename")}
+                                >
+                                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={() => void deleteChapter(chapter)}
+                                  className="rounded-md p-1 text-text-tertiary hover:bg-danger-subtle hover:text-danger"
+                                  title={t("chat.delete")}
+                                >
+                                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        <div className="mb-1.5 flex flex-wrap gap-1 text-[10px] text-text-tertiary">
+                          <Badge>{chapter.settings.tone}</Badge>
+                          <Badge>{chapter.settings.pacing}</Badge>
+                          <Badge>{chapter.settings.pov.replace("_", " ")}</Badge>
+                        </div>
+                        {scenes
+                          .filter((scene) => scene.chapterId === chapter.id)
+                          .map((scene) => {
+                            const isInlineEditing = editingSceneId === scene.id;
+                            const isSavingInline = sceneEditBusyId === scene.id;
+                            return (
+                              <article
+                                key={scene.id}
+                                onClick={() => {
+                                  if (!isInlineEditing) setSelectedSceneId(scene.id);
+                                }}
+                                className={`group float-card mb-1 rounded-md border p-2 text-xs transition-colors ${
+                                  selectedSceneId === scene.id
+                                    ? "border-accent-border bg-accent-subtle"
+                                    : "border-border-subtle hover:bg-bg-hover"
+                                } ${isInlineEditing ? "" : "cursor-pointer"}`}
+                              >
+                                <div className="mb-0.5 flex items-center justify-between gap-2">
+                                  <div className="min-w-0 truncate font-semibold text-text-primary">{scene.title}</div>
+                                  {!isInlineEditing && (
+                                    <div className={`flex items-center gap-1 ${
+                                      selectedSceneId === scene.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
+                                    }`}>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          startInlineSceneEdit(scene);
+                                        }}
+                                        className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                                      >
+                                        {t("chat.edit")}
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          void deleteScene(scene);
+                                        }}
+                                        className="rounded-md border border-danger-border px-1.5 py-0.5 text-[10px] text-danger hover:bg-danger-subtle"
+                                      >
+                                        {t("chat.delete")}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                                {isInlineEditing ? (
+                                  <div className="space-y-1">
+                                    <textarea
+                                      value={editingSceneContent}
+                                      onChange={(e) => setEditingSceneContent(e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="h-28 w-full resize-y rounded-md border border-border bg-bg-secondary p-2 text-xs leading-relaxed text-text-primary"
+                                    />
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          void saveInlineSceneContent(scene);
+                                        }}
+                                        disabled={isSavingInline}
+                                        className="rounded-md bg-accent px-2 py-0.5 text-[10px] font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40"
+                                      >
+                                        {isSavingInline ? t("writing.working") : t("chat.save")}
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          cancelInlineSceneEdit();
+                                        }}
+                                        disabled={isSavingInline}
+                                        className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                                      >
+                                        {t("chat.cancel")}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="mt-0.5 line-clamp-2 text-text-tertiary">{scene.content}</p>
+                                )}
+                              </article>
+                            );
+                          })}
+                      </div>
+                    );
+                  })}
+                  </div>
+                )}
+              </div>
+
+              {selectedScene && (
+                <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-3">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-text-primary">{selectedScene.title}</span>
+                  </div>
+                  <p className="max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">
+                    {selectedScene.content}
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
       }
