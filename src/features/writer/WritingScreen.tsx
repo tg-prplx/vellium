@@ -1,7 +1,19 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ThreePanelLayout, Badge, EmptyState } from "../../components/Panels";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
+import { CollapsibleSection } from "./components/CollapsibleSection";
+import { WritingWorkspaceModeSwitch } from "./components/WritingWorkspaceModeSwitch";
+import { SimpleWriterEditor } from "./components/SimpleWriterEditor";
+import {
+  CHARACTER_AI_EDIT_FIELDS,
+  DEFAULT_CHAPTER_SETTINGS,
+  DEFAULT_PROJECT_NOTES,
+  DEFAULT_WRITER_CHARACTER_ADVANCED,
+  EMPTY_CHARACTER_EDIT_DRAFT,
+  LENS_PRESET_IDS,
+  SEVERITY_STYLES
+} from "./constants";
 import type {
   BookProject,
   Chapter,
@@ -20,90 +32,7 @@ import type {
   WriterSummaryLensScope
 } from "../../shared/types/contracts";
 
-const SEVERITY_STYLES: Record<string, { badge: "warning" | "danger" | "default"; border: string }> = {
-  low: { badge: "default", border: "border-border-subtle" },
-  medium: { badge: "warning", border: "border-warning-border" },
-  high: { badge: "danger", border: "border-danger-border" }
-};
-
-const DEFAULT_CHAPTER_SETTINGS: WriterChapterSettings = {
-  tone: "cinematic",
-  pacing: "balanced",
-  pov: "third_limited",
-  creativity: 0.7,
-  tension: 0.55,
-  detail: 0.65,
-  dialogue: 0.5
-};
-
-const DEFAULT_WRITER_CHARACTER_ADVANCED: WriterCharacterAdvancedOptions = {
-  name: "",
-  role: "",
-  personality: "",
-  scenario: "",
-  greetingStyle: "",
-  systemPrompt: "",
-  tags: "",
-  notes: ""
-};
-
-const DEFAULT_PROJECT_NOTES: WriterProjectNotes = {
-  premise: "",
-  styleGuide: "",
-  characterNotes: "",
-  worldRules: "",
-  contextMode: "balanced",
-  summary: ""
-};
-
-const LENS_PRESET_IDS = [
-  "characterArc",
-  "objectTracker",
-  "settingEvolution",
-  "timelineProgression",
-  "themeDevelopment"
-] as const;
-
 type LensPresetId = typeof LENS_PRESET_IDS[number];
-
-interface CollapsibleSectionProps {
-  title: string;
-  collapsed: boolean;
-  onToggle: () => void;
-  children: ReactNode;
-  action?: ReactNode;
-}
-
-function CollapsibleSection({ title, collapsed, onToggle, children, action }: CollapsibleSectionProps) {
-  return (
-    <section className="rounded-lg border border-border-subtle bg-bg-primary">
-      <div className="flex items-center justify-between gap-2 px-2.5 py-2">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex min-w-0 items-center gap-1.5 text-left"
-        >
-          <svg
-            className={`h-3 w-3 text-text-tertiary transition-transform ${collapsed ? "-rotate-90" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-          <span className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{title}</span>
-        </button>
-        {action}
-      </div>
-      {!collapsed && (
-        <div className="border-t border-border-subtle px-2.5 py-2">
-          {children}
-        </div>
-      )}
-    </section>
-  );
-}
 
 type WritingWorkspaceMode = "books" | "characters";
 
@@ -124,29 +53,7 @@ interface CharacterEditStatus {
   text: string;
 }
 
-const CHARACTER_AI_EDIT_FIELDS: WriterCharacterEditField[] = [
-  "name",
-  "description",
-  "personality",
-  "scenario",
-  "greeting",
-  "systemPrompt",
-  "mesExample",
-  "creatorNotes",
-  "tags"
-];
-
-const EMPTY_CHARACTER_EDIT_DRAFT: CharacterEditDraft = {
-  name: "",
-  description: "",
-  personality: "",
-  scenario: "",
-  greeting: "",
-  systemPrompt: "",
-  mesExample: "",
-  creatorNotes: "",
-  tagsText: ""
-};
+const EMPTY_CHARACTER_EDIT_DRAFT_TYPED: CharacterEditDraft = { ...EMPTY_CHARACTER_EDIT_DRAFT };
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
@@ -268,7 +175,7 @@ export function WritingScreen() {
   const [characterError, setCharacterError] = useState("");
   const [workspaceMode, setWorkspaceMode] = useState<WritingWorkspaceMode>("books");
   const [characterEditorId, setCharacterEditorId] = useState<string | null>(null);
-  const [characterEditDraft, setCharacterEditDraft] = useState<CharacterEditDraft>({ ...EMPTY_CHARACTER_EDIT_DRAFT });
+  const [characterEditDraft, setCharacterEditDraft] = useState<CharacterEditDraft>({ ...EMPTY_CHARACTER_EDIT_DRAFT_TYPED });
   const [characterEditBusy, setCharacterEditBusy] = useState(false);
   const [characterEditStatus, setCharacterEditStatus] = useState<CharacterEditStatus | null>(null);
   const [characterAiInstruction, setCharacterAiInstruction] = useState("");
@@ -1107,7 +1014,7 @@ export function WritingScreen() {
   useEffect(() => {
     if (characters.length === 0) {
       setCharacterEditorId(null);
-      setCharacterEditDraft({ ...EMPTY_CHARACTER_EDIT_DRAFT });
+      setCharacterEditDraft({ ...EMPTY_CHARACTER_EDIT_DRAFT_TYPED });
       return;
     }
     if (!characterEditorId || !characters.some((character) => character.id === characterEditorId)) {
@@ -1117,7 +1024,7 @@ export function WritingScreen() {
 
   useEffect(() => {
     if (!selectedCharacterToEdit) {
-      setCharacterEditDraft({ ...EMPTY_CHARACTER_EDIT_DRAFT });
+      setCharacterEditDraft({ ...EMPTY_CHARACTER_EDIT_DRAFT_TYPED });
       setCharacterEditStatus(null);
       return;
     }
@@ -1325,28 +1232,12 @@ export function WritingScreen() {
 
   function renderWorkspaceModeSwitch() {
     return (
-      <div className="inline-flex items-center rounded-md border border-border-subtle bg-bg-primary p-[2px]">
-        <button
-          onClick={() => setWorkspaceMode("books")}
-          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold leading-4 transition-colors ${
-            workspaceMode === "books"
-              ? "bg-accent text-text-inverse"
-              : "text-text-secondary hover:bg-bg-hover"
-          }`}
-        >
-          {t("writing.modeBooks")}
-        </button>
-        <button
-          onClick={() => setWorkspaceMode("characters")}
-          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold leading-4 transition-colors ${
-            workspaceMode === "characters"
-              ? "bg-accent text-text-inverse"
-              : "text-text-secondary hover:bg-bg-hover"
-          }`}
-        >
-          {t("writing.modeCharacters")}
-        </button>
-      </div>
+      <WritingWorkspaceModeSwitch
+        workspaceMode={workspaceMode}
+        booksLabel={t("writing.modeBooks")}
+        charactersLabel={t("writing.modeCharacters")}
+        onChange={setWorkspaceMode}
+      />
     );
   }
 
@@ -1968,115 +1859,28 @@ export function WritingScreen() {
           )}
 
           {writingSimpleModeActive ? (
-            <div className="writing-simple-editor-shell">
-              <div className="writing-simple-editor-main float-card rounded-lg border border-border-subtle bg-bg-primary p-2.5">
-                {selectedScene ? (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="grid min-w-0 flex-1 grid-cols-1 gap-1.5 md:grid-cols-2">
-                        <select
-                          value={selectedChapterId || ""}
-                          onChange={(e) => setSelectedChapterId(e.target.value || null)}
-                          className="min-w-0 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
-                        >
-                          <option value="">{t("writing.selectChapter")}</option>
-                          {chapters.map((chapter) => (
-                            <option key={chapter.id} value={chapter.id}>{chapter.title}</option>
-                          ))}
-                        </select>
-                        <select
-                          value={selectedSceneId || ""}
-                          onChange={(e) => setSelectedSceneId(e.target.value || null)}
-                          className="min-w-0 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
-                        >
-                          <option value="">{t("writing.selectScene")}</option>
-                          {selectedChapterScenes.map((scene) => (
-                            <option key={scene.id} value={scene.id}>{scene.title}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => { if (selectedScene) void deleteScene(selectedScene); }}
-                          className="rounded-md border border-danger-border px-2 py-1 text-[10px] text-danger hover:bg-danger-subtle"
-                          title={t("chat.delete")}
-                        >
-                          {t("chat.delete")}
-                        </button>
-                        {simpleSceneDraftDirty && (
-                          <span className="rounded-md border border-warning-border bg-warning-subtle px-1.5 py-0.5 text-[10px] text-warning">
-                            *
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!selectedScene) return;
-                            setSimpleSceneDraftId(selectedScene.id);
-                            setSimpleSceneDraftContent(selectedScene.content);
-                          }}
-                          disabled={!simpleSceneDraftDirty || simpleSceneDraftSaving}
-                          className="rounded-md border border-border px-2 py-1 text-[10px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
-                        >
-                          {t("chat.cancel")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => { void saveSimpleSceneContent(); }}
-                          disabled={!simpleSceneDraftDirty || simpleSceneDraftSaving}
-                          className="rounded-md bg-accent px-2 py-1 text-[10px] font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40"
-                        >
-                          {simpleSceneDraftSaving ? t("writing.working") : t("chat.save")}
-                        </button>
-                      </div>
-                    </div>
-                    <textarea
-                      value={simpleSceneDraftContent}
-                      onChange={(e) => setSimpleSceneDraftContent(e.target.value)}
-                      onKeyDown={(e) => {
-                        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-                          e.preventDefault();
-                          void saveSimpleSceneContent();
-                        }
-                      }}
-                      className="writing-simple-editor-textarea w-full resize-none rounded-lg border border-border bg-bg-secondary px-3 py-3 text-sm leading-relaxed text-text-primary placeholder:text-text-tertiary"
-                    />
-                  </div>
-                ) : (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <div className="mb-2 grid min-w-0 grid-cols-1 gap-1.5 md:grid-cols-2">
-                      <select
-                        value={selectedChapterId || ""}
-                        onChange={(e) => setSelectedChapterId(e.target.value || null)}
-                        className="min-w-0 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
-                      >
-                        <option value="">{t("writing.selectChapter")}</option>
-                        {chapters.map((chapter) => (
-                          <option key={chapter.id} value={chapter.id}>{chapter.title}</option>
-                        ))}
-                      </select>
-                      <select
-                        value={selectedSceneId || ""}
-                        onChange={(e) => setSelectedSceneId(e.target.value || null)}
-                        className="min-w-0 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
-                      >
-                        <option value="">{t("writing.selectScene")}</option>
-                        {selectedChapterScenes.map((scene) => (
-                          <option key={scene.id} value={scene.id}>{scene.title}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex-1 rounded-lg border border-border-subtle bg-bg-secondary">
-                      <EmptyState
-                        title={t("writing.noChapters")}
-                        description={activeProject ? t("writing.noChaptersDesc") : t("writing.selectProject")}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <SimpleWriterEditor
+              t={t}
+              chapters={chapters}
+              selectedChapter={selectedChapter}
+              selectedChapterId={selectedChapterId}
+              selectedScene={selectedScene}
+              selectedSceneId={selectedSceneId}
+              selectedChapterScenes={selectedChapterScenes}
+              simpleSceneDraftContent={simpleSceneDraftContent}
+              simpleSceneDraftDirty={simpleSceneDraftDirty}
+              simpleSceneDraftSaving={simpleSceneDraftSaving}
+              onSelectChapter={setSelectedChapterId}
+              onSelectScene={setSelectedSceneId}
+              onDeleteScene={(scene) => { void deleteScene(scene); }}
+              onChangeDraft={setSimpleSceneDraftContent}
+              onResetDraft={() => {
+                if (!selectedScene) return;
+                setSimpleSceneDraftId(selectedScene.id);
+                setSimpleSceneDraftContent(selectedScene.content);
+              }}
+              onSaveDraft={() => { void saveSimpleSceneContent(); }}
+            />
           ) : (
             <>
               <div>

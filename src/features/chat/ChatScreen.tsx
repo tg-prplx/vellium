@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../components/Panels";
 import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
-import { marked } from "marked";
 import type {
   BranchNode,
   ChatMessage,
@@ -18,128 +17,41 @@ import type {
   ProviderModel,
   UserPersona
 } from "../../shared/types/contracts";
-
-// Configure marked for safe rendering
-marked.setOptions({
-  breaks: true,
-  gfm: true
-});
-
-/** Replace {{char}} and {{user}} placeholders in text */
-function replacePlaceholders(text: string, charName?: string, userName?: string): string {
-  let result = text;
-  if (charName) {
-    result = result.replace(/\{\{char\}\}/gi, charName);
-  }
-  if (userName) {
-    result = result.replace(/\{\{user\}\}/gi, userName);
-  }
-  return result;
-}
-
-/** Render markdown to sanitized HTML */
-function renderMarkdown(text: string): string {
-  return marked.parse(text, { async: false }) as string;
-}
-
-/** Combined: replace placeholders + render markdown */
-function renderContent(text: string, charName?: string, userName?: string): string {
-  const replaced = replacePlaceholders(text, charName, userName);
-  return renderMarkdown(replaced);
-}
-
-function guessMimeType(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase() || "";
-  const map: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    gif: "image/gif",
-    webp: "image/webp",
-    bmp: "image/bmp",
-    svg: "image/svg+xml"
-  };
-  return map[ext] || "application/octet-stream";
-}
-
-function imageSourceFromAttachment(att: FileAttachment): string | null {
-  if (att.type !== "image") return null;
-  if (att.dataUrl?.startsWith("data:image/")) return att.dataUrl;
-  if (att.url?.startsWith("http://") || att.url?.startsWith("https://") || att.url?.startsWith("/")) return att.url;
-  return null;
-}
-
-const RP_PRESETS = ["slowburn", "dominant", "romantic", "action", "mystery", "submissive", "seductive", "gentle_fem", "rough", "passionate"] as const;
-const DEFAULT_AUTHOR_NOTE = "Stay in character, avoid repetition, keep sensual pacing controlled.";
-type ChatMode = "rp" | "light_rp" | "pure_chat";
-const DEFAULT_PROMPT_STACK: PromptBlock[] = [
-  { id: "default-1", kind: "system", enabled: true, order: 1, content: "" },
-  { id: "default-2", kind: "jailbreak", enabled: true, order: 2, content: "Never break character. Write as the character would, staying true to their personality." },
-  { id: "default-3", kind: "character", enabled: true, order: 3, content: "" },
-  { id: "default-4", kind: "author_note", enabled: true, order: 4, content: "" },
-  { id: "default-5", kind: "lore", enabled: false, order: 5, content: "" },
-  { id: "default-6", kind: "scene", enabled: true, order: 6, content: "" },
-  { id: "default-7", kind: "history", enabled: true, order: 7, content: "" }
-];
-const DEFAULT_SCENE_FIELD_VISIBILITY = {
-  dialogueStyle: true,
-  initiative: true,
-  descriptiveness: true,
-  unpredictability: true,
-  emotionalDepth: true
-};
-
-function normalizePromptStack(raw: PromptBlock[] | null | undefined): PromptBlock[] {
-  if (!Array.isArray(raw) || raw.length === 0) return [...DEFAULT_PROMPT_STACK];
-  return [...raw]
-    .sort((a, b) => a.order - b.order)
-    .map((block, index) => ({ ...block, order: index + 1 }));
-}
-
-function resolveChatMode(state: Partial<RpSceneState> | null | undefined): ChatMode {
-  if (state?.chatMode === "rp" || state?.chatMode === "light_rp" || state?.chatMode === "pure_chat") {
-    return state.chatMode;
-  }
-  if (state?.pureChatMode === true) return "pure_chat";
-  return "rp";
-}
-const DEFAULT_SCENE_STATE: Omit<RpSceneState, "chatId"> = {
-  variables: {
-    dialogueStyle: "teasing",
-    initiative: "65",
-    descriptiveness: "70",
-    unpredictability: "45",
-    emotionalDepth: "75"
-  },
-  mood: "teasing",
-  pacing: "slow",
-  intensity: 0.7,
-  chatMode: "rp",
-  pureChatMode: false
-};
-
-function sanitizeSceneVariables(variables: Record<string, string> | null | undefined): Record<string, string> {
-  const next = { ...(variables || {}) };
-  delete next.location;
-  delete next.time;
-  return next;
-}
-
-function readSceneVarPercent(variables: Record<string, string>, key: string, fallback: number): number {
-  const raw = Number(variables[key]);
-  if (!Number.isFinite(raw)) return fallback;
-  return Math.max(0, Math.min(100, Math.round(raw)));
-}
-
-interface ParsedToolCallContent {
-  callId: string;
-  name: string;
-  args: string;
-  result: string;
-}
-
-const REASONING_CALL_NAME = "__reasoning__";
-const MESSAGE_DELETE_ANIMATION_MS = 180;
+import {
+  DEFAULT_AUTHOR_NOTE,
+  DEFAULT_PROMPT_STACK,
+  DEFAULT_SCENE_FIELD_VISIBILITY,
+  DEFAULT_SCENE_STATE,
+  MESSAGE_DELETE_ANIMATION_MS,
+  REASONING_CALL_NAME,
+  RP_PRESETS,
+  type ChatMode
+} from "./constants";
+import {
+  guessMimeType,
+  imageSourceFromAttachment,
+  normalizePromptStack,
+  parseToolCallContent,
+  readSceneVarPercent,
+  renderContent,
+  resolveChatMode,
+  sanitizeSceneVariables,
+  type ParsedToolCallContent
+} from "./utils";
+import {
+  buildActivePersonaPayload,
+  calcSimpleHomeComposerWidth,
+  filterChatsByQuery,
+  groupToolMessages,
+  resolveActiveProviderType,
+  type GroupedToolMessage
+} from "./derived";
+import {
+  useActiveChatHydration,
+  useChatBootstrap,
+  useProviderModelLoader,
+  useTimelineLoader
+} from "./hooks";
 
 interface StreamingToolCall {
   callId: string;
@@ -147,38 +59,6 @@ interface StreamingToolCall {
   args: string;
   status: "running" | "done";
   result?: string;
-}
-
-interface GroupedToolMessage {
-  id: string;
-  createdAt: string;
-  payload: ParsedToolCallContent;
-}
-
-function parseToolCallContent(content: string): ParsedToolCallContent {
-  try {
-    const parsed = JSON.parse(content) as Partial<ParsedToolCallContent> & { kind?: string };
-    if (parsed && typeof parsed === "object" && parsed.kind === "tool_call") {
-      return {
-        callId: String(parsed.callId || "").trim(),
-        name: String(parsed.name || "tool").trim() || "tool",
-        args: String(parsed.args || "{}"),
-        result: String(parsed.result || "")
-      };
-    }
-  } catch {
-    // Legacy tool format fallback below.
-  }
-
-  const lines = String(content || "").split("\n");
-  const first = lines.find((line) => line.startsWith("Tool:")) || "";
-  const name = first.replace(/^Tool:\s*/i, "").trim() || "tool";
-  return {
-    callId: "",
-    name,
-    args: "{}",
-    result: String(content || "")
-  };
 }
 
 export function ChatScreen() {
@@ -331,10 +211,7 @@ export function ChatScreen() {
   const hasDraftPayload = input.trim().length > 0 || attachments.length > 0;
   const canResendLast = messages.length > 0 && messages[messages.length - 1]?.role === "user";
   const simpleHomeComposerWidth = useMemo(() => {
-    if (!simpleHomeState) return "100%";
-    const draftLen = Math.max(input.trim().length, 0);
-    const width = Math.min(92, 58 + Math.ceil(draftLen / 7) + (attachments.length > 0 ? 6 : 0));
-    return `${Math.max(58, width)}%`;
+    return calcSimpleHomeComposerWidth(simpleHomeState, input, attachments.length);
   }, [simpleHomeState, input, attachments.length]);
   const systemPromptBlock = useMemo(
     () => orderedBlocks.find((block) => block.kind === "system") || null,
@@ -350,60 +227,16 @@ export function ChatScreen() {
     [messages]
   );
   const groupedToolsByParent = useMemo(() => {
-    const toolGrouped = new Map<string, GroupedToolMessage[]>();
-    const reasoningGrouped = new Map<string, GroupedToolMessage[]>();
-    for (const msg of messages) {
-      if (msg.role !== "tool") continue;
-      const parentId = String(msg.parentId || "").trim();
-      if (!parentId) continue;
-      const payload = parseToolCallContent(msg.content);
-      const target = payload.name === REASONING_CALL_NAME ? reasoningGrouped : toolGrouped;
-      const bucket = target.get(parentId) || [];
-      bucket.push({
-        id: msg.id,
-        createdAt: msg.createdAt,
-        payload
-      });
-      target.set(parentId, bucket);
-    }
-    for (const [key, bucket] of toolGrouped.entries()) {
-      bucket.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      toolGrouped.set(key, bucket);
-    }
-    for (const [key, bucket] of reasoningGrouped.entries()) {
-      bucket.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      reasoningGrouped.set(key, bucket);
-    }
-    return {
-      toolGrouped,
-      reasoningGrouped
-    };
+    return groupToolMessages(messages);
   }, [messages]);
   const activePersonaPayload = useMemo(() => {
-    if (!activePersona) return null;
-    return {
-      name: activePersona.name || t("chat.user"),
-      description: activePersona.description || "",
-      personality: activePersona.personality || "",
-      scenario: activePersona.scenario || ""
-    };
+    return buildActivePersonaPayload(activePersona, t("chat.user"));
   }, [activePersona, t]);
   const activeProviderType = useMemo(() => {
-    const provider = providers.find((item) => item.id === chatProviderId);
-    return provider?.providerType || "openai";
+    return resolveActiveProviderType(providers, chatProviderId);
   }, [providers, chatProviderId]);
   const filteredChats = useMemo(() => {
-    const query = chatSearchQuery.trim().toLowerCase();
-    if (!query) return chats;
-    return chats.filter((chat) => {
-      const ids = chat.characterIds?.length ? chat.characterIds : (chat.characterId ? [chat.characterId] : []);
-      const names = ids
-        .map((id) => characters.find((item) => item.id === id)?.name || "")
-        .filter(Boolean)
-        .join(" ");
-      const haystack = `${chat.title} ${names}`.toLowerCase();
-      return haystack.includes(query);
-    });
+    return filterChatsByQuery(chats, chatSearchQuery, characters);
   }, [chats, chatSearchQuery, characters]);
 
   useEffect(() => {
@@ -493,45 +326,25 @@ export function ChatScreen() {
     };
   }, [showModelSelector]);
 
-  // Load chats, settings, characters, providers
-  useEffect(() => {
-    api.chatList().then((list) => {
-      setChats(list);
-      if (list[0]) setActiveChat(list[0]);
-    });
-    api.settingsGet().then((settings) => {
-      if (settings.activeProviderId) {
-        setChatProviderId(settings.activeProviderId);
-      }
-      if (settings.activeModel) {
-        setActiveModelLabel(`${settings.activeModel}`);
-        setChatModelId(settings.activeModel);
-      } else {
-        setActiveModelLabel("");
-        setChatModelId("");
-      }
-      if (settings.samplerConfig) setSamplerConfig(settings.samplerConfig);
-      setPromptStack(normalizePromptStack(settings.promptStack));
-      setAlternateSimpleMode(settings.alternateSimpleMode === true);
-      setSimpleSidebarOpen(settings.alternateSimpleMode !== true);
-      setSceneFieldVisibility({
-        ...DEFAULT_SCENE_FIELD_VISIBILITY,
-        ...(settings.sceneFieldVisibility || {})
-      });
-      if (Number.isFinite(Number(settings.ragTopK))) {
-        setChatRagTopK(Math.max(1, Math.min(12, Math.floor(Number(settings.ragTopK)))));
-      }
-    });
-    api.characterList().then(setCharacters).catch(() => {});
-    api.lorebookList().then(setLorebooks).catch(() => {});
-    api.ragCollectionList().then(setRagCollections).catch(() => {});
-    api.providerList().then(setProviders).catch(() => {});
-    api.personaList().then((list) => {
-      setPersonas(list);
-      const def = list.find((p) => p.isDefault);
-      if (def) setActivePersona(def);
-    }).catch(() => {});
-  }, []);
+  useChatBootstrap({
+    setChats,
+    setActiveChat,
+    setChatProviderId,
+    setActiveModelLabel,
+    setChatModelId,
+    setSamplerConfig,
+    setPromptStack,
+    setAlternateSimpleMode,
+    setSimpleSidebarOpen,
+    setSceneFieldVisibility,
+    setChatRagTopK,
+    setCharacters,
+    setLorebooks,
+    setRagCollections,
+    setProviders,
+    setPersonas,
+    setActivePersona
+  });
 
   useEffect(() => {
     return () => {
@@ -549,151 +362,40 @@ export function ChatScreen() {
     };
   }, []);
 
-  // Auto-load models when provider changes
-  useEffect(() => {
-    if (!chatProviderId) { setModels([]); setChatModelId(""); return; }
-    setLoadingModels(true);
-    api.providerFetchModels(chatProviderId)
-      .then((list) => {
-        setModels(list);
-        setChatModelId((prev) => {
-          if (list.length === 0) return "";
-          return list.some((m) => m.id === prev) ? prev : list[0].id;
-        });
-      })
-      .catch(() => {
-        setModels([]);
-        setChatModelId("");
-      })
-      .finally(() => setLoadingModels(false));
-  }, [chatProviderId]);
+  useProviderModelLoader({
+    chatProviderId,
+    setModels,
+    setChatModelId,
+    setLoadingModels
+  });
 
-  useEffect(() => {
-    if (!activeChat) {
-      setMessages([]);
-      setBranches([]);
-      setActiveBranchId(null);
-      setChatCharacterIds([]);
-      setActiveLorebookId(null);
-      setChatRagEnabled(false);
-      setChatRagCollectionIds([]);
-      setSceneState({ chatId: "", ...DEFAULT_SCENE_STATE });
-      setAuthorNote(DEFAULT_AUTHOR_NOTE);
-      setActivePreset(null);
-      setToolPanelsExpanded({});
-      setReasoningPanelsExpanded({});
-      return;
-    }
-    const chatId = activeChat.id;
-    let cancelled = false;
+  useActiveChatHydration({
+    activeChat,
+    setMessages,
+    setBranches,
+    setActiveBranchId,
+    setChatCharacterIds,
+    setActiveLorebookId,
+    setChatRagEnabled,
+    setChatRagCollectionIds,
+    setSceneState,
+    setAuthorNote,
+    setActivePreset,
+    setToolPanelsExpanded,
+    setReasoningPanelsExpanded,
+    setSamplerConfig,
+    setLorebooks,
+    setSamplerSaved,
+    samplerInitializedRef,
+    authorNoteInitializedRef,
+    sceneStateInitializedRef
+  });
 
-    samplerInitializedRef.current = false;
-    authorNoteInitializedRef.current = false;
-    sceneStateInitializedRef.current = false;
-
-    api.chatBranches(chatId).then((list) => {
-      if (cancelled) return;
-      setBranches(list);
-      setActiveBranchId((prev) => {
-        if (prev && list.some((branch) => branch.id === prev)) return prev;
-        return list[0]?.id ?? null;
-      });
-    }).catch(() => {
-      if (cancelled) return;
-      setBranches([]);
-      setActiveBranchId(null);
-    });
-
-    // Load per-chat sampler config
-    api.chatGetSampler(chatId).then((config) => {
-      if (cancelled) return;
-      setSamplerConfig((prev) => (config ? { ...prev, ...config } : prev));
-      samplerInitializedRef.current = true;
-    }).catch(() => {
-      if (cancelled) return;
-      samplerInitializedRef.current = true;
-    });
-
-    api.rpGetSceneState(chatId).then((state) => {
-      if (cancelled) return;
-      if (state) {
-        const nextMode = resolveChatMode(state);
-        setSceneState({
-          chatId,
-          mood: state.mood || DEFAULT_SCENE_STATE.mood,
-          pacing: state.pacing || DEFAULT_SCENE_STATE.pacing,
-          intensity: typeof state.intensity === "number" ? state.intensity : DEFAULT_SCENE_STATE.intensity,
-          variables: sanitizeSceneVariables(state.variables),
-          chatMode: nextMode,
-          pureChatMode: nextMode === "pure_chat"
-        });
-      } else {
-        setSceneState({ chatId, ...DEFAULT_SCENE_STATE });
-      }
-      sceneStateInitializedRef.current = true;
-    }).catch(() => {
-      if (cancelled) return;
-      setSceneState({ chatId, ...DEFAULT_SCENE_STATE });
-      sceneStateInitializedRef.current = true;
-    });
-
-    api.rpGetAuthorNote(chatId).then((result) => {
-      if (cancelled) return;
-      setAuthorNote(result.authorNote || DEFAULT_AUTHOR_NOTE);
-      authorNoteInitializedRef.current = true;
-    }).catch(() => {
-      if (cancelled) return;
-      setAuthorNote(DEFAULT_AUTHOR_NOTE);
-      authorNoteInitializedRef.current = true;
-    });
-
-    api.chatGetPreset(chatId).then((result) => {
-      if (cancelled) return;
-      setActivePreset(result.presetId || null);
-    }).catch(() => {
-      if (cancelled) return;
-      setActivePreset(null);
-    });
-
-    api.lorebookList().then((list) => {
-      if (cancelled) return;
-      setLorebooks(list);
-    }).catch(() => {});
-
-    // Load multi-char state
-    setChatCharacterIds(activeChat.characterIds || (activeChat.characterId ? [activeChat.characterId] : []));
-    setActiveLorebookId(activeChat.lorebookId || null);
-    api.chatGetRag(chatId).then((binding) => {
-      if (cancelled) return;
-      setChatRagEnabled(binding.enabled === true);
-      setChatRagCollectionIds(Array.isArray(binding.collectionIds) ? binding.collectionIds : []);
-    }).catch(() => {
-      if (cancelled) return;
-      setChatRagEnabled(false);
-      setChatRagCollectionIds([]);
-    });
-    setToolPanelsExpanded({});
-    setReasoningPanelsExpanded({});
-    setSamplerSaved(false);
-    return () => {
-      cancelled = true;
-    };
-  }, [activeChat]);
-
-  useEffect(() => {
-    if (!activeChat) return;
-    let cancelled = false;
-    api.chatTimeline(activeChat.id, activeBranchId || undefined).then((timeline) => {
-      if (cancelled) return;
-      setMessages(timeline);
-    }).catch(() => {
-      if (cancelled) return;
-      setMessages([]);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeChat?.id, activeBranchId]);
+  useTimelineLoader({
+    activeChatId: activeChat?.id,
+    activeBranchId,
+    setMessages
+  });
 
   // Auto-save sampler config when it changes (debounced)
   useEffect(() => {
