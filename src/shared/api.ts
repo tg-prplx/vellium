@@ -405,6 +405,10 @@ export const api = {
     patchReq<BookProject>(`/writer/projects/${projectId}/characters`, { characterIds }),
   writerProjectOpen: (projectId: string) =>
     get<{ project: BookProject; chapters: Chapter[]; scenes: Scene[] }>(`/writer/projects/${projectId}`),
+  writerProjectGetRag: (projectId: string) =>
+    get<RagBinding>(`/writer/projects/${projectId}/rag`),
+  writerProjectSaveRag: (projectId: string, enabled: boolean, collectionIds: string[]) =>
+    patchReq<RagBinding>(`/writer/projects/${projectId}/rag`, { enabled, collectionIds }),
   writerProjectUpdateNotes: (projectId: string, notes: Partial<WriterProjectNotes>) =>
     patchReq<{ project: BookProject }>(`/writer/projects/${projectId}/notes`, { notes }),
   writerProjectImportDocx: (projectId: string, base64Data: string, filename: string, parseMode: WriterDocxParseMode = "auto") =>

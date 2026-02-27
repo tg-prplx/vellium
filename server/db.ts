@@ -272,6 +272,14 @@ db.exec(`
     updated_at TEXT NOT NULL,
     FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS writer_rag_bindings (
+    project_id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    collection_ids TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES writer_projects(id) ON DELETE CASCADE
+  );
 `);
 
 try {
@@ -369,6 +377,10 @@ const DEFAULT_SETTINGS = {
   translateModel: null,
   ragProviderId: null,
   ragModel: null,
+  ragRerankEnabled: false,
+  ragRerankProviderId: null,
+  ragRerankModel: null,
+  ragRerankTopN: 40,
   ragTopK: 6,
   ragCandidateCount: 80,
   ragSimilarityThreshold: 0.15,

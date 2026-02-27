@@ -7,6 +7,7 @@ import type {
   Chapter,
   CharacterDetail,
   ConsistencyIssue,
+  RagCollection,
   ProviderModel,
   ProviderProfile,
   Scene,
@@ -240,6 +241,9 @@ export function WritingScreen() {
   const [chapterSettings, setChapterSettings] = useState<WriterChapterSettings>({ ...DEFAULT_CHAPTER_SETTINGS });
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [models, setModels] = useState<ProviderModel[]>([]);
+  const [ragCollections, setRagCollections] = useState<RagCollection[]>([]);
+  const [writerRagEnabled, setWriterRagEnabled] = useState(false);
+  const [writerRagCollectionIds, setWriterRagCollectionIds] = useState<string[]>([]);
   const [writerProviderId, setWriterProviderId] = useState("");
   const [writerModelId, setWriterModelId] = useState("");
   const [activeModelLabel, setActiveModelLabel] = useState("");
@@ -278,6 +282,7 @@ export function WritingScreen() {
     api.writerProjectList().then(setProjects);
     api.characterList().then(setCharacters).catch(() => {});
     api.providerList().then(setProviders).catch(() => {});
+    api.ragCollectionList().then(setRagCollections).catch(() => {});
     api.settingsGet().then((settings) => {
       setAlternateSimpleMode(settings.alternateSimpleMode === true);
       setSimpleWritingLibraryOpen(settings.alternateSimpleMode !== true);
@@ -374,6 +379,8 @@ export function WritingScreen() {
     setLensPromptDraft("");
     setLensScopeDraft("project");
     setLensTargetDraft("");
+    setWriterRagEnabled(false);
+    setWriterRagCollectionIds([]);
   }
 
   function startRenameProject(project: BookProject) {
@@ -424,6 +431,8 @@ export function WritingScreen() {
         setChapterSettings({ ...DEFAULT_CHAPTER_SETTINGS });
         setSummaryLenses([]);
         setLensOutputExpanded({});
+        setWriterRagEnabled(false);
+        setWriterRagCollectionIds([]);
       }
       log(`${t("writing.logBookDeleted")}: ${deletingName}`);
     } catch (err) {
@@ -521,10 +530,25 @@ export function WritingScreen() {
     }
   }
 
+  async function updateWriterRag(nextEnabled: boolean, nextCollectionIds: string[]) {
+    if (!activeProject) return;
+    const normalizedIds = Array.from(new Set(nextCollectionIds.filter(Boolean)));
+    setWriterRagEnabled(nextEnabled);
+    setWriterRagCollectionIds(normalizedIds);
+    try {
+      const binding = await api.writerProjectSaveRag(activeProject.id, nextEnabled, normalizedIds);
+      setWriterRagEnabled(binding.enabled === true);
+      setWriterRagCollectionIds(Array.isArray(binding.collectionIds) ? binding.collectionIds : []);
+    } catch (err) {
+      log(`${t("writing.logError")}: ${String(err)}`);
+    }
+  }
+
   async function openProject(project: BookProject) {
-    const [loaded, lenses] = await Promise.all([
+    const [loaded, lenses, ragBinding] = await Promise.all([
       api.writerProjectOpen(project.id),
-      api.writerSummaryLensList(project.id).catch(() => [])
+      api.writerSummaryLensList(project.id).catch(() => []),
+      api.writerProjectGetRag(project.id).catch(() => ({ enabled: false, collectionIds: [], updatedAt: null }))
     ]);
     cancelRenameProject();
     setRenamingChapterId(null);
@@ -538,6 +562,8 @@ export function WritingScreen() {
     setChapterSettings(loaded.chapters[0]?.settings ?? { ...DEFAULT_CHAPTER_SETTINGS });
     setSummaryLenses(lenses);
     setLensOutputExpanded(Object.fromEntries(lenses.map((lens) => [lens.id, false])));
+    setWriterRagEnabled(ragBinding.enabled === true);
+    setWriterRagCollectionIds(Array.isArray(ragBinding.collectionIds) ? ragBinding.collectionIds : []);
   }
 
   async function createChapter() {
@@ -1207,6 +1233,10 @@ export function WritingScreen() {
   }
 
   const selectedScene = useMemo(() => scenes.find((s) => s.id === selectedSceneId) ?? null, [scenes, selectedSceneId]);
+  const writerRagCollectionsAvailable = useMemo(
+    () => ragCollections.filter((collection) => collection.scope === "global" || collection.scope === "writer"),
+    [ragCollections]
+  );
   const filteredProjects = useMemo(() => {
     const q = bookSearchQuery.trim().toLowerCase();
     if (!q) return projects;
@@ -1677,6 +1707,50 @@ export function WritingScreen() {
                 {t("writing.useModel")}
               </button>
             </div>
+          </div>
+
+          <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-2.5">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.ragEnabled")}</span>
+              <span className="text-[10px] text-text-tertiary">{t("chat.ragTopK")}</span>
+            </div>
+            <label className="mb-2.5 flex items-center justify-between gap-3 text-xs text-text-secondary">
+              <span>{t("chat.ragEnabled")}</span>
+              <input
+                type="checkbox"
+                checked={writerRagEnabled}
+                disabled={!activeProject}
+                onChange={(e) => { void updateWriterRag(e.target.checked, writerRagCollectionIds); }}
+                className="h-4 w-4 rounded border-border text-accent focus:ring-accent"
+              />
+            </label>
+            <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.ragCollections")}</div>
+            {writerRagCollectionsAvailable.length === 0 ? (
+              <p className="mt-1.5 text-[10px] text-text-tertiary">{t("chat.ragNoCollections")}</p>
+            ) : (
+              <div className="mt-1.5 max-h-28 space-y-1 overflow-y-auto pr-1">
+                {writerRagCollectionsAvailable.map((collection) => {
+                  const checked = writerRagCollectionIds.includes(collection.id);
+                  return (
+                    <label key={collection.id} className="flex items-center gap-2 text-[11px] text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!activeProject}
+                        onChange={(e) => {
+                          const nextIds = e.target.checked
+                            ? [...writerRagCollectionIds, collection.id]
+                            : writerRagCollectionIds.filter((id) => id !== collection.id);
+                          void updateWriterRag(writerRagEnabled || e.target.checked, nextIds);
+                        }}
+                        className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent"
+                      />
+                      <span className="truncate">{collection.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-1.5">

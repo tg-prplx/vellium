@@ -8,6 +8,7 @@ import { db, newId, now, DATA_DIR, DEFAULT_SETTINGS } from "../db.js";
 import { runConsistency } from "../domain/writerEngine.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
 import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
+import { getWriterRagBinding, retrieveWriterRagContext, setWriterRagBinding } from "../services/rag.js";
 
 const router = Router();
 const KOBOLD_TAGS = {
@@ -1004,6 +1005,28 @@ function buildProjectContinuationContextPack(projectId: string, notes: WriterPro
   return truncateForPrompt(out, limits.total);
 }
 
+async function buildWriterRagDirective(projectId: string, settings: Record<string, unknown>, queryParts: Array<string | null | undefined>): Promise<string> {
+  const query = truncateForPrompt(
+    queryParts
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .join("\n\n"),
+    8000
+  );
+  if (!query) return "";
+  const ragResult = await retrieveWriterRagContext({
+    projectId,
+    queryText: query,
+    settings
+  });
+  if (!ragResult.context) return "";
+  return [
+    "[Retrieved Knowledge]",
+    ragResult.context,
+    "Use retrieved knowledge only when relevant. If it conflicts with explicit writing instructions, follow the writing instructions."
+  ].join("\n\n");
+}
+
 async function summarizeWithCache(cacheKey: { kind: "chapter"; id: string } | { kind: "project"; id: string }, hash: string, systemPrompt: string, userPrompt: string): Promise<{ summary: string; cached: boolean }> {
   const selectSql = cacheKey.kind === "chapter"
     ? "SELECT summary, content_hash FROM writer_chapter_summaries WHERE chapter_id = ?"
@@ -1663,6 +1686,33 @@ router.patch("/projects/:id/notes", (req, res) => {
   });
 });
 
+router.get("/projects/:id/rag", (req, res) => {
+  const projectId = req.params.id;
+  const row = db.prepare("SELECT id FROM writer_projects WHERE id = ?")
+    .get(projectId) as { id: string } | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+  const settings = getSettings();
+  const binding = getWriterRagBinding(projectId, settings as Record<string, unknown>);
+  res.json(binding);
+});
+
+router.patch("/projects/:id/rag", (req, res) => {
+  const projectId = req.params.id;
+  const row = db.prepare("SELECT id FROM writer_projects WHERE id = ?")
+    .get(projectId) as { id: string } | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+  const enabled = req.body?.enabled === true;
+  const collectionIds = Array.isArray(req.body?.collectionIds) ? req.body.collectionIds : [];
+  const binding = setWriterRagBinding(projectId, enabled, collectionIds);
+  res.json(binding);
+});
+
 router.delete("/projects/:id", (req, res) => {
   const projectId = req.params.id;
   const row = db.prepare("SELECT id FROM writer_projects WHERE id = ?")
@@ -1680,6 +1730,7 @@ router.delete("/projects/:id", (req, res) => {
     db.prepare("DELETE FROM writer_chapters WHERE project_id = ?").run(id);
     db.prepare("DELETE FROM writer_project_summaries WHERE project_id = ?").run(id);
     db.prepare("DELETE FROM writer_summary_lenses WHERE project_id = ?").run(id);
+    db.prepare("DELETE FROM writer_rag_bindings WHERE project_id = ?").run(id);
     db.prepare("DELETE FROM writer_beats WHERE project_id = ?").run(id);
     db.prepare("DELETE FROM writer_consistency_reports WHERE project_id = ?").run(id);
     db.prepare("DELETE FROM writer_exports WHERE project_id = ?").run(id);
@@ -2143,6 +2194,11 @@ router.post("/projects/:id/generate-next-chapter", async (req, res) => {
   const prompt = toCleanText(req.body?.prompt, 5000);
 
   const settings = getSettings();
+  const writerRagDirective = await buildWriterRagDirective(projectId, settings as Record<string, unknown>, [
+    prompt,
+    continuationContext,
+    projectNotes.summary
+  ]);
   const systemPrompt = [
     settings.promptTemplates.writerGenerate,
     buildChapterDirective(chapterSettings),
@@ -2155,7 +2211,8 @@ router.post("/projects/:id/generate-next-chapter", async (req, res) => {
     "Write the next chapter of this book as a direct continuation of previous events.",
     "Preserve continuity of facts, relationships, and unresolved threads. Move the story forward with concrete new developments.",
     prompt ? `[Additional Direction]\n${prompt}` : "",
-    continuationContext ? `[Context Pack]\n${continuationContext}` : ""
+    continuationContext ? `[Context Pack]\n${continuationContext}` : "",
+    writerRagDirective
   ].filter(Boolean).join("\n\n");
 
   const content = String(await callLlm(systemPrompt, userPrompt, createWriterSampler(settings.samplerConfig, chapterSettings)) || "").trim();
@@ -2205,8 +2262,8 @@ router.post("/projects/:id/generate-next-chapter", async (req, res) => {
 router.post("/chapters/:id/generate-draft", async (req, res) => {
   const chapterId = req.params.id;
   const { prompt } = req.body;
-  const chapter = db.prepare("SELECT project_id, settings_json FROM writer_chapters WHERE id = ?")
-    .get(chapterId) as { project_id: string; settings_json: string | null } | undefined;
+  const chapter = db.prepare("SELECT project_id, title, settings_json FROM writer_chapters WHERE id = ?")
+    .get(chapterId) as { project_id: string; title: string; settings_json: string | null } | undefined;
   if (!chapter) {
     res.status(404).json({ error: "Chapter not found" });
     return;
@@ -2221,6 +2278,12 @@ router.post("/chapters/:id/generate-draft", async (req, res) => {
   const settings = getSettings();
   const projectNotes = parseProjectNotes(project?.notes_json);
   const projectContext = buildProjectContextPack(chapter.project_id, chapterId, projectNotes);
+  const writerRagDirective = await buildWriterRagDirective(chapter.project_id, settings as Record<string, unknown>, [
+    chapter.title,
+    String(prompt || ""),
+    projectContext,
+    projectNotes.summary
+  ]);
   const systemPrompt = [
     settings.promptTemplates.writerGenerate,
     buildChapterDirective(chapterSettings),
@@ -2231,7 +2294,8 @@ router.post("/chapters/:id/generate-draft", async (req, res) => {
   const userPrompt = [
     "[Writing Task]",
     String(prompt || ""),
-    projectContext ? `[Context Pack]\n${projectContext}` : ""
+    projectContext ? `[Context Pack]\n${projectContext}` : "",
+    writerRagDirective
   ].filter(Boolean).join("\n\n");
   const content = await callLlm(systemPrompt, userPrompt, sampler);
   const titleMatch = content.match(/^#\s*(.+)/m);
@@ -2265,6 +2329,14 @@ router.post("/scenes/:id/expand", async (req, res) => {
   const chapterSettings = parseChapterSettings(chapter?.settings_json);
   const projectNotes = parseProjectNotes(project?.notes_json);
   const projectContext = chapter ? buildProjectContextPack(chapter.project_id, row.chapter_id, projectNotes) : "";
+  const writerRagDirective = chapter
+    ? await buildWriterRagDirective(chapter.project_id, settings as Record<string, unknown>, [
+      row.title,
+      row.content,
+      projectContext,
+      projectNotes.summary
+    ])
+    : "";
   const systemPrompt = [
     settings.promptTemplates.writerExpand,
     buildChapterDirective(chapterSettings),
@@ -2274,7 +2346,7 @@ router.post("/scenes/:id/expand", async (req, res) => {
   const sampler = createWriterSampler(settings.samplerConfig, chapterSettings);
   const expanded = await callLlm(
     systemPrompt,
-    [projectContext ? `[Context Pack]\n${projectContext}` : "", row.content].filter(Boolean).join("\n\n"),
+    [projectContext ? `[Context Pack]\n${projectContext}` : "", writerRagDirective, row.content].filter(Boolean).join("\n\n"),
     sampler
   );
 
@@ -2305,6 +2377,15 @@ router.post("/scenes/:id/rewrite", async (req, res) => {
   const chapterSettings = parseChapterSettings(chapter?.settings_json);
   const projectNotes = parseProjectNotes(project?.notes_json);
   const projectContext = chapter ? buildProjectContextPack(chapter.project_id, row.chapter_id, projectNotes) : "";
+  const writerRagDirective = chapter
+    ? await buildWriterRagDirective(chapter.project_id, settings as Record<string, unknown>, [
+      row.title,
+      row.content,
+      toneRaw,
+      projectContext,
+      projectNotes.summary
+    ])
+    : "";
   const mergedToneSettings = normalizeChapterSettings({
     ...chapterSettings,
     tone: toneRaw.trim() || chapterSettings.tone
@@ -2318,7 +2399,7 @@ router.post("/scenes/:id/rewrite", async (req, res) => {
   const sampler = createWriterSampler(settings.samplerConfig, mergedToneSettings);
   const rewritten = await callLlm(
     systemPrompt,
-    [projectContext ? `[Context Pack]\n${projectContext}` : "", row.content].filter(Boolean).join("\n\n"),
+    [projectContext ? `[Context Pack]\n${projectContext}` : "", writerRagDirective, row.content].filter(Boolean).join("\n\n"),
     sampler
   );
 
@@ -2345,6 +2426,13 @@ router.get("/scenes/:id/summarize", async (req, res) => {
   const chapterSettings = parseChapterSettings(chapter?.settings_json);
   const projectNotes = parseProjectNotes(project?.notes_json);
   const projectContext = chapter ? buildProjectContextPack(chapter.project_id, row.chapter_id, projectNotes) : "";
+  const writerRagDirective = chapter
+    ? await buildWriterRagDirective(chapter.project_id, settings as Record<string, unknown>, [
+      row.content,
+      projectContext,
+      projectNotes.summary
+    ])
+    : "";
   const systemPrompt = [
     settings.promptTemplates.writerSummarize,
     buildChapterDirective(chapterSettings),
@@ -2353,7 +2441,7 @@ router.get("/scenes/:id/summarize", async (req, res) => {
   ].filter(Boolean).join("\n\n");
   const summary = await callLlm(
     systemPrompt,
-    [projectContext ? `[Context Pack]\n${projectContext}` : "", row.content].filter(Boolean).join("\n\n"),
+    [projectContext ? `[Context Pack]\n${projectContext}` : "", writerRagDirective, row.content].filter(Boolean).join("\n\n"),
     createWriterSampler(settings.samplerConfig, chapterSettings)
   );
 
