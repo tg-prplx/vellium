@@ -505,6 +505,23 @@ select {
   box-shadow: none !important;
 }
 
+.writing-simple-editor-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.writing-simple-editor-main {
+  flex: 1;
+  min-height: 0;
+}
+
+.writing-simple-editor-textarea {
+  flex: 1;
+  min-height: 0;
+}
+
 @media (min-width: 1280px) {
   .chat-simple-layout {
     grid-template-columns: auto minmax(0, 1fr) 0 !important;
@@ -525,6 +542,12 @@ select {
   .writing-simple-root .float-card:hover {
     transform: none;
     box-shadow: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  .writing-simple-editor-shell {
+    min-height: 0;
   }
 }
 
