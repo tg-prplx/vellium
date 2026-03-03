@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, newId, now } from "../db.js";
-import { normalizeLoreBookEntries } from "../domain/lorebooks.js";
+import { normalizeLoreBookEntries, parseSillyTavernWorldInfo } from "../domain/lorebooks.js";
 
 const router = Router();
 
@@ -58,6 +58,23 @@ router.post("/", (req, res) => {
   db.prepare(
     "INSERT INTO lorebooks (id, name, description, entries_json, source_character_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
   ).run(id, name, description, JSON.stringify(entries), sourceCharacterId, ts, ts);
+
+  const row = db.prepare("SELECT * FROM lorebooks WHERE id = ?").get(id) as LoreBookRow;
+  res.json(rowToJson(row));
+});
+
+router.post("/import/world-info", (req, res) => {
+  const parsed = parseSillyTavernWorldInfo(req.body?.data);
+  if (!parsed) {
+    res.status(400).json({ error: "Invalid SillyTavern World Info JSON" });
+    return;
+  }
+
+  const id = newId();
+  const ts = now();
+  db.prepare(
+    "INSERT INTO lorebooks (id, name, description, entries_json, source_character_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(id, parsed.name, parsed.description, JSON.stringify(parsed.entries), null, ts, ts);
 
   const row = db.prepare("SELECT * FROM lorebooks WHERE id = ?").get(id) as LoreBookRow;
   res.json(rowToJson(row));
