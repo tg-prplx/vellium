@@ -412,6 +412,13 @@ export interface McpDiscoverResult {
   error?: string;
 }
 
+export interface SecuritySettings {
+  sanitizeMarkdown: boolean;
+  allowExternalLinks: boolean;
+  allowRemoteImages: boolean;
+  allowUnsafeUploads: boolean;
+}
+
 export interface AppSettings {
   onboardingCompleted: boolean;
   alternateSimpleMode: boolean;
@@ -466,6 +473,7 @@ export interface AppSettings {
   mcpDiscoveredTools: McpDiscoveredTool[];
   mcpToolStates: Record<string, boolean>;
   mcpServers: McpServerConfig[];
+  security: SecuritySettings;
   sceneFieldVisibility: {
     dialogueStyle: boolean;
     initiative: boolean;

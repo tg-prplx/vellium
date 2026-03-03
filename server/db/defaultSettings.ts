@@ -116,6 +116,12 @@ export const DEFAULT_SETTINGS = {
     enabled: boolean;
     timeoutMs: number;
   }>,
+  security: {
+    sanitizeMarkdown: true,
+    allowExternalLinks: false,
+    allowRemoteImages: false,
+    allowUnsafeUploads: false
+  },
   sceneFieldVisibility: {
     dialogueStyle: true,
     initiative: true,

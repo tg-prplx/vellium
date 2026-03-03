@@ -31,7 +31,10 @@ export async function request<T>(method: string, path: string, body?: unknown): 
       const res = await fetch(`${base}${path}`, {
         method,
         headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-        body: body !== undefined ? JSON.stringify(body) : undefined
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        cache: "no-store",
+        credentials: "same-origin",
+        referrerPolicy: "no-referrer"
       });
       if (!res.ok) {
         const text = await res.text();
@@ -64,7 +67,10 @@ export async function requestBlob(method: string, path: string, body?: unknown):
       const res = await fetch(`${base}${path}`, {
         method,
         headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-        body: body !== undefined ? JSON.stringify(body) : undefined
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        cache: "no-store",
+        credentials: "same-origin",
+        referrerPolicy: "no-referrer"
       });
       if (!res.ok) {
         const text = await res.text();
@@ -103,7 +109,10 @@ export async function streamPost(path: string, body: unknown, callbacks: StreamC
       const candidate = await fetch(`${base}${path}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        cache: "no-store",
+        credentials: "same-origin",
+        referrerPolicy: "no-referrer"
       });
       if (!candidate.ok) {
         const text = await candidate.text();

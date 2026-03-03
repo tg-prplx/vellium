@@ -12,10 +12,12 @@ import type {
   RagCollection,
   RpSceneState,
   SamplerConfig,
+  SecuritySettings,
   UserPersona
 } from "../../shared/types/contracts";
 import {
   DEFAULT_AUTHOR_NOTE,
+  DEFAULT_CHAT_SECURITY_SETTINGS,
   DEFAULT_SCENE_FIELD_VISIBILITY,
   DEFAULT_SCENE_STATE,
   type ChatMode
@@ -39,6 +41,7 @@ interface ChatBootstrapParams {
     unpredictability: boolean;
     emotionalDepth: boolean;
   }>>;
+  setSecuritySettings: Dispatch<SetStateAction<SecuritySettings>>;
   setChatRagTopK: Dispatch<SetStateAction<number>>;
   setCharacters: Dispatch<SetStateAction<CharacterDetail[]>>;
   setLorebooks: Dispatch<SetStateAction<LoreBook[]>>;
@@ -72,6 +75,10 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
       params.setSceneFieldVisibility({
         ...DEFAULT_SCENE_FIELD_VISIBILITY,
         ...(settings.sceneFieldVisibility || {})
+      });
+      params.setSecuritySettings({
+        ...DEFAULT_CHAT_SECURITY_SETTINGS,
+        ...(settings.security || {})
       });
       if (Number.isFinite(Number(settings.ragTopK))) {
         params.setChatRagTopK(Math.max(1, Math.min(12, Math.floor(Number(settings.ragTopK)))));
