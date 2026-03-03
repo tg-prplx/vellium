@@ -947,6 +947,54 @@ export function SettingsScreen() {
                 </div>
               </div>
 
+              <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                <div className="mb-2">
+                  <div className="text-sm font-medium text-text-primary">{t("settings.security")}</div>
+                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.securityDesc")}</div>
+                </div>
+                <div className="space-y-2">
+                  {[
+                    {
+                      key: "sanitizeMarkdown" as const,
+                      label: t("settings.securitySanitizeMarkdown"),
+                      desc: t("settings.securitySanitizeMarkdownDesc")
+                    },
+                    {
+                      key: "allowExternalLinks" as const,
+                      label: t("settings.securityAllowExternalLinks"),
+                      desc: t("settings.securityAllowExternalLinksDesc")
+                    },
+                    {
+                      key: "allowRemoteImages" as const,
+                      label: t("settings.securityAllowRemoteImages"),
+                      desc: t("settings.securityAllowRemoteImagesDesc")
+                    },
+                    {
+                      key: "allowUnsafeUploads" as const,
+                      label: t("settings.securityAllowUnsafeUploads"),
+                      desc: t("settings.securityAllowUnsafeUploadsDesc")
+                    }
+                  ].map((item) => (
+                    <label key={item.key} className="flex items-center justify-between gap-3 rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2.5">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-text-primary">{item.label}</div>
+                        <div className="mt-0.5 text-[11px] text-text-tertiary">{item.desc}</div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={settings.security?.[item.key] === true}
+                        onChange={(e) => patch({
+                          security: {
+                            ...(settings.security || {}),
+                            [item.key]: e.target.checked
+                          }
+                        })}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <div id="settings-scene-fields" className="rounded-lg border border-border-subtle bg-bg-primary p-3">
                 <div className="mb-2">
                   <div className="text-sm font-medium text-text-primary">{t("settings.sceneFields")}</div>

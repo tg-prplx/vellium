@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../components/Panels";
 import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
@@ -15,10 +15,12 @@ import type {
   SamplerConfig,
   ProviderProfile,
   ProviderModel,
+  SecuritySettings,
   UserPersona
 } from "../../shared/types/contracts";
 import {
   DEFAULT_AUTHOR_NOTE,
+  DEFAULT_CHAT_SECURITY_SETTINGS,
   DEFAULT_PROMPT_STACK,
   DEFAULT_SCENE_FIELD_VISIBILITY,
   DEFAULT_SCENE_STATE,
@@ -76,6 +78,7 @@ export function ChatScreen() {
     ...DEFAULT_SCENE_STATE
   });
   const [sceneFieldVisibility, setSceneFieldVisibility] = useState({ ...DEFAULT_SCENE_FIELD_VISIBILITY });
+  const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({ ...DEFAULT_CHAT_SECURITY_SETTINGS });
   const [promptStack, setPromptStack] = useState<PromptBlock[]>([...DEFAULT_PROMPT_STACK]);
   const [contextSummary, setContextSummary] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -338,6 +341,7 @@ export function ChatScreen() {
     setAlternateSimpleMode,
     setSimpleSidebarOpen,
     setSceneFieldVisibility,
+    setSecuritySettings,
     setChatRagTopK,
     setCharacters,
     setLorebooks,
@@ -1133,15 +1137,37 @@ export function ChatScreen() {
     return renderContent(
       streamText,
       renderCharName,
-      activePersona?.name || t("chat.user")
+      activePersona?.name || t("chat.user"),
+      securitySettings
     );
-  }, [streamText, streamingCharacterName, chatCharacters, activeChatCharacter, activePersona, t]);
+  }, [streamText, streamingCharacterName, chatCharacters, activeChatCharacter, activePersona, t, securitySettings]);
 
   function getCharacterForMessage(msg: ChatMessage): CharacterDetail | null {
     if (msg.characterName) {
       return chatCharacters.find((c) => c.name === msg.characterName) ?? null;
     }
     return activeChatCharacter;
+  }
+
+  async function handleRenderedContentClick(event: ReactMouseEvent<HTMLElement>) {
+    const target = event.target as HTMLElement | null;
+    const anchor = target?.closest("a");
+    if (!anchor) return;
+    const href = anchor.getAttribute("href");
+    if (!href || href.startsWith("#")) {
+      event.preventDefault();
+      return;
+    }
+    if (!securitySettings.allowExternalLinks) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    if (window.electronAPI) {
+      await window.electronAPI.openExternal(href);
+      return;
+    }
+    window.open(href, "_blank", "noopener,noreferrer");
   }
 
   // Persona helpers
@@ -2177,9 +2203,10 @@ export function ChatScreen() {
                           __html: renderContent(
                             inPlaceTranslations[msg.id] || inlineReasoning.content,
                             renderCharName,
-                            activePersona?.name || t("chat.user")
+                            activePersona?.name || t("chat.user"),
+                            securitySettings
                           )
-                        }} />
+                        }} onClick={handleRenderedContentClick} />
                         {inPlaceTranslations[msg.id] && (
                           <button onClick={() => setInPlaceTranslations((prev) => { const n = { ...prev }; delete n[msg.id]; return n; })}
                             className="mt-1 text-[10px] text-accent hover:underline">{t("chat.showOriginal")}</button>
@@ -2188,8 +2215,8 @@ export function ChatScreen() {
                           <div className="mt-2 rounded-md border border-border-subtle bg-bg-tertiary p-2">
                             <span className="mb-1 block text-[10px] font-semibold uppercase text-text-tertiary">{t("chat.translate")}</span>
                             <div className="prose-chat text-xs text-text-secondary" dangerouslySetInnerHTML={{
-                              __html: renderContent(translatedTexts[msg.id], renderCharName, activePersona?.name || t("chat.user"))
-                            }} />
+                              __html: renderContent(translatedTexts[msg.id], renderCharName, activePersona?.name || t("chat.user"), securitySettings)
+                            }} onClick={handleRenderedContentClick} />
                           </div>
                         )}
                         {msg.attachments && msg.attachments.length > 0 && (
@@ -2363,6 +2390,7 @@ export function ChatScreen() {
                       <div
                         className="prose-chat"
                         dangerouslySetInnerHTML={{ __html: streamingRenderedHtml }}
+                        onClick={handleRenderedContentClick}
                       />
                     ) : "..."}
                   </div>

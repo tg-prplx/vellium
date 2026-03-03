@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
 import path from "path";
 import { existsSync } from "fs";
 import { writeFile } from "fs/promises";
@@ -24,6 +24,33 @@ let embeddedServerStart: Promise<void> | null = null;
 
 const SERVER_PORT = 3001;
 const SERVER_START_TIMEOUT_MS = 20000;
+
+function sanitizeFilename(name: string, fallback = "export.txt"): string {
+  const trimmed = String(name || "").trim();
+  const normalized = trimmed.replace(/[\/\\?%*:|"<>]/g, "-").replace(/\s+/g, " ").trim();
+  return normalized || fallback;
+}
+
+function isAllowedExternalUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" || parsed.protocol === "mailto:";
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedAppNavigation(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    if (isDev) {
+      return parsed.origin === "http://localhost:1420";
+    }
+    return parsed.origin === `http://127.0.0.1:${SERVER_PORT}`;
+  } catch {
+    return false;
+  }
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -132,7 +159,10 @@ async function createWindow() {
       webPreferences: {
         preload: path.join(__dirname, "preload.cjs"),
         contextIsolation: true,
-        nodeIntegration: false
+        nodeIntegration: false,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false
       }
     });
 
@@ -157,6 +187,21 @@ async function createWindow() {
 
     mainWindow.webContents.on("render-process-gone", (_event, details) => {
       console.error("Renderer process exited:", details.reason, details.exitCode);
+    });
+
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (isAllowedExternalUrl(url)) {
+        void shell.openExternal(url);
+      }
+      return { action: "deny" };
+    });
+
+    mainWindow.webContents.on("will-navigate", (event, url) => {
+      if (isAllowedAppNavigation(url)) return;
+      event.preventDefault();
+      if (isAllowedExternalUrl(url)) {
+        void shell.openExternal(url);
+      }
     });
 
     if (isDev) {
@@ -218,7 +263,7 @@ ipcMain.handle("file:save", async (_event, payload: { filename?: unknown; base64
   if (!payload || typeof payload !== "object") {
     return { ok: false, canceled: true };
   }
-  const filename = String(payload.filename || "export.txt").trim() || "export.txt";
+  const filename = sanitizeFilename(String(payload.filename || "export.txt"), "export.txt");
   const base64Data = String(payload.base64Data || "").trim();
   if (!base64Data) {
     throw new Error("Missing file payload");
@@ -235,6 +280,15 @@ ipcMain.handle("file:save", async (_event, payload: { filename?: unknown; base64
   const buffer = Buffer.from(base64Data, "base64");
   await writeFile(result.filePath, buffer);
   return { ok: true, canceled: false, filePath: result.filePath };
+});
+
+ipcMain.handle("shell:openExternal", async (_event, rawUrl: unknown) => {
+  const url = String(rawUrl || "").trim();
+  if (!isAllowedExternalUrl(url)) {
+    return { ok: false };
+  }
+  await shell.openExternal(url);
+  return { ok: true };
 });
 
 app.on("second-instance", () => {

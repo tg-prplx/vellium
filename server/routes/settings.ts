@@ -7,6 +7,18 @@ const router = Router();
 
 const PROMPT_BLOCK_KINDS = new Set(["system", "jailbreak", "character", "author_note", "lore", "scene", "history"]);
 
+function normalizeSecuritySettings(raw: unknown) {
+  const patch = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : {};
+  return {
+    sanitizeMarkdown: patch.sanitizeMarkdown !== false,
+    allowExternalLinks: patch.allowExternalLinks === true,
+    allowRemoteImages: patch.allowRemoteImages === true,
+    allowUnsafeUploads: patch.allowUnsafeUploads === true
+  };
+}
+
 function normalizePromptStack(raw: unknown): typeof DEFAULT_SETTINGS.promptStack {
   const fallback = (DEFAULT_SETTINGS.promptStack || []).map((block) => ({ ...block }));
   if (!Array.isArray(raw)) return fallback;
@@ -51,6 +63,7 @@ function getSettings() {
     apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) },
     promptStack,
+    security: normalizeSecuritySettings({ ...DEFAULT_SETTINGS.security, ...(stored.security ?? {}) }),
     mcpServers
   };
 }
@@ -240,7 +253,11 @@ router.patch("/", (req, res) => {
       ...((patchData as { apiParamPolicy?: unknown }).apiParamPolicy ?? {})
     }),
     promptTemplates: { ...current.promptTemplates, ...(patchData.promptTemplates ?? {}) },
-    promptStack: normalizePromptStack((patchData as { promptStack?: unknown }).promptStack ?? current.promptStack)
+    promptStack: normalizePromptStack((patchData as { promptStack?: unknown }).promptStack ?? current.promptStack),
+    security: normalizeSecuritySettings({
+      ...current.security,
+      ...((patchData as { security?: Record<string, unknown> }).security ?? {})
+    })
   };
   db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(updated));
   res.json(updated);

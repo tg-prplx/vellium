@@ -3,6 +3,12 @@ import type { PromptBlock, RpSceneState } from "../../shared/types/contracts";
 export const RP_PRESETS = ["slowburn", "dominant", "romantic", "action", "mystery", "submissive", "seductive", "gentle_fem", "rough", "passionate"] as const;
 export const DEFAULT_AUTHOR_NOTE = "Stay in character, avoid repetition, keep sensual pacing controlled.";
 export type ChatMode = "rp" | "light_rp" | "pure_chat";
+export const DEFAULT_CHAT_SECURITY_SETTINGS = {
+  sanitizeMarkdown: true,
+  allowExternalLinks: false,
+  allowRemoteImages: false,
+  allowUnsafeUploads: false
+} as const;
 
 export const DEFAULT_PROMPT_STACK: PromptBlock[] = [
   { id: "default-1", kind: "system", enabled: true, order: 1, content: "" },

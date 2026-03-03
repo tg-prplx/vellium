@@ -1,11 +1,6 @@
 import { marked } from "marked";
-import type { FileAttachment, PromptBlock, RpSceneState } from "../../shared/types/contracts";
-import { DEFAULT_PROMPT_STACK, REASONING_CALL_NAME, type ChatMode } from "./constants";
-
-marked.setOptions({
-  breaks: true,
-  gfm: true
-});
+import type { AppSettings, FileAttachment, PromptBlock, RpSceneState } from "../../shared/types/contracts";
+import { DEFAULT_CHAT_SECURITY_SETTINGS, DEFAULT_PROMPT_STACK, REASONING_CALL_NAME, type ChatMode } from "./constants";
 
 export function replacePlaceholders(text: string, charName?: string, userName?: string): string {
   let result = text;
@@ -15,11 +10,92 @@ export function replacePlaceholders(text: string, charName?: string, userName?: 
 }
 
 export function renderMarkdown(text: string): string {
-  return marked.parse(text, { async: false }) as string;
+  return renderMarkdownSafe(text, DEFAULT_CHAT_SECURITY_SETTINGS);
 }
 
-export function renderContent(text: string, charName?: string, userName?: string): string {
-  return renderMarkdown(replacePlaceholders(text, charName, userName));
+function escapeHtml(text: string): string {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeAttr(text: string): string {
+  return escapeHtml(text).replace(/`/g, "&#96;");
+}
+
+function sanitizeLinkUrl(raw: string | null | undefined, allowExternalLinks: boolean): string | null {
+  const href = String(raw || "").trim();
+  if (!href) return null;
+  if (/^(javascript|data|vbscript|file):/i.test(href)) return null;
+  if (/^(https?:|mailto:)/i.test(href)) {
+    return allowExternalLinks ? href : null;
+  }
+  if (/^(\/|#|\.{1,2}\/)/.test(href)) {
+    return href;
+  }
+  return null;
+}
+
+function sanitizeImageUrl(raw: string | null | undefined, allowRemoteImages: boolean): string | null {
+  const src = String(raw || "").trim();
+  if (!src) return null;
+  if (/^(javascript|data|vbscript|file):/i.test(src)) return null;
+  if (/^https?:/i.test(src)) {
+    return allowRemoteImages ? src : null;
+  }
+  if (/^(\/|\.{1,2}\/)/.test(src)) {
+    return src;
+  }
+  return null;
+}
+
+function renderMarkdownSafe(text: string, security: AppSettings["security"]): string {
+  if (security.sanitizeMarkdown === false) {
+    return marked.parse(text, { async: false, breaks: true, gfm: true }) as string;
+  }
+
+  const renderer = new marked.Renderer();
+  const customRenderer = renderer as any;
+
+  customRenderer.html = (token: { text?: string } | string) => {
+    const raw = typeof token === "string" ? token : String(token?.text || "");
+    return escapeHtml(raw);
+  };
+
+  customRenderer.link = function link(token: { href?: string; title?: string | null; tokens?: unknown[] }) {
+    const href = sanitizeLinkUrl(token?.href, security.allowExternalLinks);
+    const textHtml = this.parser?.parseInline?.(Array.isArray(token?.tokens) ? token.tokens : []) || escapeHtml(token?.href || "");
+    if (!href) return textHtml;
+    const title = token?.title ? ` title="${escapeAttr(token.title)}"` : "";
+    return `<a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer nofollow"${title}>${textHtml}</a>`;
+  };
+
+  customRenderer.image = (token: { href?: string; text?: string; title?: string | null }) => {
+    const src = sanitizeImageUrl(token?.href, security.allowRemoteImages);
+    if (!src) return "";
+    const alt = escapeAttr(String(token?.text || ""));
+    const title = token?.title ? ` title="${escapeAttr(token.title)}"` : "";
+    return `<img src="${escapeAttr(src)}" alt="${alt}"${title} loading="lazy" referrerpolicy="no-referrer" />`;
+  };
+
+  return marked.parse(text, {
+    async: false,
+    breaks: true,
+    gfm: true,
+    renderer
+  }) as string;
+}
+
+export function renderContent(
+  text: string,
+  charName?: string,
+  userName?: string,
+  security: AppSettings["security"] = DEFAULT_CHAT_SECURITY_SETTINGS
+): string {
+  return renderMarkdownSafe(replacePlaceholders(text, charName, userName), security);
 }
 
 export function guessMimeType(filename: string): string {
@@ -38,8 +114,14 @@ export function guessMimeType(filename: string): string {
 
 export function imageSourceFromAttachment(att: FileAttachment): string | null {
   if (att.type !== "image") return null;
+  if ((att.mimeType || "").toLowerCase() === "image/svg+xml") return null;
   if (att.dataUrl?.startsWith("data:image/")) return att.dataUrl;
-  if (att.url?.startsWith("http://") || att.url?.startsWith("https://") || att.url?.startsWith("/")) return att.url;
+  if (att.url?.startsWith("http://") || att.url?.startsWith("https://")) {
+    return att.url.toLowerCase().includes(".svg") ? null : att.url;
+  }
+  if (att.url?.startsWith("/")) {
+    return att.url.toLowerCase().includes(".svg") ? null : att.url;
+  }
   return null;
 }
 

@@ -619,11 +619,25 @@ router.post("/:id/avatar", (req, res) => {
   }
 
   const rawExt = String((filename || "avatar.png").split(".").pop() || "png").toLowerCase();
+  if (!/^(png|jpg|jpeg|webp|gif|bmp)$/i.test(rawExt)) {
+    res.status(400).json({ error: "Avatar format blocked by security policy" });
+    return;
+  }
   const safeExt = rawExt.replace(/[^a-z0-9]/g, "") || "png";
   const avatarFilename = `${req.params.id}-${Date.now()}.${safeExt}`;
   const filePath = join(AVATARS_DIR, avatarFilename);
 
-  const buffer = Buffer.from(base64Data, "base64");
+  const base64 = String(base64Data || "").trim();
+  if (!/^[A-Za-z0-9+/=\s,]+$/.test(base64)) {
+    res.status(400).json({ error: "Invalid avatar payload" });
+    return;
+  }
+  const normalized = base64.includes(",") ? base64.slice(base64.indexOf(",") + 1) : base64;
+  const buffer = Buffer.from(normalized, "base64");
+  if (!buffer.length || buffer.length > 10 * 1024 * 1024) {
+    res.status(400).json({ error: "Avatar size is invalid" });
+    return;
+  }
   writeFileSync(filePath, buffer);
 
   const previousAvatar = String(existing.avatar_path || "");
