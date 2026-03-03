@@ -78,6 +78,40 @@ export interface ParsedToolCallContent {
   result: string;
 }
 
+export interface ParsedInlineReasoning {
+  content: string;
+  reasoning: string;
+}
+
+export function parseInlineReasoning(text: string): ParsedInlineReasoning {
+  const source = String(text || "");
+  const pattern = /<think>([\s\S]*?)<\/think>/gi;
+  let lastIndex = 0;
+  let visible = "";
+  const reasoningParts: string[] = [];
+
+  for (const match of source.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    visible += source.slice(lastIndex, index);
+    const reasoning = String(match[1] || "").trim();
+    if (reasoning) reasoningParts.push(reasoning);
+    lastIndex = index + match[0].length;
+  }
+
+  if (lastIndex === 0) {
+    return {
+      content: source,
+      reasoning: ""
+    };
+  }
+
+  visible += source.slice(lastIndex);
+  return {
+    content: visible,
+    reasoning: reasoningParts.join("\n\n").trim()
+  };
+}
+
 export function parseToolCallContent(content: string): ParsedToolCallContent {
   try {
     const parsed = JSON.parse(content) as Partial<ParsedToolCallContent> & { kind?: string };

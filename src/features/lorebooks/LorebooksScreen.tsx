@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ThreePanelLayout, PanelTitle, EmptyState } from "../../components/Panels";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
@@ -47,6 +47,8 @@ export function LorebooksScreen() {
   const [draft, setDraft] = useState<LoreBook | null>(null);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState("");
+  const [entryKeysInput, setEntryKeysInput] = useState<Record<string, string>>({});
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void (async () => {
@@ -69,10 +71,21 @@ export function LorebooksScreen() {
       return;
     }
     const current = lorebooks.find((item) => item.id === selectedId) || null;
-    setDraft(current ? {
+    if (!current) {
+      setDraft(null);
+      setEntryKeysInput({});
+      return;
+    }
+    const nextDraft = {
       ...current,
       entries: (current.entries || []).map((entry) => ({ ...entry, keys: [...entry.keys] }))
-    } : null);
+    };
+    setDraft(nextDraft);
+    setEntryKeysInput(
+      Object.fromEntries(
+        nextDraft.entries.map((entry) => [entry.id, joinKeys(entry.keys)])
+      )
+    );
   }, [selectedId, lorebooks]);
 
   const selected = useMemo(
@@ -103,6 +116,18 @@ export function LorebooksScreen() {
     });
     await refreshLorebooks(created.id);
     setStatus(t("lore.statusCreated"));
+  }
+
+  async function importWorldInfoFile(file: File) {
+    try {
+      const raw = await file.text();
+      const parsed = JSON.parse(raw);
+      const imported = await api.lorebookImportWorldInfo(parsed);
+      await refreshLorebooks(imported.id);
+      setStatus(t("lore.statusImported"));
+    } catch (error) {
+      setStatus(`${t("lore.statusImportFailed")} ${error instanceof Error ? error.message : ""}`.trim());
+    }
   }
 
   async function saveLorebook() {
@@ -146,14 +171,21 @@ export function LorebooksScreen() {
   function addEntry() {
     setDraft((prev) => {
       if (!prev) return prev;
+      const entry = newEntry(prev.entries.length);
+      setEntryKeysInput((current) => ({ ...current, [entry.id]: "" }));
       return {
         ...prev,
-        entries: [...prev.entries, newEntry(prev.entries.length)]
+        entries: [...prev.entries, entry]
       };
     });
   }
 
   function removeEntry(entryId: string) {
+    setEntryKeysInput((prev) => {
+      const next = { ...prev };
+      delete next[entryId];
+      return next;
+    });
     setDraft((prev) => {
       if (!prev) return prev;
       return {
@@ -169,12 +201,32 @@ export function LorebooksScreen() {
         <>
           <PanelTitle
             action={
-              <button
-                onClick={() => { void createLorebook(); }}
-                className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover"
-              >
-                + {t("chat.new")}
-              </button>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.currentTarget.value = "";
+                    if (!file) return;
+                    void importWorldInfoFile(file);
+                  }}
+                />
+                <button
+                  onClick={() => importInputRef.current?.click()}
+                  className="rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold text-text-secondary hover:bg-bg-hover"
+                >
+                  {t("lore.importWorldInfo")}
+                </button>
+                <button
+                  onClick={() => { void createLorebook(); }}
+                  className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover"
+                >
+                  + {t("chat.new")}
+                </button>
+              </div>
             }
           >
             {t("tab.lorebooks")}
@@ -251,8 +303,12 @@ export function LorebooksScreen() {
                       <div>
                         <label className="mb-1 block text-[10px] text-text-tertiary">{t("lore.keys")}</label>
                         <input
-                          value={joinKeys(entry.keys)}
-                          onChange={(e) => updateEntry(entry.id, { keys: splitKeys(e.target.value) })}
+                          value={entryKeysInput[entry.id] ?? joinKeys(entry.keys)}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setEntryKeysInput((prev) => ({ ...prev, [entry.id]: raw }));
+                            updateEntry(entry.id, { keys: splitKeys(raw) });
+                          }}
                           className="w-full rounded-md border border-border bg-bg-primary px-2 py-1.5 text-xs text-text-primary"
                         />
                       </div>

@@ -522,9 +522,12 @@ export interface LoreBookEntry {
   id: string;
   name: string;
   keys: string[];
+  secondaryKeys?: string[];
   content: string;
   enabled: boolean;
   constant: boolean;
+  selective?: boolean;
+  selectiveLogic?: "and" | "or";
   position: string;
   insertionOrder: number;
 }

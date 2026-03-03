@@ -13,6 +13,7 @@ export const contentClient = {
   lorebookList: () => get<LoreBook[]>("/lorebooks"),
   lorebookGet: (id: string) => get<LoreBook>(`/lorebooks/${id}`),
   lorebookCreate: (data: Partial<LoreBook>) => post<LoreBook>("/lorebooks", data),
+  lorebookImportWorldInfo: (data: unknown) => post<LoreBook>("/lorebooks/import/world-info", { data }),
   lorebookUpdate: (id: string, data: Partial<LoreBook>) => put<LoreBook>(`/lorebooks/${id}`, data),
   lorebookDelete: (id: string) => del<{ ok: boolean }>(`/lorebooks/${id}`),
   ragCollectionList: () => get<RagCollection[]>("/rag/collections"),

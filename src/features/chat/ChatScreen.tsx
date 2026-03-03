@@ -31,6 +31,7 @@ import {
   guessMimeType,
   imageSourceFromAttachment,
   normalizePromptStack,
+  parseInlineReasoning,
   parseToolCallContent,
   readSceneVarPercent,
   renderContent,
@@ -1123,6 +1124,19 @@ export function ChatScreen() {
     return primaryId ? characters.find((c) => c.id === primaryId) ?? null : null;
   }, [activeChat, chatCharacterIds, characters]);
 
+  const streamingRenderedHtml = useMemo(() => {
+    if (!streamText) return "";
+    const streamChar = streamingCharacterName
+      ? (chatCharacters.find((item) => item.name === streamingCharacterName) ?? null)
+      : activeChatCharacter;
+    const renderCharName = streamChar?.name || activeChatCharacter?.name;
+    return renderContent(
+      streamText,
+      renderCharName,
+      activePersona?.name || t("chat.user")
+    );
+  }, [streamText, streamingCharacterName, chatCharacters, activeChatCharacter, activePersona, t]);
+
   function getCharacterForMessage(msg: ChatMessage): CharacterDetail | null {
     if (msg.characterName) {
       return chatCharacters.find((c) => c.name === msg.characterName) ?? null;
@@ -2091,8 +2105,11 @@ export function ChatScreen() {
                 const relatedToolMessages = groupedToolsByParent.toolGrouped.get(msg.id) || [];
                 const reasoningPanelOpen = reasoningPanelsExpanded[msg.id] === true;
                 const toolPanelOpen = toolPanelsExpanded[msg.id] === true;
-                const reasoningText = relatedReasoningMessages
-                  .map((item) => String(item.payload.result || "").trim())
+                const inlineReasoning = msg.role === "assistant"
+                  ? parseInlineReasoning(msg.content)
+                  : { content: msg.content, reasoning: "" };
+                const reasoningText = [inlineReasoning.reasoning]
+                  .concat(relatedReasoningMessages.map((item) => String(item.payload.result || "").trim()))
                   .filter(Boolean)
                   .join("\n\n");
                 const msgChar = msg.role === "assistant" ? getCharacterForMessage(msg) : null;
@@ -2158,7 +2175,7 @@ export function ChatScreen() {
                         )}
                         <div className="prose-chat" dangerouslySetInnerHTML={{
                           __html: renderContent(
-                            inPlaceTranslations[msg.id] || msg.content,
+                            inPlaceTranslations[msg.id] || inlineReasoning.content,
                             renderCharName,
                             activePersona?.name || t("chat.user")
                           )
@@ -2342,11 +2359,12 @@ export function ChatScreen() {
                     </div>
                   )}
                   <div className="chat-stream-content chat-stream-live">
-                    {streamChunks.length > 0
-                      ? streamChunks.map((chunk) => (
-                        <span key={chunk.id} className="chat-stream-chunk">{chunk.text}</span>
-                      ))
-                      : (streamText ? streamText : "...")}
+                    {streamText ? (
+                      <div
+                        className="prose-chat"
+                        dangerouslySetInnerHTML={{ __html: streamingRenderedHtml }}
+                      />
+                    ) : "..."}
                   </div>
                   {!zenMode && streamingToolCalls.length > 0 && (
                     <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">

@@ -4,9 +4,12 @@ export interface LoreBookEntryData {
   id: string;
   name: string;
   keys: string[];
+  secondaryKeys: string[];
   content: string;
   enabled: boolean;
   constant: boolean;
+  selective: boolean;
+  selectiveLogic: "and" | "or";
   position: string;
   insertionOrder: number;
 }
@@ -38,7 +41,29 @@ function normalizeKeyList(input: unknown): string[] {
   return out;
 }
 
+function normalizeSecondaryKeys(row: Record<string, unknown>): string[] {
+  return normalizeKeyList(
+    row.secondaryKeys
+    ?? row.secondary_keys
+    ?? row.keysecondary
+    ?? []
+  );
+}
+
 function normalizePosition(input: unknown): string {
+  if (typeof input === "number" && Number.isFinite(input)) {
+    switch (Math.floor(input)) {
+      case 0: return "before_char";
+      case 1: return "after_char";
+      case 2: return "before_scene";
+      case 3: return "after_scene";
+      case 4: return "before_author_note";
+      case 5: return "after_author_note";
+      case 6: return "before_history";
+      case 7: return "after_history";
+      default: return "after_char";
+    }
+  }
   const raw = String(input || "").trim().toLowerCase();
   if (!raw) return "after_char";
   if (raw === "before_character") return "before_char";
@@ -52,26 +77,50 @@ function toInsertionOrder(input: unknown, fallback: number): number {
   return Math.floor(parsed);
 }
 
+function normalizeSelectiveLogic(input: unknown): "and" | "or" {
+  if (typeof input === "string") {
+    const raw = input.trim().toLowerCase();
+    if (raw === "or") return "or";
+    return "and";
+  }
+  const numeric = Number(input);
+  if (!Number.isFinite(numeric)) return "and";
+  return numeric === 1 ? "or" : "and";
+}
+
+function normalizeEntriesInput(input: unknown): Record<string, unknown>[] {
+  if (Array.isArray(input)) {
+    return input.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+  }
+  if (input && typeof input === "object") {
+    return Object.values(input as Record<string, unknown>)
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+  }
+  return [];
+}
+
 export function normalizeLoreBookEntries(input: unknown): LoreBookEntryData[] {
-  if (!Array.isArray(input)) return [];
+  const rows = normalizeEntriesInput(input);
+  if (rows.length === 0) return [];
   const out: LoreBookEntryData[] = [];
 
-  for (let index = 0; index < input.length; index += 1) {
-    const raw = input[index];
-    if (!raw || typeof raw !== "object") continue;
-    const row = raw as Record<string, unknown>;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
     const content = String(row.content || "").trim();
     if (!content) continue;
     const id = String(row.id || row.uid || "").trim() || `entry-${index + 1}`;
     out.push({
       id,
-      name: String(row.name || "").trim(),
-      keys: normalizeKeyList(row.keys),
+      name: String(row.name || row.comment || "").trim(),
+      keys: normalizeKeyList(row.keys ?? row.key),
+      secondaryKeys: normalizeSecondaryKeys(row),
       content,
-      enabled: row.enabled !== false,
+      enabled: row.enabled !== false && row.disable !== true,
       constant: row.constant === true,
+      selective: row.selective === true,
+      selectiveLogic: normalizeSelectiveLogic(row.selectiveLogic ?? row.selective_logic),
       position: normalizePosition(row.position),
-      insertionOrder: toInsertionOrder(row.insertion_order ?? row.insertionOrder, (index + 1) * 100)
+      insertionOrder: toInsertionOrder(row.insertion_order ?? row.insertionOrder ?? row.order ?? row.priority, (index + 1) * 100)
     });
   }
 
@@ -91,6 +140,24 @@ export function parseCharacterLoreBook(rawData: unknown): { name: string; descri
   return { name, description, entries };
 }
 
+export function parseSillyTavernWorldInfo(rawData: unknown): { name: string; description: string; entries: LoreBookEntryData[] } | null {
+  if (!rawData || typeof rawData !== "object" || Array.isArray(rawData)) return null;
+  const data = rawData as Record<string, unknown>;
+  const entries = normalizeLoreBookEntries(data.entries);
+  if (entries.length === 0) return null;
+  const name = String(data.name || "").trim() || "Imported World Info";
+  const description = String(data.description || "").trim();
+  return { name, description, entries };
+}
+
+function matchesKeyGroup(haystack: string, keys: string[], logic: "and" | "or"): boolean {
+  if (keys.length === 0) return true;
+  if (logic === "or") {
+    return keys.some((key) => matchesLoreKey(haystack, key));
+  }
+  return keys.every((key) => matchesLoreKey(haystack, key));
+}
+
 export function getTriggeredLoreEntries(entries: LoreBookEntryData[], timelineTexts: string[]): LoreBookEntryData[] {
   const haystack = timelineTexts.join("\n").toLowerCase();
   return entries
@@ -98,7 +165,10 @@ export function getTriggeredLoreEntries(entries: LoreBookEntryData[], timelineTe
     .filter((entry) => {
       if (entry.constant) return true;
       if (entry.keys.length === 0) return false;
-      return entry.keys.some((key) => matchesLoreKey(haystack, key));
+      const primaryMatched = entry.keys.some((key) => matchesLoreKey(haystack, key));
+      if (!primaryMatched) return false;
+      if (!entry.selective || entry.secondaryKeys.length === 0) return true;
+      return matchesKeyGroup(haystack, entry.secondaryKeys, entry.selectiveLogic);
     })
     .sort((a, b) => a.insertionOrder - b.insertionOrder);
 }

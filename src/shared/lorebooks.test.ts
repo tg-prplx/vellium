@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getTriggeredLoreEntries, injectLoreBlocks, normalizeLoreBookEntries } from "../../server/domain/lorebooks";
+import { getTriggeredLoreEntries, injectLoreBlocks, normalizeLoreBookEntries, parseSillyTavernWorldInfo } from "../../server/domain/lorebooks";
 import type { PromptBlock } from "../../server/domain/rpEngine";
 
 describe("lorebooks trigger matching", () => {
@@ -42,5 +42,46 @@ describe("lorebooks position anchors", () => {
     expect(afterHistory).toBeTruthy();
     expect((beforeNote?.order ?? 999)).toBeLessThan(4);
     expect((afterHistory?.order ?? 0)).toBeGreaterThan(7);
+  });
+});
+
+describe("sillytavern world info compatibility", () => {
+  it("parses ST world info dictionaries and selective secondary keys", () => {
+    const parsed = parseSillyTavernWorldInfo({
+      name: "World Info",
+      description: "Imported",
+      entries: {
+        "1": {
+          uid: 1,
+          key: ["primary"],
+          keysecondary: ["secondary", "backup"],
+          selective: true,
+          selectiveLogic: 1,
+          content: "st-entry",
+          constant: false,
+          position: 0,
+          disable: false,
+          order: 150
+        }
+      }
+    });
+
+    expect(parsed?.name).toBe("World Info");
+    expect(parsed?.entries).toHaveLength(1);
+    expect(parsed?.entries[0]).toMatchObject({
+      id: "1",
+      keys: ["primary"],
+      secondaryKeys: ["secondary", "backup"],
+      selective: true,
+      selectiveLogic: "or",
+      position: "before_char",
+      insertionOrder: 150
+    });
+
+    const noMatch = getTriggeredLoreEntries(parsed?.entries || [], ["primary only"]);
+    expect(noMatch).toHaveLength(0);
+
+    const matched = getTriggeredLoreEntries(parsed?.entries || [], ["primary and backup together"]);
+    expect(matched.map((item) => item.id)).toEqual(["1"]);
   });
 });
