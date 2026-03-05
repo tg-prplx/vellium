@@ -194,16 +194,20 @@ function getCharacterCard(characterId: string | null): CharacterCardData | null 
   };
 }
 
-function getLorebookEntries(lorebookId: string | null): LoreBookEntryData[] {
-  if (!lorebookId) return [];
-  const row = db.prepare("SELECT id, name, entries_json FROM lorebooks WHERE id = ?").get(lorebookId) as LoreBookRow | undefined;
-  if (!row) return [];
-  try {
-    const parsed = JSON.parse(row.entries_json || "[]");
-    return normalizeLoreBookEntries(parsed);
-  } catch {
-    return [];
+function getLorebookEntries(lorebookIds: string[]): LoreBookEntryData[] {
+  if (lorebookIds.length === 0) return [];
+  const out: LoreBookEntryData[] = [];
+  for (const lorebookId of lorebookIds) {
+    const row = db.prepare("SELECT id, name, entries_json FROM lorebooks WHERE id = ?").get(lorebookId) as LoreBookRow | undefined;
+    if (!row) continue;
+    try {
+      const parsed = JSON.parse(row.entries_json || "[]");
+      out.push(...normalizeLoreBookEntries(parsed));
+    } catch {
+      // Ignore malformed lorebook payloads.
+    }
   }
+  return out;
 }
 
 function getSceneState(chatId: string): { mood: string; pacing: string; variables: Record<string, string>; intensity: number; pureChatMode: boolean; chatMode: ChatMode } | null {
@@ -365,6 +369,32 @@ function normalizeCharacterIdList(input: unknown): string[] {
     out.push(id);
   }
   return out;
+}
+
+function normalizeLorebookIdList(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of input) {
+    const id = String(item || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+function resolveLorebookIds(row: { lorebook_id: string | null; lorebook_ids?: string | null } | undefined): string[] {
+  if (!row) return [];
+  const ids = normalizeLorebookIdList((() => {
+    try {
+      return JSON.parse(row.lorebook_ids || "[]");
+    } catch {
+      return [];
+    }
+  })());
+  if (ids.length > 0) return ids;
+  return row.lorebook_id ? [row.lorebook_id] : [];
 }
 
 function tokenizeWords(input: string): string[] {
@@ -1263,8 +1293,8 @@ async function streamLlmResponse(
   const providerId = settings.activeProviderId;
   const modelId = settings.activeModel;
 
-  const chat = db.prepare("SELECT character_id, character_ids, lorebook_id, context_summary FROM chats WHERE id = ?").get(chatId) as {
-    character_id: string | null; character_ids: string | null; lorebook_id: string | null; context_summary: string | null;
+  const chat = db.prepare("SELECT character_id, character_ids, lorebook_id, lorebook_ids, context_summary FROM chats WHERE id = ?").get(chatId) as {
+    character_id: string | null; character_ids: string | null; lorebook_id: string | null; lorebook_ids: string | null; context_summary: string | null;
   } | undefined;
 
   // Build prompt
@@ -1333,7 +1363,8 @@ async function streamLlmResponse(
     ragAppendix = "";
   }
 
-  const lorebookEntries = pureChatMode || lightRpMode ? [] : getLorebookEntries(chat?.lorebook_id || null);
+  const selectedLorebookIds = resolveLorebookIds(chat);
+  const lorebookEntries = pureChatMode || lightRpMode ? [] : getLorebookEntries(selectedLorebookIds);
   const loreBlockEnabled = !pureChatMode && !lightRpMode && blocks.some((block) => block.kind === "lore" && block.enabled);
   const triggeredLoreEntries = loreBlockEnabled
     ? getTriggeredLoreEntries(lorebookEntries, promptTimeline.map((item) => String(item.content || "")))
@@ -1749,14 +1780,20 @@ router.post("/", (req, res) => {
 
   const allCharIds: string[] = characterIds?.length ? characterIds : (characterId ? [characterId] : []);
   const charIdsJson = JSON.stringify(allCharIds);
-  let lorebookId: string | null = req.body?.lorebookId ? String(req.body.lorebookId) : null;
-  if (!lorebookId && allCharIds[0]) {
-    const row = db.prepare("SELECT lorebook_id FROM characters WHERE id = ?").get(allCharIds[0]) as { lorebook_id: string | null } | undefined;
-    lorebookId = row?.lorebook_id || null;
+  let lorebookIds = normalizeLorebookIdList(req.body?.lorebookIds);
+  if (lorebookIds.length === 0 && req.body?.lorebookId) {
+    lorebookIds = [String(req.body.lorebookId).trim()].filter(Boolean);
   }
+  if (lorebookIds.length === 0 && allCharIds[0]) {
+    const row = db.prepare("SELECT lorebook_id FROM characters WHERE id = ?").get(allCharIds[0]) as { lorebook_id: string | null } | undefined;
+    if (row?.lorebook_id) {
+      lorebookIds = [row.lorebook_id];
+    }
+  }
+  const lorebookId = lorebookIds[0] || null;
 
-  db.prepare("INSERT INTO chats (id, title, character_id, character_ids, lorebook_id, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(chatId, title, characterId || null, charIdsJson, lorebookId, ts);
+  db.prepare("INSERT INTO chats (id, title, character_id, character_ids, lorebook_id, lorebook_ids, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(chatId, title, characterId || null, charIdsJson, lorebookId, JSON.stringify(lorebookIds), ts);
 
   // Auto-create root branch
   const branchId = newId();
@@ -1782,20 +1819,22 @@ router.post("/", (req, res) => {
     }
   }
 
-  res.json({ id: chatId, title, characterId: characterId || null, characterIds: allCharIds, lorebookId, createdAt: ts });
+  res.json({ id: chatId, title, characterId: characterId || null, characterIds: allCharIds, lorebookId, lorebookIds, createdAt: ts });
 });
 
 router.get("/", (_req, res) => {
   const rows = db.prepare("SELECT * FROM chats ORDER BY created_at DESC").all() as {
-    id: string; title: string; character_id: string | null; character_ids: string | null; lorebook_id: string | null; auto_conversation: number; created_at: string;
+    id: string; title: string; character_id: string | null; character_ids: string | null; lorebook_id: string | null; lorebook_ids: string | null; auto_conversation: number; created_at: string;
   }[];
   res.json(rows.map((r) => {
     let characterIds: string[] = [];
     try { characterIds = JSON.parse(r.character_ids || "[]"); } catch { /* empty */ }
+    const lorebookIds = resolveLorebookIds(r);
     return {
       id: r.id, title: r.title, characterId: r.character_id,
       characterIds,
-      lorebookId: r.lorebook_id || null,
+      lorebookId: lorebookIds[0] || r.lorebook_id || null,
+      lorebookIds,
       autoConversation: r.auto_conversation === 1,
       createdAt: r.created_at
     };
@@ -1843,15 +1882,20 @@ router.patch("/:id/characters", (req, res) => {
 
 router.patch("/:id/lorebook", (req, res) => {
   const chatId = req.params.id;
-  const lorebookId = req.body?.lorebookId ? String(req.body.lorebookId) : null;
-  db.prepare("UPDATE chats SET lorebook_id = ? WHERE id = ?").run(lorebookId, chatId);
-  res.json({ ok: true, lorebookId });
+  let lorebookIds = normalizeLorebookIdList(req.body?.lorebookIds);
+  if (lorebookIds.length === 0 && req.body?.lorebookId) {
+    lorebookIds = [String(req.body.lorebookId).trim()].filter(Boolean);
+  }
+  const lorebookId = lorebookIds[0] || null;
+  db.prepare("UPDATE chats SET lorebook_id = ?, lorebook_ids = ? WHERE id = ?").run(lorebookId, JSON.stringify(lorebookIds), chatId);
+  res.json({ ok: true, lorebookId, lorebookIds });
 });
 
 router.get("/:id/lorebook", (req, res) => {
   const chatId = req.params.id;
-  const row = db.prepare("SELECT lorebook_id FROM chats WHERE id = ?").get(chatId) as { lorebook_id: string | null } | undefined;
-  res.json({ lorebookId: row?.lorebook_id || null });
+  const row = db.prepare("SELECT lorebook_id, lorebook_ids FROM chats WHERE id = ?").get(chatId) as { lorebook_id: string | null; lorebook_ids: string | null } | undefined;
+  const lorebookIds = resolveLorebookIds(row);
+  res.json({ lorebookId: lorebookIds[0] || row?.lorebook_id || null, lorebookIds });
 });
 
 router.get("/:id/rag", (req, res) => {

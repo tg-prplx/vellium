@@ -21,6 +21,7 @@ const MIGRATIONS = [
   "ALTER TABLE messages ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE chats ADD COLUMN author_note TEXT DEFAULT ''",
   "ALTER TABLE chats ADD COLUMN lorebook_id TEXT",
+  "ALTER TABLE chats ADD COLUMN lorebook_ids TEXT DEFAULT '[]'",
   "ALTER TABLE characters ADD COLUMN lorebook_id TEXT",
   "ALTER TABLE messages ADD COLUMN rag_sources TEXT DEFAULT '[]'",
   "ALTER TABLE writer_projects ADD COLUMN character_ids TEXT NOT NULL DEFAULT '[]'",

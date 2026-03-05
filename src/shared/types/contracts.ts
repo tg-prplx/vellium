@@ -153,6 +153,7 @@ export interface ChatSession {
   characterId?: Id | null;
   characterIds?: Id[];
   lorebookId?: Id | null;
+  lorebookIds?: Id[];
   autoConversation?: boolean;
   createdAt: string;
 }

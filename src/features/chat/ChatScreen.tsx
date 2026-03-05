@@ -149,7 +149,7 @@ export function ChatScreen() {
   // Active preset
   const [activePreset, setActivePreset] = useState<string | null>(null);
   const [lorebooks, setLorebooks] = useState<LoreBook[]>([]);
-  const [activeLorebookId, setActiveLorebookId] = useState<string | null>(null);
+  const [activeLorebookIds, setActiveLorebookIds] = useState<string[]>([]);
   const [ragCollections, setRagCollections] = useState<RagCollection[]>([]);
   const [chatRagEnabled, setChatRagEnabled] = useState(false);
   const [chatRagCollectionIds, setChatRagCollectionIds] = useState<string[]>([]);
@@ -380,7 +380,7 @@ export function ChatScreen() {
     setBranches,
     setActiveBranchId,
     setChatCharacterIds,
-    setActiveLorebookId,
+    setActiveLorebookIds,
     setChatRagEnabled,
     setChatRagCollectionIds,
     setSceneState,
@@ -940,15 +940,17 @@ export function ChatScreen() {
     }
   }
 
-  async function selectLorebookForChat(nextLorebookId: string | null) {
+  async function saveLorebooksForChat(nextLorebookIds: string[]) {
     if (!activeChat) return;
-    setActiveLorebookId(nextLorebookId);
-    setActiveChat({ ...activeChat, lorebookId: nextLorebookId });
+    const normalizedIds = Array.from(new Set(nextLorebookIds.map((id) => String(id || "").trim()).filter(Boolean)));
+    const primaryLorebookId = normalizedIds[0] || null;
+    setActiveLorebookIds(normalizedIds);
+    setActiveChat({ ...activeChat, lorebookId: primaryLorebookId, lorebookIds: normalizedIds });
     setChats((prev) => prev.map((chat) => (
-      chat.id === activeChat.id ? { ...chat, lorebookId: nextLorebookId } : chat
+      chat.id === activeChat.id ? { ...chat, lorebookId: primaryLorebookId, lorebookIds: normalizedIds } : chat
     )));
 
-    if (nextLorebookId) {
+    if (normalizedIds.length > 0) {
       const hasEnabledLoreBlock = orderedBlocks.some((block) => block.kind === "lore" && block.enabled);
       if (!hasEnabledLoreBlock) {
         const updatedBlocks = orderedBlocks.map((block) => (
@@ -959,10 +961,17 @@ export function ChatScreen() {
     }
 
     try {
-      await api.chatSaveLorebook(activeChat.id, nextLorebookId);
+      await api.chatSaveLorebooks(activeChat.id, normalizedIds);
     } catch (error) {
       setErrorText(String(error));
     }
+  }
+
+  async function toggleLorebookForChat(lorebookId: string, enabled: boolean) {
+    const nextIds = enabled
+      ? [...activeLorebookIds, lorebookId]
+      : activeLorebookIds.filter((id) => id !== lorebookId);
+    await saveLorebooksForChat(nextIds);
   }
 
   async function updateChatRag(nextEnabled: boolean, nextCollectionIds: string[]) {
@@ -1767,16 +1776,36 @@ export function ChatScreen() {
             {!simpleSidebarCollapsed && (
             <div className="mt-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
               <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.lorebook")}</label>
-              <select
-                value={activeLorebookId || ""}
-                onChange={(e) => { void selectLorebookForChat(e.target.value || null); }}
-                className="w-full rounded-md border border-border bg-bg-secondary px-2 py-1.5 text-xs text-text-primary"
-              >
-                <option value="">{t("chat.none")}</option>
-                {lorebooks.map((book) => (
-                  <option key={book.id} value={book.id}>{book.name}</option>
-                ))}
-              </select>
+              <div className="space-y-1.5">
+                <button
+                  onClick={() => { void saveLorebooksForChat([]); }}
+                  className="w-full rounded-md border border-border bg-bg-secondary px-2 py-1.5 text-left text-[11px] text-text-secondary hover:bg-bg-hover"
+                >
+                  {t("chat.none")}
+                </button>
+                <div className="max-h-40 space-y-1 overflow-y-auto">
+                  {lorebooks.map((book) => {
+                    const checked = activeLorebookIds.includes(book.id);
+                    return (
+                      <label
+                        key={book.id}
+                        className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                          checked
+                            ? "border-accent-border bg-accent-subtle text-text-primary"
+                            : "border-border bg-bg-secondary text-text-secondary hover:bg-bg-hover"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(event) => { void toggleLorebookForChat(book.id, event.target.checked); }}
+                        />
+                        <span className="min-w-0 flex-1 truncate">{book.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
             )}
 

@@ -4,8 +4,8 @@ import { del, get, patchReq, post, put, requestBlob, streamPost, type StreamCall
 type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
 
 export const chatClient = {
-  chatCreate: (title: string, characterId?: string, characterIds?: string[]) =>
-    post<ChatSession>("/chats", { title, characterId, characterIds }),
+  chatCreate: (title: string, characterId?: string, characterIds?: string[], lorebookIds?: string[]) =>
+    post<ChatSession>("/chats", { title, characterId, characterIds, lorebookIds }),
   chatRename: (chatId: string, title: string) =>
     patchReq<{ ok: boolean; title: string }>(`/chats/${chatId}`, { title }),
   chatAbort: (chatId: string) => post<{ ok: boolean; interrupted: boolean }>(`/chats/${chatId}/abort`),
@@ -47,8 +47,8 @@ export const chatClient = {
   chatGetSampler: (chatId: string) => get<SamplerConfig | null>(`/chats/${chatId}/sampler`),
   chatSavePreset: (chatId: string, presetId: string | null) => patchReq<{ ok: boolean }>(`/chats/${chatId}/preset`, { presetId }),
   chatGetPreset: (chatId: string) => get<{ presetId: string | null }>(`/chats/${chatId}/preset`),
-  chatSaveLorebook: (chatId: string, lorebookId: string | null) => patchReq<{ ok: boolean; lorebookId: string | null }>(`/chats/${chatId}/lorebook`, { lorebookId }),
-  chatGetLorebook: (chatId: string) => get<{ lorebookId: string | null }>(`/chats/${chatId}/lorebook`),
+  chatSaveLorebooks: (chatId: string, lorebookIds: string[]) => patchReq<{ ok: boolean; lorebookId: string | null; lorebookIds: string[] }>(`/chats/${chatId}/lorebook`, { lorebookIds }),
+  chatGetLorebooks: (chatId: string) => get<{ lorebookId: string | null; lorebookIds: string[] }>(`/chats/${chatId}/lorebook`),
   chatSaveRag: (chatId: string, enabled: boolean, collectionIds: string[]) => patchReq<RagBinding>(`/chats/${chatId}/rag`, { enabled, collectionIds }),
   chatGetRag: (chatId: string) => get<RagBinding>(`/chats/${chatId}/rag`),
   rpSetSceneState: (state: RpSceneState) => post<void>("/rp/scene-state", state),
