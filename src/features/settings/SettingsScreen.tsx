@@ -4,10 +4,6 @@ import { useI18n } from "../../shared/i18n";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
 import type { ApiParamPolicy, AppSettings, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h2 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{children}</h2>;
-}
-
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="mb-1.5 block text-xs font-medium text-text-secondary">{children}</label>;
 }
@@ -44,6 +40,25 @@ function StatusMessage({ text, variant = "info" }: { text: string; variant?: "in
   if (!text) return null;
   const styles = { info: "border-border-subtle bg-bg-primary text-text-secondary", success: "border-success-border bg-success-subtle text-success", error: "border-danger-border bg-danger-subtle text-danger" };
   return <div className={`rounded-lg border px-3 py-2 text-xs ${styles[variant]}`}>{text}</div>;
+}
+
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled = false
+}: {
+  checked: boolean;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="toggle-switch">
+      <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} />
+      <div className="toggle-track">
+        <div className="toggle-thumb" />
+      </div>
+    </label>
+  );
 }
 
 const DEFAULT_API_PARAM_POLICY: ApiParamPolicy = {
@@ -166,7 +181,7 @@ export function SettingsScreen() {
   const [providerLocalOnly, setProviderLocalOnly] = useState(selectedPreset.localOnly);
   const [providerType, setProviderType] = useState<"openai" | "koboldcpp">(selectedPreset.providerType);
 
-  const [activeTab, setActiveTab] = useState<"basic" | "advanced" | "prompts">("basic");
+  const [activeCategory, setActiveCategory] = useState<"connection" | "interface" | "generation" | "context" | "prompts" | "tools">("connection");
   const [mcpServersDraft, setMcpServersDraft] = useState<McpServerConfig[]>([]);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [testingMcpId, setTestingMcpId] = useState<string | null>(null);
@@ -231,6 +246,9 @@ export function SettingsScreen() {
   }
 
   async function reset() {
+    if (!window.confirm(t("settings.confirmResetAll"))) {
+      return;
+    }
     const defaults = await api.settingsReset();
     setSettings(defaults);
     window.dispatchEvent(new CustomEvent("onboarding-reset", { detail: defaults }));
@@ -692,1371 +710,909 @@ export function SettingsScreen() {
     [settings?.promptStack]
   );
 
-  const tabMeta: Array<{ id: "basic" | "advanced" | "prompts"; label: string; desc: string }> = [
-    { id: "basic", label: t("settings.basic"), desc: t("settings.tabBasicDesc") },
-    { id: "advanced", label: t("settings.advanced"), desc: t("settings.tabAdvancedDesc") },
-    { id: "prompts", label: t("settings.prompts"), desc: t("settings.tabPromptsDesc") }
+  const categoryNav: Array<{ id: typeof activeCategory; label: string; icon: string }> = [
+    { id: "connection", label: t("settings.categoryConnection"), icon: "M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" },
+    { id: "interface", label: t("settings.categoryInterface"), icon: "M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" },
+    { id: "generation", label: t("settings.categoryGeneration"), icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" },
+    { id: "context", label: t("settings.categoryContext"), icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" },
+    { id: "prompts", label: t("settings.categoryPrompts"), icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
+    { id: "tools", label: t("settings.categoryTools"), icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" }
   ];
 
-  const quickSections = useMemo(() => {
-    if (activeTab === "basic") {
-      return [
-        { id: "settings-general", label: t("settings.general") },
-        { id: "settings-scene-fields", label: t("settings.sceneFields") },
-        { id: "settings-translation-model", label: t("settings.translateModel") },
-        { id: "settings-rag-model", label: t("settings.ragModel") },
-        { id: "settings-rag-reranker", label: t("settings.ragReranker") },
-        { id: "settings-quick-presets", label: t("settings.quickPresets") },
-        { id: "settings-manual-provider", label: t("settings.manualConfig") },
-        { id: "settings-active-model", label: t("settings.activeModel") },
-        { id: "settings-tts", label: t("settings.tts") },
-        { id: "settings-compress-model", label: t("settings.compressModel") }
-      ];
-    }
-    if (activeTab === "advanced") {
-      return [
-        { id: "settings-sampler-defaults", label: t("settings.samplerDefaults") },
-        { id: "settings-api-param-forwarding", label: t("settings.apiParamForwarding") },
-        { id: "settings-default-system-advanced", label: t("settings.defaultSysPrompt") },
-        { id: "settings-context-window", label: t("settings.contextWindow") },
-        { id: "settings-rag-retrieval", label: t("settings.ragRetrieval") },
-        { id: "settings-tools-mcp", label: t("settings.tools") },
-        { id: "settings-danger-zone", label: t("settings.dangerZone") }
-      ];
-    }
-    return [
+  const categorySections = useMemo<Record<typeof activeCategory, Array<{ id: string; label: string }>>>(() => ({
+    connection: [
+      { id: "settings-quick-presets", label: t("settings.quickPresets") },
+      { id: "settings-manual-provider", label: t("settings.manualConfig") },
+      { id: "settings-runtime-mode", label: t("settings.runtimeMode") },
+      { id: "settings-active-model", label: t("settings.activeModel") },
+      { id: "settings-translation-model", label: t("settings.translateModel") },
+      { id: "settings-compress-model", label: t("settings.compressModel") },
+      { id: "settings-tts", label: t("settings.tts") }
+    ],
+    interface: [
+      { id: "settings-general", label: t("settings.general") },
+      { id: "settings-workspace-mode", label: t("settings.workspaceMode") }
+    ],
+    generation: [
+      { id: "settings-output-behaviour", label: t("settings.outputBehaviour") },
+      { id: "settings-sampler-defaults", label: t("settings.samplerDefaults") },
+      { id: "settings-api-param-forwarding", label: t("settings.apiParamForwarding") }
+    ],
+    context: [
+      { id: "settings-context-window", label: t("settings.contextWindow") },
+      { id: "settings-chat-behaviour", label: t("settings.conversationBehaviour") },
+      { id: "settings-scene-fields", label: t("settings.sceneFields") },
+      { id: "settings-rag-model", label: t("settings.ragModel") },
+      { id: "settings-rag-reranker", label: t("settings.ragReranker") },
+      { id: "settings-rag-retrieval", label: t("settings.ragRetrieval") }
+    ],
+    prompts: [
       { id: "settings-prompt-templates", label: t("settings.promptTemplates") },
       { id: "settings-prompt-stack", label: t("inspector.promptStack") },
       { id: "settings-default-system-prompts", label: t("settings.defaultSysPrompt") }
-    ];
-  }, [activeTab, t]);
-  const visibleQuickSections = useMemo(() => {
-    const needle = quickJumpFilter.trim().toLowerCase();
-    if (!needle) return quickSections;
-    return quickSections.filter((section) => section.label.toLowerCase().includes(needle));
-  }, [quickJumpFilter, quickSections]);
+    ],
+    tools: [
+      { id: "settings-tools-core", label: t("settings.tools") },
+      { id: "settings-security", label: t("settings.security") },
+      { id: "settings-tools-mcp-functions", label: t("settings.mcpFunctions") },
+      { id: "settings-tools-mcp", label: t("settings.mcpServers") },
+      { id: "settings-danger-zone", label: t("settings.dangerZone") }
+    ]
+  }), [t]);
+
+  const activeCategoryConfig = categoryNav.find((item) => item.id === activeCategory) ?? categoryNav[0];
+  const visibleQuickSections = categorySections[activeCategory].filter((section) => {
+    const query = quickJumpFilter.trim().toLowerCase();
+    if (!query) return true;
+    return section.label.toLowerCase().includes(query);
+  });
 
   if (!settings) {
     return <div className="flex h-full items-center justify-center"><div className="text-sm text-text-tertiary">{t("settings.loading")}</div></div>;
   }
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
-        {tabMeta.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`settings-tab rounded-lg border px-4 py-3 text-left transition-colors ${
-              activeTab === tab.id
-                ? "is-active border-accent-border bg-accent-subtle text-text-primary"
-                : "border-border bg-bg-secondary text-text-secondary hover:bg-bg-hover"
-            }`}
-          >
-            <div className="text-xs font-semibold uppercase tracking-[0.08em]">{tab.label}</div>
-            <div className="mt-1 text-[11px] text-text-tertiary">{tab.desc}</div>
-          </button>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="space-y-4 xl:sticky xl:top-3 xl:self-start">
-          <div className="rounded-xl border border-border bg-bg-secondary p-4">
-            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-              {t("settings.activeModel")}
-            </div>
-            <div className="space-y-2">
-              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
-                <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("settings.provider")}</div>
-                <div className="mt-0.5 truncate text-sm font-medium text-text-primary">{activeProvider?.name || "-"}</div>
-              </div>
-              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
-                <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.model")}</div>
-                <div className="mt-0.5 truncate text-sm font-medium text-text-primary">{settings.activeModel || "-"}</div>
-              </div>
-              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
-                <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("settings.interfaceLanguage")}</div>
-                <div className="mt-0.5 text-sm font-medium text-text-primary">
-                  {settings.interfaceLanguage === "ru"
-                    ? t("common.russian")
-                    : settings.interfaceLanguage === "zh"
-                      ? t("common.chinese")
-                      : settings.interfaceLanguage === "ja"
-                        ? t("common.japanese")
-                        : t("common.english")}
-                </div>
-              </div>
-            </div>
-            <div className="mt-3">
-              <StatusMessage text={providerResult} variant={resultVariant} />
-            </div>
+    <div className="settings-root">
+      <aside className="settings-sidebar">
+        <div className="settings-sidebar-status">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+            {t("settings.activeModel")}
           </div>
-
-          <div className="rounded-xl border border-border bg-bg-secondary p-3">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("settings.quickJump")}</div>
-            <input
-              type="text"
-              value={quickJumpFilter}
-              onChange={(e) => setQuickJumpFilter(e.target.value)}
-              placeholder={t("settings.searchSections")}
-              className="mb-2 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
-            />
-            <div className="max-h-[55vh] space-y-1 overflow-y-auto pr-1">
-              {visibleQuickSections.length > 0 ? (
-                visibleQuickSections.map((section, index) => (
-                  <button
-                    key={section.id}
-                    onClick={() => scrollToSettingsSection(section.id)}
-                    className="flex w-full items-center gap-2 rounded-md border border-border-subtle bg-bg-primary px-2.5 py-1.5 text-left text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                  >
-                    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded bg-bg-secondary px-1 text-[10px] text-text-tertiary">
-                      {index + 1}
-                    </span>
-                    <span className="truncate">{section.label}</span>
-                  </button>
-                ))
-              ) : (
-                <div className="rounded-md border border-border-subtle bg-bg-primary px-2.5 py-2 text-[11px] text-text-tertiary">
-                  {t("settings.noMatchingSections")}
-                </div>
-              )}
+          <div className="space-y-1.5">
+            <div className="rounded-lg border border-border-subtle bg-bg-primary px-2.5 py-1.5">
+              <div className="text-[9px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.provider")}</div>
+              <div className="truncate text-xs font-semibold text-text-primary">{activeProvider?.name || "—"}</div>
             </div>
-          </div>
-        </aside>
-
-        <div key={activeTab} className="settings-content">
-      {activeTab === "prompts" ? (
-        <div className="space-y-4">
-          <div id="settings-prompt-templates" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-            <SectionTitle>{t("settings.promptTemplates")}</SectionTitle>
-            <p className="mb-4 text-[11px] text-text-tertiary">{t("settings.promptTemplatesDesc")}</p>
-            <div className="space-y-4">
-              {([
-                { key: "jailbreak" as const, label: t("prompt.jailbreak"), desc: t("prompt.jailbreakDesc") },
-                { key: "compressSummary" as const, label: t("prompt.compress"), desc: t("prompt.compressDesc") },
-                { key: "creativeWriting" as const, label: t("prompt.creativeWriting"), desc: t("prompt.creativeWritingDesc") },
-                { key: "writerGenerate" as const, label: t("prompt.writerGenerate"), desc: t("prompt.writerGenerateDesc") },
-                { key: "writerExpand" as const, label: t("prompt.writerExpand"), desc: t("prompt.writerExpandDesc") },
-                { key: "writerRewrite" as const, label: t("prompt.writerRewrite"), desc: t("prompt.writerRewriteDesc") },
-                { key: "writerSummarize" as const, label: t("prompt.writerSummarize"), desc: t("prompt.writerSummarizeDesc") }
-              ]).map(({ key, label, desc }) => (
-                <div key={key}>
-                  <div className="mb-1.5 flex items-center justify-between"><FieldLabel>{label}</FieldLabel></div>
-                  <p className="mb-1.5 text-[10px] text-text-tertiary">{desc}</p>
-                  <textarea value={settings.promptTemplates?.[key] ?? ""}
-                    onChange={(e) => {
-                      const newTemplates: PromptTemplates = { ...settings.promptTemplates, [key]: e.target.value };
-                      patch({ promptTemplates: newTemplates });
-                    }}
-                    className="h-24 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary" />
-                </div>
-              ))}
+            <div className="rounded-lg border border-border-subtle bg-bg-primary px-2.5 py-1.5">
+              <div className="text-[9px] uppercase tracking-[0.06em] text-text-tertiary">{t("chat.model")}</div>
+              <div className="truncate text-xs font-semibold text-text-primary">{settings.activeModel || "—"}</div>
             </div>
-          </div>
-
-          <div id="settings-prompt-stack" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-            <SectionTitle>{t("inspector.promptStack")}</SectionTitle>
-            <p className="mb-3 text-[11px] text-text-tertiary">{t("settings.promptStackDesc")}</p>
-            <div className="space-y-2">
-              {orderedPromptStack.map((block) => (
-                <div
-                  key={block.id}
-                  draggable
-                  onDragStart={() => setDraggedPromptBlockId(block.id)}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={() => {
-                    if (!draggedPromptBlockId) return;
-                    movePromptBlock(draggedPromptBlockId, block.id);
-                    setDraggedPromptBlockId(null);
-                  }}
-                  className={`rounded-lg border p-2 ${PROMPT_STACK_COLORS[block.kind] ?? "border-border bg-bg-primary"}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => togglePromptBlock(block.id)}
-                      className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
-                      title={block.enabled ? t("chat.disable") : t("chat.enable")}
-                    >
-                      {block.enabled ? (
-                        <svg className="h-3.5 w-3.5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className="h-3.5 w-3.5 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      )}
-                    </button>
-                    <svg className="h-3.5 w-3.5 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16" />
-                    </svg>
-                    <span className={`text-xs font-medium capitalize ${block.enabled ? "text-text-primary" : "text-text-tertiary"}`}>
-                      {promptBlockLabel(block.kind)}
-                    </span>
-                  </div>
-                  {(block.kind === "system" || block.kind === "jailbreak") && (
-                    <textarea
-                      value={block.content || ""}
-                      onChange={(e) => updatePromptBlockContent(block.id, e.target.value)}
-                      className="mt-2 h-20 w-full rounded-md border border-border bg-bg-primary px-2 py-1.5 text-xs text-text-primary"
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-            <button
-              onClick={() => void savePromptStack(DEFAULT_PROMPT_STACK)}
-              className="mt-3 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover"
-            >
-              {t("settings.promptStackReset")}
-            </button>
-          </div>
-
-          <div id="settings-default-system-prompts" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-            <SectionTitle>{t("settings.defaultSysPrompt")}</SectionTitle>
-            <p className="mb-2 text-[10px] text-text-tertiary">{t("settings.baseSysPromptDesc")}</p>
-            <textarea value={settings.defaultSystemPrompt} onChange={(e) => patch({ defaultSystemPrompt: e.target.value })}
-              className="h-32 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary" />
           </div>
         </div>
-      ) : activeTab === "basic" ? (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div id="settings-general" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-            <SectionTitle>{t("settings.general")}</SectionTitle>
+
+        <nav className="settings-sidebar-nav">
+          {categoryNav.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setActiveCategory(cat.id)}
+              className={`settings-nav-item ${activeCategory === cat.id ? "is-active" : ""}`}
+            >
+              <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d={cat.icon} />
+              </svg>
+              <span className="min-w-0 flex-1 truncate">{cat.label}</span>
+              <span className="settings-nav-count">{categorySections[cat.id].length}</span>
+            </button>
+          ))}
+          <div className="settings-nav-divider" />
+          <button
+            onClick={() => {
+              setActiveCategory("tools");
+              window.setTimeout(() => scrollToSettingsSection("settings-danger-zone"), 0);
+            }}
+            className="settings-nav-item"
+            style={{ color: "var(--color-danger)" }}
+          >
+            <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span>{t("settings.dangerZone")}</span>
+          </button>
+        </nav>
+
+        <div className="settings-sidebar-jump">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+            {t("settings.quickJump")}
+          </div>
+          <input
+            type="text"
+            value={quickJumpFilter}
+            onChange={(e) => setQuickJumpFilter(e.target.value)}
+            placeholder={t("settings.searchSections")}
+            className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
+          />
+          <div className="mt-2 max-h-[220px] space-y-1 overflow-y-auto pr-1">
+            {visibleQuickSections.length > 0 ? (
+              visibleQuickSections.map((section) => (
+                <button
+                  key={section.id}
+                  onClick={() => scrollToSettingsSection(section.id)}
+                  className="settings-quick-jump-item"
+                >
+                  <span className="truncate">{section.label}</span>
+                </button>
+              ))
+            ) : (
+              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-tertiary">
+                {t("settings.noMatchingSections")}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="settings-sidebar-footer">
+          <StatusMessage text={providerResult} variant={resultVariant} />
+        </div>
+      </aside>
+
+      <div className="settings-content-area">
+        <div className="settings-content-inner">
+          <div className="settings-workbench-header">
+            <div>
+              <div className="settings-workbench-kicker">{t("settings.quickJump")}</div>
+              <h1 className="settings-workbench-title">{activeCategoryConfig.label}</h1>
+              <p className="settings-workbench-desc">
+                {categorySections[activeCategory].map((section) => section.label).join(" • ")}
+              </p>
+            </div>
+            <div className="settings-workbench-meta">
+              <span className="settings-workbench-pill">{activeProvider?.name || t("settings.provider")}</span>
+              <span className="settings-workbench-pill">{settings.activeModel || t("settings.selectModel")}</span>
+            </div>
+          </div>
+          <div className="settings-workbench-chip-row">
+            {categorySections[activeCategory].map((section) => (
+              <button
+                key={section.id}
+                onClick={() => scrollToSettingsSection(section.id)}
+                className="settings-workbench-chip"
+              >
+                {section.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ===== CONNECTION ===== */}
+          {activeCategory === "connection" && (
             <div className="space-y-4">
-              <div>
-                <FieldLabel>{t("settings.theme")}</FieldLabel>
-                <SelectField value={settings.theme} onChange={(v) => patch({ theme: v as AppSettings["theme"] })}>
-                  <option value="dark">{t("settings.dark")}</option>
-                  <option value="light">{t("settings.light")}</option>
-                  <option value="custom">{t("settings.custom")}</option>
-                </SelectField>
+              <div id="settings-quick-presets" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.quickPresets")}</div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {PROVIDER_PRESETS.map((preset) => (
+                    <button key={preset.key} onClick={() => applyPresetToForm(preset)}
+                      className={`rounded-lg border p-2.5 text-left transition-colors ${selectedPresetKey === preset.key ? "border-accent-border bg-accent-subtle" : "border-border hover:bg-bg-hover"}`}>
+                      <div className="text-xs font-semibold text-text-primary">{preset.label}</div>
+                      <div className="mt-0.5 text-[10px] text-text-tertiary">{preset.description}</div>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={quickAddPreset} className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">
+                  {t("settings.quickAdd")}
+                </button>
               </div>
 
-              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium text-text-primary">{t("settings.alternateSimpleMode")}</div>
-                    <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.alternateSimpleModeDesc")}</div>
+              <div id="settings-manual-provider" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.manualConfig")}</div>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><FieldLabel>{t("settings.providerId")}</FieldLabel><InputField value={providerId} onChange={setProviderId} placeholder={t("settings.providerIdPlaceholder")} /></div>
+                    <div><FieldLabel>{t("settings.providerName")}</FieldLabel><InputField value={providerName} onChange={setProviderName} placeholder={t("settings.providerNamePlaceholder")} /></div>
                   </div>
-                  <input
-                    type="checkbox"
-                    checked={settings.alternateSimpleMode === true}
-                    onChange={(e) => patch({ alternateSimpleMode: e.target.checked })}
-                  />
+                  <div><FieldLabel>{t("settings.baseUrl")}</FieldLabel><InputField value={providerBaseUrl} onChange={setProviderBaseUrl} placeholder={t("settings.baseUrlPlaceholder")} /></div>
+                  <div>
+                    <FieldLabel>{t("settings.providerType")}</FieldLabel>
+                    <SelectField value={providerType} onChange={(v) => setProviderType(v as "openai" | "koboldcpp")}>
+                      <option value="openai">{t("settings.providerTypeOpenAi")}</option>
+                      <option value="koboldcpp">{t("settings.providerTypeKobold")}</option>
+                    </SelectField>
+                  </div>
+                  <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField value={providerApiKey} onChange={setProviderApiKey} placeholder={selectedPreset.apiKeyHint} /></div>
+                  <div><FieldLabel>{t("settings.proxyUrl")}</FieldLabel><InputField value={providerProxyUrl} onChange={setProviderProxyUrl} placeholder={t("settings.proxyUrlPlaceholder")} /></div>
+                  <label className="settings-toggle-row cursor-pointer">
+                    <span className="text-xs font-medium text-text-secondary">{t("settings.localOnly")}</span>
+                    <ToggleSwitch checked={providerLocalOnly} onChange={(e) => setProviderLocalOnly(e.target.checked)} />
+                  </label>
+                  <div className="flex gap-2">
+                    <button onClick={saveProvider} className="flex-1 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">{t("settings.saveProvider")}</button>
+                    <button onClick={testProvider} className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover">{t("settings.test")}</button>
+                    <button onClick={refreshProviders} className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover">{t("settings.refresh")}</button>
+                  </div>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                <div className="mb-2">
-                  <div className="text-sm font-medium text-text-primary">{t("settings.security")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.securityDesc")}</div>
-                </div>
+              <div id="settings-runtime-mode" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.runtimeMode")}</div>
                 <div className="space-y-2">
-                  {[
-                    {
-                      key: "sanitizeMarkdown" as const,
-                      label: t("settings.securitySanitizeMarkdown"),
-                      desc: t("settings.securitySanitizeMarkdownDesc")
-                    },
-                    {
-                      key: "allowExternalLinks" as const,
-                      label: t("settings.securityAllowExternalLinks"),
-                      desc: t("settings.securityAllowExternalLinksDesc")
-                    },
-                    {
-                      key: "allowRemoteImages" as const,
-                      label: t("settings.securityAllowRemoteImages"),
-                      desc: t("settings.securityAllowRemoteImagesDesc")
-                    },
-                    {
-                      key: "allowUnsafeUploads" as const,
-                      label: t("settings.securityAllowUnsafeUploads"),
-                      desc: t("settings.securityAllowUnsafeUploadsDesc")
-                    }
-                  ].map((item) => (
-                    <label key={item.key} className="flex items-center justify-between gap-3 rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2.5">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-text-primary">{item.label}</div>
-                        <div className="mt-0.5 text-[11px] text-text-tertiary">{item.desc}</div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={settings.security?.[item.key] === true}
-                        onChange={(e) => patch({
-                          security: {
-                            ...(settings.security || {}),
-                            [item.key]: e.target.checked
-                          }
-                        })}
-                      />
-                    </label>
-                  ))}
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.fullLocalMode")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.fullLocalDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.fullLocalMode === true} onChange={(e) => patch({ fullLocalMode: e.target.checked })} />
+                  </div>
                 </div>
               </div>
 
-              <div id="settings-scene-fields" className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                <div className="mb-2">
-                  <div className="text-sm font-medium text-text-primary">{t("settings.sceneFields")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.sceneFieldsDesc")}</div>
-                </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {[
-                    { key: "dialogueStyle" as const, label: t("inspector.dialogueStyle") },
-                    { key: "initiative" as const, label: t("inspector.initiative") },
-                    { key: "descriptiveness" as const, label: t("inspector.descriptiveness") },
-                    { key: "unpredictability" as const, label: t("inspector.unpredictability") },
-                    { key: "emotionalDepth" as const, label: t("inspector.emotionalDepth") }
-                  ].map((item) => (
-                    <label key={item.key} className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-2.5 py-2 text-xs text-text-secondary">
-                      <span>{item.label}</span>
-                      <input
-                        type="checkbox"
-                        checked={(settings.sceneFieldVisibility?.[item.key] ?? DEFAULT_SCENE_FIELD_VISIBILITY[item.key]) === true}
-                        onChange={(e) => {
-                          void patchSceneFieldVisibility({ [item.key]: e.target.checked });
-                        }}
-                      />
-                    </label>
-                  ))}
+              <div id="settings-active-model" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.activeModel")}</div>
+                <div className="space-y-3">
+                  <div>
+                    <FieldLabel>{t("settings.provider")}</FieldLabel>
+                    <SelectField value={selectedProviderId} onChange={setSelectedProviderId}>
+                      <option value="">{t("settings.selectProvider")}</option>
+                      {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </SelectField>
+                  </div>
+                  <div>
+                    <FieldLabel>{t("chat.model")}</FieldLabel>
+                    <SelectField value={selectedModelId} onChange={setSelectedModelId}>
+                      <option value="">{t("settings.selectModel")}</option>
+                      {models.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                    </SelectField>
+                  </div>
+                  <button onClick={applyActiveModel} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">{t("settings.useModel")}</button>
                 </div>
               </div>
 
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <FieldLabel>{t("settings.textSize")}</FieldLabel>
-                  <span className="text-xs text-text-tertiary">{Math.round(settings.fontScale * 100)}%</span>
-                </div>
-                <input type="range" min={0.8} max={1.4} step={0.05} value={settings.fontScale}
-                  onChange={(e) => patch({ fontScale: Number(e.target.value) })} className="w-full" />
-              </div>
-
-              <div>
-                <FieldLabel>{t("settings.interfaceLanguage")}</FieldLabel>
-                <SelectField value={settings.interfaceLanguage || "en"} onChange={(v) => changeInterfaceLanguage(v as "en" | "ru" | "zh" | "ja")}>
-                  <option value="en">{t("common.english")}</option>
-                  <option value="ru">{t("common.russian")}</option>
-                  <option value="zh">{t("common.chinese")}</option>
-                  <option value="ja">{t("common.japanese")}</option>
-                </SelectField>
-              </div>
-
-              <div>
-                <FieldLabel>{t("settings.responseLanguage")}</FieldLabel>
-                <InputField value={settings.responseLanguage} onChange={(v) => patch({ responseLanguage: v })} />
-              </div>
-
-              <div>
-                <FieldLabel>{t("settings.translateLanguage")}</FieldLabel>
-                <InputField value={settings.translateLanguage || settings.responseLanguage || "English"} onChange={(v) => patch({ translateLanguage: v })} />
-              </div>
-
-              <div id="settings-translation-model" className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                <div className="mb-2">
-                  <div className="text-sm font-medium text-text-primary">{t("settings.translateModel")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.translateModelDesc")}</div>
-                </div>
+              <div id="settings-translation-model" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.translateModel")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.translateModelDesc")}</p>
                 <div className="space-y-2">
                   <div>
                     <FieldLabel>{t("settings.provider")}</FieldLabel>
-                    <SelectField
-                      value={settings.translateProviderId || ""}
-                      onChange={(v) => {
-                        void patch({ translateProviderId: v || null, translateModel: null });
-                      }}
-                    >
+                    <SelectField value={settings.translateProviderId || ""} onChange={(v) => { void patch({ translateProviderId: v || null, translateModel: null }); }}>
                       <option value="">({t("settings.activeModel")})</option>
-                      {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                      {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </SelectField>
                   </div>
                   {settings.translateProviderId && (
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
                         <FieldLabel>{t("chat.model")}</FieldLabel>
-                        <button
-                          onClick={() => void loadTranslateModels(settings.translateProviderId)}
-                          className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
-                        >
-                          {t("settings.loadModels")}
-                        </button>
+                        <button onClick={() => void loadTranslateModels(settings.translateProviderId)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("settings.loadModels")}</button>
                       </div>
-                      <SelectField
-                        value={settings.translateModel || ""}
-                        onChange={(v) => patch({ translateModel: v || null })}
-                      >
+                      <SelectField value={settings.translateModel || ""} onChange={(v) => patch({ translateModel: v || null })}>
                         <option value="">({t("settings.activeModel")})</option>
-                        {translateModels.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
+                        {translateModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
                       </SelectField>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div id="settings-rag-model" className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                <div className="mb-2">
-                  <div className="text-sm font-medium text-text-primary">{t("settings.ragModel")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.ragModelDesc")}</div>
+              <div id="settings-compress-model" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.compressModel")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.compressModelDesc")}</p>
+                <div className="space-y-3">
+                  <div>
+                    <FieldLabel>{t("settings.compressProvider")}</FieldLabel>
+                    <SelectField value={settings.compressProviderId || ""} onChange={(v) => { patch({ compressProviderId: v || null }); }}>
+                      <option value="">({t("settings.activeModel")})</option>
+                      {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </SelectField>
+                  </div>
+                  {settings.compressProviderId && (
+                    <div>
+                      <FieldLabel>{t("chat.model")}</FieldLabel>
+                      <SelectField value={settings.compressModel || ""} onChange={(v) => patch({ compressModel: v || null })}>
+                        <option value="">({t("settings.activeModel")})</option>
+                        {compressModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                      </SelectField>
+                    </div>
+                  )}
                 </div>
+              </div>
+
+              <div id="settings-tts" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.tts")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ttsDesc")}</p>
+                <div className="space-y-3">
+                  <div><FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel><InputField value={settings.ttsBaseUrl || ""} onChange={(v) => patch({ ttsBaseUrl: v })} placeholder="https://api.openai.com/v1" /></div>
+                  <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField type="password" value={settings.ttsApiKey || ""} onChange={(v) => patch({ ttsApiKey: v })} placeholder={t("settings.apiKey")} /></div>
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <FieldLabel>{t("settings.ttsModel")}</FieldLabel>
+                      <button onClick={() => void loadTtsModels()} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("settings.loadModels")}</button>
+                    </div>
+                    <SelectField value={settings.ttsModel || ""} onChange={(v) => patch({ ttsModel: v })}>
+                      <option value="">{t("settings.selectModel")}</option>
+                      {ttsModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                    </SelectField>
+                  </div>
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <FieldLabel>{t("settings.ttsVoice")}</FieldLabel>
+                      <button onClick={() => void loadTtsVoices()} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("settings.loadVoices")}</button>
+                    </div>
+                    <input list="tts-voice-options" value={settings.ttsVoice || ""} onChange={(e) => patch({ ttsVoice: e.target.value })} placeholder="alloy"
+                      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary" />
+                    <datalist id="tts-voice-options">
+                      <option value="alloy" /><option value="echo" /><option value="fable" /><option value="onyx" /><option value="nova" /><option value="shimmer" />
+                      {ttsVoices.map((v) => <option key={v.id} value={v.id} />)}
+                    </datalist>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== INTERFACE ===== */}
+          {activeCategory === "interface" && (
+            <div className="space-y-4">
+              <div id="settings-general" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.general")}</div>
+                <div className="space-y-3">
+                  <div>
+                    <FieldLabel>{t("settings.theme")}</FieldLabel>
+                    <SelectField value={settings.theme} onChange={(v) => patch({ theme: v as AppSettings["theme"] })}>
+                      <option value="dark">{t("settings.dark")}</option>
+                      <option value="light">{t("settings.light")}</option>
+                      <option value="custom">{t("settings.custom")}</option>
+                    </SelectField>
+                  </div>
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <FieldLabel>{t("settings.textSize")}</FieldLabel>
+                      <span className="text-xs text-text-tertiary">{Math.round(settings.fontScale * 100)}%</span>
+                    </div>
+                    <input type="range" min={0.8} max={1.4} step={0.05} value={settings.fontScale} onChange={(e) => patch({ fontScale: Number(e.target.value) })} className="w-full" />
+                  </div>
+                  <div>
+                    <FieldLabel>{t("settings.interfaceLanguage")}</FieldLabel>
+                    <SelectField value={settings.interfaceLanguage || "en"} onChange={(v) => changeInterfaceLanguage(v as "en" | "ru" | "zh" | "ja")}>
+                      <option value="en">{t("common.english")}</option>
+                      <option value="ru">{t("common.russian")}</option>
+                      <option value="zh">{t("common.chinese")}</option>
+                      <option value="ja">{t("common.japanese")}</option>
+                    </SelectField>
+                  </div>
+                </div>
+              </div>
+
+              <div id="settings-workspace-mode" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.workspaceMode")}</div>
+                <div className="space-y-2">
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.alternateSimpleMode")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.alternateSimpleModeDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.alternateSimpleMode === true} onChange={(e) => patch({ alternateSimpleMode: e.target.checked })} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== GENERATION ===== */}
+          {activeCategory === "generation" && (
+            <div className="space-y-4">
+              <div id="settings-output-behaviour" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.outputBehaviour")}</div>
+                <div className="space-y-3">
+                  <div><FieldLabel>{t("settings.responseLanguage")}</FieldLabel><InputField value={settings.responseLanguage} onChange={(v) => patch({ responseLanguage: v })} /></div>
+                  <div><FieldLabel>{t("settings.translateLanguage")}</FieldLabel><InputField value={settings.translateLanguage || settings.responseLanguage || "English"} onChange={(v) => patch({ translateLanguage: v })} /></div>
+                  <div>
+                    <FieldLabel>{t("settings.censorship")}</FieldLabel>
+                    <SelectField value={settings.censorshipMode} onChange={(v) => patch({ censorshipMode: v as AppSettings["censorshipMode"] })}>
+                      <option value="Unfiltered">{t("settings.unfiltered")}</option>
+                      <option value="Filtered">{t("settings.filtered")}</option>
+                    </SelectField>
+                  </div>
+                </div>
+              </div>
+
+              <div id="settings-sampler-defaults" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.samplerDefaults")}</div>
+                <div className="space-y-4">
+                  {([
+                    { key: "temperature" as const, label: t("inspector.temperature"), min: 0, max: 2 },
+                    { key: "topP" as const, label: t("inspector.topP"), min: 0, max: 1 },
+                    { key: "frequencyPenalty" as const, label: t("inspector.freqPenalty"), min: 0, max: 2 },
+                    { key: "presencePenalty" as const, label: t("inspector.presPenalty"), min: 0, max: 2 }
+                  ]).map(({ key, label, min, max }) => (
+                    <div key={key}>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <FieldLabel>{label}</FieldLabel>
+                        <span className="text-xs text-text-tertiary">{settings.samplerConfig[key].toFixed(2)}</span>
+                      </div>
+                      <input type="range" min={min} max={max} step={0.05} value={settings.samplerConfig[key]} onChange={(e) => patchSampler({ [key]: Number(e.target.value) })} className="w-full" />
+                    </div>
+                  ))}
+                  <div><FieldLabel>{t("inspector.maxTokens")}</FieldLabel><input type="number" value={settings.samplerConfig.maxTokens} onChange={(e) => patchSampler({ maxTokens: Number(e.target.value) })} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.stopSequences")}</FieldLabel><InputField value={(settings.samplerConfig.stop || []).join(", ")} onChange={(v) => patchSampler({ stop: v.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder={t("settings.stopSequencesPlaceholder")} /></div>
+
+                  <div className="settings-field-group">
+                    <div className="mb-3 text-xs font-semibold text-text-secondary">{t("settings.koboldSampler")}</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {([
+                        { key: "topK" as const, label: "Top-K", min: 0, max: 300, step: 1, fallback: 100 },
+                        { key: "topA" as const, label: "Top-A", min: 0, max: 1, step: 0.01, fallback: 0 },
+                        { key: "minP" as const, label: "Min-P", min: 0, max: 1, step: 0.01, fallback: 0 },
+                        { key: "typical" as const, label: "Typical", min: 0, max: 1, step: 0.01, fallback: 1 },
+                        { key: "tfs" as const, label: "TFS", min: 0, max: 1, step: 0.01, fallback: 1 },
+                        { key: "nSigma" as const, label: "N-Sigma", min: 0, max: 1, step: 0.01, fallback: 0 },
+                        { key: "repetitionPenalty" as const, label: "Rep. Penalty", min: 0, max: 2, step: 0.01, fallback: 1.1 }
+                      ]).map(({ key, label, min, max, step, fallback }) => (
+                        <div key={key}>
+                          <div className="mb-1.5 flex items-center justify-between">
+                            <FieldLabel>{label}</FieldLabel>
+                            <span className="text-xs text-text-tertiary">{Number(settings.samplerConfig[key] ?? fallback).toFixed(2)}</span>
+                          </div>
+                          <input type="range" min={min} max={max} step={step} value={Number(settings.samplerConfig[key] ?? fallback)} onChange={(e) => patchSampler({ [key]: Number(e.target.value) })} className="w-full" />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3"><FieldLabel>{t("settings.koboldMemoryLabel")}</FieldLabel><textarea value={settings.samplerConfig.koboldMemory || ""} onChange={(e) => patchSampler({ koboldMemory: e.target.value })} className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" placeholder={t("settings.koboldMemoryPlaceholder")} /></div>
+                    <div className="mt-3"><FieldLabel>{t("settings.koboldPhraseBansLabel")}</FieldLabel><InputField value={koboldBansInput} onChange={setKoboldBansInput} onBlur={() => patchSampler({ koboldBannedPhrases: parsePhraseBansInput(koboldBansInput) })} placeholder={t("settings.koboldPhraseBansPlaceholder")} /></div>
+                    <label className="mt-3 flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2">
+                      <span className="text-xs font-medium text-text-secondary">{t("settings.koboldUseDefaultBadwordsIds")}</span>
+                      <ToggleSwitch checked={settings.samplerConfig.koboldUseDefaultBadwords === true} onChange={(e) => patchSampler({ koboldUseDefaultBadwords: e.target.checked })} />
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div id="settings-api-param-forwarding" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.apiParamForwarding")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.apiParamForwardingDesc")}</p>
+                <div className="space-y-3">
+                  <div className="settings-field-group">
+                    <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.apiParamsOpenAi")}</div>
+                    <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
+                      <span>{t("settings.sendSampler")}</span>
+                      <ToggleSwitch checked={apiParamPolicy.openai.sendSampler} onChange={(e) => void patchApiParamPolicy({ openai: { sendSampler: e.target.checked } })} />
+                    </label>
+                    <div className={`mt-2 grid grid-cols-2 gap-2 ${apiParamPolicy.openai.sendSampler ? "" : "opacity-60"}`}>
+                      {([
+                        { key: "temperature" as const, label: t("inspector.temperature") },
+                        { key: "topP" as const, label: t("inspector.topP") },
+                        { key: "frequencyPenalty" as const, label: t("inspector.freqPenalty") },
+                        { key: "presencePenalty" as const, label: t("inspector.presPenalty") },
+                        { key: "maxTokens" as const, label: t("inspector.maxTokens") },
+                        { key: "stop" as const, label: t("settings.stopSequences") }
+                      ]).map((item) => (
+                        <label key={item.key} className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-2.5 py-2 text-xs text-text-secondary">
+                          <span>{item.label}</span>
+                          <ToggleSwitch checked={apiParamPolicy.openai[item.key]} disabled={!apiParamPolicy.openai.sendSampler}
+                            onChange={(e) => void patchApiParamPolicy({ openai: { ...apiParamPolicy.openai, [item.key]: e.target.checked } })} />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="settings-field-group">
+                    <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.apiParamsKobold")}</div>
+                    <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
+                      <span>{t("settings.sendSampler")}</span>
+                      <ToggleSwitch checked={apiParamPolicy.kobold.sendSampler} onChange={(e) => void patchApiParamPolicy({ kobold: { sendSampler: e.target.checked } })} />
+                    </label>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {([
+                        { key: "memory" as const, label: t("settings.koboldMemoryLabel"), disableWhenSamplerOff: false },
+                        { key: "maxTokens" as const, label: t("inspector.maxTokens"), disableWhenSamplerOff: true },
+                        { key: "temperature" as const, label: t("inspector.temperature"), disableWhenSamplerOff: true },
+                        { key: "topP" as const, label: t("inspector.topP"), disableWhenSamplerOff: true },
+                        { key: "topK" as const, label: "Top-K", disableWhenSamplerOff: true },
+                        { key: "topA" as const, label: "Top-A", disableWhenSamplerOff: true },
+                        { key: "minP" as const, label: "Min-P", disableWhenSamplerOff: true },
+                        { key: "typical" as const, label: "Typical", disableWhenSamplerOff: true },
+                        { key: "tfs" as const, label: "TFS", disableWhenSamplerOff: true },
+                        { key: "nSigma" as const, label: "N-Sigma", disableWhenSamplerOff: true },
+                        { key: "repetitionPenalty" as const, label: t("settings.koboldRepetitionPenalty"), disableWhenSamplerOff: true },
+                        { key: "repetitionPenaltyRange" as const, label: t("settings.koboldRepetitionPenaltyRange"), disableWhenSamplerOff: true },
+                        { key: "repetitionPenaltySlope" as const, label: t("settings.koboldRepetitionPenaltySlope"), disableWhenSamplerOff: true },
+                        { key: "samplerOrder" as const, label: t("settings.koboldSamplerOrder"), disableWhenSamplerOff: true },
+                        { key: "stop" as const, label: t("settings.stopSequences"), disableWhenSamplerOff: true },
+                        { key: "phraseBans" as const, label: t("settings.koboldPhraseBansLabel"), disableWhenSamplerOff: true },
+                        { key: "useDefaultBadwords" as const, label: t("settings.koboldUseDefaultBadwordsIds"), disableWhenSamplerOff: true }
+                      ]).map((item) => {
+                        const disabled = item.disableWhenSamplerOff && !apiParamPolicy.kobold.sendSampler;
+                        return (
+                          <label key={item.key} className={`flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-2.5 py-2 text-xs text-text-secondary ${disabled ? "opacity-60" : ""}`}>
+                            <span>{item.label}</span>
+                            <ToggleSwitch checked={apiParamPolicy.kobold[item.key]} disabled={disabled}
+                              onChange={(e) => void patchApiParamPolicy({ kobold: { ...apiParamPolicy.kobold, [item.key]: e.target.checked } })} />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* ===== CONTEXT ===== */}
+          {activeCategory === "context" && (
+            <div className="space-y-4">
+              <div id="settings-context-window" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.contextWindow")}</div>
+                <div className="space-y-3">
+                  <div><FieldLabel>{t("settings.contextSize")}</FieldLabel><input type="number" value={settings.contextWindowSize} onChange={(e) => patch({ contextWindowSize: Number(e.target.value) })} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.contextTailWithSummary")}</FieldLabel><input type="number" min={5} max={95} value={settings.contextTailBudgetWithSummaryPercent ?? 35} onChange={(e) => { const v = Number(e.target.value); patch({ contextTailBudgetWithSummaryPercent: Number.isFinite(v) ? Math.max(5, Math.min(95, Math.floor(v))) : 35 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.contextTailWithoutSummary")}</FieldLabel><input type="number" min={5} max={95} value={settings.contextTailBudgetWithoutSummaryPercent ?? 75} onChange={(e) => { const v = Number(e.target.value); patch({ contextTailBudgetWithoutSummaryPercent: Number.isFinite(v) ? Math.max(5, Math.min(95, Math.floor(v))) : 75 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div className="settings-toggle-row">
+                    <div>
+                      <div className="text-sm font-medium text-text-primary">{t("settings.strictGrounding")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.strictGroundingDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.strictGrounding !== false} onChange={(e) => patch({ strictGrounding: e.target.checked })} />
+                  </div>
+                  <p className="text-[10px] text-text-tertiary">{t("settings.contextDesc")}</p>
+                </div>
+              </div>
+
+              <div id="settings-chat-behaviour" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.conversationBehaviour")}</div>
+                <div className="space-y-2">
+                  {([
+                    { key: "useAlternateGreetings" as const, label: t("settings.altGreetingsRandom"), desc: t("settings.altGreetingsRandomDesc") },
+                    { key: "mergeConsecutiveRoles" as const, label: t("settings.mergeRoles"), desc: t("settings.mergeRolesDesc") }
+                  ]).map((item) => (
+                    <div key={item.key} className="settings-toggle-row">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-text-primary">{item.label}</div>
+                        <div className="mt-0.5 text-[11px] text-text-tertiary">{item.desc}</div>
+                      </div>
+                      <ToggleSwitch checked={settings[item.key] === true} onChange={(e) => patch({ [item.key]: e.target.checked })} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div id="settings-scene-fields" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.sceneFields")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.sceneFieldsDesc")}</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {([
+                    { key: "dialogueStyle" as const, label: t("inspector.dialogueStyle") },
+                    { key: "initiative" as const, label: t("inspector.initiative") },
+                    { key: "descriptiveness" as const, label: t("inspector.descriptiveness") },
+                    { key: "unpredictability" as const, label: t("inspector.unpredictability") },
+                    { key: "emotionalDepth" as const, label: t("inspector.emotionalDepth") }
+                  ]).map((item) => (
+                    <label key={item.key} className="flex cursor-pointer items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-secondary">
+                      <span>{item.label}</span>
+                      <ToggleSwitch checked={(settings.sceneFieldVisibility?.[item.key] ?? DEFAULT_SCENE_FIELD_VISIBILITY[item.key]) === true}
+                        onChange={(e) => { void patchSceneFieldVisibility({ [item.key]: e.target.checked }); }} />
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div id="settings-rag-model" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.ragModel")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ragModelDesc")}</p>
                 <div className="space-y-2">
                   <div>
                     <FieldLabel>{t("settings.provider")}</FieldLabel>
-                    <SelectField
-                      value={settings.ragProviderId || ""}
-                      onChange={(v) => {
-                        void patch({ ragProviderId: v || null, ragModel: null });
-                      }}
-                    >
+                    <SelectField value={settings.ragProviderId || ""} onChange={(v) => { void patch({ ragProviderId: v || null, ragModel: null }); }}>
                       <option value="">({t("settings.activeModel")})</option>
-                      {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                      {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </SelectField>
                   </div>
                   {settings.ragProviderId && (
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
                         <FieldLabel>{t("chat.model")}</FieldLabel>
-                        <button
-                          onClick={() => void loadRagModels(settings.ragProviderId)}
-                          className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
-                        >
-                          {t("settings.loadModels")}
-                        </button>
+                        <button onClick={() => void loadRagModels(settings.ragProviderId)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("settings.loadModels")}</button>
                       </div>
-                      <SelectField
-                        value={settings.ragModel || ""}
-                        onChange={(v) => patch({ ragModel: v || null })}
-                      >
+                      <SelectField value={settings.ragModel || ""} onChange={(v) => patch({ ragModel: v || null })}>
                         <option value="">{t("settings.selectModel")}</option>
-                        {ragModels.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
+                        {ragModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
                       </SelectField>
                     </div>
                   )}
                   <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
                     <span>{t("settings.ragEnableByDefault")}</span>
-                    <input
-                      type="checkbox"
-                      checked={settings.ragEnabledByDefault === true}
-                      onChange={(e) => patch({ ragEnabledByDefault: e.target.checked })}
-                    />
+                    <ToggleSwitch checked={settings.ragEnabledByDefault === true} onChange={(e) => patch({ ragEnabledByDefault: e.target.checked })} />
                   </label>
                 </div>
               </div>
 
-              <div id="settings-rag-reranker" className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                <div className="mb-2">
-                  <div className="text-sm font-medium text-text-primary">{t("settings.ragReranker")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.ragRerankerDesc")}</div>
-                </div>
+              <div id="settings-rag-reranker" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.ragReranker")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ragRerankerDesc")}</p>
                 <div className="space-y-2">
                   <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
                     <span>{t("settings.ragRerankerEnable")}</span>
-                    <input
-                      type="checkbox"
-                      checked={settings.ragRerankEnabled === true}
-                      onChange={(e) => patch({ ragRerankEnabled: e.target.checked })}
-                    />
+                    <ToggleSwitch checked={settings.ragRerankEnabled === true} onChange={(e) => patch({ ragRerankEnabled: e.target.checked })} />
                   </label>
                   <div>
                     <FieldLabel>{t("settings.provider")}</FieldLabel>
-                    <SelectField
-                      value={settings.ragRerankProviderId || ""}
-                      onChange={(v) => {
-                        void patch({ ragRerankProviderId: v || null, ragRerankModel: null });
-                      }}
-                    >
+                    <SelectField value={settings.ragRerankProviderId || ""} onChange={(v) => { void patch({ ragRerankProviderId: v || null, ragRerankModel: null }); }}>
                       <option value="">({t("settings.activeModel")})</option>
-                      {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                      {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </SelectField>
                   </div>
                   {settings.ragRerankProviderId && (
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
                         <FieldLabel>{t("chat.model")}</FieldLabel>
-                        <button
-                          onClick={() => void loadRagRerankModels(settings.ragRerankProviderId)}
-                          className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
-                        >
-                          {t("settings.loadModels")}
-                        </button>
+                        <button onClick={() => void loadRagRerankModels(settings.ragRerankProviderId)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("settings.loadModels")}</button>
                       </div>
-                      <SelectField
-                        value={settings.ragRerankModel || ""}
-                        onChange={(v) => patch({ ragRerankModel: v || null })}
-                      >
+                      <SelectField value={settings.ragRerankModel || ""} onChange={(v) => patch({ ragRerankModel: v || null })}>
                         <option value="">{t("settings.selectModel")}</option>
-                        {ragRerankModels.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
+                        {ragRerankModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
                       </SelectField>
                     </div>
                   )}
-                  <div>
-                    <FieldLabel>{t("settings.ragRerankTopN")}</FieldLabel>
-                    <input
-                      type="number"
-                      min={5}
-                      max={200}
-                      value={settings.ragRerankTopN ?? 40}
-                      onChange={(e) => {
-                        const raw = Number(e.target.value);
-                        const next = Number.isFinite(raw) ? Math.max(5, Math.min(200, Math.floor(raw))) : 40;
-                        patch({ ragRerankTopN: next });
-                      }}
-                      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
-                    />
-                  </div>
+                  <div><FieldLabel>{t("settings.ragRerankTopN")}</FieldLabel><input type="number" min={5} max={200} value={settings.ragRerankTopN ?? 40} onChange={(e) => { const v = Number(e.target.value); patch({ ragRerankTopN: Number.isFinite(v) ? Math.max(5, Math.min(200, Math.floor(v))) : 40 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{t("settings.fullLocalMode")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.fullLocalDesc")}</div>
-                </div>
-                <input type="checkbox" checked={settings.fullLocalMode} onChange={(e) => patch({ fullLocalMode: e.target.checked })} />
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{t("settings.altGreetingsRandom")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.altGreetingsRandomDesc")}</div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={settings.useAlternateGreetings === true}
-                  onChange={(e) => patch({ useAlternateGreetings: e.target.checked })}
-                />
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{t("settings.censorship")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.censorshipDesc")}</div>
-                </div>
-                <SelectField value={settings.censorshipMode} onChange={(v) => patch({ censorshipMode: v as AppSettings["censorshipMode"] })}>
-                  <option value="Unfiltered">{t("settings.unfiltered")}</option>
-                  <option value="Filtered">{t("settings.filtered")}</option>
-                </SelectField>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{t("settings.mergeRoles")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.mergeRolesDesc")}</div>
-                </div>
-                <input type="checkbox" checked={settings.mergeConsecutiveRoles ?? false}
-                  onChange={(e) => patch({ mergeConsecutiveRoles: e.target.checked })} />
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div id="settings-quick-presets" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.quickPresets")}</SectionTitle>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {PROVIDER_PRESETS.map((preset) => (
-                  <button key={preset.key} onClick={() => applyPresetToForm(preset)}
-                    className={`rounded-lg border p-2.5 text-left transition-colors ${
-                      selectedPresetKey === preset.key ? "border-accent-border bg-accent-subtle" : "border-border hover:bg-bg-hover"
-                    }`}>
-                    <div className="text-xs font-semibold text-text-primary">{preset.label}</div>
-                    <div className="mt-0.5 text-[10px] text-text-tertiary">{preset.description}</div>
-                  </button>
-                ))}
-              </div>
-              <button onClick={quickAddPreset}
-                className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">
-                {t("settings.quickAdd")}
-              </button>
-            </div>
-
-            <div id="settings-manual-provider" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.manualConfig")}</SectionTitle>
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <FieldLabel>{t("settings.providerId")}</FieldLabel>
-                    <InputField value={providerId} onChange={setProviderId} placeholder={t("settings.providerIdPlaceholder")} />
-                  </div>
-                  <div>
-                    <FieldLabel>{t("settings.providerName")}</FieldLabel>
-                    <InputField value={providerName} onChange={setProviderName} placeholder={t("settings.providerNamePlaceholder")} />
-                  </div>
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.baseUrl")}</FieldLabel>
-                  <InputField value={providerBaseUrl} onChange={setProviderBaseUrl} placeholder={t("settings.baseUrlPlaceholder")} />
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.providerType")}</FieldLabel>
-                  <SelectField value={providerType} onChange={(v) => setProviderType(v as "openai" | "koboldcpp")}>
-                    <option value="openai">{t("settings.providerTypeOpenAi")}</option>
-                    <option value="koboldcpp">{t("settings.providerTypeKobold")}</option>
-                  </SelectField>
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.apiKey")}</FieldLabel>
-                  <InputField value={providerApiKey} onChange={setProviderApiKey} placeholder={selectedPreset.apiKeyHint} />
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.proxyUrl")}</FieldLabel>
-                  <InputField value={providerProxyUrl} onChange={setProviderProxyUrl} placeholder={t("settings.proxyUrlPlaceholder")} />
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
-                  <span className="text-xs font-medium text-text-secondary">{t("settings.localOnly")}</span>
-                  <input type="checkbox" checked={providerLocalOnly} onChange={(e) => setProviderLocalOnly(e.target.checked)} />
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={saveProvider} className="flex-1 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">{t("settings.saveProvider")}</button>
-                  <button onClick={testProvider} className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover">{t("settings.test")}</button>
-                  <button onClick={refreshProviders} className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover">{t("settings.refresh")}</button>
+              <div id="settings-rag-retrieval" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.ragRetrieval")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ragRetrievalDesc")}</p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div><FieldLabel>{t("settings.ragTopK")}</FieldLabel><input type="number" min={1} max={12} value={settings.ragTopK ?? 6} onChange={(e) => { const v = Number(e.target.value); patch({ ragTopK: Number.isFinite(v) ? Math.max(1, Math.min(12, Math.floor(v))) : 6 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.ragCandidateCount")}</FieldLabel><input type="number" min={10} max={300} value={settings.ragCandidateCount ?? 80} onChange={(e) => { const v = Number(e.target.value); patch({ ragCandidateCount: Number.isFinite(v) ? Math.max(10, Math.min(300, Math.floor(v))) : 80 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.ragSimilarityThreshold")}</FieldLabel><input type="number" min={-1} max={1} step={0.01} value={settings.ragSimilarityThreshold ?? 0.15} onChange={(e) => { const v = Number(e.target.value); patch({ ragSimilarityThreshold: Number.isFinite(v) ? Number(Math.max(-1, Math.min(1, v)).toFixed(2)) : 0.15 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.ragMaxContextTokens")}</FieldLabel><input type="number" min={200} max={4000} value={settings.ragMaxContextTokens ?? 900} onChange={(e) => { const v = Number(e.target.value); patch({ ragMaxContextTokens: Number.isFinite(v) ? Math.max(200, Math.min(4000, Math.floor(v))) : 900 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.ragChunkSize")}</FieldLabel><input type="number" min={300} max={8000} value={settings.ragChunkSize ?? 1200} onChange={(e) => { const v = Number(e.target.value); patch({ ragChunkSize: Number.isFinite(v) ? Math.max(300, Math.min(8000, Math.floor(v))) : 1200 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.ragChunkOverlap")}</FieldLabel><input type="number" min={0} max={3000} value={settings.ragChunkOverlap ?? 220} onChange={(e) => { const v = Number(e.target.value); patch({ ragChunkOverlap: Number.isFinite(v) ? Math.max(0, Math.min(3000, Math.floor(v))) : 220 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
                 </div>
               </div>
             </div>
+          )}
 
-            <div id="settings-active-model" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.activeModel")}</SectionTitle>
-              <div className="space-y-3">
-                <div>
-                  <FieldLabel>{t("settings.provider")}</FieldLabel>
-                  <SelectField value={selectedProviderId} onChange={setSelectedProviderId}>
-                    <option value="">{t("settings.selectProvider")}</option>
-                    {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-                  </SelectField>
-                </div>
-                <div>
-                  <FieldLabel>{t("chat.model")}</FieldLabel>
-                  <SelectField value={selectedModelId} onChange={setSelectedModelId}>
-                    <option value="">{t("settings.selectModel")}</option>
-                    {models.map((model) => (<option key={model.id} value={model.id}>{model.id}</option>))}
-                  </SelectField>
-                </div>
-                <button onClick={applyActiveModel}
-                  className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">
-                  {t("settings.useModel")}
-                </button>
-              </div>
-            </div>
-
-            <div id="settings-tts" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.tts")}</SectionTitle>
-              <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ttsDesc")}</p>
-              <div className="space-y-3">
-                <div>
-                  <FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel>
-                  <InputField
-                    value={settings.ttsBaseUrl || ""}
-                    onChange={(v) => patch({ ttsBaseUrl: v })}
-                    placeholder="https://api.openai.com/v1"
-                  />
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.apiKey")}</FieldLabel>
-                  <InputField
-                    type="password"
-                    value={settings.ttsApiKey || ""}
-                    onChange={(v) => patch({ ttsApiKey: v })}
-                    placeholder={t("settings.apiKey")}
-                  />
-                </div>
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <FieldLabel>{t("settings.ttsModel")}</FieldLabel>
-                    <button
-                      onClick={() => void loadTtsModels()}
-                      className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
-                    >
-                      {t("settings.loadModels")}
-                    </button>
-                  </div>
-                  <SelectField value={settings.ttsModel || ""} onChange={(v) => patch({ ttsModel: v })}>
-                    <option value="">{t("settings.selectModel")}</option>
-                    {ttsModels.map((model) => (<option key={model.id} value={model.id}>{model.id}</option>))}
-                  </SelectField>
-                </div>
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <FieldLabel>{t("settings.ttsVoice")}</FieldLabel>
-                    <button
-                      onClick={() => void loadTtsVoices()}
-                      className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
-                    >
-                      {t("settings.loadVoices")}
-                    </button>
-                  </div>
-                  <input
-                    list="tts-voice-options"
-                    value={settings.ttsVoice || ""}
-                    onChange={(e) => patch({ ttsVoice: e.target.value })}
-                    placeholder="alloy"
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary"
-                  />
-                  <datalist id="tts-voice-options">
-                    <option value="alloy" />
-                    <option value="echo" />
-                    <option value="fable" />
-                    <option value="onyx" />
-                    <option value="nova" />
-                    <option value="shimmer" />
-                    {ttsVoices.map((voice) => (<option key={voice.id} value={voice.id} />))}
-                  </datalist>
-                </div>
-              </div>
-            </div>
-
-            {/* Compress Model Settings */}
-            <div id="settings-compress-model" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.compressModel")}</SectionTitle>
-              <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.compressModelDesc")}</p>
-              <div className="space-y-3">
-                <div>
-                  <FieldLabel>{t("settings.compressProvider")}</FieldLabel>
-                  <SelectField value={settings.compressProviderId || ""} onChange={(v) => { patch({ compressProviderId: v || null }); }}>
-                    <option value="">({t("settings.activeModel")})</option>
-                    {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-                  </SelectField>
-                </div>
-                {settings.compressProviderId && (
-                  <>
-                    <div>
-                      <FieldLabel>{t("chat.model")}</FieldLabel>
-                      <SelectField value={settings.compressModel || ""} onChange={(v) => patch({ compressModel: v || null })}>
-                        <option value="">({t("settings.activeModel")})</option>
-                        {compressModels.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
-                      </SelectField>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div id="settings-sampler-defaults" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-            <SectionTitle>{t("settings.samplerDefaults")}</SectionTitle>
+          {/* ===== PROMPTS ===== */}
+          {activeCategory === "prompts" && (
             <div className="space-y-4">
-              {[
-                { key: "temperature" as const, label: t("inspector.temperature"), min: 0, max: 2 },
-                { key: "topP" as const, label: t("inspector.topP"), min: 0, max: 1 },
-                { key: "frequencyPenalty" as const, label: t("inspector.freqPenalty"), min: 0, max: 2 },
-                { key: "presencePenalty" as const, label: t("inspector.presPenalty"), min: 0, max: 2 }
-              ].map(({ key, label, min, max }) => (
-                <div key={key}>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <FieldLabel>{label}</FieldLabel>
-                    <span className="text-xs text-text-tertiary">{settings.samplerConfig[key].toFixed(2)}</span>
-                  </div>
-                  <input type="range" min={min} max={max} step={0.05} value={settings.samplerConfig[key]}
-                    onChange={(e) => patchSampler({ [key]: Number(e.target.value) })} className="w-full" />
-                </div>
-              ))}
-
-              <div>
-                <FieldLabel>{t("inspector.maxTokens")}</FieldLabel>
-                <input type="number" value={settings.samplerConfig.maxTokens}
-                  onChange={(e) => patchSampler({ maxTokens: Number(e.target.value) })}
-                  className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
-              </div>
-
-              <div>
-                <FieldLabel>{t("settings.stopSequences")}</FieldLabel>
-                <InputField value={(settings.samplerConfig.stop || []).join(", ")}
-                  onChange={(v) => patchSampler({ stop: v.split(",").map((s) => s.trim()).filter(Boolean) })}
-                  placeholder={t("settings.stopSequencesPlaceholder")} />
-              </div>
-
-              <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.koboldSampler")}</div>
-                <div className="grid grid-cols-2 gap-3">
-                  {[
-                    { key: "topK" as const, label: "Top-K", min: 0, max: 300, step: 1, fallback: 100 },
-                    { key: "topA" as const, label: "Top-A", min: 0, max: 1, step: 0.01, fallback: 0 },
-                    { key: "minP" as const, label: "Min-P", min: 0, max: 1, step: 0.01, fallback: 0 },
-                    { key: "typical" as const, label: "Typical", min: 0, max: 1, step: 0.01, fallback: 1 },
-                    { key: "tfs" as const, label: "TFS", min: 0, max: 1, step: 0.01, fallback: 1 },
-                    { key: "nSigma" as const, label: "N-Sigma", min: 0, max: 1, step: 0.01, fallback: 0 },
-                    { key: "repetitionPenalty" as const, label: "Repetition Penalty", min: 0, max: 2, step: 0.01, fallback: 1.1 }
-                  ].map(({ key, label, min, max, step, fallback }) => (
+              <div id="settings-prompt-templates" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.promptTemplates")}</div>
+                <p className="mb-4 text-[11px] text-text-tertiary">{t("settings.promptTemplatesDesc")}</p>
+                <div className="space-y-4">
+                  {([
+                    { key: "jailbreak" as const, label: t("prompt.jailbreak"), desc: t("prompt.jailbreakDesc") },
+                    { key: "compressSummary" as const, label: t("prompt.compress"), desc: t("prompt.compressDesc") },
+                    { key: "creativeWriting" as const, label: t("prompt.creativeWriting"), desc: t("prompt.creativeWritingDesc") },
+                    { key: "writerGenerate" as const, label: t("prompt.writerGenerate"), desc: t("prompt.writerGenerateDesc") },
+                    { key: "writerExpand" as const, label: t("prompt.writerExpand"), desc: t("prompt.writerExpandDesc") },
+                    { key: "writerRewrite" as const, label: t("prompt.writerRewrite"), desc: t("prompt.writerRewriteDesc") },
+                    { key: "writerSummarize" as const, label: t("prompt.writerSummarize"), desc: t("prompt.writerSummarizeDesc") }
+                  ]).map(({ key, label, desc }) => (
                     <div key={key}>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <FieldLabel>{label}</FieldLabel>
-                        <span className="text-xs text-text-tertiary">{Number(settings.samplerConfig[key] ?? fallback).toFixed(2)}</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={min}
-                        max={max}
-                        step={step}
-                        value={Number(settings.samplerConfig[key] ?? fallback)}
-                        onChange={(e) => patchSampler({ [key]: Number(e.target.value) })}
-                        className="w-full"
-                      />
+                      <FieldLabel>{label}</FieldLabel>
+                      <p className="mb-1.5 text-[10px] text-text-tertiary">{desc}</p>
+                      <textarea value={settings.promptTemplates?.[key] ?? ""} onChange={(e) => { const tpl: PromptTemplates = { ...settings.promptTemplates, [key]: e.target.value }; patch({ promptTemplates: tpl }); }}
+                        className="h-24 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary" />
                     </div>
                   ))}
                 </div>
-                <div className="mt-3">
-                  <FieldLabel>{t("settings.koboldMemoryLabel")}</FieldLabel>
-                  <textarea
-                    value={settings.samplerConfig.koboldMemory || ""}
-                    onChange={(e) => patchSampler({ koboldMemory: e.target.value })}
-                    className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary"
-                    placeholder={t("settings.koboldMemoryPlaceholder")}
-                  />
+              </div>
+
+              <div id="settings-prompt-stack" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("inspector.promptStack")}</div>
+                <p className="mb-3 text-[11px] text-text-tertiary">{t("settings.promptStackDesc")}</p>
+                <div className="space-y-2">
+                  {orderedPromptStack.map((block) => (
+                    <div key={block.id} draggable
+                      onDragStart={() => setDraggedPromptBlockId(block.id)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={() => { if (!draggedPromptBlockId) return; movePromptBlock(draggedPromptBlockId, block.id); setDraggedPromptBlockId(null); }}
+                      className={`rounded-lg border p-2 ${PROMPT_STACK_COLORS[block.kind] ?? "border-border bg-bg-primary"}`}>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => togglePromptBlock(block.id)} className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary" title={block.enabled ? t("chat.disable") : t("chat.enable")}>
+                          {block.enabled
+                            ? <svg className="h-3.5 w-3.5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                            : <svg className="h-3.5 w-3.5 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>}
+                        </button>
+                        <svg className="h-3.5 w-3.5 cursor-grab text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 8h16M4 16h16" /></svg>
+                        <span className={`text-xs font-medium capitalize ${block.enabled ? "text-text-primary" : "text-text-tertiary"}`}>{promptBlockLabel(block.kind)}</span>
+                      </div>
+                      {(block.kind === "system" || block.kind === "jailbreak") && (
+                        <textarea value={block.content || ""} onChange={(e) => updatePromptBlockContent(block.id, e.target.value)}
+                          className="mt-2 h-20 w-full rounded-md border border-border bg-bg-primary px-2 py-1.5 text-xs text-text-primary" />
+                      )}
+                    </div>
+                  ))}
                 </div>
-                <div className="mt-3">
-                  <FieldLabel>{t("settings.koboldPhraseBansLabel")}</FieldLabel>
-                  <InputField
-                    value={koboldBansInput}
-                    onChange={setKoboldBansInput}
-                    onBlur={() => patchSampler({ koboldBannedPhrases: parsePhraseBansInput(koboldBansInput) })}
-                    placeholder={t("settings.koboldPhraseBansPlaceholder")}
-                  />
-                </div>
-                <div className="mt-3 flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2">
-                  <span className="text-xs font-medium text-text-secondary">{t("settings.koboldUseDefaultBadwordsIds")}</span>
-                  <input
-                    type="checkbox"
-                    checked={settings.samplerConfig.koboldUseDefaultBadwords === true}
-                    onChange={(e) => patchSampler({ koboldUseDefaultBadwords: e.target.checked })}
-                  />
-                </div>
+                <button onClick={() => void savePromptStack(DEFAULT_PROMPT_STACK)} className="mt-3 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover">{t("settings.promptStackReset")}</button>
+              </div>
+
+              <div id="settings-default-system-prompts" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.defaultSysPrompt")}</div>
+                <p className="mb-2 text-[10px] text-text-tertiary">{t("settings.baseSysPromptDesc")}</p>
+                <textarea value={settings.defaultSystemPrompt} onChange={(e) => patch({ defaultSystemPrompt: e.target.value })}
+                  className="h-40 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary"
+                  placeholder={t("settings.defaultSystemPromptPlaceholder")} />
+                <p className="mt-2 text-[10px] text-text-tertiary">{t("settings.defaultSysPromptDesc")}</p>
               </div>
             </div>
-          </div>
+          )}
 
-          <div className="space-y-4">
-            <div id="settings-api-param-forwarding" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.apiParamForwarding")}</SectionTitle>
-              <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.apiParamForwardingDesc")}</p>
-              <div className="space-y-3">
-                <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                  <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.apiParamsOpenAi")}</div>
-                  <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
-                    <span>{t("settings.sendSampler")}</span>
-                    <input
-                      type="checkbox"
-                      checked={apiParamPolicy.openai.sendSampler}
-                      onChange={(e) => void patchApiParamPolicy({ openai: { sendSampler: e.target.checked } })}
-                    />
-                  </label>
-                  <div className={`mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 ${apiParamPolicy.openai.sendSampler ? "" : "opacity-60"}`}>
-                    {[
-                      { key: "temperature" as const, label: t("inspector.temperature") },
-                      { key: "topP" as const, label: t("inspector.topP") },
-                      { key: "frequencyPenalty" as const, label: t("inspector.freqPenalty") },
-                      { key: "presencePenalty" as const, label: t("inspector.presPenalty") },
-                      { key: "maxTokens" as const, label: t("inspector.maxTokens") },
-                      { key: "stop" as const, label: t("settings.stopSequences") }
-                    ].map((item) => (
-                      <label key={item.key} className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-2.5 py-2 text-xs text-text-secondary">
-                        <span>{item.label}</span>
-                        <input
-                          type="checkbox"
-                          checked={apiParamPolicy.openai[item.key]}
-                          disabled={!apiParamPolicy.openai.sendSampler}
-                          onChange={(e) => void patchApiParamPolicy({
-                            openai: { ...apiParamPolicy.openai, [item.key]: e.target.checked }
+          {/* ===== TOOLS ===== */}
+          {activeCategory === "tools" && (
+            <div className="space-y-4">
+              <div id="settings-tools-core" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.tools")}</div>
+                <div className="space-y-3">
+                  {toolCallingLocked && (
+                    <div className="rounded-lg border border-warning-border bg-warning-subtle px-3 py-2 text-xs text-warning">{t("settings.toolCallingKoboldDisabled")}</div>
+                  )}
+                  <div className={`settings-toggle-row ${toolCallingLocked ? "opacity-60" : ""}`}>
+                    <div>
+                      <div className="text-sm font-medium text-text-primary">{t("settings.toolCallingEnabled")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.toolCallingDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.toolCallingEnabled ?? false} disabled={toolCallingLocked} onChange={(e) => patch({ toolCallingEnabled: e.target.checked })} />
+                  </div>
+                  <div className={toolCallingLocked ? "opacity-60" : ""}>
+                    <FieldLabel>{t("settings.toolCallingPolicy")}</FieldLabel>
+                    <SelectField value={settings.toolCallingPolicy ?? "balanced"} onChange={(v) => patch({ toolCallingPolicy: v as AppSettings["toolCallingPolicy"] })} disabled={toolCallingLocked}>
+                      <option value="conservative">{t("settings.toolPolicyConservative")}</option>
+                      <option value="balanced">{t("settings.toolPolicyBalanced")}</option>
+                      <option value="aggressive">{t("settings.toolPolicyAggressive")}</option>
+                    </SelectField>
+                    <p className="mt-1 text-[10px] text-text-tertiary">{t("settings.toolCallingPolicyDesc")}</p>
+                  </div>
+                  <div className={toolCallingLocked ? "opacity-60" : ""}>
+                    <FieldLabel>{t("settings.maxToolCalls")}</FieldLabel>
+                    <input type="number" min={1} max={12} value={settings.maxToolCallsPerTurn ?? 4} disabled={toolCallingLocked}
+                      onChange={(e) => { const v = Number(e.target.value); patch({ maxToolCallsPerTurn: Number.isFinite(v) ? Math.max(1, Math.min(12, Math.floor(v))) : 4 }); }}
+                      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
+                  </div>
+                  <div className={`settings-toggle-row ${toolCallingLocked ? "opacity-60" : ""}`}>
+                    <div>
+                      <div className="text-sm font-medium text-text-primary">{t("settings.mcpAutoAttachTools")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.mcpAutoAttachToolsDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.mcpAutoAttachTools ?? true} disabled={toolCallingLocked} onChange={(e) => patch({ mcpAutoAttachTools: e.target.checked })} />
+                  </div>
+                </div>
+              </div>
+
+              <div id="settings-security" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.security")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.securityDesc")}</p>
+                <div className="space-y-2">
+                  {([
+                    { key: "sanitizeMarkdown" as const, label: t("settings.securitySanitizeMarkdown"), desc: t("settings.securitySanitizeMarkdownDesc") },
+                    { key: "allowExternalLinks" as const, label: t("settings.securityAllowExternalLinks"), desc: t("settings.securityAllowExternalLinksDesc") },
+                    { key: "allowRemoteImages" as const, label: t("settings.securityAllowRemoteImages"), desc: t("settings.securityAllowRemoteImagesDesc") },
+                    { key: "allowUnsafeUploads" as const, label: t("settings.securityAllowUnsafeUploads"), desc: t("settings.securityAllowUnsafeUploadsDesc") }
+                  ]).map((item) => (
+                    <div key={item.key} className="settings-toggle-row">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-text-primary">{item.label}</div>
+                        <div className="mt-0.5 text-[11px] text-text-tertiary">{item.desc}</div>
+                      </div>
+                      <ToggleSwitch checked={settings.security?.[item.key] === true}
+                        onChange={(e) => patch({ security: { ...(settings.security || {}), [item.key]: e.target.checked } })} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div id="settings-tools-mcp-functions" className={`settings-section scroll-mt-24 ${toolCallingLocked ? "opacity-60" : ""}`}>
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="settings-section-title mb-0">{t("settings.mcpFunctions")}</div>
+                  <button onClick={() => void discoverMcpFunctions()} disabled={mcpDiscoveryLoading || toolCallingLocked}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60">
+                    {mcpDiscoveryLoading ? t("settings.mcpLoadingFunctions") : t("settings.mcpLoadFunctions")}
+                  </button>
+                </div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.mcpFunctionsDesc")}</p>
+                {discoveredToolsByServer.length === 0 ? (
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-tertiary">{t("settings.mcpNoFunctions")}</div>
+                ) : (
+                  <div className="space-y-2">
+                    {discoveredToolsByServer.map((group) => (
+                      <div key={group.serverId} className="rounded-lg border border-border-subtle bg-bg-primary p-2">
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-tertiary">{group.serverName}</div>
+                        <div className="space-y-1.5">
+                          {group.tools.map((tool) => {
+                            const enabled = toolStates[tool.callName] !== false;
+                            return (
+                              <label key={tool.callName} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-secondary px-2 py-1.5">
+                                <div className="min-w-0">
+                                  <div className="truncate text-xs font-medium text-text-primary">{tool.toolName}</div>
+                                  <div className="truncate text-[10px] text-text-tertiary">{tool.callName}</div>
+                                </div>
+                                <ToggleSwitch checked={enabled} disabled={toolCallingLocked} onChange={(e) => { void setToolEnabled(tool.callName, e.target.checked); }} />
+                              </label>
+                            );
                           })}
-                        />
-                      </label>
+                        </div>
+                      </div>
                     ))}
                   </div>
-                </div>
-
-                <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                  <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.apiParamsKobold")}</div>
-                  <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
-                    <span>{t("settings.sendSampler")}</span>
-                    <input
-                      type="checkbox"
-                      checked={apiParamPolicy.kobold.sendSampler}
-                      onChange={(e) => void patchApiParamPolicy({ kobold: { sendSampler: e.target.checked } })}
-                    />
-                  </label>
-                  <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {[
-                      { key: "memory" as const, label: t("settings.koboldMemoryLabel"), disableWhenSamplerOff: false },
-                      { key: "maxTokens" as const, label: t("inspector.maxTokens"), disableWhenSamplerOff: true },
-                      { key: "temperature" as const, label: t("inspector.temperature"), disableWhenSamplerOff: true },
-                      { key: "topP" as const, label: t("inspector.topP"), disableWhenSamplerOff: true },
-                      { key: "topK" as const, label: "Top-K", disableWhenSamplerOff: true },
-                      { key: "topA" as const, label: "Top-A", disableWhenSamplerOff: true },
-                      { key: "minP" as const, label: "Min-P", disableWhenSamplerOff: true },
-                      { key: "typical" as const, label: "Typical", disableWhenSamplerOff: true },
-                      { key: "tfs" as const, label: "TFS", disableWhenSamplerOff: true },
-                      { key: "nSigma" as const, label: "N-Sigma", disableWhenSamplerOff: true },
-                      { key: "repetitionPenalty" as const, label: t("settings.koboldRepetitionPenalty"), disableWhenSamplerOff: true },
-                      { key: "repetitionPenaltyRange" as const, label: t("settings.koboldRepetitionPenaltyRange"), disableWhenSamplerOff: true },
-                      { key: "repetitionPenaltySlope" as const, label: t("settings.koboldRepetitionPenaltySlope"), disableWhenSamplerOff: true },
-                      { key: "samplerOrder" as const, label: t("settings.koboldSamplerOrder"), disableWhenSamplerOff: true },
-                      { key: "stop" as const, label: t("settings.stopSequences"), disableWhenSamplerOff: true },
-                      { key: "phraseBans" as const, label: t("settings.koboldPhraseBansLabel"), disableWhenSamplerOff: true },
-                      { key: "useDefaultBadwords" as const, label: t("settings.koboldUseDefaultBadwordsIds"), disableWhenSamplerOff: true }
-                    ].map((item) => {
-                      const disabled = item.disableWhenSamplerOff && !apiParamPolicy.kobold.sendSampler;
-                      return (
-                        <label key={item.key} className={`flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-2.5 py-2 text-xs text-text-secondary ${disabled ? "opacity-60" : ""}`}>
-                          <span>{item.label}</span>
-                          <input
-                            type="checkbox"
-                            checked={apiParamPolicy.kobold[item.key]}
-                            disabled={disabled}
-                            onChange={(e) => void patchApiParamPolicy({
-                              kobold: { ...apiParamPolicy.kobold, [item.key]: e.target.checked }
-                            })}
-                          />
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div id="settings-default-system-advanced" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.defaultSysPrompt")}</SectionTitle>
-              <textarea value={settings.defaultSystemPrompt}
-                onChange={(e) => patch({ defaultSystemPrompt: e.target.value })}
-                className="h-40 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary"
-                placeholder={t("settings.defaultSystemPromptPlaceholder")} />
-              <p className="mt-2 text-[10px] text-text-tertiary">{t("settings.defaultSysPromptDesc")}</p>
-            </div>
-
-            <div id="settings-context-window" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.contextWindow")}</SectionTitle>
-              <div className="space-y-3">
-                <div>
-                  <FieldLabel>{t("settings.contextSize")}</FieldLabel>
-                  <input type="number" value={settings.contextWindowSize}
-                    onChange={(e) => patch({ contextWindowSize: Number(e.target.value) })}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.contextTailWithSummary")}</FieldLabel>
-                  <input
-                    type="number"
-                    min={5}
-                    max={95}
-                    value={settings.contextTailBudgetWithSummaryPercent ?? 35}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const next = Number.isFinite(raw) ? Math.max(5, Math.min(95, Math.floor(raw))) : 35;
-                      patch({ contextTailBudgetWithSummaryPercent: next });
-                    }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.contextTailWithoutSummary")}</FieldLabel>
-                  <input
-                    type="number"
-                    min={5}
-                    max={95}
-                    value={settings.contextTailBudgetWithoutSummaryPercent ?? 75}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const next = Number.isFinite(raw) ? Math.max(5, Math.min(95, Math.floor(raw))) : 75;
-                      patch({ contextTailBudgetWithoutSummaryPercent: next });
-                    }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
-                  <div>
-                    <div className="text-sm font-medium text-text-primary">{t("settings.strictGrounding")}</div>
-                    <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.strictGroundingDesc")}</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={settings.strictGrounding !== false}
-                    onChange={(e) => patch({ strictGrounding: e.target.checked })}
-                  />
-                </div>
-                <p className="text-[10px] text-text-tertiary">{t("settings.contextDesc")}</p>
-              </div>
-            </div>
-
-            <div id="settings-rag-retrieval" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.ragRetrieval")}</SectionTitle>
-              <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ragRetrievalDesc")}</p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <FieldLabel>{t("settings.ragTopK")}</FieldLabel>
-                  <input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={settings.ragTopK ?? 6}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const next = Number.isFinite(raw) ? Math.max(1, Math.min(12, Math.floor(raw))) : 6;
-                      patch({ ragTopK: next });
-                    }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
-                  />
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.ragCandidateCount")}</FieldLabel>
-                  <input
-                    type="number"
-                    min={10}
-                    max={300}
-                    value={settings.ragCandidateCount ?? 80}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const next = Number.isFinite(raw) ? Math.max(10, Math.min(300, Math.floor(raw))) : 80;
-                      patch({ ragCandidateCount: next });
-                    }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
-                  />
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.ragSimilarityThreshold")}</FieldLabel>
-                  <input
-                    type="number"
-                    min={-1}
-                    max={1}
-                    step={0.01}
-                    value={settings.ragSimilarityThreshold ?? 0.15}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const next = Number.isFinite(raw) ? Math.max(-1, Math.min(1, raw)) : 0.15;
-                      patch({ ragSimilarityThreshold: Number(next.toFixed(2)) });
-                    }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
-                  />
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.ragMaxContextTokens")}</FieldLabel>
-                  <input
-                    type="number"
-                    min={200}
-                    max={4000}
-                    value={settings.ragMaxContextTokens ?? 900}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const next = Number.isFinite(raw) ? Math.max(200, Math.min(4000, Math.floor(raw))) : 900;
-                      patch({ ragMaxContextTokens: next });
-                    }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
-                  />
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.ragChunkSize")}</FieldLabel>
-                  <input
-                    type="number"
-                    min={300}
-                    max={8000}
-                    value={settings.ragChunkSize ?? 1200}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const next = Number.isFinite(raw) ? Math.max(300, Math.min(8000, Math.floor(raw))) : 1200;
-                      patch({ ragChunkSize: next });
-                    }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
-                  />
-                </div>
-                <div>
-                  <FieldLabel>{t("settings.ragChunkOverlap")}</FieldLabel>
-                  <input
-                    type="number"
-                    min={0}
-                    max={3000}
-                    value={settings.ragChunkOverlap ?? 220}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const next = Number.isFinite(raw) ? Math.max(0, Math.min(3000, Math.floor(raw))) : 220;
-                      patch({ ragChunkOverlap: next });
-                    }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div id="settings-tools-mcp" className="scroll-mt-24 rounded-xl border border-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.tools")}</SectionTitle>
-              <div className="space-y-4">
-                {toolCallingLocked && (
-                  <div className="rounded-lg border border-warning-border bg-warning-subtle px-3 py-2 text-xs text-warning">
-                    {t("settings.toolCallingKoboldDisabled")}
-                  </div>
                 )}
-                <div className={`flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5 ${toolCallingLocked ? "opacity-60" : ""}`}>
-                  <div>
-                    <div className="text-sm font-medium text-text-primary">{t("settings.toolCallingEnabled")}</div>
-                    <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.toolCallingDesc")}</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={settings.toolCallingEnabled ?? false}
-                    disabled={toolCallingLocked}
-                    onChange={(e) => patch({ toolCallingEnabled: e.target.checked })}
-                  />
+              </div>
+
+              <div id="settings-tools-mcp" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.mcpServers")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.mcpServersDesc")}</p>
+                <div className="mb-3 settings-field-group">
+                  <FieldLabel>{t("settings.mcpImportSource")}</FieldLabel>
+                  <textarea value={mcpImportSource} onChange={(e) => setMcpImportSource(e.target.value)}
+                    className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary"
+                    placeholder={t("settings.mcpImportPlaceholder")} />
+                  <button onClick={() => void importMcpServers()} disabled={mcpImportLoading}
+                    className="mt-2 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60">
+                    {mcpImportLoading ? t("settings.mcpImporting") : t("settings.mcpImport")}
+                  </button>
                 </div>
-
-                <div className={toolCallingLocked ? "opacity-60" : ""}>
-                  <FieldLabel>{t("settings.toolCallingPolicy")}</FieldLabel>
-                  <SelectField
-                    value={settings.toolCallingPolicy ?? "balanced"}
-                    onChange={(v) => patch({ toolCallingPolicy: v as AppSettings["toolCallingPolicy"] })}
-                    disabled={toolCallingLocked}
-                  >
-                    <option value="conservative">{t("settings.toolPolicyConservative")}</option>
-                    <option value="balanced">{t("settings.toolPolicyBalanced")}</option>
-                    <option value="aggressive">{t("settings.toolPolicyAggressive")}</option>
-                  </SelectField>
-                  <p className="mt-1 text-[10px] text-text-tertiary">{t("settings.toolCallingPolicyDesc")}</p>
-                </div>
-
-                <div className={toolCallingLocked ? "opacity-60" : ""}>
-                  <FieldLabel>{t("settings.maxToolCalls")}</FieldLabel>
-                  <input
-                    type="number"
-                    min={1}
-                    max={12}
-                    value={settings.maxToolCallsPerTurn ?? 4}
-                    disabled={toolCallingLocked}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const next = Number.isFinite(raw) ? Math.max(1, Math.min(12, Math.floor(raw))) : 4;
-                      patch({ maxToolCallsPerTurn: next });
-                    }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
-                  />
-                </div>
-
-                <div className={`flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5 ${toolCallingLocked ? "opacity-60" : ""}`}>
-                  <div>
-                    <div className="text-sm font-medium text-text-primary">{t("settings.mcpAutoAttachTools")}</div>
-                    <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.mcpAutoAttachToolsDesc")}</div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={settings.mcpAutoAttachTools ?? true}
-                    disabled={toolCallingLocked}
-                    onChange={(e) => patch({ mcpAutoAttachTools: e.target.checked })}
-                  />
-                </div>
-
-                <div className={`rounded-lg border border-border-subtle bg-bg-primary p-3 ${toolCallingLocked ? "opacity-60" : ""}`}>
-                  <div className="mb-2 flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium text-text-primary">{t("settings.mcpFunctions")}</div>
-                      <div className="text-[11px] text-text-tertiary">{t("settings.mcpFunctionsDesc")}</div>
-                    </div>
-                    <button
-                      onClick={() => void discoverMcpFunctions()}
-                      disabled={mcpDiscoveryLoading || toolCallingLocked}
-                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60"
-                    >
-                      {mcpDiscoveryLoading ? t("settings.mcpLoadingFunctions") : t("settings.mcpLoadFunctions")}
-                    </button>
-                  </div>
-
-                  {discoveredToolsByServer.length === 0 ? (
-                    <div className="rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-tertiary">
-                      {t("settings.mcpNoFunctions")}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {discoveredToolsByServer.map((group) => (
-                        <div key={group.serverId} className="rounded-lg border border-border-subtle bg-bg-secondary p-2">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-text-tertiary">
-                            {group.serverName}
-                          </div>
-                          <div className="space-y-1.5">
-                            {group.tools.map((tool) => {
-                              const enabled = toolStates[tool.callName] !== false;
-                              return (
-                                <label
-                                  key={tool.callName}
-                                  className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-primary px-2 py-1.5"
-                                >
-                                  <div className="min-w-0">
-                                    <div className="truncate text-xs font-medium text-text-primary">{tool.toolName}</div>
-                                    <div className="truncate text-[10px] text-text-tertiary">{tool.callName}</div>
-                                  </div>
-                                  <input
-                                    type="checkbox"
-                                    checked={enabled}
-                                    disabled={toolCallingLocked}
-                                    onChange={(e) => {
-                                      void setToolEnabled(tool.callName, e.target.checked);
-                                    }}
-                                  />
-                                </label>
-                              );
-                            })}
-                          </div>
+                <div className="space-y-3">
+                  {mcpServersDraft.map((server, index) => {
+                    const rowKey = server.id || `mcp-row-${index}`;
+                    const testResult = mcpTestResults[rowKey];
+                    return (
+                      <div key={rowKey} className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                        <div className="mb-2 grid grid-cols-2 gap-2">
+                          <div><FieldLabel>{t("settings.mcpId")}</FieldLabel><InputField value={server.id} onChange={(v) => updateMcpServer(server.id, { id: v })} /></div>
+                          <div><FieldLabel>{t("settings.mcpName")}</FieldLabel><InputField value={server.name} onChange={(v) => updateMcpServer(server.id, { name: v })} /></div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                  <div className="mb-2">
-                    <div className="text-sm font-medium text-text-primary">{t("settings.mcpServers")}</div>
-                    <div className="text-[11px] text-text-tertiary">{t("settings.mcpServersDesc")}</div>
-                  </div>
-
-                  <div className="mb-3 rounded-lg border border-border-subtle bg-bg-secondary p-3">
-                    <FieldLabel>{t("settings.mcpImportSource")}</FieldLabel>
-                    <textarea
-                      value={mcpImportSource}
-                      onChange={(e) => setMcpImportSource(e.target.value)}
-                      className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary"
-                      placeholder={t("settings.mcpImportPlaceholder")}
-                    />
-                    <button
-                      onClick={() => void importMcpServers()}
-                      disabled={mcpImportLoading}
-                      className="mt-2 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60"
-                    >
-                      {mcpImportLoading ? t("settings.mcpImporting") : t("settings.mcpImport")}
-                    </button>
-                  </div>
-
-                  <div className="space-y-3">
-                    {mcpServersDraft.map((server, index) => {
-                      const rowKey = server.id || `mcp-row-${index}`;
-                      const testResult = mcpTestResults[rowKey];
-                      return (
-                      <div key={rowKey} className="rounded-lg border border-border-subtle bg-bg-secondary p-3">
-                        <div className="mb-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                          <div>
-                            <FieldLabel>{t("settings.mcpId")}</FieldLabel>
-                            <InputField value={server.id} onChange={(v) => updateMcpServer(server.id, { id: v })} />
-                          </div>
-                          <div>
-                            <FieldLabel>{t("settings.mcpName")}</FieldLabel>
-                            <InputField value={server.name} onChange={(v) => updateMcpServer(server.id, { name: v })} />
-                          </div>
+                        <div className="mb-2 grid grid-cols-2 gap-2">
+                          <div><FieldLabel>{t("settings.mcpCommand")}</FieldLabel><InputField value={server.command} onChange={(v) => updateMcpServer(server.id, { command: v })} /></div>
+                          <div><FieldLabel>{t("settings.mcpArgs")}</FieldLabel><InputField value={server.args} onChange={(v) => updateMcpServer(server.id, { args: v })} /></div>
                         </div>
-
-                        <div className="mb-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                          <div>
-                            <FieldLabel>{t("settings.mcpCommand")}</FieldLabel>
-                            <InputField value={server.command} onChange={(v) => updateMcpServer(server.id, { command: v })} />
-                          </div>
-                          <div>
-                            <FieldLabel>{t("settings.mcpArgs")}</FieldLabel>
-                            <InputField value={server.args} onChange={(v) => updateMcpServer(server.id, { args: v })} />
-                          </div>
-                        </div>
-
-                        <div className="mb-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                        <div className="mb-2 grid grid-cols-2 gap-2">
                           <div>
                             <FieldLabel>{t("settings.mcpTimeout")}</FieldLabel>
-                            <input
-                              type="number"
-                              min={1000}
-                              max={120000}
-                              value={server.timeoutMs}
-                              onChange={(e) => {
-                                const raw = Number(e.target.value);
-                                const timeoutMs = Number.isFinite(raw) ? Math.max(1000, Math.min(120000, Math.floor(raw))) : 15000;
-                                updateMcpServer(server.id, { timeoutMs });
-                              }}
-                              className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
-                            />
+                            <input type="number" min={1000} max={120000} value={server.timeoutMs}
+                              onChange={(e) => { const v = Number(e.target.value); updateMcpServer(server.id, { timeoutMs: Number.isFinite(v) ? Math.max(1000, Math.min(120000, Math.floor(v))) : 15000 }); }}
+                              className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
                           </div>
                           <div className="flex items-end">
-                            <div className="flex w-full items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
+                            <label className="flex w-full items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2.5">
                               <span className="text-xs font-medium text-text-secondary">{t("settings.mcpEnabled")}</span>
-                              <input
-                                type="checkbox"
-                                checked={server.enabled}
-                                onChange={(e) => updateMcpServer(server.id, { enabled: e.target.checked })}
-                              />
-                            </div>
+                              <ToggleSwitch checked={server.enabled} onChange={(e) => updateMcpServer(server.id, { enabled: e.target.checked })} />
+                            </label>
                           </div>
                         </div>
-
-                        <div>
-                          <FieldLabel>{t("settings.mcpEnv")}</FieldLabel>
-                          <textarea
-                            value={server.env || ""}
-                            onChange={(e) => updateMcpServer(server.id, { env: e.target.value })}
-                            className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary"
-                          />
+                        <div><FieldLabel>{t("settings.mcpEnv")}</FieldLabel><textarea value={server.env || ""} onChange={(e) => updateMcpServer(server.id, { env: e.target.value })} className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary" /></div>
+                        <div className="mt-2 flex gap-2">
+                          <button onClick={() => void testMcpServer(server, rowKey)} disabled={testingMcpId === rowKey}
+                            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60">
+                            {testingMcpId === rowKey ? t("settings.mcpTesting") : t("settings.mcpTest")}
+                          </button>
+                          <button onClick={() => removeMcpServer(server.id)} className="rounded-lg border border-danger-border px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger-subtle">{t("settings.mcpRemove")}</button>
                         </div>
-
-                        <button
-                          onClick={() => removeMcpServer(server.id)}
-                          className="mt-2 rounded-lg border border-danger-border px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger-subtle"
-                        >
-                          {t("settings.mcpRemove")}
-                        </button>
-
-                        <button
-                          onClick={() => void testMcpServer(server, rowKey)}
-                          disabled={testingMcpId === rowKey}
-                          className="mt-2 ml-2 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60"
-                        >
-                          {testingMcpId === rowKey ? t("settings.mcpTesting") : t("settings.mcpTest")}
-                        </button>
-
-                        {testResult ? (
-                          <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
-                            testResult.ok
-                              ? "border-success-border bg-success-subtle text-success"
-                              : "border-danger-border bg-danger-subtle text-danger"
-                          }`}>
-                            <div className="font-medium">
-                              {testResult.ok ? t("settings.mcpTestOk") : t("settings.mcpTestFail")}
-                            </div>
-                            {testResult.ok ? (
-                              <div className="mt-1">
-                                {t("settings.mcpToolsFound")}: {testResult.tools.length}
-                              </div>
-                            ) : (
-                              <div className="mt-1">{testResult.error || "Unknown error"}</div>
-                            )}
-                            {testResult.ok ? (
-                              <div className="mt-1 text-text-secondary">
-                                {testResult.tools.length > 0
-                                  ? testResult.tools.map((tool) => tool.name).join(", ")
-                                  : t("settings.mcpNoTools")}
-                              </div>
-                            ) : null}
+                        {testResult && (
+                          <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${testResult.ok ? "border-success-border bg-success-subtle text-success" : "border-danger-border bg-danger-subtle text-danger"}`}>
+                            <div className="font-medium">{testResult.ok ? t("settings.mcpTestOk") : t("settings.mcpTestFail")}</div>
+                            {testResult.ok
+                              ? <div className="mt-1">{t("settings.mcpToolsFound")}: {testResult.tools.length}{testResult.tools.length > 0 && <span className="ml-1 text-text-secondary">{testResult.tools.map((tool) => tool.name).join(", ")}</span>}</div>
+                              : <div className="mt-1">{testResult.error || "Unknown error"}</div>}
                           </div>
-                        ) : null}
+                        )}
                       </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={addMcpServer}
-                      className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover"
-                    >
-                      {t("settings.mcpAdd")}
-                    </button>
-                    <button
-                      onClick={saveMcpServers}
-                      disabled={!mcpDirty}
-                      className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-60"
-                    >
-                      {t("settings.mcpSave")}
-                    </button>
-                  </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button onClick={addMcpServer} className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover">{t("settings.mcpAdd")}</button>
+                  <button onClick={saveMcpServers} disabled={!mcpDirty} className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-60">{t("settings.mcpSave")}</button>
                 </div>
               </div>
-            </div>
 
-            <div id="settings-danger-zone" className="scroll-mt-24 rounded-xl border border-danger-border bg-bg-secondary p-5">
-              <SectionTitle>{t("settings.dangerZone")}</SectionTitle>
-              <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.dangerZoneDesc")}</p>
-              <button
-                onClick={reset}
-                className="w-full rounded-lg border border-danger-border px-3 py-2 text-sm font-medium text-danger hover:bg-danger-subtle"
-              >
-                {t("settings.resetAll")}
-              </button>
+              <div id="settings-danger-zone" className="settings-section scroll-mt-24 border-danger-border">
+                <div className="settings-section-title">{t("settings.dangerZone")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.dangerZoneDesc")}</p>
+                <button
+                  onClick={() => void reset()}
+                  className="w-full rounded-lg border border-danger-border px-3 py-2 text-sm font-medium text-danger hover:bg-danger-subtle"
+                >
+                  {t("settings.resetAll")}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
+
         </div>
-      )}
-      </div>
       </div>
     </div>
   );

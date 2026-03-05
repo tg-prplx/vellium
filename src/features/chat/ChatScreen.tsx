@@ -242,7 +242,10 @@ export function ChatScreen() {
   const filteredChats = useMemo(() => {
     return filterChatsByQuery(chats, chatSearchQuery, characters);
   }, [chats, chatSearchQuery, characters]);
-
+  const selectedLorebooks = useMemo(
+    () => lorebooks.filter((book) => activeLorebookIds.includes(book.id)),
+    [lorebooks, activeLorebookIds]
+  );
   useEffect(() => {
     const raw = samplerConfig.koboldBannedPhrases;
     if (Array.isArray(raw)) {
@@ -1714,8 +1717,8 @@ export function ChatScreen() {
                               </div>
                             </div>
                           </button>
-                          <div className={`flex flex-shrink-0 items-center gap-0.5 ${
-                            activeChat?.id === chat.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
+                          <div className={`flex flex-shrink-0 items-center gap-0.5 transition-opacity ${
+                            activeChat?.id === chat.id ? "opacity-100" : "opacity-60 group-hover:opacity-100"
                           }`}>
                             <button
                               onClick={(e) => {
@@ -1773,7 +1776,7 @@ export function ChatScreen() {
             </div>
             )}
 
-            {!simpleSidebarCollapsed && (
+            {!simpleSidebarCollapsed && simpleModeActive && (
             <div className="mt-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
               <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.lorebook")}</label>
               <div className="space-y-1.5">
@@ -1810,7 +1813,7 @@ export function ChatScreen() {
             )}
 
             {/* User Persona — compact, opens modal */}
-            {!simpleSidebarCollapsed && (
+            {!simpleSidebarCollapsed && simpleModeActive && (
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.userPersona")}:</span>
               <span className="flex-1 truncate text-xs font-medium text-text-primary">{activePersona?.name || t("chat.user")}</span>
@@ -1846,155 +1849,197 @@ export function ChatScreen() {
             )}
 
             {(!simpleModeActive || !simpleHomeState) && (
-            <div className={`mb-3 flex items-center justify-between gap-2 ${simpleModeActive ? "chat-simple-thread-header" : ""}`}>
-              <div className="min-w-0 flex items-center gap-2">
-                <h2 className={`truncate ${simpleModeActive ? "chat-simple-thread-title" : "text-sm font-semibold text-text-primary"}`}>
-                  {activeChat ? activeChat.title : t("tab.chat")}
-                </h2>
-                {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
-                {!zenMode && branches.length > 0 && (
-                  <select
-                    value={activeBranchId || ""}
-                    onChange={(e) => setActiveBranchId(e.target.value || null)}
-                    className="rounded-md border border-border bg-bg-primary px-2 py-0.5 text-[10px] text-text-secondary"
-                    title={t("chat.branch")}
-                  >
-                    {branches.map((branch) => (
-                      <option key={branch.id} value={branch.id}>
-                        {branch.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+            <div className={`mb-3 ${simpleModeActive ? "chat-simple-thread-header" : ""}`}>
               {!simpleModeActive ? (
-                <button
-                  onClick={() => setZenMode((prev) => !prev)}
-                  className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                    zenMode
-                      ? "border-accent-border bg-accent-subtle text-accent"
-                      : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                  }`}
-                  title={zenMode ? t("chat.exitZenMode") : t("chat.zenMode")}
-                >
-                  {zenMode ? t("chat.exitZenMode") : t("chat.zenMode")}
-                </button>
+                <div className="rounded-xl border border-border-subtle bg-bg-primary/95 p-3 shadow-[0_18px_40px_rgba(0,0,0,0.18)]">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="truncate text-sm font-semibold text-text-primary">
+                          {activeChat ? activeChat.title : t("tab.chat")}
+                        </h2>
+                        {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
+                        {!zenMode && branches.length > 0 && (
+                          <select
+                            value={activeBranchId || ""}
+                            onChange={(e) => setActiveBranchId(e.target.value || null)}
+                            className="rounded-md border border-border bg-bg-secondary px-2 py-0.5 text-[10px] text-text-secondary"
+                            title={t("chat.branch")}
+                          >
+                            {branches.map((branch) => (
+                              <option key={branch.id} value={branch.id}>
+                                {branch.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                      <div className="mt-3 grid gap-2 xl:grid-cols-[minmax(180px,1fr)_minmax(240px,1.2fr)_160px_auto]">
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("settings.provider")}</label>
+                          <select
+                            value={chatProviderId}
+                            onChange={(e) => setChatProviderId(e.target.value)}
+                            className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
+                          >
+                            <option value="">{t("settings.selectProvider")}</option>
+                            {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.model")}</label>
+                          <select
+                            value={chatModelId}
+                            onChange={(e) => setChatModelId(e.target.value)}
+                            className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
+                          >
+                            <option value="">{t("settings.selectModel")}</option>
+                            {models.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("inspector.chatMode")}</label>
+                          <select
+                            value={chatMode}
+                            onChange={(e) => setChatMode(e.target.value as ChatMode)}
+                            className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
+                          >
+                            <option value="rp">{t("inspector.modeRp")}</option>
+                            <option value="light_rp">{t("inspector.modeLightRp")}</option>
+                            <option value="pure_chat">{t("inspector.modePureChat")}</option>
+                          </select>
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            onClick={() => { void applyModelFromChat(); }}
+                            disabled={!chatProviderId || !chatModelId}
+                            className="w-full rounded-lg bg-accent px-3 py-2 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {t("chat.ok")}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-text-tertiary">
+                        {activeModelLabel ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2 py-1 text-success">
+                            <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                            {activeModelLabel}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/20 bg-warning/10 px-2 py-1 text-warning">
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                            </svg>
+                            {t("chat.noModel")}
+                          </span>
+                        )}
+                        {loadingModels && <span>{t("chat.loading")}</span>}
+                        {chatMode === "light_rp" && <span>{t("inspector.modeLightRpHint")}</span>}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {streaming && (
+                        <button onClick={handleAbort}
+                          className="rounded-md border border-danger-border bg-danger-subtle px-2.5 py-1 text-[11px] font-medium text-danger hover:bg-danger/20">
+                          {t("chat.stop")}
+                        </button>
+                      )}
+                      <button onClick={handleRegenerate}
+                        disabled={streaming || autoConvoRunning || !activeChat || messages.length === 0}
+                        className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40">
+                        {t("chat.regenerate")}
+                      </button>
+                      <button onClick={handleCompress}
+                        disabled={compressing || streaming || !activeChat || messages.length < 4}
+                        className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                          compressing
+                            ? "border-accent bg-accent-subtle text-accent"
+                            : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                        } disabled:cursor-not-allowed disabled:opacity-40`}>
+                        {compressing ? t("chat.compressing") : t("chat.compress")}
+                      </button>
+                      <button
+                        onClick={() => setZenMode((prev) => !prev)}
+                        className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                          zenMode
+                            ? "border-accent-border bg-accent-subtle text-accent"
+                            : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                        }`}
+                        title={zenMode ? t("chat.exitZenMode") : t("chat.zenMode")}
+                      >
+                        {zenMode ? t("chat.exitZenMode") : t("chat.zenMode")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               ) : (
-                <div className="chat-simple-thread-actions">
-                  {streaming && (
-                    <button onClick={handleAbort}
-                      className="rounded-md border border-danger-border bg-danger-subtle px-2.5 py-1 text-[11px] font-medium text-danger hover:bg-danger/20">
-                      {t("chat.stop")}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex items-center gap-2">
+                    <h2 className="chat-simple-thread-title truncate">
+                      {activeChat ? activeChat.title : t("tab.chat")}
+                    </h2>
+                    {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
+                    {!zenMode && branches.length > 0 && (
+                      <select
+                        value={activeBranchId || ""}
+                        onChange={(e) => setActiveBranchId(e.target.value || null)}
+                        className="rounded-md border border-border bg-bg-primary px-2 py-0.5 text-[10px] text-text-secondary"
+                        title={t("chat.branch")}
+                      >
+                        {branches.map((branch) => (
+                          <option key={branch.id} value={branch.id}>
+                            {branch.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <div className="chat-simple-thread-actions">
+                    {streaming && (
+                      <button onClick={handleAbort}
+                        className="rounded-md border border-danger-border bg-danger-subtle px-2.5 py-1 text-[11px] font-medium text-danger hover:bg-danger/20">
+                        {t("chat.stop")}
+                      </button>
+                    )}
+                    <button onClick={handleRegenerate}
+                      disabled={streaming || autoConvoRunning || !activeChat || messages.length === 0}
+                      className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40">
+                      {t("chat.regenerate")}
                     </button>
-                  )}
-                  <button onClick={handleRegenerate}
-                    disabled={streaming || autoConvoRunning || !activeChat || messages.length === 0}
-                    className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40">
-                    {t("chat.regenerate")}
-                  </button>
-                  <button onClick={handleCompress}
-                    disabled={compressing || streaming || !activeChat || messages.length < 4}
-                    className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                      compressing
-                        ? "border-accent bg-accent-subtle text-accent"
-                        : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                    } disabled:cursor-not-allowed disabled:opacity-40`}>
-                    {compressing ? t("chat.compressing") : t("chat.compress")}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSimpleSceneOpen((prev) => {
-                        const next = !prev;
-                        if (next) openSimpleInspector(false);
-                        return next;
-                      });
-                    }}
-                    className={`chat-simple-top-button ${simpleSceneOpen ? "is-active" : ""}`}
-                  >
-                    {t("inspector.sceneState")}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSimpleSceneOpen(false);
-                      openSimpleInspector();
-                    }}
-                    className={`chat-simple-top-button ${simpleInspectorOpen ? "is-active" : ""}`}
-                  >
-                    {t("inspector.title")}
-                  </button>
+                    <button onClick={handleCompress}
+                      disabled={compressing || streaming || !activeChat || messages.length < 4}
+                      className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                        compressing
+                          ? "border-accent bg-accent-subtle text-accent"
+                          : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                      } disabled:cursor-not-allowed disabled:opacity-40`}>
+                      {compressing ? t("chat.compressing") : t("chat.compress")}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSimpleSceneOpen((prev) => {
+                          const next = !prev;
+                          if (next) openSimpleInspector(false);
+                          return next;
+                        });
+                      }}
+                      className={`chat-simple-top-button ${simpleSceneOpen ? "is-active" : ""}`}
+                    >
+                      {t("inspector.sceneState")}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSimpleSceneOpen(false);
+                        openSimpleInspector();
+                      }}
+                      className={`chat-simple-top-button ${simpleInspectorOpen ? "is-active" : ""}`}
+                    >
+                      {t("inspector.title")}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
-            )}
-
-            {/* Model selector bar (default UI) */}
-            {!zenMode && !simpleModeActive && (
-              <div className="mb-3 flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
-              {activeModelLabel ? (
-                <>
-                  <div className="h-1.5 w-1.5 rounded-full bg-success" />
-                  <span className="text-xs text-text-secondary">{t("chat.model")}: <span className="font-medium text-text-primary">{activeModelLabel}</span></span>
-                </>
-              ) : (
-                <>
-                  <svg className="h-3.5 w-3.5 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                  </svg>
-                  <span className="text-xs text-warning">{t("chat.noModel")}</span>
-                </>
-              )}
-              <div className="ml-auto flex items-center gap-1.5">
-                <button ref={modelSelectorTriggerRef} onClick={() => setShowModelSelector(!showModelSelector)}
-                  className="rounded-md border border-border px-2 py-0.5 text-[10px] font-medium text-text-secondary hover:bg-bg-hover">
-                  {t("chat.selectModel")}
-                </button>
-                {streaming && (
-                  <button onClick={handleAbort}
-                    className="rounded-md border border-danger-border bg-danger-subtle px-2.5 py-1 text-[11px] font-medium text-danger hover:bg-danger/20">
-                    {t("chat.stop")}
-                  </button>
-                )}
-                <button onClick={handleRegenerate}
-                  disabled={streaming || autoConvoRunning || !activeChat || messages.length === 0}
-                  className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40">
-                  {t("chat.regenerate")}
-                </button>
-                <button onClick={handleCompress}
-                  disabled={compressing || streaming || !activeChat || messages.length < 4}
-                  className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                    compressing
-                      ? "border-accent bg-accent-subtle text-accent"
-                      : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                  } disabled:cursor-not-allowed disabled:opacity-40`}>
-                  {compressing ? t("chat.compressing") : t("chat.compress")}
-                </button>
-              </div>
-              </div>
-            )}
-
-            {/* Inline model selector */}
-            {!zenMode && showModelSelector && !simpleModeActive && (
-              <div ref={modelSelectorRef} className="mb-3 rounded-lg border border-accent-border bg-bg-secondary p-3">
-                <div className="flex gap-2">
-                  <select value={chatProviderId} onChange={(e) => setChatProviderId(e.target.value)}
-                    className="flex-1 rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary">
-                    <option value="">{t("settings.selectProvider")}</option>
-                    {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
-                  </select>
-                  {loadingModels && <span className="flex items-center text-[10px] text-text-tertiary">{t("chat.loading")}</span>}
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <select value={chatModelId} onChange={(e) => setChatModelId(e.target.value)}
-                    className="flex-1 rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary">
-                    <option value="">{t("settings.selectModel")}</option>
-                    {models.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
-                  </select>
-                  <button onClick={applyModelFromChat}
-                    className="rounded-md bg-accent px-3 py-1 text-[10px] font-semibold text-text-inverse hover:bg-accent-hover">
-                    {t("chat.ok")}
-                  </button>
-                </div>
-              </div>
             )}
 
             {errorText && (
@@ -2147,6 +2192,42 @@ export function ChatScreen() {
                 <h2 className="chat-simple-hero-title">
                   {simpleGreeting}
                 </h2>
+              </div>
+            )}
+
+            {simpleModeActive && simpleHomeState && (
+              <div className="chat-simple-home-setup">
+                <select
+                  value={chatMode}
+                  onChange={(e) => setChatMode(e.target.value as ChatMode)}
+                  className="chat-simple-home-control"
+                >
+                  <option value="rp">{t("inspector.modeRp")}</option>
+                  <option value="light_rp">{t("inspector.modeLightRp")}</option>
+                  <option value="pure_chat">{t("inspector.modePureChat")}</option>
+                </select>
+                <button
+                  ref={modelSelectorTriggerRef}
+                  onClick={() => setShowModelSelector((prev) => !prev)}
+                  className="chat-simple-home-control"
+                >
+                  <span className="truncate">{activeModelLabel || t("chat.selectModel")}</span>
+                </button>
+                <button
+                  onClick={() => openSimpleInspector(true)}
+                  className="chat-simple-home-control"
+                >
+                  {t("chat.contextSetup")}
+                </button>
+                <button
+                  onClick={() => {
+                    setSimpleSceneOpen(true);
+                    setSimpleInspectorOpen(false);
+                  }}
+                  className="chat-simple-home-control"
+                >
+                  {t("inspector.sceneState")}
+                </button>
               </div>
             )}
 
@@ -2333,7 +2414,7 @@ export function ChatScreen() {
                     )}
 
                     {!zenMode && !msg.id.startsWith("temp-") && (
-                      <div className="message-actions mt-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <div className="message-actions mt-2 flex flex-wrap items-center gap-1">
                         <button onClick={() => handleFork(msg)}
                           className="rounded-md px-2 py-0.5 text-[11px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary">{t("chat.fork")}</button>
                         <button onClick={() => { setEditingId(msg.id); setEditingValue(msg.content); }}
@@ -2639,107 +2720,130 @@ export function ChatScreen() {
               {t("inspector.title")}
             </PanelTitle>
 
-            {simpleModeActive ? (
-              <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{t("inspector.chatMode")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("inspector.chatModeDesc")}</div>
-                </div>
-                <div className="mt-3">
-                  <select
-                    value={chatMode}
-                    onChange={(e) => setChatMode(e.target.value as ChatMode)}
-                    className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
-                  >
-                    <option value="rp">{t("inspector.modeRp")}</option>
-                    <option value="light_rp">{t("inspector.modeLightRp")}</option>
-                    <option value="pure_chat">{t("inspector.modePureChat")}</option>
-                  </select>
-                </div>
-                {chatMode === "light_rp" && (
-                  <p className="mt-2 text-[10px] text-text-tertiary">{t("inspector.modeLightRpHint")}</p>
-                )}
-                <div className="mt-3">
-                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("inspector.systemPrompt")}</label>
+            <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+              <div>
+                <div className="text-sm font-medium text-text-primary">{t("inspector.systemPrompt")}</div>
+              </div>
+              {chatMode === "light_rp" && (
+                <p className="mt-2 text-[10px] text-text-tertiary">{t("inspector.modeLightRpHint")}</p>
+              )}
+              <div className="mt-3">
                 <textarea
                   value={systemPromptBlock?.content || ""}
                   onChange={(e) => setSystemPromptContent(e.target.value)}
                   className="h-20 w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
                   placeholder={t("inspector.systemPromptPlaceholder")}
                 />
-                </div>
               </div>
-            ) : (
-              <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{t("inspector.chatMode")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">{t("inspector.chatModeDesc")}</div>
-                </div>
-                <div className="mt-3">
-                  <select
-                    value={chatMode}
-                    onChange={(e) => setChatMode(e.target.value as ChatMode)}
-                    className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
-                  >
-                    <option value="rp">{t("inspector.modeRp")}</option>
-                    <option value="light_rp">{t("inspector.modeLightRp")}</option>
-                    <option value="pure_chat">{t("inspector.modePureChat")}</option>
-                  </select>
-                </div>
-                {chatMode === "light_rp" && (
-                  <p className="mt-2 text-[10px] text-text-tertiary">{t("inspector.modeLightRpHint")}</p>
-                )}
-                <div className="mt-3">
-                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("inspector.systemPrompt")}</label>
-                  <textarea
-                    value={systemPromptBlock?.content || ""}
-                    onChange={(e) => setSystemPromptContent(e.target.value)}
-                    className="h-20 w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
-                    placeholder={t("inspector.systemPromptPlaceholder")}
-                  />
-                </div>
-              </div>
-            )}
+            </div>
 
             <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{t("chat.ragEnabled")}</div>
-                  <div className="mt-0.5 text-[11px] text-text-tertiary">
-                    {t("chat.ragTopK")}: {chatRagTopK}
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-medium text-text-primary">{t("chat.contextSetup")}</div>
+                    <div className="mt-0.5 text-[11px] text-text-tertiary">{t("chat.userPersona")} / {t("chat.lorebook")} / RAG</div>
+                  </div>
+                  <button
+                    onClick={() => setShowPersonaModal(true)}
+                    className="rounded-md border border-border px-2.5 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                  >
+                    {t("chat.edit")}
+                  </button>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.userPersona")}</div>
+                  <div className="mt-1 text-sm font-medium text-text-primary">{activePersona?.name || t("chat.user")}</div>
+                  {(activePersonaPayload?.description || activePersonaPayload?.scenario || activePersonaPayload?.personality) && (
+                    <div className="mt-1 line-clamp-2 text-[11px] text-text-tertiary">
+                      {activePersonaPayload?.description || activePersonaPayload?.scenario || activePersonaPayload?.personality}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3">
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.lorebook")}</div>
+                    <span className="text-[10px] text-text-tertiary">
+                      {selectedLorebooks.length === 0 ? t("chat.none") : selectedLorebooks.length}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <button
+                      onClick={() => { void saveLorebooksForChat([]); }}
+                      className={`w-full rounded-md border px-2 py-1.5 text-left text-[11px] transition-colors ${
+                        selectedLorebooks.length === 0
+                          ? "border-accent-border bg-accent-subtle text-text-primary"
+                          : "border-border bg-bg-secondary text-text-secondary hover:bg-bg-hover"
+                      }`}
+                    >
+                      {t("chat.none")}
+                    </button>
+                    <div className="max-h-36 space-y-1 overflow-y-auto">
+                      {lorebooks.map((book) => {
+                        const checked = activeLorebookIds.includes(book.id);
+                        return (
+                          <label
+                            key={book.id}
+                            className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                              checked
+                                ? "border-accent-border bg-accent-subtle text-text-primary"
+                                : "border-border bg-bg-secondary text-text-secondary hover:bg-bg-hover"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) => { void toggleLorebookForChat(book.id, event.target.checked); }}
+                            />
+                            <span className="min-w-0 flex-1 truncate">{book.name}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={chatRagEnabled}
-                  onChange={(e) => { void updateChatRag(e.target.checked, chatRagCollectionIds); }}
-                />
-              </div>
-              <div className="mt-2 space-y-1">
-                <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.ragCollections")}</div>
-                {chatRagCollectionsAvailable.length === 0 ? (
-                  <p className="text-[10px] text-text-tertiary">{t("chat.ragNoCollections")}</p>
-                ) : (
-                  chatRagCollectionsAvailable.map((collection) => {
-                    const checked = chatRagCollectionIds.includes(collection.id);
-                    return (
-                      <label key={collection.id} className="flex items-center justify-between rounded-md border border-border bg-bg-secondary px-2 py-1.5">
-                        <span className="truncate text-[11px] text-text-secondary">{collection.name}</span>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            const nextIds = e.target.checked
-                              ? [...chatRagCollectionIds, collection.id]
-                              : chatRagCollectionIds.filter((id) => id !== collection.id);
-                            void updateChatRag(chatRagEnabled || e.target.checked, nextIds);
-                          }}
-                        />
-                      </label>
-                    );
-                  })
-                )}
-              </div>
+
+                <div className="mt-3 rounded-lg border border-border-subtle bg-bg-secondary p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-text-primary">{t("chat.ragEnabled")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">
+                        {t("chat.ragTopK")}: {chatRagTopK}
+                      </div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={chatRagEnabled}
+                      onChange={(e) => { void updateChatRag(e.target.checked, chatRagCollectionIds); }}
+                    />
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.ragCollections")}</div>
+                    {chatRagCollectionsAvailable.length === 0 ? (
+                      <p className="text-[10px] text-text-tertiary">{t("chat.ragNoCollections")}</p>
+                    ) : (
+                      chatRagCollectionsAvailable.map((collection) => {
+                        const checked = chatRagCollectionIds.includes(collection.id);
+                        return (
+                          <label key={collection.id} className="flex items-center justify-between rounded-md border border-border bg-bg-primary px-2 py-1.5">
+                            <span className="truncate text-[11px] text-text-secondary">{collection.name}</span>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => {
+                                const nextIds = e.target.checked
+                                  ? [...chatRagCollectionIds, collection.id]
+                                  : chatRagCollectionIds.filter((id) => id !== collection.id);
+                                void updateChatRag(chatRagEnabled || e.target.checked, nextIds);
+                              }}
+                            />
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
             </div>
 
             <div>
