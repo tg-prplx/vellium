@@ -46,6 +46,7 @@ export function LorebooksScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<LoreBook | null>(null);
   const [saving, setSaving] = useState(false);
+  const [translatingCopy, setTranslatingCopy] = useState(false);
   const [status, setStatus] = useState("");
   const [entryKeysInput, setEntryKeysInput] = useState<Record<string, string>>({});
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -156,6 +157,20 @@ export function LorebooksScreen() {
     await api.lorebookDelete(id);
     await refreshLorebooks(null);
     setStatus(t("lore.statusDeleted"));
+  }
+
+  async function translateLorebookCopy() {
+    if (!selected || translatingCopy) return;
+    setTranslatingCopy(true);
+    try {
+      const copied = await api.lorebookTranslateCopy(selected.id);
+      await refreshLorebooks(copied.id);
+      setStatus(`${t("lore.statusTranslated")}: ${copied.name}`);
+    } catch (error) {
+      setStatus(`${t("lore.statusTranslateFailed")} ${error instanceof Error ? error.message : ""}`.trim());
+    } finally {
+      setTranslatingCopy(false);
+    }
   }
 
   function updateEntry(entryId: string, patch: Partial<LoreBookEntry>) {
@@ -376,6 +391,15 @@ export function LorebooksScreen() {
               >
                 {saving ? t("lore.saving") : t("lore.save")}
               </button>
+              {selected && (
+                <button
+                  onClick={() => { void translateLorebookCopy(); }}
+                  disabled={translatingCopy}
+                  className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60"
+                >
+                  {translatingCopy ? t("lore.translating") : t("lore.translateKeysCopy")}
+                </button>
+              )}
               {selected && (
                 <button
                   onClick={() => { void deleteLorebook(selected.id); }}

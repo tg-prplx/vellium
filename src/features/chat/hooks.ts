@@ -135,7 +135,7 @@ interface ActiveChatHydrationParams {
   setBranches: Dispatch<SetStateAction<BranchNode[]>>;
   setActiveBranchId: Dispatch<SetStateAction<string | null>>;
   setChatCharacterIds: Dispatch<SetStateAction<string[]>>;
-  setActiveLorebookId: Dispatch<SetStateAction<string | null>>;
+  setActiveLorebookIds: Dispatch<SetStateAction<string[]>>;
   setChatRagEnabled: Dispatch<SetStateAction<boolean>>;
   setChatRagCollectionIds: Dispatch<SetStateAction<string[]>>;
   setSceneState: Dispatch<SetStateAction<RpSceneState>>;
@@ -158,7 +158,7 @@ export function useActiveChatHydration(params: ActiveChatHydrationParams) {
     setBranches,
     setActiveBranchId,
     setChatCharacterIds,
-    setActiveLorebookId,
+    setActiveLorebookIds,
     setChatRagEnabled,
     setChatRagCollectionIds,
     setSceneState,
@@ -180,7 +180,7 @@ export function useActiveChatHydration(params: ActiveChatHydrationParams) {
       setBranches([]);
       setActiveBranchId(null);
       setChatCharacterIds([]);
-      setActiveLorebookId(null);
+      setActiveLorebookIds([]);
       setChatRagEnabled(false);
       setChatRagCollectionIds([]);
       setSceneState({ chatId: "", ...DEFAULT_SCENE_STATE });
@@ -267,7 +267,13 @@ export function useActiveChatHydration(params: ActiveChatHydrationParams) {
     }).catch(() => {});
 
     setChatCharacterIds(activeChat.characterIds || (activeChat.characterId ? [activeChat.characterId] : []));
-    setActiveLorebookId(activeChat.lorebookId || null);
+    api.chatGetLorebooks(chatId).then((binding) => {
+      if (cancelled) return;
+      setActiveLorebookIds(Array.isArray(binding.lorebookIds) ? binding.lorebookIds : (binding.lorebookId ? [binding.lorebookId] : []));
+    }).catch(() => {
+      if (cancelled) return;
+      setActiveLorebookIds(activeChat.lorebookIds || (activeChat.lorebookId ? [activeChat.lorebookId] : []));
+    });
     api.chatGetRag(chatId).then((binding) => {
       if (cancelled) return;
       setChatRagEnabled(binding.enabled === true);
