@@ -2594,7 +2594,7 @@ export function ChatScreen() {
                   onKeyDown={handleKeyDown}
                   className={`h-[80px] w-full resize-none rounded-xl border border-border bg-bg-primary px-4 py-2.5 pr-10 text-sm text-text-primary placeholder:text-text-tertiary ${simpleModeActive ? "chat-simple-textarea" : ""}`}
                   placeholder={simpleHomeState ? t("chat.simplePlaceholder") : t("chat.placeholder")} />
-                {simpleModeActive && (
+                {simpleModeActive && !simpleHomeState && (
                   <button
                     ref={modelSelectorTriggerRef}
                     onClick={() => setShowModelSelector((prev) => !prev)}
