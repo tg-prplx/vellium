@@ -348,10 +348,12 @@ router.delete("/:id", (req, res) => {
   for (const chat of chatRows) {
     let lorebookIds: string[] = [];
     try {
-      lorebookIds = Array.isArray(JSON.parse(chat.lorebook_ids || "[]")) ? JSON.parse(chat.lorebook_ids || "[]") : [];
+      const parsed = JSON.parse(chat.lorebook_ids || "[]");
+      lorebookIds = Array.isArray(parsed) ? parsed.map((entry) => String(entry || "").trim()).filter(Boolean) : [];
     } catch {
       lorebookIds = [];
     }
+    if (lorebookIds.length === 0 && chat.lorebook_id) lorebookIds = [chat.lorebook_id];
     const filtered = lorebookIds.filter((entryId) => entryId !== id);
     if (filtered.length === lorebookIds.length) continue;
     db.prepare("UPDATE chats SET lorebook_id = ?, lorebook_ids = ? WHERE id = ?").run(filtered[0] || null, JSON.stringify(filtered), chat.id);

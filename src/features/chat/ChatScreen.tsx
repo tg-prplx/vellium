@@ -311,6 +311,7 @@ export function ChatScreen() {
     if (simpleModeActive) return;
     setSimpleInspectorOpen(false);
     setSimpleSceneOpen(false);
+    setShowModelSelector(false);
   }, [simpleModeActive]);
 
   useEffect(() => {
@@ -447,18 +448,20 @@ export function ChatScreen() {
 
   function openSimpleSidebar(next?: boolean) {
     if (!simpleModeActive) return;
+    if (next !== false) setShowModelSelector(false);
     setSimpleSidebarOpen((prev) => (typeof next === "boolean" ? next : !prev));
   }
 
   function openSimpleInspector(next?: boolean) {
     if (!simpleModeActive) return;
+    if (next !== false) setShowModelSelector(false);
     setSimpleInspectorOpen((prev) => (typeof next === "boolean" ? next : !prev));
   }
 
   useEffect(() => {
     if (!simpleHomeState) return;
-    setSimpleGreetingIndex(Math.floor(Math.random() * 4));
-  }, [simpleHomeState, activeChat?.id]);
+    setSimpleGreetingIndex(Math.floor(Math.random() * simpleGreetings.length));
+  }, [simpleHomeState, activeChat?.id, simpleGreetings.length]);
 
   function startStreamingUi(characterName: string | null) {
     setStreamText("");
@@ -607,6 +610,7 @@ export function ChatScreen() {
   async function handleSend() {
     if ((!input.trim() && attachments.length === 0) || autoConvoRunning) return;
     setErrorText("");
+    setShowModelSelector(false);
     try {
       let chatId = activeChat?.id;
       let branchId = activeBranchId;
@@ -2197,15 +2201,6 @@ export function ChatScreen() {
 
             {simpleModeActive && simpleHomeState && (
               <div className="chat-simple-home-setup">
-                <select
-                  value={chatMode}
-                  onChange={(e) => setChatMode(e.target.value as ChatMode)}
-                  className="chat-simple-home-control"
-                >
-                  <option value="rp">{t("inspector.modeRp")}</option>
-                  <option value="light_rp">{t("inspector.modeLightRp")}</option>
-                  <option value="pure_chat">{t("inspector.modePureChat")}</option>
-                </select>
                 <button
                   ref={modelSelectorTriggerRef}
                   onClick={() => setShowModelSelector((prev) => !prev)}
@@ -2221,6 +2216,7 @@ export function ChatScreen() {
                 </button>
                 <button
                   onClick={() => {
+                    setShowModelSelector(false);
                     setSimpleSceneOpen(true);
                     setSimpleInspectorOpen(false);
                   }}
@@ -2721,13 +2717,25 @@ export function ChatScreen() {
             </PanelTitle>
 
             <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-              <div>
-                <div className="text-sm font-medium text-text-primary">{t("inspector.systemPrompt")}</div>
-              </div>
+              {simpleModeActive && (
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("inspector.chatMode")}</label>
+                  <select
+                    value={chatMode}
+                    onChange={(e) => setChatMode(e.target.value as ChatMode)}
+                    className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
+                  >
+                    <option value="rp">{t("inspector.modeRp")}</option>
+                    <option value="light_rp">{t("inspector.modeLightRp")}</option>
+                    <option value="pure_chat">{t("inspector.modePureChat")}</option>
+                  </select>
+                </div>
+              )}
               {chatMode === "light_rp" && (
                 <p className="mt-2 text-[10px] text-text-tertiary">{t("inspector.modeLightRpHint")}</p>
               )}
               <div className="mt-3">
+                <div className="mb-2 text-sm font-medium text-text-primary">{t("inspector.systemPrompt")}</div>
                 <textarea
                   value={systemPromptBlock?.content || ""}
                   onChange={(e) => setSystemPromptContent(e.target.value)}
