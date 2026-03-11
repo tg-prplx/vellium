@@ -27,7 +27,8 @@ const MIGRATIONS = [
   "ALTER TABLE writer_projects ADD COLUMN character_ids TEXT NOT NULL DEFAULT '[]'",
   "ALTER TABLE writer_projects ADD COLUMN notes_json TEXT NOT NULL DEFAULT '{}'",
   "ALTER TABLE writer_chapters ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'",
-  "ALTER TABLE providers ADD COLUMN provider_type TEXT NOT NULL DEFAULT 'openai'"
+  "ALTER TABLE providers ADD COLUMN provider_type TEXT NOT NULL DEFAULT 'openai'",
+  "ALTER TABLE providers ADD COLUMN adapter_id TEXT"
 ];
 
 export function applyMigrations(db: Database.Database) {

@@ -12,7 +12,9 @@ import chatRoutes from "../routes/chats.js";
 import lorebookRoutes from "../routes/lorebooks.js";
 import messageRoutes from "../routes/messages.js";
 import personaRoutes from "../routes/personas.js";
+import pluginRoutes from "../routes/plugins.js";
 import providerRoutes from "../routes/providers.js";
+import extensionRoutes from "../routes/extensions.js";
 import ragRoutes from "../routes/rag.js";
 import rpRoutes from "../routes/rp.js";
 import settingsRoutes from "../routes/settings.js";
@@ -130,6 +132,10 @@ function mimeByExtension(extRaw: string): string {
   return map[ext] || "application/octet-stream";
 }
 
+function isPluginFrameRoute(pathname: string): boolean {
+  return pathname === "/api/plugins/sdk.js" || /^\/api\/plugins\/[^/]+\/assets\//.test(pathname);
+}
+
 function normalizeExtractedText(raw: string): string {
   return String(raw || "")
     .replace(/\u0000/g, "")
@@ -209,7 +215,9 @@ function registerUploadRoute(app: express.Express) {
 function registerRoutes(app: express.Express) {
   app.use("/api/account", accountRoutes);
   app.use("/api/settings", settingsRoutes);
+  app.use("/api/plugins", pluginRoutes);
   app.use("/api/providers", providerRoutes);
+  app.use("/api/extensions", extensionRoutes);
   app.use("/api/chats", chatRoutes);
   app.use("/api/messages", messageRoutes);
   app.use("/api/rp", rpRoutes);
@@ -251,7 +259,9 @@ export function createApp() {
     }
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
-    res.setHeader("X-Frame-Options", "DENY");
+    if (!isPluginFrameRoute(req.path)) {
+      res.setHeader("X-Frame-Options", "DENY");
+    }
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), midi=()");

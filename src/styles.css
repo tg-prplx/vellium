@@ -2334,3 +2334,109 @@ select {
     @apply rounded-lg border border-border-subtle bg-bg-primary;
   }
 }
+
+.plugin-frame,
+.plugin-tab-frame {
+  width: 100%;
+  border: 0;
+  border-radius: 16px;
+  background: var(--bg-primary);
+}
+
+.plugin-tab-frame {
+  min-height: 100%;
+  height: 100%;
+}
+
+.plugin-slot-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plugin-slot-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.plugin-slot-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 0;
+}
+
+.plugin-slot-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.plugin-slot-card-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.plugin-action-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(8, 10, 15, 0.62);
+}
+
+.plugin-action-modal {
+  max-width: calc(100vw - 32px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-primary);
+  overflow: hidden;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+}
+
+.plugin-action-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.plugin-action-frame {
+  width: 100%;
+  border: 0;
+  background: var(--bg-primary);
+}
+
+.plugin-action-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 90;
+  max-width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+}
+
+.plugin-action-toast.is-success {
+  border-color: var(--success-border);
+  background: var(--success-subtle);
+  color: var(--success);
+}
+
+.plugin-action-toast.is-error {
+  border-color: var(--danger-border);
+  background: var(--danger-subtle);
+  color: var(--danger);
+}

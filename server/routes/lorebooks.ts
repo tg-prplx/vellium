@@ -3,6 +3,7 @@ import { db, newId, now, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
 import { normalizeLoreBookEntries, parseSillyTavernWorldInfo } from "../domain/lorebooks.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
 import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
+import { completeCustomAdapter } from "../services/customProviderAdapters.js";
 
 const router = Router();
 
@@ -22,6 +23,7 @@ interface ProviderRow {
   api_key_cipher: string;
   full_local_only: number;
   provider_type: string;
+  adapter_id: string | null;
 }
 
 const KOBOLD_TAGS = {
@@ -87,6 +89,16 @@ async function completeProviderOnce(params: {
     if (!response.ok) return "";
     const parsed = await response.json().catch(() => ({}));
     return extractKoboldGeneratedText(parsed).trim();
+  }
+
+  if (providerType === "custom") {
+    return completeCustomAdapter({
+      provider: params.provider,
+      modelId: params.modelId,
+      systemPrompt: params.systemPrompt,
+      userPrompt: params.userPrompt,
+      samplerConfig: sc
+    });
   }
 
   const baseUrl = normalizeOpenAiBaseUrl(params.provider.base_url);

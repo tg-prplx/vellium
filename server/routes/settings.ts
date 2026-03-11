@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
 import { discoverMcpToolCatalog, isAllowedMcpCommand, testMcpServerConnection, type McpServerConfig } from "../services/mcp.js";
 import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
+import { normalizeCustomEndpointAdapters, normalizeCustomInspectorFields } from "../services/extensions.js";
 
 const router = Router();
 
@@ -17,6 +18,28 @@ function normalizeSecuritySettings(raw: unknown) {
     allowRemoteImages: patch.allowRemoteImages === true,
     allowUnsafeUploads: patch.allowUnsafeUploads === true
   };
+}
+
+function normalizePluginStates(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_SETTINGS.pluginStates };
+  const out: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const id = String(key || "").trim();
+    if (!id) continue;
+    out[id] = value === true;
+  }
+  return out;
+}
+
+function normalizePluginData(raw: unknown): Record<string, Record<string, unknown>> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_SETTINGS.pluginData };
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [pluginId, value] of Object.entries(raw as Record<string, unknown>)) {
+    const id = String(pluginId || "").trim();
+    if (!id || !value || typeof value !== "object" || Array.isArray(value)) continue;
+    out[id] = { ...(value as Record<string, unknown>) };
+  }
+  return out;
 }
 
 function normalizePromptStack(raw: unknown): typeof DEFAULT_SETTINGS.promptStack {
@@ -64,6 +87,10 @@ function getSettings() {
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) },
     promptStack,
     security: normalizeSecuritySettings({ ...DEFAULT_SETTINGS.security, ...(stored.security ?? {}) }),
+    pluginStates: normalizePluginStates({ ...DEFAULT_SETTINGS.pluginStates, ...(stored.pluginStates ?? {}) }),
+    pluginData: normalizePluginData({ ...DEFAULT_SETTINGS.pluginData, ...(stored.pluginData ?? {}) }),
+    customInspectorFields: normalizeCustomInspectorFields(stored.customInspectorFields),
+    customEndpointAdapters: normalizeCustomEndpointAdapters(stored.customEndpointAdapters),
     mcpServers
   };
 }
@@ -257,7 +284,21 @@ router.patch("/", (req, res) => {
     security: normalizeSecuritySettings({
       ...current.security,
       ...((patchData as { security?: Record<string, unknown> }).security ?? {})
-    })
+    }),
+    pluginStates: normalizePluginStates({
+      ...current.pluginStates,
+      ...((patchData as { pluginStates?: Record<string, unknown> }).pluginStates ?? {})
+    }),
+    pluginData: normalizePluginData({
+      ...current.pluginData,
+      ...((patchData as { pluginData?: Record<string, Record<string, unknown>> }).pluginData ?? {})
+    }),
+    customInspectorFields: normalizeCustomInspectorFields(
+      (patchData as { customInspectorFields?: unknown }).customInspectorFields ?? current.customInspectorFields
+    ),
+    customEndpointAdapters: normalizeCustomEndpointAdapters(
+      (patchData as { customEndpointAdapters?: unknown }).customEndpointAdapters ?? current.customEndpointAdapters
+    )
   };
   db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(updated));
   res.json(updated);

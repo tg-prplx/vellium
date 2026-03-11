@@ -5,6 +5,7 @@ import type {
   CharacterDetail,
   ChatMessage,
   ChatSession,
+  CustomInspectorField,
   LoreBook,
   PromptBlock,
   ProviderModel,
@@ -42,6 +43,7 @@ interface ChatBootstrapParams {
     emotionalDepth: boolean;
   }>>;
   setSecuritySettings: Dispatch<SetStateAction<SecuritySettings>>;
+  setCustomInspectorFields: Dispatch<SetStateAction<CustomInspectorField[]>>;
   setChatRagTopK: Dispatch<SetStateAction<number>>;
   setCharacters: Dispatch<SetStateAction<CharacterDetail[]>>;
   setLorebooks: Dispatch<SetStateAction<LoreBook[]>>;
@@ -80,6 +82,7 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
         ...DEFAULT_CHAT_SECURITY_SETTINGS,
         ...(settings.security || {})
       });
+      params.setCustomInspectorFields(Array.isArray(settings.customInspectorFields) ? settings.customInspectorFields : []);
       if (Number.isFinite(Number(settings.ragTopK))) {
         params.setChatRagTopK(Math.max(1, Math.min(12, Math.floor(Number(settings.ragTopK)))));
       }

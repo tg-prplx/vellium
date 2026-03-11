@@ -1,4 +1,4 @@
-export type ProviderType = "openai" | "koboldcpp";
+export type ProviderType = "openai" | "koboldcpp" | "custom";
 
 export interface ProviderLike {
   base_url: string;
@@ -11,7 +11,9 @@ function normalizeUrl(url: string): string {
 }
 
 export function normalizeProviderType(raw: unknown): ProviderType {
-  return raw === "koboldcpp" ? "koboldcpp" : "openai";
+  if (raw === "koboldcpp") return "koboldcpp";
+  if (raw === "custom") return "custom";
+  return "openai";
 }
 
 export function normalizeKoboldBaseUrl(baseUrl: string): string {

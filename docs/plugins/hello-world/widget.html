@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="/api/plugins/sdk.js"></script>
+    <style>
+      body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: #0f1118; color: #f4f5f7; }
+      .wrap { padding: 14px; }
+      .muted { color: #9ea4b2; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <strong>Chat inspector widget</strong>
+      <div class="muted" id="ctx">Waiting for host context...</div>
+      <div class="muted" id="state"></div>
+    </div>
+    <script>
+      window.VelliumPlugin.host.onContext((ctx) => {
+        document.getElementById('ctx').textContent = `plugin=${ctx.pluginId}, locale=${ctx.locale}, tab=${ctx.activeTab}`;
+        document.getElementById('state').textContent = ctx.payload ? JSON.stringify(ctx.payload) : 'no payload';
+      });
+      window.VelliumPlugin.host.resize(180);
+    </script>
+  </body>
+</html>

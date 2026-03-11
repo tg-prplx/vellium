@@ -9,7 +9,8 @@ export interface ProviderProfile {
   apiKeyMasked: string;
   proxyUrl?: string | null;
   fullLocalOnly: boolean;
-  providerType?: "openai" | "koboldcpp";
+  providerType?: "openai" | "koboldcpp" | "custom";
+  adapterId?: string | null;
 }
 
 export interface ProviderModel {
@@ -420,6 +421,137 @@ export interface SecuritySettings {
   allowUnsafeUploads: boolean;
 }
 
+export interface CustomInspectorFieldOption {
+  value: string;
+  label: string;
+}
+
+export interface CustomInspectorField {
+  id: Id;
+  key: string;
+  label: string;
+  type: "text" | "textarea" | "select" | "range" | "toggle";
+  section: "scene" | "context";
+  helpText?: string;
+  placeholder?: string;
+  options?: CustomInspectorFieldOption[];
+  min?: number;
+  max?: number;
+  step?: number;
+  rows?: number;
+  order: number;
+  defaultValue?: string;
+  visibleInPureChat: boolean;
+}
+
+export interface CustomEndpointAdapterEndpoint {
+  enabled: boolean;
+  method: "GET" | "POST" | "PATCH";
+  path: string;
+  resultPath?: string;
+  bodyTemplate?: unknown;
+  headersTemplate?: Record<string, string>;
+}
+
+export interface CustomEndpointAdapter {
+  id: Id;
+  name: string;
+  description: string;
+  enabled: boolean;
+  authMode: "none" | "bearer" | "header";
+  authHeader: string;
+  models?: CustomEndpointAdapterEndpoint;
+  test?: CustomEndpointAdapterEndpoint;
+  chat: CustomEndpointAdapterEndpoint;
+}
+
+export type PluginSlotId =
+  | "chat.sidebar.bottom"
+  | "chat.inspector.bottom"
+  | "chat.composer.bottom"
+  | "chat.message.bottom"
+  | "writing.sidebar.bottom"
+  | "writing.editor.bottom"
+  | "settings.bottom";
+
+export type PluginActionLocation =
+  | "app.toolbar"
+  | "chat.composer"
+  | "chat.message"
+  | "writing.toolbar"
+  | "writing.editor";
+
+export interface PluginTabContribution {
+  id: string;
+  label: string;
+  path: string;
+  order: number;
+  url: string;
+}
+
+export interface PluginSlotContribution {
+  id: string;
+  slot: PluginSlotId;
+  title: string;
+  path: string;
+  order: number;
+  height: number;
+  url: string;
+}
+
+export interface PluginActionContribution {
+  id: string;
+  location: PluginActionLocation;
+  label: string;
+  title: string;
+  path: string;
+  order: number;
+  width: number;
+  height: number;
+  mode: "modal" | "inline";
+  request?: {
+    method: "GET" | "POST" | "PATCH" | "DELETE";
+    path: string;
+    body?: unknown;
+  };
+  confirmText?: string;
+  successMessage?: string;
+  reloadPlugins: boolean;
+  variant: "ghost" | "accent";
+  url: string;
+}
+
+export interface PluginDescriptor {
+  id: string;
+  name: string;
+  version: string;
+  apiVersion: number;
+  description: string;
+  author: string;
+  defaultEnabled: boolean;
+  enabled: boolean;
+  assetBaseUrl: string;
+  permissions: string[];
+  tabs: PluginTabContribution[];
+  slots: PluginSlotContribution[];
+  actions: PluginActionContribution[];
+}
+
+export interface PluginCatalog {
+  pluginsDir: string;
+  sdkUrl: string;
+  slotIds: PluginSlotId[];
+  plugins: PluginDescriptor[];
+}
+
+export interface PluginHostContext {
+  pluginId: string;
+  locale: string;
+  theme: "dark" | "light";
+  activeTab: string;
+  payload?: Record<string, unknown>;
+}
+
 export interface AppSettings {
   onboardingCompleted: boolean;
   alternateSimpleMode: boolean;
@@ -473,6 +605,8 @@ export interface AppSettings {
   mcpToolDenylist: string[];
   mcpDiscoveredTools: McpDiscoveredTool[];
   mcpToolStates: Record<string, boolean>;
+  pluginStates: Record<string, boolean>;
+  pluginData: Record<string, Record<string, unknown>>;
   mcpServers: McpServerConfig[];
   security: SecuritySettings;
   sceneFieldVisibility: {
@@ -482,6 +616,8 @@ export interface AppSettings {
     unpredictability: boolean;
     emotionalDepth: boolean;
   };
+  customInspectorFields: CustomInspectorField[];
+  customEndpointAdapters: CustomEndpointAdapter[];
 }
 
 export interface ChatCharacterLink {

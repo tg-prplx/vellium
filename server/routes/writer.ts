@@ -8,6 +8,7 @@ import { db, newId, now, DATA_DIR, DEFAULT_SETTINGS } from "../db.js";
 import { runConsistency } from "../domain/writerEngine.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
 import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
+import { completeCustomAdapter } from "../services/customProviderAdapters.js";
 import { getWriterRagBinding, retrieveWriterRagContext, setWriterRagBinding } from "../services/rag.js";
 
 const router = Router();
@@ -25,6 +26,7 @@ interface ProviderRow {
   api_key_cipher: string;
   full_local_only: number;
   provider_type: string;
+  adapter_id: string | null;
 }
 
 interface CharacterRow {
@@ -1317,6 +1319,16 @@ async function callLlm(systemPrompt: string, userPrompt: string, sampler?: Write
       }
       const payload = await response.json().catch(() => ({}));
       return extractKoboldGeneratedText(payload) || "[Empty response]";
+    }
+
+    if (providerType === "custom") {
+      return completeCustomAdapter({
+        provider,
+        modelId,
+        systemPrompt,
+        userPrompt,
+        samplerConfig: settings.samplerConfig as Record<string, unknown>
+      });
     }
 
     const openAiSampling = buildOpenAiSamplingPayload({
