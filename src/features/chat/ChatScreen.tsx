@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../components/Panels";
+import { PluginActionBar, PluginSlotMount } from "../plugins/PluginHost";
 import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import type {
   BranchNode,
   ChatMessage,
   ChatSession,
+  CustomInspectorField,
   FileAttachment,
   PromptBlock,
   RpSceneState,
@@ -79,6 +81,7 @@ export function ChatScreen() {
   });
   const [sceneFieldVisibility, setSceneFieldVisibility] = useState({ ...DEFAULT_SCENE_FIELD_VISIBILITY });
   const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({ ...DEFAULT_CHAT_SECURITY_SETTINGS });
+  const [customInspectorFields, setCustomInspectorFields] = useState<CustomInspectorField[]>([]);
   const [promptStack, setPromptStack] = useState<PromptBlock[]>([...DEFAULT_PROMPT_STACK]);
   const [contextSummary, setContextSummary] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -217,10 +220,117 @@ export function ChatScreen() {
   const simpleHomeComposerWidth = useMemo(() => {
     return calcSimpleHomeComposerWidth(simpleHomeState, input, attachments.length);
   }, [simpleHomeState, input, attachments.length]);
+  const visibleCustomSceneFields = useMemo(() => {
+    return customInspectorFields
+      .filter((field) => field.section === "scene" && (!pureChatMode || field.visibleInPureChat))
+      .sort((a, b) => a.order - b.order);
+  }, [customInspectorFields, pureChatMode]);
   const systemPromptBlock = useMemo(
     () => orderedBlocks.find((block) => block.kind === "system") || null,
     [orderedBlocks]
   );
+
+  function getCustomSceneFieldValue(field: CustomInspectorField) {
+    const key = `ext:${field.key}`;
+    const current = String(sceneState.variables?.[key] ?? "");
+    return current || field.defaultValue || "";
+  }
+
+  function setCustomSceneFieldValue(field: CustomInspectorField, value: string) {
+    setSceneVariable(`ext:${field.key}`, value);
+  }
+
+  function renderCustomSceneField(field: CustomInspectorField) {
+    const value = getCustomSceneFieldValue(field);
+    if (field.type === "toggle") {
+      const checked = value === "true" || value === "1" || value === "yes";
+      return (
+        <div key={field.id} className="rounded-xl border border-border-subtle bg-bg-secondary/40 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <label className="block text-[10px] text-text-tertiary">{field.label}</label>
+              {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
+            </div>
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(e) => setCustomSceneFieldValue(field, e.target.checked ? "true" : "false")}
+              className="h-4 w-4"
+            />
+          </div>
+        </div>
+      );
+    }
+    if (field.type === "select") {
+      return (
+        <div key={field.id}>
+          <label className="mb-1 block text-[10px] text-text-tertiary">{field.label}</label>
+          <select
+            value={value}
+            onChange={(e) => setCustomSceneFieldValue(field, e.target.value)}
+            className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+          >
+            <option value="">{field.placeholder || "—"}</option>
+            {(field.options || []).map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+          {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
+        </div>
+      );
+    }
+    if (field.type === "range") {
+      const min = Number.isFinite(field.min) ? Number(field.min) : 0;
+      const max = Number.isFinite(field.max) ? Number(field.max) : 100;
+      const step = Number.isFinite(field.step) ? Number(field.step) : 1;
+      const numericValue = Number(value || field.defaultValue || min);
+      return (
+        <div key={field.id}>
+          <div className="mb-1 flex items-center justify-between gap-3">
+            <label className="text-[10px] text-text-tertiary">{field.label}</label>
+            <span className="text-[10px] text-text-tertiary">{Number.isFinite(numericValue) ? numericValue : min}</span>
+          </div>
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={Number.isFinite(numericValue) ? numericValue : min}
+            onChange={(e) => setCustomSceneFieldValue(field, e.target.value)}
+            className="w-full"
+          />
+          {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
+        </div>
+      );
+    }
+    if (field.type === "textarea") {
+      return (
+        <div key={field.id}>
+          <label className="mb-1 block text-[10px] text-text-tertiary">{field.label}</label>
+          <textarea
+            value={value}
+            rows={field.rows || 3}
+            placeholder={field.placeholder || ""}
+            onChange={(e) => setCustomSceneFieldValue(field, e.target.value)}
+            className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+          />
+          {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
+        </div>
+      );
+    }
+    return (
+      <div key={field.id}>
+        <label className="mb-1 block text-[10px] text-text-tertiary">{field.label}</label>
+        <input
+          value={value}
+          placeholder={field.placeholder || ""}
+          onChange={(e) => setCustomSceneFieldValue(field, e.target.value)}
+          className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+        />
+        {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
+      </div>
+    );
+  }
 
   const totalTokens = useMemo(
     () => messages.reduce((sum, m) => sum + (m.tokenCount || 0), 0),
@@ -346,6 +456,7 @@ export function ChatScreen() {
     setSimpleSidebarOpen,
     setSceneFieldVisibility,
     setSecuritySettings,
+    setCustomInspectorFields,
     setChatRagTopK,
     setCharacters,
     setLorebooks,
@@ -1403,6 +1514,11 @@ export function ChatScreen() {
                     </div>
                   );
                 })}
+                {visibleCustomSceneFields.length > 0 && (
+                  <div className="space-y-2 pt-1">
+                    {visibleCustomSceneFields.map((field) => renderCustomSceneField(field))}
+                  </div>
+                )}
               </fieldset>
               {pureChatMode && (
                 <p className="text-[10px] text-text-tertiary">{t("inspector.pureChatSceneDisabled")}</p>
@@ -1827,6 +1943,15 @@ export function ChatScreen() {
               </button>
             </div>
             )}
+            <PluginSlotMount
+              slotId="chat.sidebar.bottom"
+              contextPayload={{
+                chatId: activeChat?.id || null,
+                branchId: activeBranchId,
+                mode: chatMode,
+                simpleMode: simpleModeActive
+              }}
+            />
           </>
         }
         center={
@@ -2406,6 +2531,19 @@ export function ChatScreen() {
                             )}
                           </div>
                         )}
+                        <PluginSlotMount
+                          slotId="chat.message.bottom"
+                          instanceKey={msg.id}
+                          contextPayload={{
+                            chatId: activeChat?.id || null,
+                            branchId: activeBranchId,
+                            messageId: msg.id,
+                            role: msg.role,
+                            characterId: msgChar?.id || null,
+                            characterName: msg.characterName || null,
+                            hasAttachments: (msg.attachments?.length || 0) > 0
+                          }}
+                        />
                       </>
                     )}
 
@@ -2442,6 +2580,16 @@ export function ChatScreen() {
                         <button onClick={() => handleDelete(msg.id)}
                           disabled={deletingMessageIds[msg.id]}
                           className="rounded-md px-2 py-0.5 text-[11px] text-danger/60 hover:bg-danger-subtle hover:text-danger disabled:opacity-40">{t("chat.delete")}</button>
+                        <PluginActionBar
+                          location="chat.message"
+                          contextPayload={{
+                            chatId: activeChat?.id || null,
+                            branchId: activeBranchId,
+                            messageId: msg.id,
+                            role: msg.role,
+                            characterName: msg.characterName || null
+                          }}
+                        />
                       </div>
                     )}
                   </article>
@@ -2680,6 +2828,31 @@ export function ChatScreen() {
                 <span className="mt-1 text-[10px] font-semibold">{streaming ? t("chat.stop") : (hasDraftPayload ? t("chat.send") : t("chat.resend"))}</span>
               </button>
             </div>
+            <PluginSlotMount
+              slotId="chat.composer.bottom"
+              contextPayload={{
+                chatId: activeChat?.id || null,
+                branchId: activeBranchId,
+                mode: chatMode,
+                simpleMode: simpleModeActive,
+                homeState: simpleHomeState,
+                hasDraft: hasDraftPayload,
+                attachmentCount: attachments.length
+              }}
+            />
+            <PluginActionBar
+              location="chat.composer"
+              className="mt-2 flex flex-wrap items-center gap-1.5"
+              contextPayload={{
+                chatId: activeChat?.id || null,
+                branchId: activeBranchId,
+                mode: chatMode,
+                simpleMode: simpleModeActive,
+                homeState: simpleHomeState,
+                input,
+                attachmentCount: attachments.length
+              }}
+            />
             {simpleModeActive && simpleHomeState && (
               <div className="chat-simple-quick-row">
                 {[
@@ -2945,6 +3118,11 @@ export function ChatScreen() {
                         </div>
                       );
                     })}
+                    {visibleCustomSceneFields.length > 0 && (
+                      <div className="space-y-2 pt-1">
+                        {visibleCustomSceneFields.map((field) => renderCustomSceneField(field))}
+                      </div>
+                    )}
                   </fieldset>
                 )}
                 {pureChatMode && inspectorSection.scene && (
@@ -3075,6 +3253,15 @@ export function ChatScreen() {
                 )}
               </div>
             )}
+            <PluginSlotMount
+              slotId="chat.inspector.bottom"
+              contextPayload={{
+                chatId: activeChat?.id || null,
+                branchId: activeBranchId,
+                mode: chatMode,
+                simpleMode: simpleModeActive
+              }}
+            />
           </div>
         )}
       />

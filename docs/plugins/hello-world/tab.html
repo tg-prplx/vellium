@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hello World Plugin</title>
+    <script src="/api/plugins/sdk.js"></script>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 20px; background: #0f1118; color: #f4f5f7; }
+      .card { border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 16px; background: rgba(255,255,255,0.03); }
+      button { border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; background: #1a1d27; color: #f4f5f7; padding: 10px 14px; cursor: pointer; }
+      pre { white-space: pre-wrap; word-break: break-word; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Hello World Plugin</h1>
+      <p>This plugin tab is running through the Vellium plugin host bridge.</p>
+      <button id="load">Load settings via host API</button>
+      <pre id="out">Click the button to fetch /api/settings</pre>
+    </div>
+    <script>
+      const out = document.getElementById('out');
+      document.getElementById('load').addEventListener('click', async () => {
+        try {
+          const ctx = await window.VelliumPlugin.host.getContext();
+          const settings = await window.VelliumPlugin.api.get('/api/settings');
+          out.textContent = JSON.stringify({ ctx, theme: settings.theme, provider: settings.activeProviderId }, null, 2);
+        } catch (error) {
+          out.textContent = String(error);
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { isPluginDevAutoRefreshEnabled, PluginSlotMount, setPluginDevAutoRefreshEnabled, usePlugins } from "../plugins/PluginHost";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
@@ -151,8 +152,18 @@ function scrollToSettingsSection(id: string) {
   node.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+const HIGH_RISK_PLUGIN_PERMISSIONS = new Set(["api.write", "pluginSettings.write"]);
+const MEDIUM_RISK_PLUGIN_PERMISSIONS = new Set(["pluginSettings.read"]);
+
+function pluginPermissionTone(permission: string): "high" | "medium" | "normal" {
+  if (HIGH_RISK_PLUGIN_PERMISSIONS.has(permission)) return "high";
+  if (MEDIUM_RISK_PLUGIN_PERMISSIONS.has(permission)) return "medium";
+  return "normal";
+}
+
 export function SettingsScreen() {
   const { t } = useI18n();
+  const { catalog: pluginCatalog, plugins, loading: pluginsLoading, error: pluginError, setPluginEnabled, refresh: refreshPlugins } = usePlugins();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [providerResult, setProviderResult] = useState("");
   const [resultVariant, setResultVariant] = useState<"info" | "success" | "error">("info");
@@ -179,7 +190,8 @@ export function SettingsScreen() {
   const [providerApiKey, setProviderApiKey] = useState("");
   const [providerProxyUrl, setProviderProxyUrl] = useState("");
   const [providerLocalOnly, setProviderLocalOnly] = useState(selectedPreset.localOnly);
-  const [providerType, setProviderType] = useState<"openai" | "koboldcpp">(selectedPreset.providerType);
+  const [providerType, setProviderType] = useState<"openai" | "koboldcpp" | "custom">(selectedPreset.providerType);
+  const [providerAdapterId, setProviderAdapterId] = useState("");
 
   const [activeCategory, setActiveCategory] = useState<"connection" | "interface" | "generation" | "context" | "prompts" | "tools">("connection");
   const [mcpServersDraft, setMcpServersDraft] = useState<McpServerConfig[]>([]);
@@ -193,6 +205,7 @@ export function SettingsScreen() {
   const [koboldBansInput, setKoboldBansInput] = useState("");
   const [quickJumpFilter, setQuickJumpFilter] = useState("");
   const [draggedPromptBlockId, setDraggedPromptBlockId] = useState<string | null>(null);
+  const [pluginDevAutoRefresh, setPluginDevAutoRefresh] = useState<boolean>(isPluginDevAutoRefreshEnabled());
 
   useEffect(() => {
     void (async () => {
@@ -221,6 +234,7 @@ export function SettingsScreen() {
     setProviderProxyUrl("");
     setProviderLocalOnly(preset.localOnly);
     setProviderType(preset.providerType);
+    setProviderAdapterId("");
     if (preset.key === "openai") {
       void patchApiParamPolicy({ openai: { sendSampler: false } });
     }
@@ -265,12 +279,17 @@ export function SettingsScreen() {
       showResult(t("settings.fillProviderRequired"), "error");
       return;
     }
+    if (providerType === "custom" && !providerAdapterId.trim()) {
+      showResult(t("settings.fillAdapterRequired"), "error");
+      return;
+    }
     const saved = await api.providerUpsert({
       id: providerId.trim(), name: providerName.trim(), baseUrl: providerBaseUrl.trim(),
       apiKey: providerApiKey.trim() || "local-key",
       proxyUrl: providerProxyUrl.trim() || null,
       fullLocalOnly: providerLocalOnly,
-      providerType
+      providerType,
+      adapterId: providerType === "custom" ? providerAdapterId.trim() || null : null
     });
     showResult(`${t("settings.providerSaved")}: ${saved.name}`, "success");
     await refreshProviders();
@@ -284,7 +303,8 @@ export function SettingsScreen() {
       apiKey: providerApiKey.trim() || (selectedPreset.localOnly ? "local-key" : ""),
       proxyUrl: null,
       fullLocalOnly: selectedPreset.localOnly,
-      providerType: selectedPreset.providerType
+      providerType: selectedPreset.providerType,
+      adapterId: null
     });
     await refreshProviders();
     setSelectedProviderId(selectedPreset.defaultId);
@@ -690,11 +710,11 @@ export function SettingsScreen() {
     }));
   }, [mcpDiscoveredTools]);
 
-  const activeProviderType = useMemo<"openai" | "koboldcpp">(() => {
+  const activeProviderType = useMemo<"openai" | "koboldcpp" | "custom">(() => {
     const activeId = settings?.activeProviderId;
     if (!activeId) return "openai";
     const row = providers.find((provider) => provider.id === activeId);
-    return row?.providerType === "koboldcpp" ? "koboldcpp" : "openai";
+    return row?.providerType === "koboldcpp" || row?.providerType === "custom" ? row.providerType : "openai";
   }, [providers, settings?.activeProviderId]);
   const toolCallingLocked = activeProviderType === "koboldcpp";
   const apiParamPolicy = useMemo(
@@ -754,6 +774,7 @@ export function SettingsScreen() {
     tools: [
       { id: "settings-tools-core", label: t("settings.tools") },
       { id: "settings-security", label: t("settings.security") },
+      { id: "settings-plugins", label: t("settings.plugins") },
       { id: "settings-tools-mcp-functions", label: t("settings.mcpFunctions") },
       { id: "settings-tools-mcp", label: t("settings.mcpServers") },
       { id: "settings-danger-zone", label: t("settings.dangerZone") }
@@ -911,11 +932,18 @@ export function SettingsScreen() {
                   <div><FieldLabel>{t("settings.baseUrl")}</FieldLabel><InputField value={providerBaseUrl} onChange={setProviderBaseUrl} placeholder={t("settings.baseUrlPlaceholder")} /></div>
                   <div>
                     <FieldLabel>{t("settings.providerType")}</FieldLabel>
-                    <SelectField value={providerType} onChange={(v) => setProviderType(v as "openai" | "koboldcpp")}>
+                    <SelectField value={providerType} onChange={(v) => setProviderType(v as "openai" | "koboldcpp" | "custom")}>
                       <option value="openai">{t("settings.providerTypeOpenAi")}</option>
                       <option value="koboldcpp">{t("settings.providerTypeKobold")}</option>
+                      <option value="custom">{t("settings.providerTypeCustom")}</option>
                     </SelectField>
                   </div>
+                  {providerType === "custom" && (
+                    <div>
+                      <FieldLabel>{t("settings.adapterId")}</FieldLabel>
+                      <InputField value={providerAdapterId} onChange={setProviderAdapterId} placeholder={t("settings.adapterIdPlaceholder")} />
+                    </div>
+                  )}
                   <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField value={providerApiKey} onChange={setProviderApiKey} placeholder={selectedPreset.apiKeyHint} /></div>
                   <div><FieldLabel>{t("settings.proxyUrl")}</FieldLabel><InputField value={providerProxyUrl} onChange={setProviderProxyUrl} placeholder={t("settings.proxyUrlPlaceholder")} /></div>
                   <label className="settings-toggle-row cursor-pointer">
@@ -1496,6 +1524,129 @@ export function SettingsScreen() {
                 </div>
               </div>
 
+              <div id="settings-plugins" className="settings-section scroll-mt-24">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <div className="settings-section-title mb-0">{t("settings.plugins")}</div>
+                    <p className="mt-1 text-[10px] text-text-tertiary">{t("settings.pluginsDesc")}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { void refreshPlugins({ force: true }).then(() => showResult(t("settings.pluginsReloaded"), "success")).catch((err) => showResult(String(err), "error")); }}
+                      disabled={pluginsLoading}
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {t("settings.reloadPlugins")}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const path = pluginCatalog?.pluginsDir || "";
+                        if (!path) return;
+                        if (!navigator.clipboard?.writeText) {
+                          showResult(path, "info");
+                          return;
+                        }
+                        void navigator.clipboard.writeText(path)
+                          .then(() => showResult(t("settings.pluginsDirCopied"), "success"))
+                          .catch(() => showResult(path, "info"));
+                      }}
+                      disabled={!pluginCatalog?.pluginsDir}
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60"
+                    >
+                      {t("settings.copyPluginsDir")}
+                    </button>
+                  </div>
+                </div>
+                <div className="mb-3 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.pluginsDir")}</div>
+                    <div className="mt-1 break-all text-xs text-text-primary">{pluginCatalog?.pluginsDir || "—"}</div>
+                  </div>
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.pluginSdk")}</div>
+                    <div className="mt-1 break-all text-xs text-text-primary">{pluginCatalog?.sdkUrl || "/api/plugins/sdk.js"}</div>
+                  </div>
+                </div>
+                <div className="mb-3 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.pluginDevAutoRefresh")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.pluginDevAutoRefreshDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={pluginDevAutoRefresh} onChange={(e) => {
+                      const next = e.target.checked;
+                      setPluginDevAutoRefresh(next);
+                      setPluginDevAutoRefreshEnabled(next);
+                    }} />
+                  </div>
+                </div>
+                {pluginsLoading ? (
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-tertiary">{t("settings.loading")}</div>
+                ) : pluginError ? (
+                  <div className="rounded-lg border border-danger-border bg-danger-subtle px-3 py-2 text-xs text-danger">
+                    {t("settings.pluginsLoadFailed")}: {pluginError}
+                  </div>
+                ) : plugins.length === 0 ? (
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-tertiary">{t("settings.noPluginsFound")}</div>
+                ) : (
+                  <div className="space-y-2">
+                    {plugins.map((plugin) => (
+                      <div key={plugin.id} className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <div className="truncate text-sm font-semibold text-text-primary">{plugin.name}</div>
+                              <span className="rounded-md border border-border-subtle bg-bg-secondary px-1.5 py-0.5 text-[10px] text-text-secondary">v{plugin.version}</span>
+                            </div>
+                            <div className="mt-1 text-[11px] text-text-tertiary">{plugin.description || t("settings.pluginsNoDescription")}</div>
+                            <div className="mt-2 text-[10px] text-text-tertiary">
+                              {t("settings.pluginCapabilities")}: {plugin.tabs.length} {t("settings.pluginTabsCount")} · {plugin.slots.length} {t("settings.pluginSlotsCount")} · {plugin.actions.length} {t("settings.pluginActionsCount")}
+                            </div>
+                            <div className="mt-2">
+                              <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.pluginPermissions")}</div>
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {plugin.permissions.map((permission) => {
+                                  const tone = pluginPermissionTone(permission);
+                                  const className =
+                                    tone === "high"
+                                      ? "border-danger-border bg-danger-subtle text-danger"
+                                      : tone === "medium"
+                                        ? "border-warning-border bg-warning-subtle text-warning"
+                                        : "border-border-subtle bg-bg-secondary text-text-secondary";
+                                  return (
+                                    <span key={permission} className={`rounded-full border px-2 py-0.5 text-[10px] ${className}`}>
+                                      {permission}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            {plugin.permissions.some((permission) => HIGH_RISK_PLUGIN_PERMISSIONS.has(permission)) && (
+                              <div className="mt-2 rounded-lg border border-danger-border bg-danger-subtle px-2.5 py-2 text-[11px] text-danger">
+                                {t("settings.pluginHighTrustWarning")}
+                              </div>
+                            )}
+                            {plugin.actions.length > 0 && (
+                              <div className="mt-2">
+                                <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.pluginActionLocations")}</div>
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {Array.from(new Set(plugin.actions.map((action) => action.location))).map((location) => (
+                                    <span key={location} className="rounded-full border border-accent-border bg-accent-subtle px-2 py-0.5 text-[10px] text-accent">
+                                      {location}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <ToggleSwitch checked={plugin.enabled} onChange={(e) => { void setPluginEnabled(plugin.id, e.target.checked); }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div id="settings-tools-mcp-functions" className={`settings-section scroll-mt-24 ${toolCallingLocked ? "opacity-60" : ""}`}>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="settings-section-title mb-0">{t("settings.mcpFunctions")}</div>
@@ -1609,6 +1760,8 @@ export function SettingsScreen() {
                   {t("settings.resetAll")}
                 </button>
               </div>
+
+              <PluginSlotMount slotId="settings.bottom" />
             </div>
           )}
 

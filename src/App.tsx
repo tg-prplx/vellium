@@ -1,17 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
-import { ChatScreen } from "./features/chat/ChatScreen";
-import { WritingScreen } from "./features/writer/WritingScreen";
-import { CharactersScreen } from "./features/characters/CharactersScreen";
-import { LorebooksScreen } from "./features/lorebooks/LorebooksScreen";
-import { KnowledgeScreen } from "./features/knowledge/KnowledgeScreen";
-import { SettingsScreen } from "./features/settings/SettingsScreen";
-import { WelcomeScreen } from "./features/welcome/WelcomeScreen";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { PluginActionBar, PluginActionModalHost, PluginActionToastHost, PluginFrame, PluginProvider, usePlugins } from "./features/plugins/PluginHost";
 import { I18nContext, translations, useI18n, type Locale } from "./shared/i18n";
 import { api } from "./shared/api";
 import { TitleBar } from "./components/TitleBar";
-import type { AppSettings } from "./shared/types/contracts";
+import type { AppSettings, PluginDescriptor } from "./shared/types/contracts";
 
-type TabId = "chat" | "writing" | "characters" | "lorebooks" | "knowledge" | "settings";
+const ChatScreen = lazy(() => import("./features/chat/ChatScreen").then((module) => ({ default: module.ChatScreen })));
+const WritingScreen = lazy(() => import("./features/writer/WritingScreen").then((module) => ({ default: module.WritingScreen })));
+const CharactersScreen = lazy(() => import("./features/characters/CharactersScreen").then((module) => ({ default: module.CharactersScreen })));
+const LorebooksScreen = lazy(() => import("./features/lorebooks/LorebooksScreen").then((module) => ({ default: module.LorebooksScreen })));
+const KnowledgeScreen = lazy(() => import("./features/knowledge/KnowledgeScreen").then((module) => ({ default: module.KnowledgeScreen })));
+const SettingsScreen = lazy(() => import("./features/settings/SettingsScreen").then((module) => ({ default: module.SettingsScreen })));
+const WelcomeScreen = lazy(() => import("./features/welcome/WelcomeScreen").then((module) => ({ default: module.WelcomeScreen })));
+
+type AppTab = {
+  id: string;
+  label: string;
+  icon: string;
+  kind: "core" | "plugin";
+  pluginUrl?: string;
+  plugin?: PluginDescriptor;
+};
 
 function TabIcon({ path }: { path: string }) {
   return (
@@ -21,18 +30,43 @@ function TabIcon({ path }: { path: string }) {
   );
 }
 
-function AppContent() {
-  const { t } = useI18n();
-  const [activeTab, setActiveTab] = useState<TabId>("chat");
+function ScreenFallback() {
+  return (
+    <div className="flex h-full min-h-[240px] items-center justify-center rounded-2xl border border-border-subtle bg-bg-secondary/60">
+      <div className="text-sm text-text-tertiary">Loading workspace...</div>
+    </div>
+  );
+}
 
-  const tabs: { id: TabId; label: string; icon: string }[] = [
-    { id: "chat", label: t("tab.chat"), icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" },
-    { id: "writing", label: t("tab.writing"), icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" },
-    { id: "characters", label: t("tab.characters"), icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" },
-    { id: "lorebooks", label: t("tab.lorebooks"), icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5A4.5 4.5 0 003 9.5v9A4.5 4.5 0 017.5 14c1.746 0 3.332.477 4.5 1.253m0-9c1.168-.776 2.754-1.253 4.5-1.253A4.5 4.5 0 0121 9.5v9a4.5 4.5 0 00-4.5-4.5c-1.746 0-3.332.477-4.5 1.253" },
-    { id: "knowledge", label: t("tab.knowledge"), icon: "M3 7a2 2 0 012-2h4.5a2 2 0 011.6.8l1.8 2.4H19a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" },
-    { id: "settings", label: t("tab.settings"), icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" }
-  ];
+function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activeTab: string; setActiveTab: (tab: string) => void }) {
+  const { t } = useI18n();
+  const { pluginTabs } = usePlugins();
+
+  const coreTabs = useMemo<AppTab[]>(() => [
+    { id: "chat", label: t("tab.chat"), icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z", kind: "core" },
+    { id: "writing", label: t("tab.writing"), icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z", kind: "core" },
+    { id: "characters", label: t("tab.characters"), icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z", kind: "core" },
+    { id: "lorebooks", label: t("tab.lorebooks"), icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5A4.5 4.5 0 003 9.5v9A4.5 4.5 0 017.5 14c1.746 0 3.332.477 4.5 1.253m0-9c1.168-.776 2.754-1.253 4.5-1.253A4.5 4.5 0 0121 9.5v9a4.5 4.5 0 00-4.5-4.5c-1.746 0-3.332.477-4.5 1.253", kind: "core" },
+    { id: "knowledge", label: t("tab.knowledge"), icon: "M3 7a2 2 0 012-2h4.5a2 2 0 011.6.8l1.8 2.4H19a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V7z", kind: "core" },
+    { id: "settings", label: t("tab.settings"), icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z", kind: "core" }
+  ], [t]);
+
+  const tabs = useMemo<AppTab[]>(() => {
+    const pluginTabDefs = pluginTabs.map(({ plugin, tab }) => ({
+      id: `plugin:${plugin.id}:${tab.id}`,
+      label: tab.label,
+      icon: "M11 3.055A9.004 9.004 0 1020.945 13H17a1 1 0 01-1-1V8.055A9.005 9.005 0 0011 3.055z",
+      kind: "plugin" as const,
+      pluginUrl: tab.url,
+      plugin
+    }));
+    return [...coreTabs, ...pluginTabDefs];
+  }, [coreTabs, pluginTabs]);
+
+  useEffect(() => {
+    if (tabs.some((tab) => tab.id === activeTab)) return;
+    setActiveTab("chat");
+  }, [tabs, activeTab]);
 
   const content = useMemo(() => {
     if (activeTab === "chat") return <ChatScreen />;
@@ -40,8 +74,20 @@ function AppContent() {
     if (activeTab === "characters") return <CharactersScreen />;
     if (activeTab === "lorebooks") return <LorebooksScreen />;
     if (activeTab === "knowledge") return <KnowledgeScreen />;
-    return <SettingsScreen />;
-  }, [activeTab]);
+    if (activeTab === "settings") return <SettingsScreen />;
+    const pluginTab = tabs.find((tab) => tab.id === activeTab && tab.kind === "plugin");
+    if (!pluginTab?.plugin || !pluginTab.pluginUrl) return <SettingsScreen />;
+    return (
+      <PluginFrame
+        plugin={pluginTab.plugin}
+        url={pluginTab.pluginUrl}
+        activeTab={activeTab}
+        locale={locale}
+        defaultHeight={1200}
+        className="plugin-tab-frame"
+      />
+    );
+  }, [activeTab, tabs, locale]);
 
   const isElectron = !!window.electronAPI;
 
@@ -94,8 +140,8 @@ function AppContent() {
               <div className="justify-self-center">
                 {tabsNode}
               </div>
-              <div className="pointer-events-none justify-self-end opacity-0" style={noDrag}>
-                {brandNode}
+              <div className="justify-self-end" style={noDrag}>
+                <PluginActionBar location="app.toolbar" />
               </div>
             </div>
           </div>
@@ -106,18 +152,31 @@ function AppContent() {
             <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-3">
               <div className="justify-self-start">{brandNode}</div>
               <div className="justify-self-center">{tabsNode}</div>
-              <div className="pointer-events-none justify-self-end opacity-0">{brandNode}</div>
+              <div className="justify-self-end"><PluginActionBar location="app.toolbar" /></div>
             </div>
           </div>
         </header>
       )}
 
       <main className="mx-auto w-full max-w-[1600px] flex-1 overflow-hidden p-4">
-        <div key={activeTab} className="tab-content-enter h-full">
-          {content}
+        <div className="tab-content-enter h-full">
+          <Suspense fallback={<ScreenFallback />}>
+            {content}
+          </Suspense>
         </div>
       </main>
     </div>
+  );
+}
+
+function AppWorkspace({ locale }: { locale: Locale }) {
+  const [activeTab, setActiveTab] = useState<string>("chat");
+  return (
+    <PluginProvider locale={locale} activeTab={activeTab}>
+      <AppContent locale={locale} activeTab={activeTab} setActiveTab={setActiveTab} />
+      <PluginActionModalHost />
+      <PluginActionToastHost />
+    </PluginProvider>
   );
 }
 
@@ -208,15 +267,17 @@ export function App() {
             </TitleBar>
           ) : null}
           <main className="flex-1 overflow-hidden">
-            <WelcomeScreen
-              initialSettings={initialSettings}
-              onPreviewLocale={setLocale}
-              onComplete={completeOnboarding}
-            />
+            <Suspense fallback={<ScreenFallback />}>
+              <WelcomeScreen
+                initialSettings={initialSettings}
+                onPreviewLocale={setLocale}
+                onComplete={completeOnboarding}
+              />
+            </Suspense>
           </main>
         </div>
       ) : (
-        <AppContent />
+        <AppWorkspace locale={locale} />
       )}
     </I18nContext.Provider>
   );

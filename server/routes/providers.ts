@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db, maskApiKey, isLocalhostUrl, DEFAULT_SETTINGS } from "../db.js";
+import { fetchCustomAdapterModels, testCustomAdapterConnection } from "../services/customProviderAdapters.js";
 import { fetchKoboldModels, normalizeProviderType, testKoboldConnection } from "../services/providerApi.js";
 import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 
@@ -13,6 +14,7 @@ interface ProviderRow {
   proxy_url: string | null;
   full_local_only: number;
   provider_type: string;
+  adapter_id: string | null;
 }
 
 function rowToProfile(row: ProviderRow) {
@@ -23,7 +25,8 @@ function rowToProfile(row: ProviderRow) {
     apiKeyMasked: maskApiKey(row.api_key_cipher),
     proxyUrl: row.proxy_url,
     fullLocalOnly: Boolean(row.full_local_only),
-    providerType: normalizeProviderType(row.provider_type)
+    providerType: normalizeProviderType(row.provider_type),
+    adapterId: row.adapter_id
   };
 }
 
@@ -40,20 +43,22 @@ function getSettings() {
 }
 
 router.post("/", (req, res) => {
-  const { id, name, baseUrl, apiKey, proxyUrl, fullLocalOnly, providerType } = req.body;
+  const { id, name, baseUrl, apiKey, proxyUrl, fullLocalOnly, providerType, adapterId } = req.body;
   const normalizedType = normalizeProviderType(providerType);
+  const normalizedAdapterId = normalizedType === "custom" ? String(adapterId || "").trim() : null;
 
   db.prepare(`
-    INSERT INTO providers (id, name, base_url, api_key_cipher, proxy_url, full_local_only, provider_type)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO providers (id, name, base_url, api_key_cipher, proxy_url, full_local_only, provider_type, adapter_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       base_url = excluded.base_url,
       api_key_cipher = excluded.api_key_cipher,
       proxy_url = excluded.proxy_url,
       full_local_only = excluded.full_local_only,
-      provider_type = excluded.provider_type
-  `).run(id, name, baseUrl, apiKey || "local-key", proxyUrl || null, fullLocalOnly ? 1 : 0, normalizedType);
+      provider_type = excluded.provider_type,
+      adapter_id = excluded.adapter_id
+  `).run(id, name, baseUrl, apiKey || "local-key", proxyUrl || null, fullLocalOnly ? 1 : 0, normalizedType, normalizedAdapterId);
 
   const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(id) as ProviderRow;
   res.json(rowToProfile(row));
@@ -83,6 +88,11 @@ router.get("/:id/models", async (req, res) => {
     if (providerType === "koboldcpp") {
       const koboldModels = await fetchKoboldModels(row);
       res.json(koboldModels.map((id) => ({ id })));
+      return;
+    }
+    if (providerType === "custom") {
+      const customModels = await fetchCustomAdapterModels(row);
+      res.json(customModels.map((id) => ({ id })));
       return;
     }
 
@@ -124,6 +134,15 @@ router.post("/:id/test", async (req, res) => {
   if (providerType === "koboldcpp") {
     const ok = await testKoboldConnection(row);
     res.json(ok);
+    return;
+  }
+  if (providerType === "custom") {
+    try {
+      const ok = await testCustomAdapterConnection(row);
+      res.json(ok);
+    } catch {
+      res.json(false);
+    }
     return;
   }
 

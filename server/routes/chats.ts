@@ -35,6 +35,7 @@ import {
   requestKoboldGenerate,
   requestKoboldGenerateStream
 } from "../services/providerApi.js";
+import { completeCustomAdapter } from "../services/customProviderAdapters.js";
 import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { getChatRagBinding, ingestRagDocument, retrieveRagContext, setChatRagBinding, type RagContextSource } from "../services/rag.js";
 
@@ -1109,6 +1110,24 @@ async function streamProviderCompletion(params: {
     return { content: split.content, toolTraces: finalizeReasoning() };
   }
 
+  if (providerType === "custom") {
+    const generated = await completeCustomAdapter({
+      provider: params.provider,
+      modelId: params.modelId,
+      systemPrompt: "",
+      userPrompt: "",
+      samplerConfig: sc,
+      messages: params.messages,
+      signal: params.signal
+    });
+    const split = splitThinkContent(generated);
+    if (split.reasoning) appendReasoningDelta(split.reasoning);
+    if (split.content) {
+      await sendSseText(params.res, params.chatId, split.content, 8);
+    }
+    return { content: split.content, toolTraces: finalizeReasoning() };
+  }
+
   const baseUrl = String(params.provider.base_url || "").replace(/\/+$/, "");
   const openAiSampling = buildOpenAiSamplingPayload({
     samplerConfig: sc,
@@ -1239,6 +1258,17 @@ async function completeProviderOnce(params: {
     if (!response.ok) return "";
     const parsed = await response.json().catch(() => ({}));
     return extractKoboldGeneratedText(parsed).trim();
+  }
+
+  if (providerType === "custom") {
+    return completeCustomAdapter({
+      provider: params.provider,
+      modelId: params.modelId,
+      systemPrompt: params.systemPrompt,
+      userPrompt: params.userPrompt,
+      samplerConfig: sc,
+      signal: params.signal
+    });
   }
 
   const baseUrl = String(params.provider.base_url || "").replace(/\/+$/, "");

@@ -1,0 +1,61 @@
+{
+  "id": "hello-world",
+  "name": "Hello World",
+  "version": "0.1.0",
+  "description": "Example plugin tab and chat inspector widget.",
+  "author": "Vellium",
+  "defaultEnabled": true,
+  "permissions": ["api.read", "pluginSettings.read", "pluginSettings.write", "host.resize"],
+  "tabs": [
+    {
+      "id": "dashboard",
+      "label": "Plugin Demo",
+      "path": "tab.html",
+      "order": 100
+    }
+  ],
+  "slots": [
+    {
+      "id": "chat-notes",
+      "slot": "chat.inspector.bottom",
+      "title": "Plugin Notes",
+      "path": "widget.html",
+      "order": 100,
+      "height": 220
+    }
+  ],
+  "actions": [
+    {
+      "id": "toolbar-ping",
+      "location": "app.toolbar",
+      "label": "Ping",
+      "title": "Ping Plugin Settings",
+      "mode": "inline",
+      "request": {
+        "method": "PATCH",
+        "path": "/api/plugins/{{pluginId}}/settings",
+        "body": {
+          "lastPingFrom": "{{activeTab}}"
+        }
+      },
+      "successMessage": "Plugin settings updated",
+      "reloadPlugins": false,
+      "variant": "accent",
+      "order": 50,
+      "width": 640,
+      "height": 240,
+      "path": "widget.html"
+    },
+    {
+      "id": "composer-demo",
+      "location": "chat.composer",
+      "label": "Plugin Demo",
+      "title": "Plugin Composer Action",
+      "path": "widget.html",
+      "order": 100,
+      "width": 640,
+      "height": 240,
+      "variant": "ghost"
+    }
+  ]
+}

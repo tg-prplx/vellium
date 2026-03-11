@@ -39,6 +39,7 @@ export interface ProviderRow {
   api_key_cipher: string;
   full_local_only: number;
   provider_type: string;
+  adapter_id?: string | null;
 }
 
 export interface LoreBookRow {

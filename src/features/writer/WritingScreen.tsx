@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ThreePanelLayout, Badge, EmptyState } from "../../components/Panels";
+import { PluginActionBar, PluginSlotMount } from "../plugins/PluginHost";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { CollapsibleSection } from "./components/CollapsibleSection";
@@ -1615,6 +1616,15 @@ export function WritingScreen() {
               <span className="block truncate">{activeProject ? activeProject.name : t("writing.creativeWriting")}</span>
             </h2>
             <div className="flex items-center gap-2">
+              <PluginActionBar
+                location="writing.toolbar"
+                contextPayload={{
+                  projectId: activeProject?.id || null,
+                  chapterId: selectedChapterId,
+                  sceneId: selectedSceneId,
+                  simpleMode: writingSimpleModeActive
+                }}
+              />
               {renderWorkspaceModeSwitch()}
               {busy && (
                 <div className="flex items-center gap-1.5">
@@ -2069,6 +2079,25 @@ export function WritingScreen() {
               )}
             </>
           )}
+          <PluginSlotMount
+            slotId="writing.editor.bottom"
+            contextPayload={{
+              projectId: activeProject?.id || null,
+              chapterId: selectedChapterId,
+              sceneId: selectedSceneId,
+              simpleMode: writingSimpleModeActive
+            }}
+          />
+          <PluginActionBar
+            location="writing.editor"
+            className="mt-2 flex flex-wrap items-center gap-1.5"
+            contextPayload={{
+              projectId: activeProject?.id || null,
+              chapterId: selectedChapterId,
+              sceneId: selectedSceneId,
+              simpleMode: writingSimpleModeActive
+            }}
+          />
         </div>
       }
       right={
@@ -2425,6 +2454,16 @@ export function WritingScreen() {
               </div>
             )}
           </div>
+          <PluginSlotMount
+            slotId="writing.sidebar.bottom"
+            contextPayload={{
+              projectId: activeProject?.id || null,
+              chapterId: selectedChapterId,
+              sceneId: selectedSceneId,
+              simpleMode: writingSimpleModeActive,
+              sidebarTab: rightSidebarTab
+            }}
+          />
         </div>
       }
     />
