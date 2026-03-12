@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS = {
   activeModel: null,
   ttsBaseUrl: "",
   ttsApiKey: "",
+  ttsAdapterId: null as string | null,
   ttsModel: "",
   ttsVoice: "alloy",
   compressProviderId: null,
@@ -166,6 +167,14 @@ export const DEFAULT_SETTINGS = {
       bodyTemplate?: unknown;
       headersTemplate?: Record<string, string>;
     };
+    voices?: {
+      enabled: boolean;
+      method: "GET" | "POST" | "PATCH";
+      path: string;
+      resultPath?: string;
+      bodyTemplate?: unknown;
+      headersTemplate?: Record<string, string>;
+    };
     test?: {
       enabled: boolean;
       method: "GET" | "POST" | "PATCH";
@@ -175,6 +184,14 @@ export const DEFAULT_SETTINGS = {
       headersTemplate?: Record<string, string>;
     };
     chat: {
+      enabled: boolean;
+      method: "GET" | "POST" | "PATCH";
+      path: string;
+      resultPath?: string;
+      bodyTemplate?: unknown;
+      headersTemplate?: Record<string, string>;
+    };
+    tts?: {
       enabled: boolean;
       method: "GET" | "POST" | "PATCH";
       path: string;

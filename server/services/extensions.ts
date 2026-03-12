@@ -42,8 +42,10 @@ export interface CustomEndpointAdapter {
   authMode: "none" | "bearer" | "header";
   authHeader: string;
   models?: CustomEndpointAdapterEndpoint;
+  voices?: CustomEndpointAdapterEndpoint;
   test?: CustomEndpointAdapterEndpoint;
   chat: CustomEndpointAdapterEndpoint;
+  tts?: CustomEndpointAdapterEndpoint;
 }
 
 function readSettingsPayload(): UnknownRecord {
@@ -167,8 +169,10 @@ export function normalizeCustomEndpointAdapters(raw: unknown): CustomEndpointAda
       authMode: authMode === "none" || authMode === "header" ? authMode : "bearer",
       authHeader: String(row.authHeader || "X-API-Key").trim().slice(0, 100) || "X-API-Key",
       models: normalizeEndpoint(row.models, "GET"),
+      voices: normalizeEndpoint(row.voices, "GET"),
       test: normalizeEndpoint(row.test, "GET"),
-      chat
+      chat,
+      tts: normalizeEndpoint(row.tts, "POST")
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));

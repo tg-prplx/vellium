@@ -3,6 +3,7 @@ import { db, newId, now, roughTokenCount, isLocalhostUrl, DEFAULT_SETTINGS, next
 import { buildSystemPrompt, buildMessageArray, buildMultiCharSystemPrompt, buildMultiCharMessageArray, mergeConsecutiveRoles, DEFAULT_PROMPT_BLOCKS } from "../domain/rpEngine.js";
 import type { PromptBlock, CharacterCardData, ChatAttachment } from "../domain/rpEngine.js";
 import type { Response } from "express";
+import { synthesizeCustomAdapterSpeech } from "../services/customProviderAdapters.js";
 import {
   buildCompactContextPolicy,
   getPromptBlocks,
@@ -2274,8 +2275,10 @@ router.post("/messages/:id/tts", async (req, res: Response) => {
   }
 
   const settings = getSettings();
-  const baseUrl = normalizeOpenAiBaseUrl(String(settings.ttsBaseUrl || ""));
+  const rawBaseUrl = String(settings.ttsBaseUrl || "").trim();
   const apiKey = String(settings.ttsApiKey || "").trim();
+  const adapterId = String(settings.ttsAdapterId || "").trim();
+  const baseUrl = adapterId ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
   const model = String(settings.ttsModel || "").trim();
   const voice = String(settings.ttsVoice || "alloy").trim() || "alloy";
   if (!baseUrl || !model) {
@@ -2289,6 +2292,22 @@ router.post("/messages/:id/tts", async (req, res: Response) => {
   }
 
   try {
+    if (adapterId) {
+      const result = await synthesizeCustomAdapterSpeech({
+        provider: {
+          base_url: String(settings.ttsBaseUrl || "").trim(),
+          api_key_cipher: apiKey,
+          adapter_id: adapterId
+        },
+        modelId: model,
+        voice,
+        input: String(message.content || "")
+      });
+      res.setHeader("Content-Type", result.contentType);
+      res.setHeader("Cache-Control", "no-store");
+      res.send(result.buffer);
+      return;
+    }
     const response = await fetch(`${baseUrl}/audio/speech`, {
       method: "POST",
       headers: {

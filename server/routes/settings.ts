@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
 import { discoverMcpToolCatalog, isAllowedMcpCommand, testMcpServerConnection, type McpServerConfig } from "../services/mcp.js";
 import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
+import { fetchCustomAdapterModels, fetchCustomAdapterVoices } from "../services/customProviderAdapters.js";
 import { normalizeCustomEndpointAdapters, normalizeCustomInspectorFields } from "../services/extensions.js";
 
 const router = Router();
@@ -366,9 +367,10 @@ router.patch("/", (req, res) => {
 
 router.post("/tts/models", async (req, res) => {
   const current = getSettings();
-  const body = req.body as { baseUrl?: unknown; apiKey?: unknown } | undefined;
+  const body = req.body as { baseUrl?: unknown; apiKey?: unknown; adapterId?: unknown } | undefined;
   const baseUrl = String(body?.baseUrl ?? current.ttsBaseUrl ?? "").trim();
   const apiKey = String(body?.apiKey ?? current.ttsApiKey ?? "").trim();
+  const adapterId = String(body?.adapterId ?? current.ttsAdapterId ?? "").trim();
 
   if (!baseUrl) {
     res.json([]);
@@ -381,6 +383,11 @@ router.post("/tts/models", async (req, res) => {
   }
 
   try {
+    if (adapterId) {
+      const models = await fetchCustomAdapterModels({ base_url: baseUrl, api_key_cipher: apiKey, adapter_id: adapterId });
+      res.json(models.map((id) => ({ id })));
+      return;
+    }
     const models = await fetchOpenAiCompatibleModels(baseUrl, apiKey);
     res.json(models);
   } catch {
@@ -390,9 +397,10 @@ router.post("/tts/models", async (req, res) => {
 
 router.post("/tts/voices", async (req, res) => {
   const current = getSettings();
-  const body = req.body as { baseUrl?: unknown; apiKey?: unknown } | undefined;
+  const body = req.body as { baseUrl?: unknown; apiKey?: unknown; adapterId?: unknown } | undefined;
   const baseUrl = String(body?.baseUrl ?? current.ttsBaseUrl ?? "").trim();
   const apiKey = String(body?.apiKey ?? current.ttsApiKey ?? "").trim();
+  const adapterId = String(body?.adapterId ?? current.ttsAdapterId ?? "").trim();
 
   if (!baseUrl) {
     res.json([]);
@@ -405,6 +413,11 @@ router.post("/tts/voices", async (req, res) => {
   }
 
   try {
+    if (adapterId) {
+      const voices = await fetchCustomAdapterVoices({ base_url: baseUrl, api_key_cipher: apiKey, adapter_id: adapterId });
+      res.json(voices.map((id) => ({ id })));
+      return;
+    }
     const voices = await fetchOpenAiCompatibleVoices(baseUrl, apiKey);
     res.json(voices);
   } catch {

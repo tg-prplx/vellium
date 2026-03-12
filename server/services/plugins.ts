@@ -1075,11 +1075,12 @@ body.vp-body {
     if (!msg || msg.__velliumHost !== true) return;
     if (msg.type === 'context') {
       applyTheme(msg.context?.theme, msg.context?.themeVariables);
-      for (const callback of listeners) callback(msg.context);
       const pendingRequest = msg.requestId ? pending.get(msg.requestId) : null;
       if (pendingRequest) {
         pending.delete(msg.requestId);
         pendingRequest.resolve(msg.context);
+      } else {
+        for (const callback of listeners) callback(msg.context);
       }
       return;
     }

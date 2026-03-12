@@ -461,8 +461,10 @@ export interface CustomEndpointAdapter {
   authMode: "none" | "bearer" | "header";
   authHeader: string;
   models?: CustomEndpointAdapterEndpoint;
+  voices?: CustomEndpointAdapterEndpoint;
   test?: CustomEndpointAdapterEndpoint;
   chat: CustomEndpointAdapterEndpoint;
+  tts?: CustomEndpointAdapterEndpoint;
 }
 
 export type PluginSlotId =
@@ -633,6 +635,7 @@ export interface AppSettings {
   activeModel?: string | null;
   ttsBaseUrl: string;
   ttsApiKey: string;
+  ttsAdapterId?: string | null;
   ttsModel: string;
   ttsVoice: string;
   compressProviderId?: string | null;

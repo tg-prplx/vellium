@@ -576,7 +576,7 @@ export function SettingsScreen() {
   async function loadTtsModels() {
     if (!settings) return;
     try {
-      const list = await api.settingsFetchTtsModels(settings.ttsBaseUrl, settings.ttsApiKey);
+      const list = await api.settingsFetchTtsModels(settings.ttsBaseUrl, settings.ttsApiKey, settings.ttsAdapterId);
       setTtsModels(list);
       showResult(
         list.length ? `${t("settings.modelsLoaded")}: ${list.length}` : t("settings.noModelsReturned"),
@@ -591,7 +591,7 @@ export function SettingsScreen() {
   async function loadTtsVoices() {
     if (!settings) return;
     try {
-      const list = await api.settingsFetchTtsVoices(settings.ttsBaseUrl, settings.ttsApiKey);
+      const list = await api.settingsFetchTtsVoices(settings.ttsBaseUrl, settings.ttsApiKey, settings.ttsAdapterId);
       setTtsVoices(list);
       showResult(
         list.length ? `${t("settings.voicesLoaded")}: ${list.length}` : t("settings.noVoicesReturned"),
@@ -1235,6 +1235,7 @@ export function SettingsScreen() {
                 <div className="space-y-3">
                   <div><FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel><InputField value={settings.ttsBaseUrl || ""} onChange={(v) => patch({ ttsBaseUrl: v })} placeholder="https://api.openai.com/v1" /></div>
                   <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField type="password" value={settings.ttsApiKey || ""} onChange={(v) => patch({ ttsApiKey: v })} placeholder={t("settings.apiKey")} /></div>
+                  <div><FieldLabel>{t("settings.ttsAdapterId")}</FieldLabel><InputField value={settings.ttsAdapterId || ""} onChange={(v) => patch({ ttsAdapterId: v.trim() || null })} placeholder={t("settings.ttsAdapterIdPlaceholder")} /></div>
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
                       <FieldLabel>{t("settings.ttsModel")}</FieldLabel>
