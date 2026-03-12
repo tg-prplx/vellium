@@ -81,6 +81,12 @@ async function performPluginApiRequestFor(plugin: PluginDescriptor | null, metho
   if (!/^\/api\//.test(path)) {
     throw new Error("Plugin API access is restricted to /api/* routes");
   }
+  if (/^\/api\/accounts(?:$|[/?#])/.test(path)) {
+    throw new Error("Plugins cannot access account routes");
+  }
+  if (/^\/api\/settings(?:$|[/?#])/.test(path)) {
+    throw new Error("Plugins cannot access global settings directly");
+  }
   const pluginSettingsMatch = path.match(/^\/api\/plugins\/([^/]+)\/settings(?:$|[/?#])/);
   if (plugin && pluginSettingsMatch) {
     const targetPluginId = decodeURIComponent(pluginSettingsMatch[1] || "");
@@ -93,6 +99,8 @@ async function performPluginApiRequestFor(plugin: PluginDescriptor | null, metho
     if (method !== "GET" && !hasPluginPermission(plugin, "pluginSettings.write")) {
       throw new Error("Plugin is missing pluginSettings.write permission");
     }
+  } else if (/^\/api\/plugins(?:$|[/?#])/.test(path)) {
+    throw new Error("Plugins cannot access plugin management routes");
   } else if (plugin) {
     const permission = method === "GET" ? "api.read" : "api.write";
     if (!hasPluginPermission(plugin, permission)) {
@@ -421,15 +429,20 @@ export function PluginFrame({
   chrome?: boolean;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const readyTimeoutRef = useRef<number | null>(null);
+  const frameId = useMemo(() => `plugin-frame:${plugin.id}:${instanceKey || "default"}`, [plugin.id, instanceKey]);
   const [height, setHeight] = useState(defaultHeight);
   const [themeMode, setThemeMode] = useState<"dark" | "light">(getThemeMode());
   const [themeVariables, setThemeVariables] = useState<Record<string, string>>(() => getThemeVariables());
+  const [frameStatus, setFrameStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [frameError, setFrameError] = useState("");
 
   const sendContext = useCallback((requestId?: string) => {
     postMessageToFrame(iframeRef.current, {
       type: "context",
       requestId,
       context: {
+        frameId,
         pluginId: plugin.id,
         locale,
         theme: themeMode,
@@ -439,7 +452,18 @@ export function PluginFrame({
         payload: contextPayload
       }
     });
-  }, [plugin.id, plugin.grantedPermissions, locale, themeMode, themeVariables, activeTab, contextPayload]);
+  }, [frameId, plugin.id, plugin.grantedPermissions, locale, themeMode, themeVariables, activeTab, contextPayload]);
+
+  const armReadyTimeout = useCallback(() => {
+    if (readyTimeoutRef.current) window.clearTimeout(readyTimeoutRef.current);
+    readyTimeoutRef.current = window.setTimeout(() => {
+      setFrameStatus((current) => {
+        if (current === "ready") return current;
+        setFrameError("Plugin frame did not finish initialization");
+        return "error";
+      });
+    }, 5000);
+  }, []);
 
   useEffect(() => {
     const onThemeChange = () => {
@@ -453,15 +477,28 @@ export function PluginFrame({
   const frameUrl = useMemo(() => {
     const next = new URL(url, window.location.origin);
     next.searchParams.set("pluginId", plugin.id);
+    next.searchParams.set("frameId", frameId);
     next.searchParams.set("hostTheme", themeMode);
     next.searchParams.set("hostLocale", locale);
     if (instanceKey) next.searchParams.set("instanceKey", instanceKey);
     return next.toString();
-  }, [url, plugin.id, locale, themeMode, instanceKey]);
+  }, [url, plugin.id, frameId, locale, themeMode, instanceKey]);
 
   useEffect(() => {
     setHeight(defaultHeight);
   }, [defaultHeight, url]);
+
+  useEffect(() => {
+    setFrameStatus("loading");
+    setFrameError("");
+    armReadyTimeout();
+    return () => {
+      if (readyTimeoutRef.current) {
+        window.clearTimeout(readyTimeoutRef.current);
+        readyTimeoutRef.current = null;
+      }
+    };
+  }, [plugin.id, instanceKey, armReadyTimeout]);
 
   useEffect(() => {
     const onMessage = async (event: MessageEvent) => {
@@ -469,10 +506,17 @@ export function PluginFrame({
       if (!msg || msg.__velliumPlugin !== true) return;
       const sameFrame = event.source === iframeRef.current?.contentWindow;
       const samePlugin = String(msg.pluginId || "").trim() === plugin.id;
-      if (!sameFrame && !samePlugin) return;
+      const sameFrameId = String(msg.frameId || "").trim() === frameId;
+      if (!(sameFrame || sameFrameId || (samePlugin && sameFrameId))) return;
       const type = String(msg.type || "");
       const requestId = msg.requestId ? String(msg.requestId) : undefined;
       if (type === "ready" || type === "get-context") {
+        if (readyTimeoutRef.current) {
+          window.clearTimeout(readyTimeoutRef.current);
+          readyTimeoutRef.current = null;
+        }
+        setFrameStatus("ready");
+        setFrameError("");
         sendContext(requestId);
         return;
       }
@@ -505,22 +549,41 @@ export function PluginFrame({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [plugin.id, locale, themeMode, themeVariables, activeTab, contextPayload, sendContext]);
+  }, [plugin.id, frameId, locale, themeMode, themeVariables, activeTab, contextPayload, sendContext]);
 
   useEffect(() => {
     sendContext();
   }, [sendContext]);
 
   const frame = (
-    <iframe
-      ref={iframeRef}
-      src={frameUrl}
-      title={title || plugin.name}
-      sandbox="allow-same-origin allow-scripts allow-forms allow-downloads"
-      className={className || "plugin-frame"}
-      style={{ height }}
-      onLoad={() => sendContext()}
-    />
+    <div className="plugin-frame-shell">
+      <iframe
+        ref={iframeRef}
+        src={frameUrl}
+        title={title || plugin.name}
+        sandbox="allow-same-origin allow-scripts allow-forms allow-downloads"
+        className={className || "plugin-frame"}
+        style={{ height }}
+        onLoad={() => {
+          setFrameStatus("loading");
+          setFrameError("");
+          armReadyTimeout();
+          sendContext();
+        }}
+      />
+      {frameStatus !== "ready" ? (
+        <div className="plugin-frame-status">
+          <div className="plugin-frame-status-card">
+            <div className="plugin-frame-status-title">
+              {frameStatus === "error" ? "Plugin failed to initialize" : "Initializing plugin"}
+            </div>
+            <div className="plugin-frame-status-text">
+              {frameStatus === "error" ? frameError || "Plugin runtime did not respond." : "Waiting for plugin runtime handshake."}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 
   if (!chrome) return frame;

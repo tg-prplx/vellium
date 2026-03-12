@@ -33,6 +33,9 @@ const ALL_PLUGIN_PERMISSIONS = [
 ] as const;
 type PluginPermission = typeof ALL_PLUGIN_PERMISSIONS[number];
 const THEME_VARIABLE_PREFIXES = ["--color-", "--scrollbar-", "--range-", "--checkbox-", "--prose-", "--shadow-"] as const;
+const MAX_PLUGINFILE_FILES = 64;
+const MAX_PLUGINFILE_FILE_BYTES = 256 * 1024;
+const MAX_PLUGINFILE_TOTAL_BYTES = 2 * 1024 * 1024;
 
 export interface PluginTabManifest {
   id: string;
@@ -281,14 +284,14 @@ function normalizePluginActions(raw: unknown): PluginActionManifest[] {
 }
 
 function normalizePluginPermissions(raw: unknown): PluginPermission[] {
-  if (!Array.isArray(raw)) return [...ALL_PLUGIN_PERMISSIONS];
+  if (!Array.isArray(raw)) return [];
   if (raw.length === 0) return [];
   const out = new Set<PluginPermission>();
   for (const item of raw) {
     const value = String(item || "").trim() as PluginPermission;
     if (ALL_PLUGIN_PERMISSIONS.includes(value)) out.add(value);
   }
-  return out.size > 0 ? Array.from(out) : [...ALL_PLUGIN_PERMISSIONS];
+  return out.size > 0 ? Array.from(out) : [];
 }
 
 function normalizePluginThemes(raw: unknown): PluginThemeManifest[] {
@@ -423,10 +426,16 @@ function normalizePluginfile(raw: unknown): PluginfileDocument | null {
     : null;
   if (!manifest || !filesRaw) return null;
   const files: Record<string, string> = {};
+  let totalBytes = 0;
   for (const [keyRaw, valueRaw] of Object.entries(filesRaw)) {
     const key = sanitizeRelativeAssetPath(keyRaw);
     if (!key) continue;
-    files[key] = String(valueRaw ?? "");
+    if (Object.keys(files).length >= MAX_PLUGINFILE_FILES) return null;
+    const content = String(valueRaw ?? "");
+    if (content.length > MAX_PLUGINFILE_FILE_BYTES) return null;
+    totalBytes += content.length;
+    if (totalBytes > MAX_PLUGINFILE_TOTAL_BYTES) return null;
+    files[key] = content;
   }
   return {
     format: "vellium-pluginfile@1",
@@ -655,7 +664,7 @@ function discoverPluginsWithCache(force: boolean): PluginDiscoveryCache {
         const storedGrants = permissionGrants[manifest.id];
         const permissionsConfigured = !!storedGrants;
         const grantedPermissions = requestedPermissions.filter((permission) => (
-          permissionsConfigured ? storedGrants?.[permission] === true : true
+          permissionsConfigured ? storedGrants?.[permission] === true : false
         ));
         rootDirs[manifest.id] = pluginDir;
         pluginsById.set(manifest.id, {
@@ -794,6 +803,7 @@ export function installPluginfile(input: unknown): PluginDescriptor {
 export const PLUGIN_SDK_SOURCE = `(() => {
   const UI_STYLE_ID = 'vellium-plugin-ui';
   const PLUGIN_ID = new URLSearchParams(window.location.search).get('pluginId') || '';
+  const FRAME_ID = new URLSearchParams(window.location.search).get('frameId') || '';
   const UI_STYLE_SOURCE = ${JSON.stringify(`
 :root {
   color-scheme: dark;
@@ -1046,7 +1056,7 @@ body.vp-body {
     }
   }
   function post(type, payload = {}) {
-    window.parent.postMessage({ __velliumPlugin: true, pluginId: PLUGIN_ID, type, ...payload }, '*');
+    window.parent.postMessage({ __velliumPlugin: true, pluginId: PLUGIN_ID, frameId: FRAME_ID, type, ...payload }, '*');
   }
   function request(type, payload = {}) {
     const requestId = 'req-' + (++seq);
