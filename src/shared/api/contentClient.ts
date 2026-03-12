@@ -1,5 +1,5 @@
 import type { CharacterDetail, FileAttachment, LoreBook, RagBinding, RagCollection, RagDocument, RagIngestResult, UserPersona } from "../types/contracts";
-import { del, get, patchReq, post, put } from "./core";
+import { del, get, patchReq, post, put, requestBlob } from "./core";
 
 export const contentClient = {
   characterList: () => get<CharacterDetail[]>("/characters"),
@@ -9,6 +9,7 @@ export const contentClient = {
   characterValidateV2: (rawJson: string) => post<{ valid: boolean; errors: string[] }>("/characters/validate", { rawJson }),
   characterUpdate: (id: string, data: Partial<CharacterDetail>) => put<CharacterDetail>(`/characters/${id}`, data),
   characterDelete: (id: string) => del<void>(`/characters/${id}`),
+  characterExportJson: (id: string) => requestBlob("GET", `/characters/${id}/export/json`),
   characterUploadAvatar: (id: string, base64Data: string, filename: string) => post<{ avatarUrl: string }>(`/characters/${id}/avatar`, { base64Data, filename }),
   lorebookList: () => get<LoreBook[]>("/lorebooks"),
   lorebookGet: (id: string) => get<LoreBook>(`/lorebooks/${id}`),
@@ -17,6 +18,7 @@ export const contentClient = {
   lorebookTranslateCopy: (id: string, targetLanguage?: string) => post<LoreBook>(`/lorebooks/${id}/translate-copy`, { targetLanguage }),
   lorebookUpdate: (id: string, data: Partial<LoreBook>) => put<LoreBook>(`/lorebooks/${id}`, data),
   lorebookDelete: (id: string) => del<{ ok: boolean }>(`/lorebooks/${id}`),
+  lorebookExportWorldInfo: (id: string) => requestBlob("GET", `/lorebooks/${id}/export/world-info`),
   ragCollectionList: () => get<RagCollection[]>("/rag/collections"),
   ragCollectionCreate: (data: { name: string; description?: string; scope?: "global" | "chat" | "writer" }) => post<RagCollection>("/rag/collections", data),
   ragCollectionUpdate: (id: string, data: { name?: string; description?: string; scope?: "global" | "chat" | "writer" }) => patchReq<RagCollection>(`/rag/collections/${id}`, data),

@@ -1,7 +1,7 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { dirname, join, normalize, resolve, sep } from "path";
 import { fileURLToPath } from "url";
-import { db, DEFAULT_SETTINGS, PLUGINS_DIR } from "../db.js";
+import { db, BUNDLED_PLUGINS_DIR, DEFAULT_SETTINGS, PLUGINS_DIR } from "../db.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +32,7 @@ const ALL_PLUGIN_PERMISSIONS = [
   "host.resize"
 ] as const;
 type PluginPermission = typeof ALL_PLUGIN_PERMISSIONS[number];
+const THEME_VARIABLE_PREFIXES = ["--color-", "--scrollbar-", "--range-", "--checkbox-", "--prose-", "--shadow-"] as const;
 
 export interface PluginTabManifest {
   id: string;
@@ -70,6 +71,37 @@ export interface PluginActionManifest {
   variant: "ghost" | "accent";
 }
 
+export interface PluginSettingsFieldOption {
+  value: string;
+  label: string;
+}
+
+export interface PluginSettingsFieldManifest {
+  id: string;
+  key: string;
+  label: string;
+  type: "text" | "textarea" | "toggle" | "select" | "number" | "range" | "secret";
+  description?: string;
+  placeholder?: string;
+  options?: PluginSettingsFieldOption[];
+  defaultValue?: string | number | boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  rows?: number;
+  order: number;
+  required: boolean;
+}
+
+export interface PluginThemeManifest {
+  id: string;
+  label: string;
+  description?: string;
+  base: "dark" | "light";
+  order: number;
+  variables: Record<string, string>;
+}
+
 export interface PluginManifest {
   id: string;
   name: string;
@@ -79,6 +111,8 @@ export interface PluginManifest {
   author: string;
   defaultEnabled: boolean;
   permissions: PluginPermission[];
+  settingsFields: PluginSettingsFieldManifest[];
+  themes: PluginThemeManifest[];
   tabs: PluginTabManifest[];
   slots: PluginSlotManifest[];
   actions: PluginActionManifest[];
@@ -86,7 +120,11 @@ export interface PluginManifest {
 
 export interface PluginDescriptor extends PluginManifest {
   enabled: boolean;
+  source: "user" | "bundled";
   assetBaseUrl: string;
+  requestedPermissions: PluginPermission[];
+  grantedPermissions: PluginPermission[];
+  permissionsConfigured: boolean;
   tabs: Array<PluginTabManifest & { url: string }>;
   slots: Array<PluginSlotManifest & { url: string }>;
   actions: Array<PluginActionManifest & { url: string }>;
@@ -94,9 +132,16 @@ export interface PluginDescriptor extends PluginManifest {
 
 export interface PluginCatalog {
   pluginsDir: string;
+  bundledPluginsDir: string;
   sdkUrl: string;
   slotIds: PluginSlotId[];
   plugins: PluginDescriptor[];
+}
+
+interface PluginfileDocument {
+  format: "vellium-pluginfile@1";
+  manifest: Record<string, unknown>;
+  files: Record<string, string>;
 }
 
 interface PluginDiscoveryCache {
@@ -106,6 +151,10 @@ interface PluginDiscoveryCache {
 }
 
 let pluginDiscoveryCache: PluginDiscoveryCache | null = null;
+
+function invalidatePluginDiscoveryCache() {
+  pluginDiscoveryCache = null;
+}
 
 function encodeAssetPath(assetPath: string): string {
   return assetPath
@@ -121,6 +170,11 @@ function sanitizeRelativeAssetPath(raw: unknown): string | null {
     return null;
   }
   return trimmed.replace(/^\.\//, "");
+}
+
+function sanitizePluginDirSegment(raw: unknown): string {
+  const value = String(raw || "").trim().toLowerCase();
+  return value.replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "plugin";
 }
 
 function normalizePluginId(raw: unknown, fallback: string): string {
@@ -192,8 +246,8 @@ function normalizePluginActions(raw: unknown): PluginActionManifest[] {
       : null;
     const requestPath = String(request?.path || "").trim();
     const requestMethodRaw = String(request?.method || "POST").trim().toUpperCase();
-    const requestMethod = ["GET", "POST", "PATCH", "DELETE"].includes(requestMethodRaw)
-      ? requestMethodRaw as "GET" | "POST" | "PATCH" | "DELETE"
+    const requestMethod = ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(requestMethodRaw)
+      ? requestMethodRaw as "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
       : "POST";
     const hasInlineRequest = mode === "inline" && /^\/api\//.test(requestPath);
     if ((!path && !hasInlineRequest) || !PLUGIN_ACTION_LOCATIONS.includes(location) || seen.has(id)) continue;
@@ -227,13 +281,100 @@ function normalizePluginActions(raw: unknown): PluginActionManifest[] {
 }
 
 function normalizePluginPermissions(raw: unknown): PluginPermission[] {
-  if (!Array.isArray(raw) || raw.length === 0) return [...ALL_PLUGIN_PERMISSIONS];
+  if (!Array.isArray(raw)) return [...ALL_PLUGIN_PERMISSIONS];
+  if (raw.length === 0) return [];
   const out = new Set<PluginPermission>();
   for (const item of raw) {
     const value = String(item || "").trim() as PluginPermission;
     if (ALL_PLUGIN_PERMISSIONS.includes(value)) out.add(value);
   }
   return out.size > 0 ? Array.from(out) : [...ALL_PLUGIN_PERMISSIONS];
+}
+
+function normalizePluginThemes(raw: unknown): PluginThemeManifest[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PluginThemeManifest[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of raw.entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    const id = normalizePluginId(row.id, `theme-${index + 1}`);
+    if (seen.has(id)) continue;
+    const variables: Record<string, string> = {};
+    if (row.variables && typeof row.variables === "object" && !Array.isArray(row.variables)) {
+      for (const [keyRaw, valueRaw] of Object.entries(row.variables as Record<string, unknown>)) {
+        const key = String(keyRaw || "").trim();
+        const value = String(valueRaw || "").trim();
+        if (!key || !value) continue;
+        if (!THEME_VARIABLE_PREFIXES.some((prefix) => key.startsWith(prefix))) continue;
+        variables[key] = value.slice(0, 160);
+      }
+    }
+    if (Object.keys(variables).length === 0) continue;
+    seen.add(id);
+    const order = Number(row.order);
+    out.push({
+      id,
+      label: String(row.label || id).trim().slice(0, 120) || id,
+      description: String(row.description || "").trim().slice(0, 300) || undefined,
+      base: String(row.base || "dark").trim() === "light" ? "light" : "dark",
+      order: Number.isFinite(order) ? Math.max(1, Math.floor(order)) : index + 1,
+      variables
+    });
+  }
+  return out.sort((a, b) => a.order - b.order);
+}
+
+function normalizePluginSettingsFields(raw: unknown): PluginSettingsFieldManifest[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PluginSettingsFieldManifest[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of raw.entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    const id = normalizePluginId(row.id, `setting-${index + 1}`);
+    const key = normalizePluginId(row.key, id);
+    const type = String(row.type || "text").trim() as PluginSettingsFieldManifest["type"];
+    if (seen.has(id) || !["text", "textarea", "toggle", "select", "number", "range", "secret"].includes(type)) continue;
+    seen.add(id);
+    const options = Array.isArray(row.options)
+      ? row.options
+        .map((entry, optionIndex) => {
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+          const option = entry as Record<string, unknown>;
+          const value = String(option.value || "").trim();
+          const label = String(option.label || value || `Option ${optionIndex + 1}`).trim();
+          if (!value) return null;
+          return { value: value.slice(0, 200), label: label.slice(0, 200) };
+        })
+        .filter((entry): entry is PluginSettingsFieldOption => entry !== null)
+      : [];
+    const min = Number(row.min);
+    const max = Number(row.max);
+    const step = Number(row.step);
+    const rows = Number(row.rows);
+    const defaultValueRaw = row.defaultValue;
+    const defaultValue = typeof defaultValueRaw === "boolean" || typeof defaultValueRaw === "number" || typeof defaultValueRaw === "string"
+      ? defaultValueRaw
+      : undefined;
+    out.push({
+      id,
+      key,
+      label: String(row.label || key).trim().slice(0, 120) || key,
+      type,
+      description: String(row.description || "").trim().slice(0, 300) || undefined,
+      placeholder: String(row.placeholder || "").trim().slice(0, 200) || undefined,
+      options: options.length > 0 ? options : undefined,
+      defaultValue,
+      min: Number.isFinite(min) ? min : undefined,
+      max: Number.isFinite(max) ? max : undefined,
+      step: Number.isFinite(step) ? step : undefined,
+      rows: Number.isFinite(rows) ? Math.max(2, Math.min(16, Math.floor(rows))) : undefined,
+      order: Number.isFinite(Number(row.order)) ? Math.max(1, Math.floor(Number(row.order))) : index + 1,
+      required: row.required === true
+    });
+  }
+  return out.sort((a, b) => a.order - b.order);
 }
 
 function normalizeManifest(raw: unknown, fallbackDirName: string): PluginManifest | null {
@@ -252,9 +393,45 @@ function normalizeManifest(raw: unknown, fallbackDirName: string): PluginManifes
     author: String(row.author || "").trim(),
     defaultEnabled: row.defaultEnabled !== false,
     permissions: normalizePluginPermissions(row.permissions),
+    settingsFields: normalizePluginSettingsFields(row.settingsFields),
+    themes: normalizePluginThemes(row.themes),
     tabs: normalizePluginTabs(row.tabs),
     slots: normalizePluginSlots(row.slots),
     actions: normalizePluginActions(row.actions)
+  };
+}
+
+function collectManifestAssetPaths(manifest: PluginManifest): string[] {
+  const out = new Set<string>();
+  for (const tab of manifest.tabs) out.add(tab.path);
+  for (const slot of manifest.slots) out.add(slot.path);
+  for (const action of manifest.actions) {
+    if (action.path) out.add(action.path);
+  }
+  return Array.from(out).sort();
+}
+
+function normalizePluginfile(raw: unknown): PluginfileDocument | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  if (String(row.format || "").trim() !== "vellium-pluginfile@1") return null;
+  const manifest = row.manifest && typeof row.manifest === "object" && !Array.isArray(row.manifest)
+    ? row.manifest as Record<string, unknown>
+    : null;
+  const filesRaw = row.files && typeof row.files === "object" && !Array.isArray(row.files)
+    ? row.files as Record<string, unknown>
+    : null;
+  if (!manifest || !filesRaw) return null;
+  const files: Record<string, string> = {};
+  for (const [keyRaw, valueRaw] of Object.entries(filesRaw)) {
+    const key = sanitizeRelativeAssetPath(keyRaw);
+    if (!key) continue;
+    files[key] = String(valueRaw ?? "");
+  }
+  return {
+    format: "vellium-pluginfile@1",
+    manifest,
+    files
   };
 }
 
@@ -272,6 +449,59 @@ function readPluginStates(): Record<string, boolean> {
     return out;
   } catch {
     return { ...DEFAULT_SETTINGS.pluginStates };
+  }
+}
+
+function readPluginStateConfigured(): Record<string, boolean> {
+  try {
+    const row = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string } | undefined;
+    const payload = row ? JSON.parse(row.payload) as {
+      pluginStateConfigured?: Record<string, unknown>;
+      pluginStates?: Record<string, unknown>;
+    } : {};
+    const configuredRaw = payload.pluginStateConfigured;
+    if (configuredRaw && typeof configuredRaw === "object" && !Array.isArray(configuredRaw)) {
+      const out: Record<string, boolean> = {};
+      for (const [key, value] of Object.entries(configuredRaw)) {
+        out[String(key)] = value === true;
+      }
+      return out;
+    }
+    const legacyStates = payload.pluginStates;
+    if (legacyStates && typeof legacyStates === "object" && !Array.isArray(legacyStates)) {
+      const out: Record<string, boolean> = {};
+      for (const [key, value] of Object.entries(legacyStates)) {
+        out[String(key)] = value === false;
+      }
+      return out;
+    }
+    return { ...DEFAULT_SETTINGS.pluginStateConfigured };
+  } catch {
+    return { ...DEFAULT_SETTINGS.pluginStateConfigured };
+  }
+}
+
+function readPluginPermissionGrants(): Record<string, Record<string, boolean>> {
+  try {
+    const row = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string } | undefined;
+    const payload = row ? JSON.parse(row.payload) as { pluginPermissionGrants?: Record<string, unknown> } : {};
+    const source = payload.pluginPermissionGrants && typeof payload.pluginPermissionGrants === "object" && !Array.isArray(payload.pluginPermissionGrants)
+      ? payload.pluginPermissionGrants
+      : DEFAULT_SETTINGS.pluginPermissionGrants;
+    const out: Record<string, Record<string, boolean>> = {};
+    for (const [pluginId, value] of Object.entries(source)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const grants: Record<string, boolean> = {};
+      for (const [permission, enabled] of Object.entries(value as Record<string, unknown>)) {
+        const key = String(permission || "").trim() as PluginPermission;
+        if (!ALL_PLUGIN_PERMISSIONS.includes(key)) continue;
+        grants[key] = enabled === true;
+      }
+      out[String(pluginId)] = grants;
+    }
+    return out;
+  } catch {
+    return { ...DEFAULT_SETTINGS.pluginPermissionGrants };
   }
 }
 
@@ -294,11 +524,46 @@ export function setPluginEnabledState(pluginId: string, enabled: boolean) {
   const current = payload.pluginStates && typeof payload.pluginStates === "object" && !Array.isArray(payload.pluginStates)
     ? payload.pluginStates as Record<string, unknown>
     : {};
+  const configured = payload.pluginStateConfigured && typeof payload.pluginStateConfigured === "object" && !Array.isArray(payload.pluginStateConfigured)
+    ? payload.pluginStateConfigured as Record<string, unknown>
+    : {};
   payload.pluginStates = {
     ...current,
     [pluginId]: enabled
   };
+  payload.pluginStateConfigured = {
+    ...configured,
+    [pluginId]: true
+  };
   writeSettingsPayload(payload);
+  invalidatePluginDiscoveryCache();
+}
+
+export function getPluginPermissionGrants(pluginId: string): Record<string, boolean> {
+  const grants = readPluginPermissionGrants();
+  return { ...(grants[pluginId] ?? {}) };
+}
+
+export function setPluginPermissionGrants(pluginId: string, grantsPatch: unknown): Record<string, boolean> {
+  const payload = readSettingsPayload();
+  const current = payload.pluginPermissionGrants && typeof payload.pluginPermissionGrants === "object" && !Array.isArray(payload.pluginPermissionGrants)
+    ? payload.pluginPermissionGrants as Record<string, unknown>
+    : {};
+  const nextGrants: Record<string, boolean> = {};
+  if (grantsPatch && typeof grantsPatch === "object" && !Array.isArray(grantsPatch)) {
+    for (const [permission, enabled] of Object.entries(grantsPatch as Record<string, unknown>)) {
+      const key = String(permission || "").trim() as PluginPermission;
+      if (!ALL_PLUGIN_PERMISSIONS.includes(key)) continue;
+      nextGrants[key] = enabled === true;
+    }
+  }
+  payload.pluginPermissionGrants = {
+    ...current,
+    [pluginId]: nextGrants
+  };
+  writeSettingsPayload(payload);
+  invalidatePluginDiscoveryCache();
+  return nextGrants;
 }
 
 export function getPluginData(pluginId: string): Record<string, unknown> {
@@ -331,21 +596,29 @@ export function discoverPlugins(): PluginCatalog {
 }
 
 function readDiscoverySignature() {
-  if (!existsSync(PLUGINS_DIR)) return "missing";
   const parts: string[] = [];
-  for (const entry of readdirSync(PLUGINS_DIR, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const pluginDir = join(PLUGINS_DIR, entry.name);
-    const manifestPath = join(pluginDir, "plugin.json");
-    if (!existsSync(manifestPath)) continue;
-    try {
-      const manifestStat = statSync(manifestPath);
-      parts.push(`${entry.name}:${manifestStat.mtimeMs}:${manifestStat.size}`);
-    } catch {
-      parts.push(`${entry.name}:missing`);
+  const roots: Array<[string, string]> = [
+    ["bundled", BUNDLED_PLUGINS_DIR],
+    ["user", PLUGINS_DIR]
+  ];
+  for (const [source, rootDir] of roots) {
+    if (!existsSync(rootDir)) continue;
+    for (const entry of readdirSync(rootDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const pluginDir = join(rootDir, entry.name);
+      const manifestPath = existsSync(join(pluginDir, "Pluginfile.json"))
+        ? join(pluginDir, "Pluginfile.json")
+        : join(pluginDir, "plugin.json");
+      if (!existsSync(manifestPath)) continue;
+      try {
+        const manifestStat = statSync(manifestPath);
+        parts.push(`${source}:${entry.name}:${manifestStat.mtimeMs}:${manifestStat.size}`);
+      } catch {
+        parts.push(`${source}:${entry.name}:missing`);
+      }
     }
   }
-  return parts.sort().join("|");
+  return parts.length > 0 ? parts.sort().join("|") : "missing";
 }
 
 function discoverPluginsWithCache(force: boolean): PluginDiscoveryCache {
@@ -355,25 +628,45 @@ function discoverPluginsWithCache(force: boolean): PluginDiscoveryCache {
   }
 
   const states = readPluginStates();
-  const plugins: PluginDescriptor[] = [];
+  const configuredStates = readPluginStateConfigured();
+  const permissionGrants = readPluginPermissionGrants();
+  const pluginsById = new Map<string, PluginDescriptor>();
   const rootDirs: Record<string, string> = {};
-  if (existsSync(PLUGINS_DIR)) {
-    for (const entry of readdirSync(PLUGINS_DIR, { withFileTypes: true })) {
+  const sources: Array<{ type: "bundled" | "user"; dir: string }> = [
+    { type: "bundled", dir: BUNDLED_PLUGINS_DIR },
+    { type: "user", dir: PLUGINS_DIR }
+  ];
+  for (const source of sources) {
+    if (!existsSync(source.dir)) continue;
+    for (const entry of readdirSync(source.dir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const pluginDir = join(PLUGINS_DIR, entry.name);
-      const manifestPath = join(pluginDir, "plugin.json");
+      const pluginDir = join(source.dir, entry.name);
+      const pluginfilePath = join(pluginDir, "Pluginfile.json");
+      const manifestPath = existsSync(pluginfilePath) ? pluginfilePath : join(pluginDir, "plugin.json");
       if (!existsSync(manifestPath)) continue;
       try {
         const raw = JSON.parse(readFileSync(manifestPath, "utf-8"));
-        const manifest = normalizeManifest(raw, entry.name);
+        const pluginfile = normalizePluginfile(raw);
+        const manifest = normalizeManifest(pluginfile ? pluginfile.manifest : raw, entry.name);
         if (!manifest) continue;
         const assetBaseUrl = `/api/plugins/${encodeURIComponent(manifest.id)}/assets`;
-        const enabled = states[manifest.id] ?? manifest.defaultEnabled;
+        const enabled = configuredStates[manifest.id] === true && states[manifest.id] === true;
+        const requestedPermissions = [...manifest.permissions];
+        const storedGrants = permissionGrants[manifest.id];
+        const permissionsConfigured = !!storedGrants;
+        const grantedPermissions = requestedPermissions.filter((permission) => (
+          permissionsConfigured ? storedGrants?.[permission] === true : true
+        ));
         rootDirs[manifest.id] = pluginDir;
-        plugins.push({
+        pluginsById.set(manifest.id, {
           ...manifest,
           enabled,
+          source: source.type,
           assetBaseUrl,
+          requestedPermissions,
+          grantedPermissions,
+          permissionsConfigured,
+          permissions: grantedPermissions,
           tabs: manifest.tabs.map((tab) => ({ ...tab, url: `${assetBaseUrl}/${encodeAssetPath(tab.path)}` })),
           slots: manifest.slots.map((slot) => ({ ...slot, url: `${assetBaseUrl}/${encodeAssetPath(slot.path)}` })),
           actions: manifest.actions.map((action) => ({ ...action, url: `${assetBaseUrl}/${encodeAssetPath(action.path)}` }))
@@ -384,12 +677,14 @@ function discoverPluginsWithCache(force: boolean): PluginDiscoveryCache {
     }
   }
 
+  const plugins = Array.from(pluginsById.values());
   plugins.sort((a, b) => a.name.localeCompare(b.name));
   pluginDiscoveryCache = {
     signature,
     rootDirs,
     catalog: {
       pluginsDir: PLUGINS_DIR,
+      bundledPluginsDir: BUNDLED_PLUGINS_DIR,
       sdkUrl: "/api/plugins/sdk.js",
       slotIds: [...PLUGIN_SLOT_IDS],
       plugins
@@ -423,8 +718,82 @@ export function resolvePluginAssetPath(pluginId: string, assetPathRaw: string): 
   return targetPath;
 }
 
+export function exportPluginfile(pluginId: string): PluginfileDocument | null {
+  const plugin = getPluginDescriptor(pluginId);
+  const pluginRoot = resolvePluginRootDir(pluginId);
+  if (!plugin || !pluginRoot) return null;
+  const files: Record<string, string> = {};
+  for (const assetPath of collectManifestAssetPaths(plugin)) {
+    const resolved = resolvePluginAssetPath(pluginId, assetPath);
+    if (!resolved || !existsSync(resolved)) continue;
+    files[assetPath] = readFileSync(resolved, "utf-8");
+  }
+  return {
+    format: "vellium-pluginfile@1",
+    manifest: {
+      id: plugin.id,
+      name: plugin.name,
+      version: plugin.version,
+      apiVersion: plugin.apiVersion,
+      description: plugin.description,
+      author: plugin.author,
+      defaultEnabled: plugin.defaultEnabled,
+      permissions: plugin.requestedPermissions,
+      settingsFields: plugin.settingsFields,
+      themes: plugin.themes,
+      tabs: plugin.tabs.map(({ url: _url, ...tab }) => tab),
+      slots: plugin.slots.map(({ url: _url, ...slot }) => slot),
+      actions: plugin.actions.map(({ url: _url, ...action }) => action)
+    },
+    files
+  };
+}
+
+export function installPluginfile(input: unknown): PluginDescriptor {
+  const raw = typeof input === "string" ? JSON.parse(input) as unknown : input;
+  const pluginfile = normalizePluginfile(raw);
+  if (!pluginfile) {
+    throw new Error("Invalid Pluginfile");
+  }
+  const manifest = normalizeManifest(pluginfile.manifest, "plugin");
+  if (!manifest) {
+    throw new Error("Invalid plugin manifest inside Pluginfile");
+  }
+  const requiredFiles = collectManifestAssetPaths(manifest);
+  for (const assetPath of requiredFiles) {
+    if (!(assetPath in pluginfile.files)) {
+      throw new Error(`Pluginfile is missing required asset: ${assetPath}`);
+    }
+  }
+  const targetDir = join(PLUGINS_DIR, sanitizePluginDirSegment(manifest.id));
+  if (existsSync(targetDir)) {
+    throw new Error("A user plugin with this id already exists");
+  }
+  mkdirSync(targetDir, { recursive: true });
+  writeFileSync(join(targetDir, "Pluginfile.json"), JSON.stringify(pluginfile, null, 2));
+  writeFileSync(join(targetDir, "plugin.json"), JSON.stringify(pluginfile.manifest, null, 2));
+  for (const [assetPath, content] of Object.entries(pluginfile.files)) {
+    const safePath = sanitizeRelativeAssetPath(assetPath);
+    if (!safePath) continue;
+    const resolved = resolve(targetDir, safePath);
+    const expectedPrefix = `${targetDir}${sep}`;
+    if (resolved !== targetDir && !resolved.startsWith(expectedPrefix)) {
+      continue;
+    }
+    mkdirSync(dirname(resolved), { recursive: true });
+    writeFileSync(resolved, content, "utf-8");
+  }
+  invalidatePluginDiscoveryCache();
+  const plugin = getPluginDescriptor(manifest.id);
+  if (!plugin) {
+    throw new Error("Installed plugin could not be loaded");
+  }
+  return plugin;
+}
+
 export const PLUGIN_SDK_SOURCE = `(() => {
   const UI_STYLE_ID = 'vellium-plugin-ui';
+  const PLUGIN_ID = new URLSearchParams(window.location.search).get('pluginId') || '';
   const UI_STYLE_SOURCE = ${JSON.stringify(`
 :root {
   color-scheme: dark;
@@ -655,12 +1024,29 @@ body.vp-body {
     document.head.appendChild(style);
     document.body.classList.add('vp-body');
   }
-  function applyTheme(theme) {
+  let appliedThemeKeys = [];
+  function clearAppliedThemeVariables() {
+    for (const key of appliedThemeKeys) {
+      document.documentElement.style.removeProperty(key);
+    }
+    appliedThemeKeys = [];
+  }
+  function applyTheme(theme, variables) {
     const nextTheme = theme === 'light' ? 'light' : 'dark';
     document.documentElement.dataset.velliumTheme = nextTheme;
+    clearAppliedThemeVariables();
+    if (variables && typeof variables === 'object') {
+      for (const [key, value] of Object.entries(variables)) {
+        if (!key || !key.startsWith('--')) continue;
+        const nextValue = String(value || '').trim();
+        if (!nextValue) continue;
+        document.documentElement.style.setProperty(key, nextValue);
+        appliedThemeKeys.push(key);
+      }
+    }
   }
   function post(type, payload = {}) {
-    window.parent.postMessage({ __velliumPlugin: true, type, ...payload }, '*');
+    window.parent.postMessage({ __velliumPlugin: true, pluginId: PLUGIN_ID, type, ...payload }, '*');
   }
   function request(type, payload = {}) {
     const requestId = 'req-' + (++seq);
@@ -678,7 +1064,7 @@ body.vp-body {
     const msg = event.data;
     if (!msg || msg.__velliumHost !== true) return;
     if (msg.type === 'context') {
-      applyTheme(msg.context?.theme);
+      applyTheme(msg.context?.theme, msg.context?.themeVariables);
       for (const callback of listeners) callback(msg.context);
       const pendingRequest = msg.requestId ? pending.get(msg.requestId) : null;
       if (pendingRequest) {
@@ -704,11 +1090,20 @@ body.vp-body {
     },
     get(path) { return api.request('GET', path); },
     post(path, body) { return api.request('POST', path, body); },
+    put(path, body) { return api.request('PUT', path, body); },
     patch(path, body) { return api.request('PATCH', path, body); },
     delete(path, body) { return api.request('DELETE', path, body); }
   };
   const host = {
     getContext() { return request('get-context'); },
+    async getPermissions() {
+      const ctx = await request('get-context');
+      return Array.isArray(ctx?.grantedPermissions) ? ctx.grantedPermissions.slice() : [];
+    },
+    async hasPermission(permission) {
+      const permissions = await host.getPermissions();
+      return permissions.includes(String(permission || ''));
+    },
     onContext(callback) {
       listeners.add(callback);
       return () => listeners.delete(callback);
@@ -728,6 +1123,185 @@ body.vp-body {
     async patch(patch) {
       const ctx = await host.getContext();
       return api.patch('/api/plugins/' + encodeURIComponent(ctx.pluginId) + '/settings', patch);
+    }
+  };
+  const permissions = {
+    list() { return host.getPermissions(); },
+    has(permission) { return host.hasPermission(permission); }
+  };
+  function buildBlankCharacterCard(input = {}) {
+    const name = String(input.name || 'New Character').trim() || 'New Character';
+    const description = String(input.description || '').trim();
+    const personality = String(input.personality || '').trim();
+    const scenario = String(input.scenario || '').trim();
+    const greeting = String(input.greeting || '').trim();
+    const systemPrompt = String(input.systemPrompt || '').trim();
+    const mesExample = String(input.mesExample || '').trim();
+    const creatorNotes = String(input.creatorNotes || '').trim();
+    const tags = Array.isArray(input.tags)
+      ? input.tags.map((item) => String(item || '').trim()).filter(Boolean)
+      : [];
+    const alternateGreetings = Array.isArray(input.alternateGreetings)
+      ? input.alternateGreetings.map((item) => String(item || '').trim()).filter(Boolean)
+      : [];
+    return JSON.stringify({
+      spec: 'chara_card_v2',
+      spec_version: '2.0',
+      data: {
+        name,
+        description,
+        personality,
+        scenario,
+        first_mes: greeting,
+        system_prompt: systemPrompt,
+        mes_example: mesExample,
+        creator_notes: creatorNotes,
+        tags,
+        alternate_greetings: alternateGreetings
+      }
+    }, null, 2);
+  }
+  const vellium = {
+    generate(input = {}) {
+      return api.post('/api/plugin-runtime/generate', input);
+    },
+    chats: {
+      list() { return api.get('/api/chats'); },
+      create(input = {}) {
+        return api.post('/api/chats', {
+          title: String(input.title || 'New Chat'),
+          characterId: input.characterId || undefined,
+          characterIds: Array.isArray(input.characterIds) ? input.characterIds : undefined,
+          lorebookIds: Array.isArray(input.lorebookIds) ? input.lorebookIds : undefined
+        });
+      },
+      rename(chatId, title) {
+        return api.patch('/api/chats/' + encodeURIComponent(chatId), { title });
+      },
+      delete(chatId) {
+        return api.delete('/api/chats/' + encodeURIComponent(chatId));
+      },
+      branches(chatId) {
+        return api.get('/api/chats/' + encodeURIComponent(chatId) + '/branches');
+      },
+      timeline(chatId, branchId) {
+        const query = branchId ? ('?branchId=' + encodeURIComponent(branchId)) : '';
+        return api.get('/api/chats/' + encodeURIComponent(chatId) + '/timeline' + query);
+      },
+      send(chatId, input = {}) {
+        return api.post('/api/chats/' + encodeURIComponent(chatId) + '/send', {
+          content: String(input.content || ''),
+          branchId: input.branchId || undefined,
+          userPersona: input.userPersona || null,
+          attachments: Array.isArray(input.attachments) ? input.attachments : undefined
+        });
+      },
+      regenerate(chatId, input = {}) {
+        return api.post('/api/chats/' + encodeURIComponent(chatId) + '/regenerate', {
+          branchId: input.branchId || undefined
+        });
+      },
+      nextTurn(chatId, input = {}) {
+        return api.post('/api/chats/' + encodeURIComponent(chatId) + '/next-turn', {
+          characterName: String(input.characterName || ''),
+          branchId: input.branchId || undefined,
+          isAutoConvo: input.isAutoConvo === true,
+          userPersona: input.userPersona || null
+        });
+      },
+      compress(chatId, input = {}) {
+        return api.post('/api/chats/' + encodeURIComponent(chatId) + '/compress', {
+          branchId: input.branchId || undefined
+        });
+      },
+      abort(chatId) {
+        return api.post('/api/chats/' + encodeURIComponent(chatId) + '/abort', {});
+      },
+      setCharacters(chatId, characterIds) {
+        return api.patch('/api/chats/' + encodeURIComponent(chatId) + '/characters', {
+          characterIds: Array.isArray(characterIds) ? characterIds : []
+        });
+      },
+      setLorebooks(chatId, lorebookIds) {
+        return api.patch('/api/chats/' + encodeURIComponent(chatId) + '/lorebook', {
+          lorebookIds: Array.isArray(lorebookIds) ? lorebookIds : []
+        });
+      },
+      getLorebooks(chatId) {
+        return api.get('/api/chats/' + encodeURIComponent(chatId) + '/lorebook');
+      },
+      getRag(chatId) {
+        return api.get('/api/chats/' + encodeURIComponent(chatId) + '/rag');
+      },
+      setRag(chatId, enabled, collectionIds) {
+        return api.patch('/api/chats/' + encodeURIComponent(chatId) + '/rag', {
+          enabled: enabled === true,
+          collectionIds: Array.isArray(collectionIds) ? collectionIds : []
+        });
+      }
+    },
+    characters: {
+      list() { return api.get('/api/characters'); },
+      get(id) { return api.get('/api/characters/' + encodeURIComponent(id)); },
+      importCard(rawJson) {
+        return api.post('/api/characters/import', { rawJson: String(rawJson || '') });
+      },
+      createBlank(input = {}) {
+        return vellium.characters.importCard(buildBlankCharacterCard(input));
+      },
+      update(id, patch) {
+        return api.put('/api/characters/' + encodeURIComponent(id), patch || {});
+      },
+      delete(id) {
+        return api.delete('/api/characters/' + encodeURIComponent(id));
+      },
+      translateCopy(id, targetLanguage) {
+        return api.post('/api/characters/' + encodeURIComponent(id) + '/translate-copy', { targetLanguage });
+      }
+    },
+    lorebooks: {
+      list() { return api.get('/api/lorebooks'); },
+      get(id) { return api.get('/api/lorebooks/' + encodeURIComponent(id)); },
+      create(payload = {}) { return api.post('/api/lorebooks', payload); },
+      update(id, patch) { return api.put('/api/lorebooks/' + encodeURIComponent(id), patch || {}); },
+      delete(id) { return api.delete('/api/lorebooks/' + encodeURIComponent(id)); },
+      importWorldInfo(data) { return api.post('/api/lorebooks/import/world-info', { data }); },
+      translateCopy(id, targetLanguage) {
+        return api.post('/api/lorebooks/' + encodeURIComponent(id) + '/translate-copy', { targetLanguage });
+      }
+    },
+    providers: {
+      list() { return api.get('/api/providers'); },
+      upsert(profile) { return api.post('/api/providers', profile || {}); },
+      models(providerId) { return api.get('/api/providers/' + encodeURIComponent(providerId) + '/models'); },
+      test(providerId) { return api.post('/api/providers/' + encodeURIComponent(providerId) + '/test', {}); },
+      setActive(providerId, modelId) {
+        return api.post('/api/providers/set-active', { providerId, modelId });
+      }
+    },
+    extensions: {
+      inspectorFields: {
+        list() { return api.get('/api/extensions/inspector-fields'); },
+        validate(fields) { return api.post('/api/extensions/inspector-fields/validate', { fields }); },
+        save(fields) { return api.put('/api/extensions/inspector-fields', { fields }); }
+      },
+      adapters: {
+        list() { return api.get('/api/extensions/endpoint-adapters'); },
+        validate(adapters) { return api.post('/api/extensions/endpoint-adapters/validate', { adapters }); },
+        save(adapters) { return api.put('/api/extensions/endpoint-adapters', { adapters }); },
+        async upsert(adapter) {
+          const current = await api.get('/api/extensions/endpoint-adapters');
+          const list = Array.isArray(current) ? current.slice() : [];
+          const next = list.filter((item) => item && item.id !== adapter.id);
+          next.push(adapter);
+          return api.put('/api/extensions/endpoint-adapters', { adapters: next });
+        },
+        async remove(adapterId) {
+          const current = await api.get('/api/extensions/endpoint-adapters');
+          const list = Array.isArray(current) ? current.filter((item) => item && item.id !== adapterId) : [];
+          return api.put('/api/extensions/endpoint-adapters', { adapters: list });
+        }
+      }
     }
   };
   const ui = {
@@ -756,7 +1330,7 @@ body.vp-body {
       divider: 'vp-divider'
     }
   };
-  window.VelliumPlugin = { api, host, settings, ui };
+  window.VelliumPlugin = { api, host, settings, permissions, ui, vellium };
   ensureUiStyles();
   applyTheme(new URLSearchParams(window.location.search).get('hostTheme'));
   if (document.readyState === 'loading') {

@@ -150,6 +150,66 @@ export function parseSillyTavernWorldInfo(rawData: unknown): { name: string; des
   return { name, description, entries };
 }
 
+function mapPositionToWorldInfoIndex(position: string): number {
+  switch (position) {
+    case "before_char":
+    case "before_character":
+      return 0;
+    case "after_char":
+    case "after_character":
+      return 1;
+    case "before_scene":
+    case "before_scenario":
+      return 2;
+    case "after_scene":
+    case "after_scenario":
+      return 3;
+    case "before_author_note":
+      return 4;
+    case "after_author_note":
+      return 5;
+    case "before_history":
+      return 6;
+    case "after_history":
+      return 7;
+    default:
+      return 1;
+  }
+}
+
+export function serializeSillyTavernWorldInfo(book: {
+  id?: string;
+  name: string;
+  description?: string;
+  entries: LoreBookEntryData[];
+}) {
+  const entries = Object.fromEntries(
+    normalizeLoreBookEntries(book.entries).map((entry, index) => [
+      entry.id || `entry-${index + 1}`,
+      {
+        uid: entry.id || `entry-${index + 1}`,
+        key: [...entry.keys],
+        keysecondary: [...entry.secondaryKeys],
+        comment: entry.name || "",
+        content: entry.content,
+        constant: entry.constant === true,
+        selective: entry.selective === true,
+        selectiveLogic: entry.selectiveLogic === "or" ? 1 : 0,
+        disable: entry.enabled !== true,
+        order: entry.insertionOrder,
+        insertion_order: entry.insertionOrder,
+        position: mapPositionToWorldInfoIndex(entry.position)
+      }
+    ])
+  );
+
+  return {
+    name: String(book.name || "").trim() || "LoreBook",
+    description: String(book.description || "").trim(),
+    entries
+  };
+}
+
 function matchesKeyGroup(haystack: string, keys: string[], logic: "and" | "or"): boolean {
   if (keys.length === 0) return true;
   if (logic === "or") {

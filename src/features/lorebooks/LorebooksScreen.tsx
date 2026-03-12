@@ -39,6 +39,44 @@ function newEntry(index: number): LoreBookEntry {
   };
 }
 
+async function blobToBase64(blob: Blob): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read export blob"));
+    reader.onload = () => {
+      const raw = String(reader.result || "");
+      const comma = raw.indexOf(",");
+      resolve(comma >= 0 ? raw.slice(comma + 1) : raw);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function triggerBlobDownload(blob: Blob, filename: string) {
+  if (window.electronAPI?.saveFile) {
+    const base64Data = await blobToBase64(blob);
+    const saved = await window.electronAPI.saveFile(filename, base64Data);
+    if (!saved.canceled && saved.ok) return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function buildFilenameBase(raw: string, fallback: string): string {
+  return String(raw || "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^-+|-+$/g, "") || fallback;
+}
+
 export function LorebooksScreen() {
   const { t } = useI18n();
   const [loading, setLoading] = useState(true);
@@ -170,6 +208,17 @@ export function LorebooksScreen() {
       setStatus(`${t("lore.statusTranslateFailed")} ${error instanceof Error ? error.message : ""}`.trim());
     } finally {
       setTranslatingCopy(false);
+    }
+  }
+
+  async function exportLorebookWorldInfo() {
+    if (!selected) return;
+    try {
+      const blob = await api.lorebookExportWorldInfo(selected.id);
+      await triggerBlobDownload(blob, `${buildFilenameBase(selected.name, "lorebook")}_world_info.json`);
+      setStatus(t("lore.statusExported"));
+    } catch (error) {
+      setStatus(`${t("lore.statusExportFailed")} ${error instanceof Error ? error.message : ""}`.trim());
     }
   }
 
@@ -398,6 +447,14 @@ export function LorebooksScreen() {
                   className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60"
                 >
                   {translatingCopy ? t("lore.translating") : t("lore.translateKeysCopy")}
+                </button>
+              )}
+              {selected && (
+                <button
+                  onClick={() => { void exportLorebookWorldInfo(); }}
+                  className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover"
+                >
+                  {t("lore.exportWorldInfo")}
                 </button>
               )}
               {selected && (

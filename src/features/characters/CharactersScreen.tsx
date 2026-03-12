@@ -75,6 +75,44 @@ function formatObjectJson(value: unknown): string {
   }
 }
 
+async function blobToBase64(blob: Blob): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read export blob"));
+    reader.onload = () => {
+      const raw = String(reader.result || "");
+      const comma = raw.indexOf(",");
+      resolve(comma >= 0 ? raw.slice(comma + 1) : raw);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function triggerBlobDownload(blob: Blob, filename: string) {
+  if (window.electronAPI?.saveFile) {
+    const base64Data = await blobToBase64(blob);
+    const saved = await window.electronAPI.saveFile(filename, base64Data);
+    if (!saved.canceled && saved.ok) return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function buildFilenameBase(raw: string, fallback: string): string {
+  return String(raw || "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^-+|-+$/g, "") || fallback;
+}
+
 export function CharactersScreen() {
   const { t } = useI18n();
   const [characters, setCharacters] = useState<CharacterDetail[]>([]);
@@ -117,8 +155,21 @@ export function CharactersScreen() {
   const avatarFileRef = useRef<HTMLInputElement>(null);
 
   // Status
+  // Status
   const [saveStatus, setSaveStatus] = useState("");
   const [saveStatusType, setSaveStatusType] = useState<"success" | "error" | null>(null);
+
+  // Collapsible editor sections
+  const [editorSections, setEditorSections] = useState<Record<string, boolean>>({
+    identity: true,
+    content: true,
+    meta: false,
+    advanced: false
+  });
+
+  function toggleEditorSection(key: string) {
+    setEditorSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   const loadCharacters = useCallback(async () => {
     setLoading(true);
@@ -282,6 +333,19 @@ export function CharactersScreen() {
       }, 2000);
     } catch (error) {
       setSaveStatus(`${t("chars.errorPrefix")}: ${String(error)}`);
+      setSaveStatusType("error");
+    }
+  }
+
+  async function handleExportJson() {
+    if (!selected) return;
+    try {
+      const blob = await api.characterExportJson(selected.id);
+      await triggerBlobDownload(blob, `${buildFilenameBase(selected.name, "character")}.json`);
+      setSaveStatus(t("chars.exportJson"));
+      setSaveStatusType("success");
+    } catch (error) {
+      setSaveStatus(error instanceof Error ? error.message : String(error));
       setSaveStatusType("error");
     }
   }
@@ -569,126 +633,204 @@ export function CharactersScreen() {
       center={
         selected ? (
           <div className="flex h-full flex-col">
-            {/* Header with avatar */}
-            <div className="mb-4 flex items-center gap-3">
-              <label className="group relative cursor-pointer">
-                {selected.avatarUrl ? (
-                  <img src={avatarSrc(selected.avatarUrl, selected.id)!} alt="" className="h-14 w-14 rounded-full object-cover ring-2 ring-border" />
-                ) : (
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-accent-subtle text-lg font-bold text-accent ring-2 ring-border">
-                    {name.charAt(0).toUpperCase() || "?"}
+            {/* Header with avatar and actions */}
+            <div className="char-editor-header mb-4">
+              <div className="char-editor-header-top">
+                <label className="group relative cursor-pointer flex-shrink-0">
+                  {selected.avatarUrl ? (
+                    <img src={avatarSrc(selected.avatarUrl, selected.id)!} alt="" className="h-14 w-14 rounded-2xl object-cover ring-2 ring-border" />
+                  ) : (
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-subtle text-lg font-bold text-accent ring-2 ring-border">
+                      {name.charAt(0).toUpperCase() || "?"}
+                    </div>
+                  )}
+                  <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                    <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
                   </div>
-                )}
-                <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
-                  <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
+                  <input ref={avatarFileRef} type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={avatarUploading} />
+                </label>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-base font-semibold text-text-primary">{name || t("chars.unnamed")}</div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    {saveStatus ? (
+                      <span className={`text-[11px] ${saveStatusType === "error" ? "text-danger" : "text-success"}`}>{saveStatus}</span>
+                    ) : (
+                      <span className="text-[11px] text-text-tertiary">{t("chars.editor")}</span>
+                    )}
+                    {tags && (
+                      <div className="flex flex-wrap gap-1">
+                        {tags.split(",").filter(Boolean).slice(0, 3).map((tag) => (
+                          <Badge key={tag.trim()}>{tag.trim()}</Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <input ref={avatarFileRef} type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={avatarUploading} />
-              </label>
-              <div className="flex-1">
-                <PanelTitle>{t("chars.editor")}</PanelTitle>
-                {saveStatus && (
-                  <span className={`text-[11px] ${saveStatusType === "error" ? "text-danger" : "text-success"}`}>{saveStatus}</span>
-                )}
               </div>
-              <div className="flex gap-1.5">
-                <button onClick={handleSave} className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-text-inverse hover:bg-accent-hover">{t("chat.save")}</button>
+              <div className="char-editor-actions">
+                <button onClick={handleSave} className="char-editor-btn is-primary">{t("chat.save")}</button>
                 <button
                   onClick={handleTranslateCopy}
                   disabled={translateCopyLoading}
-                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+                  className="char-editor-btn"
                 >
                   {translateCopyLoading ? t("chars.translatingCopy") : t("chars.translateCopy")}
                 </button>
-                <button onClick={handleDelete} className="rounded-md border border-danger-border px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger-subtle">{t("chat.delete")}</button>
+                <button
+                  onClick={() => { void handleExportJson(); }}
+                  className="char-editor-btn"
+                  title={t("chars.exportJson")}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  {t("chars.exportJson")}
+                </button>
+                <button onClick={handleDelete} className="char-editor-btn is-danger">{t("chat.delete")}</button>
               </div>
             </div>
 
-            {/* GUI editor fields */}
-            <div className="flex-1 space-y-3 overflow-y-auto">
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.name")}</label>
-                <input value={name} onChange={(e) => { setName(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
+            {/* GUI editor fields — sectioned */}
+            <div className="flex-1 space-y-2 overflow-y-auto">
+              {/* Section: Identity */}
+              <div className="char-editor-section">
+                <button onClick={() => toggleEditorSection("identity")} className="char-editor-section-toggle">
+                  <span>{t("chars.identity")}</span>
+                  <svg className={`h-3.5 w-3.5 text-text-tertiary transition-transform ${editorSections.identity ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {editorSections.identity && (
+                  <div className="char-editor-section-body">
+                    <div>
+                      <label className="char-editor-label">{t("chars.name")}</label>
+                      <input value={name} onChange={(e) => { setName(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-input" />
+                    </div>
+                    <div>
+                      <label className="char-editor-label">{t("chars.description")}</label>
+                      <textarea value={description} onChange={(e) => { setDescription(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea h-24" />
+                    </div>
+                    <div>
+                      <label className="char-editor-label">{t("chars.personality")}</label>
+                      <textarea value={personality} onChange={(e) => { setPersonality(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea h-16" />
+                    </div>
+                    <div>
+                      <label className="char-editor-label">{t("chars.scenario")}</label>
+                      <textarea value={scenario} onChange={(e) => { setScenario(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea h-16" />
+                    </div>
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.description")}</label>
-                <textarea value={description} onChange={(e) => { setDescription(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-24 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
+
+              {/* Section: Content */}
+              <div className="char-editor-section">
+                <button onClick={() => toggleEditorSection("content")} className="char-editor-section-toggle">
+                  <span>{t("chars.content")}</span>
+                  <svg className={`h-3.5 w-3.5 text-text-tertiary transition-transform ${editorSections.content ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {editorSections.content && (
+                  <div className="char-editor-section-body">
+                    <div>
+                      <label className="char-editor-label">{t("chars.firstMessage")}</label>
+                      <textarea value={greeting} onChange={(e) => { setGreeting(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea h-20" />
+                    </div>
+                    <div>
+                      <label className="char-editor-label">{t("chars.alternateGreetings")}</label>
+                      <textarea value={alternateGreetingsText} onChange={(e) => { setAlternateGreetingsText(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea h-20"
+                        placeholder={t("chars.alternateGreetingsPlaceholder")} />
+                    </div>
+                    <div>
+                      <label className="char-editor-label">{t("chars.systemPrompt")}</label>
+                      <textarea value={systemPrompt} onChange={(e) => { setSystemPrompt(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea h-16" />
+                    </div>
+                    <div>
+                      <label className="char-editor-label">{t("chars.exampleMessages")}</label>
+                      <textarea value={mesExample} onChange={(e) => { setMesExample(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea h-16"
+                        placeholder={t("chars.exampleMessagesPlaceholder")} />
+                    </div>
+                    <div>
+                      <label className="char-editor-label">{t("chars.postHistoryInstructions")}</label>
+                      <textarea value={postHistoryInstructions} onChange={(e) => { setPostHistoryInstructions(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea h-16" />
+                    </div>
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.personality")}</label>
-                <textarea value={personality} onChange={(e) => { setPersonality(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-16 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
+
+              {/* Section: Metadata */}
+              <div className="char-editor-section">
+                <button onClick={() => toggleEditorSection("meta")} className="char-editor-section-toggle">
+                  <span>{t("chars.meta")}</span>
+                  <svg className={`h-3.5 w-3.5 text-text-tertiary transition-transform ${editorSections.meta ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {editorSections.meta && (
+                  <div className="char-editor-section-body">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="char-editor-label">{t("chars.creator")}</label>
+                        <input value={creator} onChange={(e) => { setCreator(e.target.value); setJsonSyncDirection("gui"); }}
+                          className="char-editor-input" />
+                      </div>
+                      <div>
+                        <label className="char-editor-label">{t("chars.characterVersion")}</label>
+                        <input value={characterVersion} onChange={(e) => { setCharacterVersion(e.target.value); setJsonSyncDirection("gui"); }}
+                          className="char-editor-input" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="char-editor-label">{t("chars.tags")}</label>
+                      <input value={tags} onChange={(e) => { setTags(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-input"
+                        placeholder={t("chars.tagsPlaceholder")} />
+                    </div>
+                    <div>
+                      <label className="char-editor-label">{t("chars.creatorNotes")}</label>
+                      <textarea value={creatorNotes} onChange={(e) => { setCreatorNotes(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea h-14" />
+                    </div>
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.scenario")}</label>
-                <textarea value={scenario} onChange={(e) => { setScenario(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-16 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.firstMessage")}</label>
-                <textarea value={greeting} onChange={(e) => { setGreeting(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.systemPrompt")}</label>
-                <textarea value={systemPrompt} onChange={(e) => { setSystemPrompt(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-16 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.exampleMessages")}</label>
-                <textarea value={mesExample} onChange={(e) => { setMesExample(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-16 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary"
-                  placeholder={t("chars.exampleMessagesPlaceholder")} />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.creatorNotes")}</label>
-                <textarea value={creatorNotes} onChange={(e) => { setCreatorNotes(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-14 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.creator")}</label>
-                  <input value={creator} onChange={(e) => { setCreator(e.target.value); setJsonSyncDirection("gui"); }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.characterVersion")}</label>
-                  <input value={characterVersion} onChange={(e) => { setCharacterVersion(e.target.value); setJsonSyncDirection("gui"); }}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
-                </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.tags")}</label>
-                <input value={tags} onChange={(e) => { setTags(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary"
-                  placeholder={t("chars.tagsPlaceholder")} />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.postHistoryInstructions")}</label>
-                <textarea value={postHistoryInstructions} onChange={(e) => { setPostHistoryInstructions(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-16 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.alternateGreetings")}</label>
-                <textarea value={alternateGreetingsText} onChange={(e) => { setAlternateGreetingsText(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-24 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary"
-                  placeholder={t("chars.alternateGreetingsPlaceholder")} />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.creatorNotesMultilingual")}</label>
-                <textarea value={creatorNotesMultilingualJson} onChange={(e) => { setCreatorNotesMultilingualJson(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 font-mono text-[11px] text-text-primary"
-                  placeholder={t("chars.creatorNotesMultilingualPlaceholder")} />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.extensions")}</label>
-                <textarea value={extensionsJson} onChange={(e) => { setExtensionsJson(e.target.value); setJsonSyncDirection("gui"); }}
-                  className="h-24 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 font-mono text-[11px] text-text-primary"
-                  placeholder={t("chars.extensionsPlaceholder")} />
+
+              {/* Section: Advanced */}
+              <div className="char-editor-section">
+                <button onClick={() => toggleEditorSection("advanced")} className="char-editor-section-toggle">
+                  <span>{t("chars.advanced")}</span>
+                  <svg className={`h-3.5 w-3.5 text-text-tertiary transition-transform ${editorSections.advanced ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {editorSections.advanced && (
+                  <div className="char-editor-section-body">
+                    <div>
+                      <label className="char-editor-label">{t("chars.creatorNotesMultilingual")}</label>
+                      <textarea value={creatorNotesMultilingualJson} onChange={(e) => { setCreatorNotesMultilingualJson(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea char-editor-mono h-20"
+                        placeholder={t("chars.creatorNotesMultilingualPlaceholder")} />
+                    </div>
+                    <div>
+                      <label className="char-editor-label">{t("chars.extensions")}</label>
+                      <textarea value={extensionsJson} onChange={(e) => { setExtensionsJson(e.target.value); setJsonSyncDirection("gui"); }}
+                        className="char-editor-textarea char-editor-mono h-24"
+                        placeholder={t("chars.extensionsPlaceholder")} />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

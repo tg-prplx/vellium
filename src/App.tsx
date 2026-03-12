@@ -3,7 +3,7 @@ import { PluginActionBar, PluginActionModalHost, PluginActionToastHost, PluginFr
 import { I18nContext, translations, useI18n, type Locale } from "./shared/i18n";
 import { api } from "./shared/api";
 import { TitleBar } from "./components/TitleBar";
-import type { AppSettings, PluginDescriptor } from "./shared/types/contracts";
+import type { AppSettings, PluginCatalog, PluginDescriptor } from "./shared/types/contracts";
 
 const ChatScreen = lazy(() => import("./features/chat/ChatScreen").then((module) => ({ default: module.ChatScreen })));
 const WritingScreen = lazy(() => import("./features/writer/WritingScreen").then((module) => ({ default: module.WritingScreen })));
@@ -40,7 +40,7 @@ function ScreenFallback() {
 
 function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activeTab: string; setActiveTab: (tab: string) => void }) {
   const { t } = useI18n();
-  const { pluginTabs } = usePlugins();
+  const { pluginTabs, catalogRevision } = usePlugins();
 
   const coreTabs = useMemo<AppTab[]>(() => [
     { id: "chat", label: t("tab.chat"), icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z", kind: "core" },
@@ -84,6 +84,7 @@ function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activ
         activeTab={activeTab}
         locale={locale}
         defaultHeight={1200}
+        instanceKey={`tab:${pluginTab.plugin.id}:${pluginTab.id}:${catalogRevision}`}
         className="plugin-tab-frame"
       />
     );
@@ -180,11 +181,54 @@ function AppWorkspace({ locale }: { locale: Locale }) {
   );
 }
 
-function applyTheme(theme: string) {
+let activeCustomThemeKeys: string[] = [];
+
+function clearCustomThemeVariables() {
   const root = document.documentElement;
+  for (const key of activeCustomThemeKeys) {
+    root.style.removeProperty(key);
+  }
+  activeCustomThemeKeys = [];
+}
+
+function applyTheme(theme: string, customTheme?: { base: "dark" | "light"; variables: Record<string, string> } | null) {
+  const root = document.documentElement;
+  clearCustomThemeVariables();
   root.classList.remove("theme-light");
-  if (theme === "light") {
+  const effectiveTheme = theme === "custom" ? customTheme?.base ?? "dark" : theme;
+  if (effectiveTheme === "light") {
     root.classList.add("theme-light");
+  }
+  if (theme === "custom" && customTheme) {
+    for (const [key, value] of Object.entries(customTheme.variables)) {
+      root.style.setProperty(key, value);
+      activeCustomThemeKeys.push(key);
+    }
+  }
+}
+
+function findPluginTheme(catalog: PluginCatalog | null, pluginThemeId: string | null | undefined) {
+  if (!catalog || !pluginThemeId) return null;
+  for (const plugin of catalog.plugins) {
+    for (const theme of plugin.themes) {
+      if (`${plugin.id}:${theme.id}` === pluginThemeId) {
+        return theme;
+      }
+    }
+  }
+  return null;
+}
+
+async function applyThemeFromSettings(settings: Pick<AppSettings, "theme" | "pluginThemeId">) {
+  if (settings.theme !== "custom") {
+    applyTheme(settings.theme ?? "dark");
+    return;
+  }
+  try {
+    const catalog = await api.pluginsList();
+    applyTheme(settings.theme, findPluginTheme(catalog, settings.pluginThemeId));
+  } catch {
+    applyTheme("dark");
   }
 }
 
@@ -199,9 +243,9 @@ export function App() {
   const isElectron = !!window.electronAPI;
 
   useEffect(() => {
-    api.settingsGet().then((s) => {
+    Promise.all([api.settingsGet(), api.pluginsList().catch(() => null)]).then(([s, catalog]) => {
       setInitialSettings(s);
-      applyTheme(s.theme ?? "dark");
+      applyTheme(s.theme ?? "dark", findPluginTheme(catalog, s.pluginThemeId));
       if (isSupportedLocale(s.interfaceLanguage)) {
         setLocale(s.interfaceLanguage);
       }
@@ -211,13 +255,20 @@ export function App() {
       setLocale((e as CustomEvent).detail as Locale);
     };
     const themeHandler = (e: Event) => {
-      applyTheme((e as CustomEvent<string>).detail);
+      const detail = (e as CustomEvent<AppSettings | string>).detail;
+      if (typeof detail === "string") {
+        applyTheme(detail);
+        return;
+      }
+      if (detail && typeof detail === "object") {
+        void applyThemeFromSettings(detail);
+      }
     };
     const onboardingResetHandler = (e: Event) => {
       const next = (e as CustomEvent<AppSettings>).detail;
       if (!next) return;
       setInitialSettings(next);
-      applyTheme(next.theme ?? "dark");
+      void applyThemeFromSettings(next);
       if (isSupportedLocale(next.interfaceLanguage)) {
         setLocale(next.interfaceLanguage);
       }
@@ -235,7 +286,7 @@ export function App() {
   async function completeOnboarding(patch: Partial<AppSettings>) {
     const updated = await api.settingsUpdate({ ...patch, onboardingCompleted: true });
     setInitialSettings(updated);
-    applyTheme(updated.theme ?? "dark");
+    await applyThemeFromSettings(updated);
     if (isSupportedLocale(updated.interfaceLanguage)) {
       setLocale(updated.interfaceLanguage);
     }
