@@ -7,7 +7,7 @@
 
 Desktop app built with Electron, React, a local Express API, and SQLite.
 
-<img width="1440" height="851" alt="image" src="https://github.com/user-attachments/assets/e09ca71d-ad6b-485c-ad32-b092e7d0f74f" />
+<img width="1440" height="857" alt="image" src="https://github.com/user-attachments/assets/03e75de3-5b39-4012-98f8-4c959eb1fc80" />
 
 
 ## Important
