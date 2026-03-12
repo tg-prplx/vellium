@@ -26,6 +26,7 @@ const PLUGIN_DEV_AUTO_REFRESH_STORAGE_KEY = "vellium:plugin-dev-auto-refresh";
 
 interface PluginRuntimeValue {
   catalog: PluginCatalog | null;
+  catalogRevision: number;
   plugins: PluginDescriptor[];
   loading: boolean;
   error: string;
@@ -38,6 +39,7 @@ interface PluginRuntimeValue {
   activeActionRequest: PluginActionRequest | null;
   actionStatus: PluginActionStatus | null;
   pluginTabs: Array<{ plugin: PluginDescriptor; tab: PluginTabContribution }>;
+  pendingPluginStates: Record<string, boolean>;
   locale: string;
   activeTab: string;
 }
@@ -46,6 +48,19 @@ const PluginRuntimeContext = createContext<PluginRuntimeValue | null>(null);
 
 function getThemeMode(): "dark" | "light" {
   return document.documentElement.classList.contains("theme-light") ? "light" : "dark";
+}
+
+function getThemeVariables(): Record<string, string> {
+  const styles = window.getComputedStyle(document.documentElement);
+  const out: Record<string, string> = {};
+  for (let index = 0; index < styles.length; index += 1) {
+    const key = styles.item(index);
+    if (!key || !key.startsWith("--")) continue;
+    const value = styles.getPropertyValue(key).trim();
+    if (!value) continue;
+    out[key] = value;
+  }
+  return out;
 }
 
 async function performPluginApiRequest(methodRaw: unknown, pathRaw: unknown, body: unknown) {
@@ -59,7 +74,7 @@ function hasPluginPermission(plugin: PluginDescriptor | null, permission: string
 
 async function performPluginApiRequestFor(plugin: PluginDescriptor | null, methodRaw: unknown, pathRaw: unknown, body: unknown) {
   const method = String(methodRaw || "GET").trim().toUpperCase();
-  if (!["GET", "POST", "PATCH", "DELETE"].includes(method)) {
+  if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) {
     throw new Error(`Unsupported plugin API method: ${method}`);
   }
   const path = String(pathRaw || "").trim();
@@ -130,11 +145,13 @@ export function isPluginDevAutoRefreshEnabled() {
 
 export function PluginProvider({ locale, activeTab, children }: { locale: string; activeTab: string; children: ReactNode }) {
   const [catalog, setCatalog] = useState<PluginCatalog | null>(null);
+  const [catalogRevision, setCatalogRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeActionRequest, setActiveActionRequest] = useState<PluginActionRequest | null>(null);
   const [actionStatus, setActionStatus] = useState<PluginActionStatus | null>(null);
   const [devAutoRefresh, setDevAutoRefresh] = useState<boolean>(readPluginDevAutoRefreshPreference());
+  const [pendingPluginStates, setPendingPluginStates] = useState<Record<string, boolean>>({});
   const mountedRef = useRef(true);
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
   const queuedRefreshRef = useRef<{ force: boolean; silent: boolean } | null>(null);
@@ -158,7 +175,15 @@ export function PluginProvider({ locale, activeTab, children }: { locale: string
       try {
         const next = current.force ? await api.pluginsReload() : await api.pluginsList();
         if (mountedRef.current) {
-          setCatalog(next);
+          setCatalog({
+            ...next,
+            plugins: next.plugins.map((plugin) => (
+              Object.prototype.hasOwnProperty.call(pendingPluginStates, plugin.id)
+                ? { ...plugin, enabled: pendingPluginStates[plugin.id] }
+                : plugin
+            ))
+          });
+          setCatalogRevision((value) => value + 1);
           if (!current.silent) setError("");
         }
       } catch (err) {
@@ -176,7 +201,7 @@ export function PluginProvider({ locale, activeTab, children }: { locale: string
         queuedRefreshRef.current = null;
       }
     }
-  }, []);
+  }, [pendingPluginStates]);
 
   const refresh = useCallback((options?: { force?: boolean; silent?: boolean }) => {
     const normalized = {
@@ -243,8 +268,47 @@ export function PluginProvider({ locale, activeTab, children }: { locale: string
   }, [actionStatus]);
 
   const setPluginEnabled = useCallback(async (pluginId: string, enabled: boolean) => {
-    await api.pluginSetState(pluginId, enabled);
-    await refresh({ force: true });
+    setPendingPluginStates((prev) => ({ ...prev, [pluginId]: enabled }));
+    setCatalog((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        plugins: prev.plugins.map((plugin) => (
+          plugin.id === pluginId
+            ? { ...plugin, enabled }
+            : plugin
+        ))
+      };
+    });
+    setCatalogRevision((value) => value + 1);
+    if (!enabled) {
+      setActiveActionRequest((current) => current?.plugin.id === pluginId ? null : current);
+    }
+    try {
+      await api.pluginSetState(pluginId, enabled);
+      try {
+        await refresh({ force: true });
+      } catch {
+        // Keep the optimistic UI state if the follow-up catalog refresh fails.
+      }
+      if (mountedRef.current) {
+        setPendingPluginStates((prev) => {
+          const next = { ...prev };
+          delete next[pluginId];
+          return next;
+        });
+      }
+    } catch (error) {
+      if (mountedRef.current) {
+        setPendingPluginStates((prev) => {
+          const next = { ...prev };
+          delete next[pluginId];
+          return next;
+        });
+      }
+      await refresh({ force: true, silent: true });
+      throw error;
+    }
   }, [refresh]);
 
   const plugins = catalog?.plugins || [];
@@ -306,6 +370,7 @@ export function PluginProvider({ locale, activeTab, children }: { locale: string
 
   const value = useMemo<PluginRuntimeValue>(() => ({
     catalog,
+    catalogRevision,
     plugins,
     loading,
     error,
@@ -318,9 +383,10 @@ export function PluginProvider({ locale, activeTab, children }: { locale: string
     activeActionRequest,
     actionStatus,
     pluginTabs,
+    pendingPluginStates,
     locale,
     activeTab
-  }), [catalog, plugins, loading, error, refresh, setPluginEnabled, getSlotContributions, getActionContributions, runPluginAction, closePluginAction, activeActionRequest, actionStatus, pluginTabs, locale, activeTab]);
+  }), [catalog, catalogRevision, plugins, loading, error, refresh, setPluginEnabled, getSlotContributions, getActionContributions, runPluginAction, closePluginAction, activeActionRequest, actionStatus, pluginTabs, pendingPluginStates, locale, activeTab]);
 
   return <PluginRuntimeContext.Provider value={value}>{children}</PluginRuntimeContext.Provider>;
 }
@@ -357,9 +423,29 @@ export function PluginFrame({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [height, setHeight] = useState(defaultHeight);
   const [themeMode, setThemeMode] = useState<"dark" | "light">(getThemeMode());
+  const [themeVariables, setThemeVariables] = useState<Record<string, string>>(() => getThemeVariables());
+
+  const sendContext = useCallback((requestId?: string) => {
+    postMessageToFrame(iframeRef.current, {
+      type: "context",
+      requestId,
+      context: {
+        pluginId: plugin.id,
+        locale,
+        theme: themeMode,
+        themeVariables,
+        activeTab,
+        grantedPermissions: plugin.grantedPermissions,
+        payload: contextPayload
+      }
+    });
+  }, [plugin.id, plugin.grantedPermissions, locale, themeMode, themeVariables, activeTab, contextPayload]);
 
   useEffect(() => {
-    const onThemeChange = () => setThemeMode(getThemeMode());
+    const onThemeChange = () => {
+      setThemeMode(getThemeMode());
+      setThemeVariables(getThemeVariables());
+    };
     window.addEventListener("theme-change", onThemeChange);
     return () => window.removeEventListener("theme-change", onThemeChange);
   }, []);
@@ -379,23 +465,15 @@ export function PluginFrame({
 
   useEffect(() => {
     const onMessage = async (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
       const msg = event.data as Record<string, unknown> | null;
       if (!msg || msg.__velliumPlugin !== true) return;
+      const sameFrame = event.source === iframeRef.current?.contentWindow;
+      const samePlugin = String(msg.pluginId || "").trim() === plugin.id;
+      if (!sameFrame && !samePlugin) return;
       const type = String(msg.type || "");
       const requestId = msg.requestId ? String(msg.requestId) : undefined;
       if (type === "ready" || type === "get-context") {
-        postMessageToFrame(iframeRef.current, {
-          type: "context",
-          requestId,
-          context: {
-            pluginId: plugin.id,
-            locale,
-            theme: themeMode,
-            activeTab,
-            payload: contextPayload
-          }
-        });
+        sendContext(requestId);
         return;
       }
       if (type === "resize") {
@@ -427,20 +505,11 @@ export function PluginFrame({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [plugin.id, locale, themeMode, activeTab, contextPayload]);
+  }, [plugin.id, locale, themeMode, themeVariables, activeTab, contextPayload, sendContext]);
 
   useEffect(() => {
-    postMessageToFrame(iframeRef.current, {
-      type: "context",
-      context: {
-        pluginId: plugin.id,
-        locale,
-        theme: themeMode,
-        activeTab,
-        payload: contextPayload
-      }
-    });
-  }, [plugin.id, locale, themeMode, activeTab, contextPayload]);
+    sendContext();
+  }, [sendContext]);
 
   const frame = (
     <iframe
@@ -450,6 +519,7 @@ export function PluginFrame({
       sandbox="allow-same-origin allow-scripts allow-forms allow-downloads"
       className={className || "plugin-frame"}
       style={{ height }}
+      onLoad={() => sendContext()}
     />
   );
 
@@ -512,7 +582,7 @@ export function PluginActionToastHost() {
 }
 
 export function PluginActionModalHost() {
-  const { activeActionRequest, closePluginAction, activeTab, locale } = usePlugins();
+  const { activeActionRequest, closePluginAction, activeTab, locale, catalogRevision } = usePlugins();
   if (!activeActionRequest) return null;
   const { plugin, action, payload } = activeActionRequest;
   return (
@@ -547,7 +617,7 @@ export function PluginActionModalHost() {
             actionId: action.id,
             actionLocation: action.location
           }}
-          instanceKey={`action:${plugin.id}:${action.id}`}
+          instanceKey={`action:${plugin.id}:${action.id}:${catalogRevision}`}
           className="plugin-action-frame"
         />
       </div>
@@ -564,14 +634,14 @@ export function PluginSlotMount({
   contextPayload?: Record<string, unknown>;
   instanceKey?: string;
 }) {
-  const { getSlotContributions, activeTab, locale } = usePlugins();
+  const { getSlotContributions, activeTab, locale, catalogRevision } = usePlugins();
   const items = getSlotContributions(slotId);
   if (items.length === 0) return null;
   return (
     <div className="plugin-slot-stack">
       {items.map(({ plugin, slot }) => (
         <PluginFrame
-          key={`${plugin.id}:${slot.id}:${instanceKey || "default"}`}
+          key={`${plugin.id}:${slot.id}:${instanceKey || "default"}:${catalogRevision}`}
           plugin={plugin}
           url={slot.url}
           title={slot.title}

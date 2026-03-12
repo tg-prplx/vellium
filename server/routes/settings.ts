@@ -31,6 +31,33 @@ function normalizePluginStates(raw: unknown): Record<string, boolean> {
   return out;
 }
 
+function normalizePluginStateConfigured(raw: unknown, rawStates?: unknown): Record<string, boolean> {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const out: Record<string, boolean> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      const id = String(key || "").trim();
+      if (!id) continue;
+      out[id] = value === true;
+    }
+    return out;
+  }
+
+  // Legacy migration: previously persisted `true` values may have been produced
+  // by buggy flows or manifest defaults. We only trust explicit stored `false`
+  // states as already-configured; everything else requires a fresh opt-in.
+  if (rawStates && typeof rawStates === "object" && !Array.isArray(rawStates)) {
+    const out: Record<string, boolean> = {};
+    for (const [key, value] of Object.entries(rawStates as Record<string, unknown>)) {
+      const id = String(key || "").trim();
+      if (!id) continue;
+      out[id] = value === false;
+    }
+    return out;
+  }
+
+  return { ...DEFAULT_SETTINGS.pluginStateConfigured };
+}
+
 function normalizePluginData(raw: unknown): Record<string, Record<string, unknown>> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_SETTINGS.pluginData };
   const out: Record<string, Record<string, unknown>> = {};
@@ -38,6 +65,23 @@ function normalizePluginData(raw: unknown): Record<string, Record<string, unknow
     const id = String(pluginId || "").trim();
     if (!id || !value || typeof value !== "object" || Array.isArray(value)) continue;
     out[id] = { ...(value as Record<string, unknown>) };
+  }
+  return out;
+}
+
+function normalizePluginPermissionGrants(raw: unknown): Record<string, Record<string, boolean>> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ...DEFAULT_SETTINGS.pluginPermissionGrants };
+  const out: Record<string, Record<string, boolean>> = {};
+  for (const [pluginId, value] of Object.entries(raw as Record<string, unknown>)) {
+    const id = String(pluginId || "").trim();
+    if (!id || !value || typeof value !== "object" || Array.isArray(value)) continue;
+    const grants: Record<string, boolean> = {};
+    for (const [permission, enabled] of Object.entries(value as Record<string, unknown>)) {
+      const key = String(permission || "").trim();
+      if (!key) continue;
+      grants[key] = enabled === true;
+    }
+    out[id] = grants;
   }
   return out;
 }
@@ -88,7 +132,15 @@ function getSettings() {
     promptStack,
     security: normalizeSecuritySettings({ ...DEFAULT_SETTINGS.security, ...(stored.security ?? {}) }),
     pluginStates: normalizePluginStates({ ...DEFAULT_SETTINGS.pluginStates, ...(stored.pluginStates ?? {}) }),
+    pluginStateConfigured: normalizePluginStateConfigured(
+      { ...DEFAULT_SETTINGS.pluginStateConfigured, ...(stored.pluginStateConfigured ?? {}) },
+      stored.pluginStates
+    ),
     pluginData: normalizePluginData({ ...DEFAULT_SETTINGS.pluginData, ...(stored.pluginData ?? {}) }),
+    pluginPermissionGrants: normalizePluginPermissionGrants({
+      ...DEFAULT_SETTINGS.pluginPermissionGrants,
+      ...(stored.pluginPermissionGrants ?? {})
+    }),
     customInspectorFields: normalizeCustomInspectorFields(stored.customInspectorFields),
     customEndpointAdapters: normalizeCustomEndpointAdapters(stored.customEndpointAdapters),
     mcpServers
@@ -289,9 +341,17 @@ router.patch("/", (req, res) => {
       ...current.pluginStates,
       ...((patchData as { pluginStates?: Record<string, unknown> }).pluginStates ?? {})
     }),
+    pluginStateConfigured: normalizePluginStateConfigured({
+      ...current.pluginStateConfigured,
+      ...((patchData as { pluginStateConfigured?: Record<string, unknown> }).pluginStateConfigured ?? {})
+    }),
     pluginData: normalizePluginData({
       ...current.pluginData,
       ...((patchData as { pluginData?: Record<string, Record<string, unknown>> }).pluginData ?? {})
+    }),
+    pluginPermissionGrants: normalizePluginPermissionGrants({
+      ...current.pluginPermissionGrants,
+      ...((patchData as { pluginPermissionGrants?: Record<string, Record<string, boolean>> }).pluginPermissionGrants ?? {})
     }),
     customInspectorFields: normalizeCustomInspectorFields(
       (patchData as { customInspectorFields?: unknown }).customInspectorFields ?? current.customInspectorFields

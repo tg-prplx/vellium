@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { isPluginDevAutoRefreshEnabled, PluginSlotMount, setPluginDevAutoRefreshEnabled, usePlugins } from "../plugins/PluginHost";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
-import type { ApiParamPolicy, AppSettings, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
+import type { ApiParamPolicy, AppSettings, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PluginSettingsFieldContribution, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="mb-1.5 block text-xs font-medium text-text-secondary">{children}</label>;
@@ -152,6 +152,17 @@ function scrollToSettingsSection(id: string) {
   node.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+async function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 const HIGH_RISK_PLUGIN_PERMISSIONS = new Set(["api.write", "pluginSettings.write"]);
 const MEDIUM_RISK_PLUGIN_PERMISSIONS = new Set(["pluginSettings.read"]);
 
@@ -161,9 +172,68 @@ function pluginPermissionTone(permission: string): "high" | "medium" | "normal" 
   return "normal";
 }
 
+function pluginPermissionDescription(t: (key: any) => string, permission: string): string {
+  switch (permission) {
+    case "api.read":
+      return t("settings.pluginPermissionHelp.api.read");
+    case "api.write":
+      return t("settings.pluginPermissionHelp.api.write");
+    case "pluginSettings.read":
+      return t("settings.pluginPermissionHelp.pluginSettings.read");
+    case "pluginSettings.write":
+      return t("settings.pluginPermissionHelp.pluginSettings.write");
+    case "host.resize":
+      return t("settings.pluginPermissionHelp.host.resize");
+    default:
+      return permission;
+  }
+}
+
+function buildPluginSettingsDraft(
+  plugin: PluginDescriptor,
+  current: Record<string, unknown>
+): Record<string, string | number | boolean> {
+  const draft: Record<string, string | number | boolean> = {};
+  for (const field of plugin.settingsFields) {
+    const stored = current[field.key];
+    if (typeof stored === "boolean" || typeof stored === "number" || typeof stored === "string") {
+      draft[field.key] = stored;
+      continue;
+    }
+    if (field.defaultValue !== undefined) {
+      draft[field.key] = field.defaultValue;
+      continue;
+    }
+    draft[field.key] = field.type === "toggle" ? false : field.type === "number" || field.type === "range" ? 0 : "";
+  }
+  return draft;
+}
+
+function sanitizePluginSettingsFieldValue(
+  field: PluginSettingsFieldContribution,
+  raw: string | number | boolean
+): string | number | boolean {
+  if (field.type === "toggle") return raw === true;
+  if (field.type === "number" || field.type === "range") {
+    const value = Number(raw);
+    const fallback = typeof field.defaultValue === "number" ? field.defaultValue : field.min ?? 0;
+    if (!Number.isFinite(value)) return fallback;
+    const min = typeof field.min === "number" && Number.isFinite(field.min) ? field.min : value;
+    const max = typeof field.max === "number" && Number.isFinite(field.max) ? field.max : value;
+    return Math.max(min, Math.min(max, value));
+  }
+  return String(raw ?? "");
+}
+
+function buildPluginPermissionDraft(plugin: PluginDescriptor): Record<string, boolean> {
+  return Object.fromEntries(
+    plugin.requestedPermissions.map((permission) => [permission, plugin.grantedPermissions.includes(permission)])
+  );
+}
+
 export function SettingsScreen() {
   const { t } = useI18n();
-  const { catalog: pluginCatalog, plugins, loading: pluginsLoading, error: pluginError, setPluginEnabled, refresh: refreshPlugins } = usePlugins();
+  const { catalog: pluginCatalog, plugins, loading: pluginsLoading, error: pluginError, setPluginEnabled, refresh: refreshPlugins, pendingPluginStates } = usePlugins();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [providerResult, setProviderResult] = useState("");
   const [resultVariant, setResultVariant] = useState<"info" | "success" | "error">("info");
@@ -183,6 +253,17 @@ export function SettingsScreen() {
     () => PROVIDER_PRESETS.find((p) => p.key === selectedPresetKey) ?? PROVIDER_PRESETS[0],
     [selectedPresetKey]
   );
+  const pluginThemes = useMemo(() => {
+    return plugins
+      .flatMap((plugin) => plugin.themes.map((theme) => ({
+        id: `${plugin.id}:${theme.id}`,
+        label: `${plugin.name} · ${theme.label}`,
+        description: theme.description,
+        pluginId: plugin.id,
+        themeId: theme.id
+      })))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [plugins]);
 
   const [providerId, setProviderId] = useState(selectedPreset.defaultId);
   const [providerName, setProviderName] = useState(selectedPreset.defaultName);
@@ -206,6 +287,16 @@ export function SettingsScreen() {
   const [quickJumpFilter, setQuickJumpFilter] = useState("");
   const [draggedPromptBlockId, setDraggedPromptBlockId] = useState<string | null>(null);
   const [pluginDevAutoRefresh, setPluginDevAutoRefresh] = useState<boolean>(isPluginDevAutoRefreshEnabled());
+  const [pluginSettingsPlugin, setPluginSettingsPlugin] = useState<PluginDescriptor | null>(null);
+  const [pluginSettingsDraft, setPluginSettingsDraft] = useState<Record<string, string | number | boolean>>({});
+  const [pluginSettingsLoading, setPluginSettingsLoading] = useState(false);
+  const [pluginSettingsSaving, setPluginSettingsSaving] = useState(false);
+  const [pluginPermissionsPlugin, setPluginPermissionsPlugin] = useState<PluginDescriptor | null>(null);
+  const [pluginPermissionsDraft, setPluginPermissionsDraft] = useState<Record<string, boolean>>({});
+  const [pluginPermissionsSaving, setPluginPermissionsSaving] = useState(false);
+  const [pluginPermissionsEnableAfterSave, setPluginPermissionsEnableAfterSave] = useState(false);
+  const [pluginInstallBusy, setPluginInstallBusy] = useState(false);
+  const pluginInstallInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -226,6 +317,103 @@ export function SettingsScreen() {
     setResultVariant(variant);
   }
 
+  async function openPluginSettings(plugin: PluginDescriptor) {
+    if (plugin.settingsFields.length === 0) return;
+    setPluginSettingsPlugin(plugin);
+    setPluginSettingsLoading(true);
+    try {
+      const current = await api.pluginGetSettings(plugin.id);
+      setPluginSettingsDraft(buildPluginSettingsDraft(plugin, current));
+    } catch (error) {
+      showResult(String(error), "error");
+      setPluginSettingsPlugin(null);
+    } finally {
+      setPluginSettingsLoading(false);
+    }
+  }
+
+  async function savePluginSettings() {
+    if (!pluginSettingsPlugin) return;
+    setPluginSettingsSaving(true);
+    try {
+      const payload = Object.fromEntries(
+        pluginSettingsPlugin.settingsFields.map((field) => [
+          field.key,
+          sanitizePluginSettingsFieldValue(field, pluginSettingsDraft[field.key] ?? field.defaultValue ?? "")
+        ])
+      );
+      await api.pluginPatchSettings(pluginSettingsPlugin.id, payload);
+      showResult(t("settings.pluginSettingsSaved"), "success");
+      setPluginSettingsPlugin(null);
+    } catch (error) {
+      showResult(String(error), "error");
+    } finally {
+      setPluginSettingsSaving(false);
+    }
+  }
+
+  function openPluginPermissions(plugin: PluginDescriptor, options?: { enableAfterSave?: boolean }) {
+    setPluginPermissionsPlugin(plugin);
+    setPluginPermissionsDraft(buildPluginPermissionDraft(plugin));
+    setPluginPermissionsEnableAfterSave(options?.enableAfterSave === true && !plugin.enabled);
+  }
+
+  async function savePluginPermissions() {
+    if (!pluginPermissionsPlugin) return;
+    setPluginPermissionsSaving(true);
+    try {
+      const result = await api.pluginPatchPermissions(pluginPermissionsPlugin.id, pluginPermissionsDraft);
+      const nextGranted = result.granted ?? [];
+      const nextConfigured = result.configured === true;
+      const targetPluginId = pluginPermissionsPlugin.id;
+      const targetEnabled = pluginPermissionsEnableAfterSave && !pluginPermissionsPlugin.enabled;
+      const targetPluginName = pluginPermissionsPlugin.name;
+      setPluginPermissionsPlugin(null);
+      setPluginPermissionsEnableAfterSave(false);
+      await refreshPlugins({ force: true, silent: true }).catch(() => {
+        // Ignore follow-up refresh failures; the permission save already succeeded.
+      });
+      if (targetEnabled) {
+        await setPluginEnabled(targetPluginId, true);
+      }
+      showResult(`${targetPluginName}: ${t("settings.pluginPermissionsSaved")} (${nextGranted.length}${nextConfigured ? "" : "*"})`, "success");
+    } catch (error) {
+      showResult(error instanceof Error ? error.message : String(error), "error");
+    } finally {
+      setPluginPermissionsSaving(false);
+    }
+  }
+
+  async function installPluginfile(file: File) {
+    setPluginInstallBusy(true);
+    try {
+      const rawJson = await file.text();
+      const parsed = JSON.parse(rawJson) as unknown;
+      const result = await api.pluginInstallPluginfile(parsed);
+      await refreshPlugins({ force: true, silent: true }).catch(() => {
+        // ignore follow-up refresh failures; install already succeeded
+      });
+      showResult(`${t("settings.pluginInstalled")}: ${result.plugin.name}`, "success");
+    } catch (error) {
+      showResult(error instanceof Error ? error.message : String(error), "error");
+    } finally {
+      setPluginInstallBusy(false);
+      if (pluginInstallInputRef.current) {
+        pluginInstallInputRef.current.value = "";
+      }
+    }
+  }
+
+  async function exportPluginfile(plugin: PluginDescriptor) {
+    try {
+      const blob = await api.pluginExportPluginfile(plugin.id);
+      await triggerBlobDownload(blob, `${plugin.id}.pluginfile.json`);
+      showResult(`${t("settings.pluginfileExported")}: ${plugin.name}`, "success");
+    } catch (error) {
+      showResult(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
   function applyPresetToForm(preset: ProviderPreset) {
     setSelectedPresetKey(preset.key);
     setProviderId(preset.defaultId);
@@ -244,8 +432,8 @@ export function SettingsScreen() {
   async function patch(next: Partial<AppSettings>) {
     const updated = await api.settingsUpdate(next);
     setSettings(updated);
-    if (next.theme !== undefined) {
-      window.dispatchEvent(new CustomEvent("theme-change", { detail: next.theme }));
+    if (next.theme !== undefined || next.pluginThemeId !== undefined) {
+      window.dispatchEvent(new CustomEvent("theme-change", { detail: updated }));
     }
   }
 
@@ -1085,9 +1273,26 @@ export function SettingsScreen() {
                     <SelectField value={settings.theme} onChange={(v) => patch({ theme: v as AppSettings["theme"] })}>
                       <option value="dark">{t("settings.dark")}</option>
                       <option value="light">{t("settings.light")}</option>
-                      <option value="custom">{t("settings.custom")}</option>
+                      <option value="custom">{t("settings.themePlugin")}</option>
                     </SelectField>
                   </div>
+                  {settings.theme === "custom" && (
+                    <div>
+                      <FieldLabel>{t("settings.pluginTheme")}</FieldLabel>
+                      {pluginThemes.length === 0 ? (
+                        <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-tertiary">
+                          {t("settings.noPluginThemes")}
+                        </div>
+                      ) : (
+                        <SelectField value={settings.pluginThemeId || ""} onChange={(v) => patch({ pluginThemeId: v || null })}>
+                          <option value="">{t("settings.selectPluginTheme")}</option>
+                          {pluginThemes.map((theme) => (
+                            <option key={theme.id} value={theme.id}>{theme.label}</option>
+                          ))}
+                        </SelectField>
+                      )}
+                    </div>
+                  )}
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
                       <FieldLabel>{t("settings.textSize")}</FieldLabel>
@@ -1531,6 +1736,24 @@ export function SettingsScreen() {
                     <p className="mt-1 text-[10px] text-text-tertiary">{t("settings.pluginsDesc")}</p>
                   </div>
                   <div className="flex items-center gap-2">
+                    <input
+                      ref={pluginInstallInputRef}
+                      type="file"
+                      accept=".json,.pluginfile.json,application/json"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        void installPluginfile(file);
+                      }}
+                    />
+                    <button
+                      onClick={() => pluginInstallInputRef.current?.click()}
+                      disabled={pluginInstallBusy}
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {t("settings.installPluginfile")}
+                    </button>
                     <button
                       onClick={() => { void refreshPlugins({ force: true }).then(() => showResult(t("settings.pluginsReloaded"), "success")).catch((err) => showResult(String(err), "error")); }}
                       disabled={pluginsLoading}
@@ -1566,6 +1789,10 @@ export function SettingsScreen() {
                     <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.pluginSdk")}</div>
                     <div className="mt-1 break-all text-xs text-text-primary">{pluginCatalog?.sdkUrl || "/api/plugins/sdk.js"}</div>
                   </div>
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 md:col-span-2">
+                    <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.bundledPluginsDir")}</div>
+                    <div className="mt-1 break-all text-xs text-text-primary">{pluginCatalog?.bundledPluginsDir || "—"}</div>
+                  </div>
                 </div>
                 <div className="mb-3 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
                   <div className="settings-toggle-row">
@@ -1597,31 +1824,35 @@ export function SettingsScreen() {
                             <div className="flex items-center gap-2">
                               <div className="truncate text-sm font-semibold text-text-primary">{plugin.name}</div>
                               <span className="rounded-md border border-border-subtle bg-bg-secondary px-1.5 py-0.5 text-[10px] text-text-secondary">v{plugin.version}</span>
+                              <span className="rounded-md border border-border-subtle bg-bg-secondary px-1.5 py-0.5 text-[10px] text-text-secondary">
+                                {plugin.source === "bundled" ? t("settings.pluginBundled") : t("settings.pluginUser")}
+                              </span>
                             </div>
                             <div className="mt-1 text-[11px] text-text-tertiary">{plugin.description || t("settings.pluginsNoDescription")}</div>
                             <div className="mt-2 text-[10px] text-text-tertiary">
-                              {t("settings.pluginCapabilities")}: {plugin.tabs.length} {t("settings.pluginTabsCount")} · {plugin.slots.length} {t("settings.pluginSlotsCount")} · {plugin.actions.length} {t("settings.pluginActionsCount")}
+                              {t("settings.pluginCapabilities")}: {plugin.tabs.length} {t("settings.pluginTabsCount")} · {plugin.slots.length} {t("settings.pluginSlotsCount")} · {plugin.actions.length} {t("settings.pluginActionsCount")} · {plugin.themes.length} {t("settings.pluginThemesCount")}
                             </div>
                             <div className="mt-2">
                               <div className="text-[10px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.pluginPermissions")}</div>
                               <div className="mt-1 flex flex-wrap gap-1">
-                                {plugin.permissions.map((permission) => {
+                                {plugin.requestedPermissions.map((permission) => {
                                   const tone = pluginPermissionTone(permission);
+                                  const granted = plugin.grantedPermissions.includes(permission);
                                   const className =
                                     tone === "high"
-                                      ? "border-danger-border bg-danger-subtle text-danger"
+                                      ? granted ? "border-danger-border bg-danger-subtle text-danger" : "border-danger-border/50 bg-transparent text-danger/60"
                                       : tone === "medium"
-                                        ? "border-warning-border bg-warning-subtle text-warning"
-                                        : "border-border-subtle bg-bg-secondary text-text-secondary";
+                                        ? granted ? "border-warning-border bg-warning-subtle text-warning" : "border-warning-border/50 bg-transparent text-warning/60"
+                                        : granted ? "border-border-subtle bg-bg-secondary text-text-secondary" : "border-border-subtle bg-transparent text-text-tertiary";
                                   return (
                                     <span key={permission} className={`rounded-full border px-2 py-0.5 text-[10px] ${className}`}>
-                                      {permission}
+                                      {permission}{granted ? "" : ` · ${t("settings.pluginPermissionDenied")}`}
                                     </span>
                                   );
                                 })}
                               </div>
                             </div>
-                            {plugin.permissions.some((permission) => HIGH_RISK_PLUGIN_PERMISSIONS.has(permission)) && (
+                            {plugin.requestedPermissions.some((permission) => HIGH_RISK_PLUGIN_PERMISSIONS.has(permission)) && (
                               <div className="mt-2 rounded-lg border border-danger-border bg-danger-subtle px-2.5 py-2 text-[11px] text-danger">
                                 {t("settings.pluginHighTrustWarning")}
                               </div>
@@ -1639,7 +1870,37 @@ export function SettingsScreen() {
                               </div>
                             )}
                           </div>
-                          <ToggleSwitch checked={plugin.enabled} onChange={(e) => { void setPluginEnabled(plugin.id, e.target.checked); }} />
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => { void exportPluginfile(plugin); }}
+                              className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
+                            >
+                              {t("settings.exportPluginfile")}
+                            </button>
+                            {plugin.requestedPermissions.length > 0 && (
+                              <button
+                                onClick={() => openPluginPermissions(plugin)}
+                                className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
+                              >
+                                {t("settings.pluginPermissionsManage")}
+                              </button>
+                            )}
+                            {plugin.settingsFields.length > 0 && (
+                              <button
+                                onClick={() => { void openPluginSettings(plugin); }}
+                                className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
+                              >
+                                {t("settings.pluginSettings")}
+                              </button>
+                            )}
+                            <ToggleSwitch checked={plugin.enabled} disabled={Object.prototype.hasOwnProperty.call(pendingPluginStates, plugin.id)} onChange={(e) => {
+                              if (e.target.checked && plugin.requestedPermissions.length > 0 && !plugin.permissionsConfigured) {
+                                openPluginPermissions(plugin, { enableAfterSave: true });
+                                return;
+                              }
+                              void setPluginEnabled(plugin.id, e.target.checked);
+                            }} />
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1762,6 +2023,177 @@ export function SettingsScreen() {
               </div>
 
               <PluginSlotMount slotId="settings.bottom" />
+            </div>
+          )}
+
+          {pluginPermissionsPlugin && (
+            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-4">
+              <div className="modal-pop w-full max-w-xl rounded-2xl border border-border bg-bg-secondary shadow-2xl">
+                <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-4">
+                  <div className="min-w-0">
+                    <div className="text-lg font-semibold text-text-primary">{pluginPermissionsPlugin.name}</div>
+                    <div className="mt-1 text-xs text-text-tertiary">{t("settings.pluginPermissionsDesc")}</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setPluginPermissionsPlugin(null);
+                      setPluginPermissionsEnableAfterSave(false);
+                    }}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover"
+                  >
+                    {t("settings.pluginPermissionsCancel")}
+                  </button>
+                </div>
+                <div className="max-h-[70vh] space-y-3 overflow-auto px-5 py-4">
+                  {pluginPermissionsPlugin.requestedPermissions.map((permission) => {
+                    const tone = pluginPermissionTone(permission);
+                    const badgeClass =
+                      tone === "high"
+                        ? "border-danger-border bg-danger-subtle text-danger"
+                        : tone === "medium"
+                          ? "border-warning-border bg-warning-subtle text-warning"
+                          : "border-border-subtle bg-bg-secondary text-text-secondary";
+                    return (
+                      <div key={permission} className="rounded-xl border border-border-subtle bg-bg-primary px-3 py-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`rounded-full border px-2 py-0.5 text-[10px] ${badgeClass}`}>{permission}</span>
+                            </div>
+                            <div className="mt-2 text-xs text-text-tertiary">
+                              {pluginPermissionDescription(t, permission)}
+                            </div>
+                          </div>
+                          <ToggleSwitch
+                            checked={pluginPermissionsDraft[permission] === true}
+                            onChange={(e) => setPluginPermissionsDraft((prev) => ({ ...prev, [permission]: e.target.checked }))}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t border-border-subtle px-5 py-4">
+                  <div className="text-xs text-text-tertiary">
+                    {pluginPermissionsEnableAfterSave ? t("settings.pluginPermissionsEnableHint") : t("settings.pluginPermissionsRuntimeHint")}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setPluginPermissionsPlugin(null);
+                        setPluginPermissionsEnableAfterSave(false);
+                      }}
+                      className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover"
+                    >
+                      {t("settings.pluginPermissionsCancel")}
+                    </button>
+                    <button
+                      onClick={() => void savePluginPermissions()}
+                      disabled={pluginPermissionsSaving}
+                      className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-60"
+                    >
+                      {pluginPermissionsSaving ? t("settings.pluginPermissionsSaving") : t("settings.pluginPermissionsSave")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {pluginSettingsPlugin && (
+            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-4">
+              <div className="modal-pop w-full max-w-2xl rounded-2xl border border-border bg-bg-secondary shadow-2xl">
+                <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-4">
+                  <div className="min-w-0">
+                    <div className="text-lg font-semibold text-text-primary">{pluginSettingsPlugin.name}</div>
+                    <div className="mt-1 text-xs text-text-tertiary">{t("settings.pluginSettingsDesc")}</div>
+                  </div>
+                  <button
+                    onClick={() => setPluginSettingsPlugin(null)}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover"
+                  >
+                    {t("settings.pluginSettingsCancel")}
+                  </button>
+                </div>
+                <div className="max-h-[70vh] space-y-4 overflow-auto px-5 py-4">
+                  {pluginSettingsLoading ? (
+                    <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-sm text-text-tertiary">{t("settings.pluginSettingsLoading")}</div>
+                  ) : (
+                    pluginSettingsPlugin.settingsFields.map((field) => {
+                      const value = pluginSettingsDraft[field.key];
+                      return (
+                        <div key={field.id} className="settings-field-group">
+                          <FieldLabel>{field.label}</FieldLabel>
+                          {field.type === "toggle" ? (
+                            <div className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
+                              <div className="min-w-0 text-xs text-text-secondary">{field.description || field.placeholder || ""}</div>
+                              <ToggleSwitch
+                                checked={value === true}
+                                onChange={(e) => setPluginSettingsDraft((prev) => ({ ...prev, [field.key]: e.target.checked }))}
+                              />
+                            </div>
+                          ) : field.type === "select" ? (
+                            <SelectField value={String(value ?? "")} onChange={(next) => setPluginSettingsDraft((prev) => ({ ...prev, [field.key]: next }))}>
+                              <option value="">{field.placeholder || "—"}</option>
+                              {(field.options || []).map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </SelectField>
+                          ) : field.type === "textarea" ? (
+                            <textarea
+                              value={String(value ?? "")}
+                              onChange={(e) => setPluginSettingsDraft((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                              rows={field.rows || 4}
+                              placeholder={field.placeholder}
+                              className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary"
+                            />
+                          ) : field.type === "number" || field.type === "range" ? (
+                            <div className="space-y-2">
+                              <input
+                                type={field.type}
+                                min={field.min}
+                                max={field.max}
+                                step={field.step}
+                                value={Number(value ?? field.defaultValue ?? 0)}
+                                onChange={(e) => setPluginSettingsDraft((prev) => ({ ...prev, [field.key]: Number(e.target.value) }))}
+                                className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
+                              />
+                              {field.type === "range" && (
+                                <div className="text-xs text-text-tertiary">{Number(value ?? field.defaultValue ?? 0)}</div>
+                              )}
+                            </div>
+                          ) : (
+                            <InputField
+                              type={field.type === "secret" ? "password" : "text"}
+                              value={String(value ?? "")}
+                              onChange={(next) => setPluginSettingsDraft((prev) => ({ ...prev, [field.key]: next }))}
+                              placeholder={field.placeholder}
+                            />
+                          )}
+                          {field.description && field.type !== "toggle" && (
+                            <div className="mt-1 text-[11px] text-text-tertiary">{field.description}</div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                <div className="flex items-center justify-end gap-2 border-t border-border-subtle px-5 py-4">
+                  <button
+                    onClick={() => setPluginSettingsPlugin(null)}
+                    className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover"
+                  >
+                    {t("settings.pluginSettingsCancel")}
+                  </button>
+                  <button
+                    onClick={() => void savePluginSettings()}
+                    disabled={pluginSettingsLoading || pluginSettingsSaving}
+                    className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-60"
+                  >
+                    {pluginSettingsSaving ? t("settings.pluginSettingsSaving") : t("settings.pluginSettingsSave")}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

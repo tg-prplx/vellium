@@ -1411,13 +1411,22 @@ async function streamLlmResponse(
 
   let systemPrompt: string;
   let apiMessages;
+  const characterSystemPrompt = String(currentCharCard?.systemPrompt || "").trim();
+  const resolvedBaseSystemPrompt = systemBlockContent
+    || characterSystemPrompt
+    || String(settings.defaultSystemPrompt || "").trim();
+  const promptCharacterCard = systemBlockContent || !characterSystemPrompt
+    ? currentCharCard
+    : currentCharCard
+      ? { ...currentCharCard, systemPrompt: "" }
+      : null;
 
   if (pureChatMode) {
     systemPrompt = buildSillyTavernCompatiblePurePrompt({
-      baseSystemPrompt: systemBlockContent,
-      currentCharacter: currentCharCard,
+      baseSystemPrompt: resolvedBaseSystemPrompt,
+      currentCharacter: promptCharacterCard,
       characterCards,
-      currentCharacterName: overrideCharacterName || currentCharCard?.name,
+      currentCharacterName: overrideCharacterName || promptCharacterCard?.name,
       userName: resolvedUserName,
       ragAppendix,
       isAutoConvo,
@@ -1434,7 +1443,7 @@ async function streamLlmResponse(
         "",
         contextSummary,
         resolvedUserName,
-        currentCharCard?.postHistoryInstructions
+        promptCharacterCard?.postHistoryInstructions
       );
     } else {
       apiMessages = buildMessageArray(
@@ -1442,17 +1451,17 @@ async function streamLlmResponse(
         promptTimelineForModel,
         "",
         contextSummary,
-        currentCharCard?.name,
+        promptCharacterCard?.name,
         resolvedUserName,
-        currentCharCard?.postHistoryInstructions
+        promptCharacterCard?.postHistoryInstructions
       );
     }
   } else if (lightRpMode) {
     systemPrompt = buildSillyTavernCompatibleLightPrompt({
-      baseSystemPrompt: systemBlockContent || settings.defaultSystemPrompt,
-      currentCharacter: currentCharCard,
+      baseSystemPrompt: resolvedBaseSystemPrompt,
+      currentCharacter: promptCharacterCard,
       characterCards,
-      currentCharacterName: overrideCharacterName || currentCharCard?.name,
+      currentCharacterName: overrideCharacterName || promptCharacterCard?.name,
       userName: resolvedUserName,
       responseLanguage: settings.responseLanguage,
       sceneState,
@@ -1472,7 +1481,7 @@ async function streamLlmResponse(
         "",
         contextSummary,
         resolvedUserName,
-        currentCharCard?.postHistoryInstructions
+        promptCharacterCard?.postHistoryInstructions
       );
     } else {
       apiMessages = buildMessageArray(
@@ -1480,9 +1489,9 @@ async function streamLlmResponse(
         promptTimelineForModel,
         "",
         contextSummary,
-        currentCharCard?.name,
+        promptCharacterCard?.name,
         resolvedUserName,
-        currentCharCard?.postHistoryInstructions
+        promptCharacterCard?.postHistoryInstructions
       );
     }
   } else {
@@ -1490,14 +1499,14 @@ async function streamLlmResponse(
       systemPrompt = buildMultiCharSystemPrompt(
         {
           blocks: effectiveBlocks,
-          characterCard: currentCharCard,
+          characterCard: promptCharacterCard,
           sceneState,
           authorNote,
           intensity: sceneState?.intensity ?? 0.5,
           responseLanguage: settings.responseLanguage,
           censorshipMode: settings.censorshipMode,
           contextSummary: chat?.context_summary || "",
-          defaultSystemPrompt: settings.defaultSystemPrompt,
+          defaultSystemPrompt: resolvedBaseSystemPrompt,
           strictGrounding,
           userName: resolvedUserName
         },
@@ -1516,12 +1525,12 @@ async function streamLlmResponse(
       }
     } else {
       systemPrompt = buildSystemPrompt({
-        blocks: effectiveBlocks, characterCard: currentCharCard, sceneState, authorNote,
+        blocks: effectiveBlocks, characterCard: promptCharacterCard, sceneState, authorNote,
         intensity: sceneState?.intensity ?? 0.5,
         responseLanguage: settings.responseLanguage,
         censorshipMode: settings.censorshipMode,
         contextSummary: chat?.context_summary || "",
-        defaultSystemPrompt: settings.defaultSystemPrompt,
+        defaultSystemPrompt: resolvedBaseSystemPrompt,
         strictGrounding,
         userName: resolvedUserName
       });
@@ -1541,7 +1550,7 @@ async function streamLlmResponse(
         authorNote,
         contextSummary,
         resolvedUserName,
-        currentCharCard?.postHistoryInstructions
+        promptCharacterCard?.postHistoryInstructions
       );
     } else {
       apiMessages = buildMessageArray(
@@ -1549,9 +1558,9 @@ async function streamLlmResponse(
         promptTimelineForModel,
         authorNote,
         contextSummary,
-        currentCharCard?.name,
+        promptCharacterCard?.name,
         resolvedUserName,
-        currentCharCard?.postHistoryInstructions
+        promptCharacterCard?.postHistoryInstructions
       );
     }
   }

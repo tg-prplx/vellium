@@ -80,6 +80,35 @@ function normalizeOpenAiBaseUrl(raw: string): string {
   return `${trimmed}/v1`;
 }
 
+function sanitizeHeaderFilenameAscii(name: string, fallback: string): string {
+  const clean = String(name || "")
+    .replace(/[\r\n]/g, " ")
+    .replace(/[^A-Za-z0-9._ -]/g, "-")
+    .trim();
+  return clean || fallback;
+}
+
+function encode5987Value(value: string): string {
+  return encodeURIComponent(String(value || ""))
+    .replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function buildAttachmentDisposition(filename: string, fallback: string): string {
+  const cleanName = String(filename || "").replace(/[\r\n]/g, " ").trim() || fallback;
+  const asciiName = sanitizeHeaderFilenameAscii(cleanName, fallback);
+  const utf8Name = encode5987Value(cleanName);
+  return `attachment; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`;
+}
+
+function buildFilenameBase(raw: string, fallback: string): string {
+  const clean = String(raw || "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^-+|-+$/g, "");
+  return clean || fallback;
+}
+
 function getSettings(): Record<string, unknown> {
   const row = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string } | undefined;
   if (!row) return { ...DEFAULT_SETTINGS };
@@ -382,6 +411,18 @@ router.post("/import", (req, res) => {
   } catch (e) {
     res.status(400).json({ error: String(e) });
   }
+});
+
+router.get("/:id/export/json", (req, res) => {
+  const row = db.prepare("SELECT * FROM characters WHERE id = ?").get(req.params.id) as CharacterRow | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Character not found" });
+    return;
+  }
+  const filename = `${buildFilenameBase(row.name, "character")}.json`;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", buildAttachmentDisposition(filename, "character.json"));
+  res.send(row.card_json || "{}");
 });
 
 // Get character by ID

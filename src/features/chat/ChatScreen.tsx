@@ -198,11 +198,15 @@ export function ChatScreen() {
   const modelSelectorRef = useRef<HTMLDivElement>(null);
   const modelSelectorTriggerRef = useRef<HTMLButtonElement>(null);
   const streamChunkIdRef = useRef(0);
+  const promptStackRef = useRef<PromptBlock[]>([...DEFAULT_PROMPT_STACK]);
 
   const orderedBlocks = useMemo(
     () => normalizePromptStack(promptStack),
     [promptStack]
   );
+  useEffect(() => {
+    promptStackRef.current = promptStack;
+  }, [promptStack]);
   const chatMode = resolveChatMode(sceneState);
   const pureChatMode = chatMode === "pure_chat";
   const simpleModeActive = alternateSimpleMode && !zenMode;
@@ -645,16 +649,30 @@ export function ChatScreen() {
   const savePromptStack = useCallback(
     (newBlocks: PromptBlock[]) => {
       const normalized = normalizePromptStack(newBlocks);
+      promptStackRef.current = normalized;
       setPromptStack(normalized);
       if (promptStackSaveTimerRef.current) clearTimeout(promptStackSaveTimerRef.current);
       promptStackSaveTimerRef.current = setTimeout(() => {
         api.settingsUpdate({ promptStack: normalized }).then((updated) => {
-          setPromptStack(normalizePromptStack(updated.promptStack));
+          const persisted = normalizePromptStack(updated.promptStack);
+          promptStackRef.current = persisted;
+          setPromptStack(persisted);
         }).catch(() => {});
       }, 350);
     },
     []
   );
+
+  const flushPromptStack = useCallback(async () => {
+    if (!promptStackSaveTimerRef.current) return;
+    clearTimeout(promptStackSaveTimerRef.current);
+    promptStackSaveTimerRef.current = null;
+    const normalized = normalizePromptStack(promptStackRef.current);
+    const updated = await api.settingsUpdate({ promptStack: normalized });
+    const persisted = normalizePromptStack(updated.promptStack);
+    promptStackRef.current = persisted;
+    setPromptStack(persisted);
+  }, []);
 
   async function handleCreateChat(characterId?: string, multiCharIds?: string[]) {
     const ids = multiCharIds || (characterId ? [characterId] : []);
@@ -736,6 +754,7 @@ export function ChatScreen() {
         branchId = branchList[0]?.id ?? null;
         setActiveBranchId(branchId);
       }
+      await flushPromptStack();
       await api.rpSetSceneState({ ...sceneState, chatId });
       await api.rpUpdateAuthorNote(chatId, authorNote);
 
@@ -787,6 +806,7 @@ export function ChatScreen() {
     if (!activeChat || autoConvoRunning) return;
     setErrorText("");
     try {
+      await flushPromptStack();
       startStreamingUi(null);
       const updated = await api.chatRegenerate(activeChat.id, activeBranchId || undefined, {
         onDelta: appendStreamDelta,
@@ -1110,6 +1130,7 @@ export function ChatScreen() {
     setErrorText("");
     startStreamingUi(characterName);
     try {
+      await flushPromptStack();
       const updated = await api.chatNextTurn(activeChat.id, characterName, activeBranchId || undefined, {
         onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
@@ -1125,6 +1146,7 @@ export function ChatScreen() {
   // Auto-conversation: characters take turns automatically
   async function startAutoConversation() {
     if (!activeChat || chatCharacterIds.length < 2 || autoConvoRunning || streaming) return;
+    await flushPromptStack();
     autoConvoRef.current = true;
     setAutoConvoRunning(true);
 
@@ -1963,7 +1985,7 @@ export function ChatScreen() {
                 <span className="chat-simple-blob blob-c" />
               </div>
             )}
-            {simpleModeActive && (
+            {simpleModeActive && simpleHomeState && (
               <div className="chat-simple-top-controls">
                 <button
                   onClick={() => openSimpleSidebar()}
@@ -2102,48 +2124,67 @@ export function ChatScreen() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0 flex items-center gap-2">
-                    <h2 className="chat-simple-thread-title truncate">
-                      {activeChat ? activeChat.title : t("tab.chat")}
-                    </h2>
-                    {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
-                    {!zenMode && branches.length > 0 && (
-                      <select
-                        value={activeBranchId || ""}
-                        onChange={(e) => setActiveBranchId(e.target.value || null)}
-                        className="rounded-md border border-border bg-bg-primary px-2 py-0.5 text-[10px] text-text-secondary"
-                        title={t("chat.branch")}
-                      >
-                        {branches.map((branch) => (
-                          <option key={branch.id} value={branch.id}>
-                            {branch.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
+                <div className="chat-simple-thread-bar">
+                  <button
+                    onClick={() => openSimpleSidebar()}
+                    className="chat-simple-thread-sidebar xl:hidden"
+                    title={t("chat.title")}
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                  </button>
+                  <h2 className="chat-simple-thread-title truncate">
+                    {activeChat ? activeChat.title : t("tab.chat")}
+                  </h2>
+                  {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
+                  {!zenMode && branches.length > 0 && (
+                    <select
+                      value={activeBranchId || ""}
+                      onChange={(e) => setActiveBranchId(e.target.value || null)}
+                      className="rounded-md border border-border bg-bg-primary px-2 py-0.5 text-[10px] text-text-secondary"
+                      title={t("chat.branch")}
+                    >
+                      {branches.map((branch) => (
+                        <option key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <div className="flex-1" />
+                  {activeModelLabel && (
+                    <span className="chat-simple-thread-model-badge">
+                      <span className="chat-simple-thread-model-dot" />
+                      {activeModelLabel}
+                    </span>
+                  )}
                   <div className="chat-simple-thread-actions">
                     {streaming && (
                       <button onClick={handleAbort}
-                        className="rounded-md border border-danger-border bg-danger-subtle px-2.5 py-1 text-[11px] font-medium text-danger hover:bg-danger/20">
+                        className="chat-simple-thread-action-btn is-danger">
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <rect x="6" y="6" width="12" height="12" rx="1" />
+                        </svg>
                         {t("chat.stop")}
                       </button>
                     )}
                     <button onClick={handleRegenerate}
                       disabled={streaming || autoConvoRunning || !activeChat || messages.length === 0}
-                      className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40">
-                      {t("chat.regenerate")}
+                      className="chat-simple-thread-action-btn" title={t("chat.regenerate")}>
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h4.586M20 20v-5h-4.586M4.93 9A8 8 0 0119.07 9M19.07 15A8 8 0 014.93 15" />
+                      </svg>
                     </button>
                     <button onClick={handleCompress}
                       disabled={compressing || streaming || !activeChat || messages.length < 4}
-                      className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                        compressing
-                          ? "border-accent bg-accent-subtle text-accent"
-                          : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                      } disabled:cursor-not-allowed disabled:opacity-40`}>
-                      {compressing ? t("chat.compressing") : t("chat.compress")}
+                      className={`chat-simple-thread-action-btn ${compressing ? "is-active" : ""}`}
+                      title={compressing ? t("chat.compressing") : t("chat.compress")}>
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                      </svg>
                     </button>
+                    <span className="chat-simple-thread-divider" />
                     <button
                       onClick={() => {
                         setSimpleSceneOpen((prev) => {
@@ -2152,18 +2193,25 @@ export function ChatScreen() {
                           return next;
                         });
                       }}
-                      className={`chat-simple-top-button ${simpleSceneOpen ? "is-active" : ""}`}
+                      className={`chat-simple-thread-action-btn ${simpleSceneOpen ? "is-active" : ""}`}
+                      title={t("inspector.sceneState")}
                     >
-                      {t("inspector.sceneState")}
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4" />
+                      </svg>
                     </button>
                     <button
                       onClick={() => {
                         setSimpleSceneOpen(false);
                         openSimpleInspector();
                       }}
-                      className={`chat-simple-top-button ${simpleInspectorOpen ? "is-active" : ""}`}
+                      className={`chat-simple-thread-action-btn ${simpleInspectorOpen ? "is-active" : ""}`}
+                      title={t("inspector.title")}
                     >
-                      {t("inspector.title")}
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
                     </button>
                   </div>
                 </div>
@@ -2184,134 +2232,96 @@ export function ChatScreen() {
 
             {/* Multi-character bar */}
             {!zenMode && chatCharacters.length > 0 && (!simpleModeActive || !simpleHomeState) && (
-              <div className={`chat-multi-toolbar mb-3 rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2 ${multiCharCollapsed ? "is-collapsed" : ""}`}>
-                {!multiCharCollapsed && (
-                  <div className="chat-multi-main-row">
-                    <div className="chat-multi-scroll">
-                      <div className="chat-multi-list">
-                        {chatCharacters.map((ch) => (
-                          <div
-                            key={ch.id}
-                            className={`chat-multi-item ${draggingCharacterId === ch.id ? "is-dragging" : ""}`}
-                            draggable={chatCharacters.length > 1 && !streaming && !autoConvoRunning}
-                            onDragStart={(e) => {
-                              setDraggingCharacterId(ch.id);
-                              e.dataTransfer.effectAllowed = "move";
-                            }}
-                            onDragOver={(e) => {
-                              if (!draggingCharacterId || draggingCharacterId === ch.id) return;
-                              e.preventDefault();
-                              e.dataTransfer.dropEffect = "move";
-                            }}
-                            onDrop={(e) => {
-                              e.preventDefault();
-                              if (!draggingCharacterId || draggingCharacterId === ch.id) return;
-                              void reorderCharactersInChat(draggingCharacterId, ch.id);
-                              setDraggingCharacterId(null);
-                            }}
-                            onDragEnd={() => setDraggingCharacterId(null)}
-                          >
-                            <div
-                              className="chat-multi-avatar-wrap"
-                              title={chatCharacters.length > 1 ? `${t("chat.nextTurn")}: ${ch.name}` : ch.name}
-                              onClick={() => {
-                                if (chatCharacters.length > 1 && !streaming && !autoConvoRunning) {
-                                  void handleNextTurn(ch.name);
-                                }
-                              }}
-                            >
-                              {ch.avatarUrl ? (
-                                <img src={resolveApiAssetUrl(ch.avatarUrl) ?? undefined}
-                                  alt="" className="h-8 w-8 rounded-full object-cover" />
-                              ) : (
-                                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-500/20 text-[11px] font-bold text-purple-300">
-                                  {ch.name.charAt(0).toUpperCase()}
-                                </div>
-                              )}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void removeCharacterFromChat(ch.id);
-                                }}
-                                className="chat-multi-remove-btn"
-                                title={t("chat.removeCharacter")}
-                                aria-label={t("chat.removeCharacter")}
-                              >
-                                ×
-                              </button>
-                            </div>
-                            <button
-                              onClick={() => { if (chatCharacters.length > 1) void handleNextTurn(ch.name); }}
-                              disabled={streaming || autoConvoRunning || chatCharacters.length < 2}
-                              className="chat-multi-turn-btn"
-                              title={`${t("chat.nextTurn")}: ${ch.name}`}
-                            >
-                              {ch.name}
-                            </button>
-                          </div>
-                        ))}
+              <div className="chat-multi-bar mb-3">
+                <div className="chat-multi-bar-row">
+                  <div className="chat-multi-bar-chars">
+                    {chatCharacters.map((ch) => (
+                      <div
+                        key={ch.id}
+                        className={`chat-multi-bar-chip ${draggingCharacterId === ch.id ? "is-dragging" : ""}`}
+                        draggable={chatCharacters.length > 1 && !streaming && !autoConvoRunning}
+                        onDragStart={(e) => {
+                          setDraggingCharacterId(ch.id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragOver={(e) => {
+                          if (!draggingCharacterId || draggingCharacterId === ch.id) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (!draggingCharacterId || draggingCharacterId === ch.id) return;
+                          void reorderCharactersInChat(draggingCharacterId, ch.id);
+                          setDraggingCharacterId(null);
+                        }}
+                        onDragEnd={() => setDraggingCharacterId(null)}
+                        onClick={() => {
+                          if (chatCharacters.length > 1 && !streaming && !autoConvoRunning) {
+                            void handleNextTurn(ch.name);
+                          }
+                        }}
+                        title={chatCharacters.length > 1 ? `${t("chat.nextTurn")}: ${ch.name}` : ch.name}
+                      >
+                        {ch.avatarUrl ? (
+                          <img src={resolveApiAssetUrl(ch.avatarUrl) ?? undefined}
+                            alt="" className="h-5 w-5 rounded-full object-cover" />
+                        ) : (
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500/20 text-[9px] font-bold text-purple-300">
+                            {ch.name.charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                        <span className="truncate">{ch.name}</span>
                         <button
-                          onClick={() => {
-                            if (simpleModeActive) setSimpleSidebarOpen(true);
-                            setShowMultiCharPanel(true);
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void removeCharacterFromChat(ch.id);
                           }}
-                          className="chat-multi-add-btn"
-                          title={t("chat.multiChar")}
+                          className="chat-multi-bar-chip-remove"
+                          title={t("chat.removeCharacter")}
                         >
-                          +
+                          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                         </button>
                       </div>
-                    </div>
-                    <div className="chat-multi-aux text-[10px] text-text-tertiary">
-                      {chatCharacters.length > 1 ? t("chat.multiChar") : t("chat.chattingWith")}
-                    </div>
-                  </div>
-                )}
-                <div className="chat-multi-actions-row">
-                  <button
-                    onClick={() => {
-                      if (simpleModeActive) setSimpleSidebarOpen(true);
-                      setShowMultiCharPanel((prev) => !prev);
-                    }}
-                    className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
-                  >
-                    {t("chat.multiChar")}
-                  </button>
-                {chatCharacters.length > 1 ? (
-                  <>
-                    <input type="number" min={1} max={50} value={autoTurnsCount}
-                      onChange={(e) => {
-                        const parsed = Number(e.target.value);
-                        const next = Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 1;
-                        setAutoTurnsCount(next);
+                    ))}
+                    <button
+                      onClick={() => {
+                        if (simpleModeActive) setSimpleSidebarOpen(true);
+                        setShowMultiCharPanel(true);
                       }}
-                      className="w-12 rounded border border-border bg-bg-primary px-1 py-0.5 text-center text-[10px] text-text-primary" />
-                    <span className="text-[9px] text-text-tertiary">{t("chat.turns")}</span>
-                    {autoConvoRunning ? (
-                      <button onClick={stopAutoConversation}
-                        className="rounded-md border border-danger-border bg-danger-subtle px-2 py-0.5 text-[10px] font-medium text-danger">
-                        {t("chat.autoConvoStop")}
-                      </button>
-                    ) : (
-                      <button onClick={startAutoConversation} disabled={streaming || autoConvoRunning}
-                        className="rounded-md bg-purple-500/20 px-2 py-0.5 text-[10px] font-medium text-purple-300 hover:bg-purple-500/30 disabled:opacity-40">
-                        {t("chat.autoConvoStart")}
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <span className="text-xs text-text-secondary">
-                    {t("chat.chattingWith")} <span className="font-medium text-purple-400">{chatCharacters[0].name}</span>
-                  </span>
-                )}
-                  <button
-                    onClick={() => setMultiCharCollapsed((prev) => !prev)}
-                    className="chat-multi-collapse-btn"
-                    title={multiCharCollapsed ? t("chat.expandMultiChar") : t("chat.collapseMultiChar")}
-                    aria-label={multiCharCollapsed ? t("chat.expandMultiChar") : t("chat.collapseMultiChar")}
-                  >
-                    {multiCharCollapsed ? "▾" : "▴"}
-                  </button>
+                      className="chat-multi-bar-add"
+                      title={t("chat.multiChar")}
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                    </button>
+                  </div>
+                  {chatCharacters.length > 1 && (
+                    <div className="chat-multi-bar-auto">
+                      <input type="number" min={1} max={50} value={autoTurnsCount}
+                        onChange={(e) => {
+                          const parsed = Number(e.target.value);
+                          const next = Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 1;
+                          setAutoTurnsCount(next);
+                        }}
+                        className="chat-multi-bar-turns-input" />
+                      <span className="text-[9px] text-text-tertiary">{t("chat.turns")}</span>
+                      {autoConvoRunning ? (
+                        <button onClick={stopAutoConversation}
+                          className="chat-multi-bar-auto-btn is-stop">
+                          {t("chat.autoConvoStop")}
+                        </button>
+                      ) : (
+                        <button onClick={startAutoConversation} disabled={streaming || autoConvoRunning}
+                          className="chat-multi-bar-auto-btn">
+                          {t("chat.autoConvoStart")}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2730,26 +2740,64 @@ export function ChatScreen() {
             )}
 
             <div
-              className={`mt-2 flex gap-2 ${simpleModeActive ? "chat-simple-composer" : ""} ${simpleHomeState ? "is-home" : "is-docked"}`}
+              className={`mt-2 ${simpleModeActive ? `chat-simple-composer ${simpleHomeState ? "is-home" : "is-docked"}` : "flex gap-2"}`}
               style={simpleModeActive && simpleHomeState ? ({ ["--simple-home-composer-width"]: simpleHomeComposerWidth } as Record<string, string>) : undefined}
             >
-              <div className="relative flex-1">
+              <div className={simpleModeActive ? "chat-simple-composer-shell" : "relative flex-1"}>
                 <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  className={`h-[80px] w-full resize-none rounded-xl border border-border bg-bg-primary px-4 py-2.5 pr-10 text-sm text-text-primary placeholder:text-text-tertiary ${simpleModeActive ? "chat-simple-textarea" : ""}`}
+                  className={simpleModeActive
+                    ? "chat-simple-textarea"
+                    : "h-[80px] w-full resize-none rounded-xl border border-border bg-bg-primary px-4 py-2.5 pr-10 text-sm text-text-primary placeholder:text-text-tertiary"}
                   placeholder={simpleHomeState ? t("chat.simplePlaceholder") : t("chat.placeholder")} />
-                {simpleModeActive && !simpleHomeState && (
-                  <button
-                    ref={modelSelectorTriggerRef}
-                    onClick={() => setShowModelSelector((prev) => !prev)}
-                    className="chat-simple-model-chip"
-                    title={t("chat.selectModel")}
-                  >
-                    <span className="truncate">{activeModelLabel || t("chat.selectModel")}</span>
-                    <svg className="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
+                {simpleModeActive && (
+                  <div className="chat-simple-composer-bar">
+                    <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+                      className="chat-simple-bar-btn" title={t("chat.attachFile")}>
+                      {uploading ? (
+                        <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      ) : (
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                        </svg>
+                      )}
+                    </button>
+                    {!simpleHomeState && (
+                      <button
+                        ref={modelSelectorTriggerRef}
+                        onClick={() => setShowModelSelector((prev) => !prev)}
+                        className="chat-simple-bar-model"
+                        title={t("chat.selectModel")}
+                      >
+                        <span className="truncate">{activeModelLabel || t("chat.selectModel")}</span>
+                        <svg className="h-3 w-3 flex-shrink-0 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                    )}
+                    {!simpleHomeState && (
+                      <span className="chat-simple-bar-mode">
+                        {chatMode === "rp" ? t("inspector.modeRp") : chatMode === "light_rp" ? t("inspector.modeLightRp") : t("inspector.modePureChat")}
+                      </span>
+                    )}
+                    <div className="flex-1" />
+                    <button onClick={streaming ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
+                      disabled={!streaming && !hasDraftPayload && !canResendLast}
+                      className={`chat-simple-send-btn ${streaming ? "is-stop" : ""}`}>
+                      {streaming ? (
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <rect x="6" y="6" width="12" height="12" rx="1" />
+                        </svg>
+                      ) : (
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0l-7 7m7-7l7 7" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 )}
                 {simpleModeActive && showModelSelector && (
                   <div ref={modelSelectorRef} className="chat-simple-model-popover">
@@ -2790,43 +2838,47 @@ export function ChatScreen() {
                     </div>
                   </div>
                 )}
-                <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
-                  className={`rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary ${
-                    simpleModeActive ? "absolute bottom-2 left-2" : "absolute bottom-2 right-2"
-                  }`}
-                  title={t("chat.attachFile")}>
-                  {uploading ? (
-                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                  ) : (
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                    </svg>
-                  )}
-                </button>
+                {!simpleModeActive && (
+                  <>
+                    <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+                      className="absolute bottom-2 right-2 rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+                      title={t("chat.attachFile")}>
+                      {uploading ? (
+                        <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      ) : (
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                        </svg>
+                      )}
+                    </button>
+                  </>
+                )}
                 <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload} className="hidden"
                   accept="image/*,.txt,.md,.json,.csv,.log,.xml,.html,.js,.ts,.py,.rb,.yaml,.yml,.pdf,.docx" />
               </div>
-              <button onClick={streaming ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
-                disabled={!streaming && !hasDraftPayload && !canResendLast}
-                className={`flex h-[80px] w-[80px] flex-col items-center justify-center rounded-xl text-text-inverse ${
-                  streaming
-                    ? "bg-danger hover:bg-danger/80"
-                    : "bg-accent hover:bg-accent-hover disabled:opacity-40"
-                }`}>
-                {streaming ? (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <rect x="6" y="6" width="12" height="12" rx="1" />
-                  </svg>
-                ) : (
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0l-7 7m7-7l7 7" />
-                  </svg>
-                )}
-                <span className="mt-1 text-[10px] font-semibold">{streaming ? t("chat.stop") : (hasDraftPayload ? t("chat.send") : t("chat.resend"))}</span>
-              </button>
+              {!simpleModeActive && (
+                <button onClick={streaming ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
+                  disabled={!streaming && !hasDraftPayload && !canResendLast}
+                  className={`flex h-[80px] w-[80px] flex-col items-center justify-center rounded-xl text-text-inverse ${
+                    streaming
+                      ? "bg-danger hover:bg-danger/80"
+                      : "bg-accent hover:bg-accent-hover disabled:opacity-40"
+                  }`}>
+                  {streaming ? (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <rect x="6" y="6" width="12" height="12" rx="1" />
+                    </svg>
+                  ) : (
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0l-7 7m7-7l7 7" />
+                    </svg>
+                  )}
+                  <span className="mt-1 text-[10px] font-semibold">{streaming ? t("chat.stop") : (hasDraftPayload ? t("chat.send") : t("chat.resend"))}</span>
+                </button>
+              )}
             </div>
             <PluginSlotMount
               slotId="chat.composer.bottom"

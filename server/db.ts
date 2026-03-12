@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { DEFAULT_SETTINGS } from "./db/defaultSettings.js";
 import { applyMigrations } from "./db/migrations.js";
-import { ensureDataDirs, resolveDbPath, DATA_DIR, AVATARS_DIR, UPLOADS_DIR, PLUGINS_DIR } from "./db/paths.js";
+import { ensureDataDirs, resolveDbPath, DATA_DIR, AVATARS_DIR, UPLOADS_DIR, PLUGINS_DIR, BUNDLED_PLUGINS_DIR } from "./db/paths.js";
 import { applySchema, applySchemaIndexes } from "./db/schema.js";
 import { hashSecret, isLocalhostUrl, maskApiKey, newId, now, roughTokenCount } from "./db/utils.js";
 
@@ -87,6 +87,7 @@ export {
   AVATARS_DIR,
   UPLOADS_DIR,
   PLUGINS_DIR,
+  BUNDLED_PLUGINS_DIR,
   DEFAULT_SETTINGS,
   newId,
   now,

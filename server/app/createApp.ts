@@ -13,6 +13,7 @@ import lorebookRoutes from "../routes/lorebooks.js";
 import messageRoutes from "../routes/messages.js";
 import personaRoutes from "../routes/personas.js";
 import pluginRoutes from "../routes/plugins.js";
+import pluginRuntimeRoutes from "../routes/pluginRuntime.js";
 import providerRoutes from "../routes/providers.js";
 import extensionRoutes from "../routes/extensions.js";
 import ragRoutes from "../routes/rag.js";
@@ -216,6 +217,7 @@ function registerRoutes(app: express.Express) {
   app.use("/api/account", accountRoutes);
   app.use("/api/settings", settingsRoutes);
   app.use("/api/plugins", pluginRoutes);
+  app.use("/api/plugin-runtime", pluginRuntimeRoutes);
   app.use("/api/providers", providerRoutes);
   app.use("/api/extensions", extensionRoutes);
   app.use("/api/chats", chatRoutes);

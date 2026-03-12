@@ -19,6 +19,9 @@ export const DATA_DIR = resolveDefaultDataDir();
 export const AVATARS_DIR = join(DATA_DIR, "avatars");
 export const UPLOADS_DIR = join(DATA_DIR, "uploads");
 export const PLUGINS_DIR = join(DATA_DIR, "plugins");
+export const BUNDLED_PLUGINS_DIR = existsSync(resolve(process.cwd(), "package.json"))
+  ? resolve(process.cwd(), "data", "bundled-plugins")
+  : resolve(__dirname, "..", "..", "data", "bundled-plugins");
 
 const VELLIUM_DB_PATH = join(DATA_DIR, "vellum.db");
 const LEGACY_DB_PATH = join(DATA_DIR, "sillytauri.db");

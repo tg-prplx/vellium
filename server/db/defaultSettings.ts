@@ -4,6 +4,7 @@ export const DEFAULT_SETTINGS = {
   onboardingCompleted: false,
   alternateSimpleMode: true,
   theme: "dark",
+  pluginThemeId: null as string | null,
   fontScale: 1,
   density: "comfortable",
   censorshipMode: "Unfiltered",
@@ -108,7 +109,9 @@ export const DEFAULT_SETTINGS = {
   }>,
   mcpToolStates: {} as Record<string, boolean>,
   pluginStates: {} as Record<string, boolean>,
+  pluginStateConfigured: {} as Record<string, boolean>,
   pluginData: {} as Record<string, Record<string, unknown>>,
+  pluginPermissionGrants: {} as Record<string, Record<string, boolean>>,
   mcpServers: [] as Array<{
     id: string;
     name: string;

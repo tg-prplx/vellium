@@ -104,10 +104,12 @@ function buildGroundingRules(charName?: string, userName?: string): string {
 export function buildSystemPrompt(ctx: PromptContext): string {
   const parts: string[] = [];
   const ordered = [...ctx.blocks].sort((a, b) => a.order - b.order).filter((b) => b.enabled);
+  let hasSystemBlock = false;
 
   for (const block of ordered) {
     switch (block.kind) {
       case "system":
+        hasSystemBlock = true;
         parts.push(block.content || ctx.defaultSystemPrompt);
         break;
       case "jailbreak":
@@ -132,6 +134,10 @@ export function buildSystemPrompt(ctx: PromptContext): string {
         break;
       // "author_note" and "history" are handled in buildMessageArray
     }
+  }
+
+  if (!hasSystemBlock && ctx.defaultSystemPrompt) {
+    parts.unshift(ctx.defaultSystemPrompt);
   }
 
   if (ctx.strictGrounding !== false) {
@@ -295,10 +301,12 @@ export function buildMultiCharSystemPrompt(
 ): string {
   const parts: string[] = [];
   const ordered = [...ctx.blocks].sort((a, b) => a.order - b.order).filter((b) => b.enabled);
+  let hasSystemBlock = false;
 
   for (const block of ordered) {
     switch (block.kind) {
       case "system":
+        hasSystemBlock = true;
         parts.push(block.content || ctx.defaultSystemPrompt);
         break;
       case "jailbreak":
@@ -322,6 +330,10 @@ export function buildMultiCharSystemPrompt(
         if (block.content) parts.push(block.content);
         break;
     }
+  }
+
+  if (!hasSystemBlock && ctx.defaultSystemPrompt) {
+    parts.unshift(ctx.defaultSystemPrompt);
   }
 
   if (ctx.strictGrounding !== false) {

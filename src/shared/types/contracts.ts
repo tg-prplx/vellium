@@ -481,6 +481,46 @@ export type PluginActionLocation =
   | "writing.toolbar"
   | "writing.editor";
 
+export type PluginSettingsFieldType =
+  | "text"
+  | "textarea"
+  | "toggle"
+  | "select"
+  | "number"
+  | "range"
+  | "secret";
+
+export interface PluginSettingsFieldOption {
+  value: string;
+  label: string;
+}
+
+export interface PluginSettingsFieldContribution {
+  id: string;
+  key: string;
+  label: string;
+  type: PluginSettingsFieldType;
+  description?: string;
+  placeholder?: string;
+  options?: PluginSettingsFieldOption[];
+  defaultValue?: string | number | boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  rows?: number;
+  order: number;
+  required: boolean;
+}
+
+export interface PluginThemeContribution {
+  id: string;
+  label: string;
+  description?: string;
+  base: "dark" | "light";
+  order: number;
+  variables: Record<string, string>;
+}
+
 export interface PluginTabContribution {
   id: string;
   label: string;
@@ -510,7 +550,7 @@ export interface PluginActionContribution {
   height: number;
   mode: "modal" | "inline";
   request?: {
-    method: "GET" | "POST" | "PATCH" | "DELETE";
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     path: string;
     body?: unknown;
   };
@@ -530,8 +570,14 @@ export interface PluginDescriptor {
   author: string;
   defaultEnabled: boolean;
   enabled: boolean;
+  source: "user" | "bundled";
   assetBaseUrl: string;
+  requestedPermissions: string[];
+  grantedPermissions: string[];
+  permissionsConfigured: boolean;
   permissions: string[];
+  settingsFields: PluginSettingsFieldContribution[];
+  themes: PluginThemeContribution[];
   tabs: PluginTabContribution[];
   slots: PluginSlotContribution[];
   actions: PluginActionContribution[];
@@ -539,6 +585,7 @@ export interface PluginDescriptor {
 
 export interface PluginCatalog {
   pluginsDir: string;
+  bundledPluginsDir: string;
   sdkUrl: string;
   slotIds: PluginSlotId[];
   plugins: PluginDescriptor[];
@@ -548,7 +595,9 @@ export interface PluginHostContext {
   pluginId: string;
   locale: string;
   theme: "dark" | "light";
+  themeVariables?: Record<string, string>;
   activeTab: string;
+  grantedPermissions: string[];
   payload?: Record<string, unknown>;
 }
 
@@ -556,6 +605,7 @@ export interface AppSettings {
   onboardingCompleted: boolean;
   alternateSimpleMode: boolean;
   theme: "dark" | "light" | "custom";
+  pluginThemeId?: string | null;
   fontScale: number;
   density: "comfortable" | "compact";
   censorshipMode: CensorshipMode;
@@ -606,7 +656,9 @@ export interface AppSettings {
   mcpDiscoveredTools: McpDiscoveredTool[];
   mcpToolStates: Record<string, boolean>;
   pluginStates: Record<string, boolean>;
+  pluginStateConfigured: Record<string, boolean>;
   pluginData: Record<string, Record<string, unknown>>;
+  pluginPermissionGrants: Record<string, Record<string, boolean>>;
   mcpServers: McpServerConfig[];
   security: SecuritySettings;
   sceneFieldVisibility: {

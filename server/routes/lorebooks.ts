@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, newId, now, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
-import { normalizeLoreBookEntries, parseSillyTavernWorldInfo } from "../domain/lorebooks.js";
+import { normalizeLoreBookEntries, parseSillyTavernWorldInfo, serializeSillyTavernWorldInfo } from "../domain/lorebooks.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
 import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { completeCustomAdapter } from "../services/customProviderAdapters.js";
@@ -57,6 +57,35 @@ function normalizeOpenAiBaseUrl(raw: string): string {
   if (!trimmed) return "";
   if (/\/v1$/i.test(trimmed)) return trimmed;
   return `${trimmed}/v1`;
+}
+
+function sanitizeHeaderFilenameAscii(name: string, fallback: string): string {
+  const clean = String(name || "")
+    .replace(/[\r\n]/g, " ")
+    .replace(/[^A-Za-z0-9._ -]/g, "-")
+    .trim();
+  return clean || fallback;
+}
+
+function encode5987Value(value: string): string {
+  return encodeURIComponent(String(value || ""))
+    .replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function buildAttachmentDisposition(filename: string, fallback: string): string {
+  const cleanName = String(filename || "").replace(/[\r\n]/g, " ").trim() || fallback;
+  const asciiName = sanitizeHeaderFilenameAscii(cleanName, fallback);
+  const utf8Name = encode5987Value(cleanName);
+  return `attachment; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`;
+}
+
+function buildFilenameBase(raw: string, fallback: string): string {
+  const clean = String(raw || "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^-+|-+$/g, "");
+  return clean || fallback;
 }
 
 async function completeProviderOnce(params: {
@@ -182,6 +211,20 @@ function rowToJson(row: LoreBookRow) {
 router.get("/", (_req, res) => {
   const rows = db.prepare("SELECT * FROM lorebooks ORDER BY updated_at DESC, created_at DESC").all() as LoreBookRow[];
   res.json(rows.map(rowToJson));
+});
+
+router.get("/:id/export/world-info", (req, res) => {
+  const row = db.prepare("SELECT * FROM lorebooks WHERE id = ?").get(req.params.id) as LoreBookRow | undefined;
+  if (!row) {
+    res.status(404).json({ error: "LoreBook not found" });
+    return;
+  }
+  const book = rowToJson(row);
+  const payload = serializeSillyTavernWorldInfo(book);
+  const filename = `${buildFilenameBase(book.name, "lorebook")}_world_info.json`;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", buildAttachmentDisposition(filename, "lorebook_world_info.json"));
+  res.send(JSON.stringify(payload, null, 2));
 });
 
 router.get("/:id", (req, res) => {
