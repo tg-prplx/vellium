@@ -1,13 +1,14 @@
 # Vellium
 
 <p align="center">
-  <img src="docs/vellium-icon.png" alt="Vellium icon" width="120" />
+  <img width="1439" height="854" alt="image" src="https://github.com/user-attachments/assets/b4f68d1a-1c12-4abc-b810-1280f3ef49cb" />
 </p>
 <p align="center"><strong>Desktop AI chat, RP, writing, lorebook, RAG, and plugin workbench.</strong></p>
 
 Desktop app built with Electron, React, a local Express API, and SQLite.
 
-<img width="1709" height="1028" alt="Vellium chat" src="https://github.com/user-attachments/assets/35bb7ba6-7e01-4e56-9055-7fe823b92541" />
+<img width="1440" height="851" alt="image" src="https://github.com/user-attachments/assets/e09ca71d-ad6b-485c-ad32-b092e7d0f74f" />
+
 
 ## Important
 - Use `npm run dev` for day-to-day development.
@@ -62,6 +63,9 @@ Desktop app built with Electron, React, a local Express API, and SQLite.
 - Plugin themes.
 - Custom inspector fields.
 - Custom endpoint adapters.
+
+<img width="1121" height="705" alt="image" src="https://github.com/user-attachments/assets/ec1b69b0-b8b0-4ca7-b3be-54a4c8f7ee03" />
+
 
 ## Requirements
 - Node.js + npm.
