@@ -153,6 +153,17 @@ export async function fetchCustomAdapterModels(provider: CustomProviderLike, sig
   return [...new Set(extractStrings(raw).filter(Boolean))];
 }
 
+export async function fetchCustomAdapterVoices(provider: CustomProviderLike, signal?: AbortSignal): Promise<string[]> {
+  const adapter = getCustomAdapterForProvider(provider);
+  if (!adapter?.voices?.enabled) return [];
+  const payload = await requestEndpoint(provider, adapter, adapter.voices, {
+    provider: { baseUrl: provider.base_url },
+    apiKey: String(provider.api_key_cipher || "")
+  }, signal);
+  const raw = adapter.voices.resultPath ? resolveContextPath(payload, adapter.voices.resultPath) : payload;
+  return [...new Set(extractStrings(raw).filter(Boolean))];
+}
+
 export async function testCustomAdapterConnection(provider: CustomProviderLike, signal?: AbortSignal): Promise<boolean> {
   const adapter = getCustomAdapterForProvider(provider);
   if (!adapter) return false;
@@ -201,4 +212,56 @@ export async function completeCustomAdapter(params: {
     ]
   }, params.signal);
   return extractFirstText(payload, adapter.chat.resultPath);
+}
+
+export async function synthesizeCustomAdapterSpeech(params: {
+  provider: CustomProviderLike;
+  modelId: string;
+  voice: string;
+  input: string;
+  signal?: AbortSignal;
+}) {
+  const adapter = getCustomAdapterForProvider(params.provider);
+  if (!adapter?.tts?.enabled) {
+    throw new Error("Custom adapter is missing a TTS endpoint");
+  }
+  const endpoint = adapter.tts;
+  const url = resolveUrl(params.provider.base_url, String(applyTemplate(endpoint.path, {
+    provider: { baseUrl: params.provider.base_url },
+    apiKey: String(params.provider.api_key_cipher || ""),
+    model: params.modelId,
+    voice: params.voice,
+    input: params.input
+  })));
+  const method = endpoint.method || "POST";
+  const context = {
+    provider: { baseUrl: params.provider.base_url },
+    apiKey: String(params.provider.api_key_cipher || ""),
+    model: params.modelId,
+    voice: params.voice,
+    input: params.input
+  };
+  const body = endpoint.bodyTemplate !== undefined ? applyTemplate(endpoint.bodyTemplate, context) : {
+    model: params.modelId,
+    voice: params.voice,
+    input: params.input
+  };
+  const headers = buildHeaders(params.provider, adapter, endpoint, context);
+  if (body !== undefined && method !== "GET" && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+  const response = await fetch(url, {
+    method,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
+    body: body === undefined || method === "GET" ? undefined : JSON.stringify(body),
+    signal: params.signal
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text || `Custom adapter TTS failed (${response.status})`);
+  }
+  return {
+    contentType: response.headers.get("content-type") || "audio/mpeg",
+    buffer: Buffer.from(await response.arrayBuffer())
+  };
 }
