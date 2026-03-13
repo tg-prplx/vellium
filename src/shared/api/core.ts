@@ -2,6 +2,10 @@ const BASE = import.meta.env.DEV ? "http://localhost:3001/api" : "/api";
 const PROD_FALLBACK_BASES = ["http://127.0.0.1:3001/api", "http://localhost:3001/api"];
 const REQUEST_TIMEOUT_MS = 6000;
 
+type RequestOptions = {
+  timeoutMs?: number;
+};
+
 function requestBases(): string[] {
   return import.meta.env.DEV ? [BASE] : [BASE, ...PROD_FALLBACK_BASES];
 }
@@ -23,14 +27,17 @@ function isNetworkError(err: unknown): boolean {
   );
 }
 
-export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<T> {
   const bases = requestBases();
   let lastErr: unknown = new Error("Request failed");
+  const timeoutMs = Math.max(0, Math.floor(options?.timeoutMs ?? REQUEST_TIMEOUT_MS));
 
   for (const base of bases) {
     try {
       const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(new Error(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`)), REQUEST_TIMEOUT_MS);
+      const timeout = timeoutMs > 0
+        ? window.setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs)
+        : null;
       try {
         const res = await fetch(`${base}${path}`, {
           method,
@@ -47,7 +54,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
         }
         return res.json();
       } finally {
-        window.clearTimeout(timeout);
+        if (timeout !== null) window.clearTimeout(timeout);
       }
     } catch (err) {
       lastErr = err;
@@ -60,20 +67,23 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   throw lastErr;
 }
 
-export const get = <T>(path: string) => request<T>("GET", path);
-export const post = <T>(path: string, body?: unknown) => request<T>("POST", path, body);
-export const patchReq = <T>(path: string, body?: unknown) => request<T>("PATCH", path, body);
-export const put = <T>(path: string, body?: unknown) => request<T>("PUT", path, body);
-export const del = <T>(path: string) => request<T>("DELETE", path);
+export const get = <T>(path: string, options?: RequestOptions) => request<T>("GET", path, undefined, options);
+export const post = <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>("POST", path, body, options);
+export const patchReq = <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>("PATCH", path, body, options);
+export const put = <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>("PUT", path, body, options);
+export const del = <T>(path: string, options?: RequestOptions) => request<T>("DELETE", path, undefined, options);
 
-export async function requestBlob(method: string, path: string, body?: unknown): Promise<Blob> {
+export async function requestBlob(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<Blob> {
   const bases = requestBases();
   let lastErr: unknown = new Error("Request failed");
+  const timeoutMs = Math.max(0, Math.floor(options?.timeoutMs ?? REQUEST_TIMEOUT_MS));
 
   for (const base of bases) {
     try {
       const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(new Error(`Request timed out after ${REQUEST_TIMEOUT_MS}ms`)), REQUEST_TIMEOUT_MS);
+      const timeout = timeoutMs > 0
+        ? window.setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs)
+        : null;
       try {
         const res = await fetch(`${base}${path}`, {
           method,
@@ -90,7 +100,7 @@ export async function requestBlob(method: string, path: string, body?: unknown):
         }
         return await res.blob();
       } finally {
-        window.clearTimeout(timeout);
+        if (timeout !== null) window.clearTimeout(timeout);
       }
     } catch (err) {
       lastErr = err;

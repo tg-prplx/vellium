@@ -2,6 +2,7 @@ import type { BranchNode, ChatMessage, ChatSession, FileAttachment, PromptBlock,
 import { del, get, patchReq, post, put, requestBlob, streamPost, type StreamCallbacks } from "./core";
 
 type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
+const TRANSLATION_TIMEOUT_MS = 60_000;
 
 export const chatClient = {
   chatCreate: (title: string, characterId?: string, characterIds?: string[], lorebookIds?: string[]) =>
@@ -41,7 +42,8 @@ export const chatClient = {
   chatFork: (chatId: string, parentMessageId: string, name: string) => post<BranchNode>(`/chats/${chatId}/fork`, { parentMessageId, name }),
   chatEditMessage: (messageId: string, content: string) => patchReq<{ ok: boolean; timeline: ChatMessage[] }>(`/messages/${messageId}`, { content }),
   chatDeleteMessage: (messageId: string) => del<{ ok: boolean; timeline: ChatMessage[] }>(`/messages/${messageId}`),
-  chatTranslateMessage: (messageId: string, targetLanguage?: string) => post<{ translation: string }>(`/chats/messages/${messageId}/translate`, { targetLanguage }),
+  chatTranslateMessage: (messageId: string, targetLanguage?: string) =>
+    post<{ translation: string }>(`/chats/messages/${messageId}/translate`, { targetLanguage }, { timeoutMs: TRANSLATION_TIMEOUT_MS }),
   chatTtsMessage: (messageId: string) => requestBlob("POST", `/chats/messages/${messageId}/tts`),
   chatSaveSampler: (chatId: string, samplerConfig: SamplerConfig) => patchReq<{ ok: boolean }>(`/chats/${chatId}/sampler`, { samplerConfig }),
   chatGetSampler: (chatId: string) => get<SamplerConfig | null>(`/chats/${chatId}/sampler`),

@@ -56,7 +56,7 @@ export function Badge({ children, variant = "default" }: PropsWithChildren<{ var
   };
 
   return (
-    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${styles[variant]}`}>
+    <span className={`badge-pop inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${styles[variant]}`}>
       {children}
     </span>
   );
@@ -64,7 +64,7 @@ export function Badge({ children, variant = "default" }: PropsWithChildren<{ var
 
 export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12 text-center">
+    <div className="empty-state-float flex flex-1 flex-col items-center justify-center gap-3 py-12 text-center">
       <div className="text-sm font-medium text-text-secondary">{title}</div>
       {description && <div className="max-w-[260px] text-xs text-text-tertiary">{description}</div>}
       {action}
