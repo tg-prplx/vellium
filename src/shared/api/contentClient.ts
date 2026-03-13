@@ -1,11 +1,14 @@
 import type { CharacterDetail, FileAttachment, LoreBook, RagBinding, RagCollection, RagDocument, RagIngestResult, UserPersona } from "../types/contracts";
 import { del, get, patchReq, post, put, requestBlob } from "./core";
 
+const TRANSLATION_TIMEOUT_MS = 60_000;
+
 export const contentClient = {
   characterList: () => get<CharacterDetail[]>("/characters"),
   characterGet: (id: string) => get<CharacterDetail>(`/characters/${id}`),
   characterImportV2: (rawJson: string) => post<CharacterDetail>("/characters/import", { rawJson }),
-  characterTranslateCopy: (id: string, targetLanguage?: string) => post<CharacterDetail>(`/characters/${id}/translate-copy`, { targetLanguage }),
+  characterTranslateCopy: (id: string, targetLanguage?: string) =>
+    post<CharacterDetail>(`/characters/${id}/translate-copy`, { targetLanguage }, { timeoutMs: TRANSLATION_TIMEOUT_MS }),
   characterValidateV2: (rawJson: string) => post<{ valid: boolean; errors: string[] }>("/characters/validate", { rawJson }),
   characterUpdate: (id: string, data: Partial<CharacterDetail>) => put<CharacterDetail>(`/characters/${id}`, data),
   characterDelete: (id: string) => del<void>(`/characters/${id}`),
@@ -15,7 +18,8 @@ export const contentClient = {
   lorebookGet: (id: string) => get<LoreBook>(`/lorebooks/${id}`),
   lorebookCreate: (data: Partial<LoreBook>) => post<LoreBook>("/lorebooks", data),
   lorebookImportWorldInfo: (data: unknown) => post<LoreBook>("/lorebooks/import/world-info", { data }),
-  lorebookTranslateCopy: (id: string, targetLanguage?: string) => post<LoreBook>(`/lorebooks/${id}/translate-copy`, { targetLanguage }),
+  lorebookTranslateCopy: (id: string, targetLanguage?: string) =>
+    post<LoreBook>(`/lorebooks/${id}/translate-copy`, { targetLanguage }, { timeoutMs: TRANSLATION_TIMEOUT_MS }),
   lorebookUpdate: (id: string, data: Partial<LoreBook>) => put<LoreBook>(`/lorebooks/${id}`, data),
   lorebookDelete: (id: string) => del<{ ok: boolean }>(`/lorebooks/${id}`),
   lorebookExportWorldInfo: (id: string) => requestBlob("GET", `/lorebooks/${id}/export/world-info`),

@@ -2383,18 +2383,20 @@ export function ChatScreen() {
                 const renderCharName = msgChar?.name || activeChatCharacter?.name;
                 return (
                   <article key={msg.id}
-                    className={`chat-message group max-w-[88%] rounded-xl px-3 py-2 text-sm leading-relaxed ${deletingMessageIds[msg.id] ? "is-deleting" : ""} ${
+                    className={`chat-message group max-w-[88%] px-3.5 py-2.5 text-sm leading-relaxed ${deletingMessageIds[msg.id] ? "is-deleting" : ""} ${
                       msg.role === "user"
                         ? "chat-message-user ml-auto bg-accent-subtle text-text-primary"
                         : "chat-message-assistant mr-auto border border-border-subtle bg-bg-secondary text-text-primary"
                     }`}>
-                    <div className="mb-1.5 flex items-center gap-2">
+                    <div className="mb-2 flex items-center gap-2">
                       {msgChar ? (
                         <>
                           {msgChar.avatarUrl ? (
                             <img src={resolveApiAssetUrl(msgChar.avatarUrl) ?? undefined}
-                              alt="" className="h-4 w-4 rounded-full object-cover" />
-                          ) : null}
+                              alt="" className="h-5 w-5 rounded-full object-cover ring-1 ring-border-subtle" />
+                          ) : (
+                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500/20 text-[9px] font-bold text-purple-400">{(msg.characterName || msgChar.name || "?").charAt(0).toUpperCase()}</span>
+                          )}
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-400">{msg.characterName || msgChar.name}</span>
                         </>
                       ) : msg.role === "user" && msg.characterName ? (
@@ -2607,7 +2609,7 @@ export function ChatScreen() {
               })}
 
               {streaming && (
-                <article className="chat-message chat-streaming mr-auto max-w-[88%] rounded-xl border border-accent-border bg-bg-secondary px-4 py-3 text-sm text-text-primary">
+                <article className="chat-message chat-streaming mr-auto max-w-[88%] border border-accent-border bg-bg-secondary px-4 py-3 text-sm text-text-primary">
                   {(() => {
                     const streamChar = streamingCharacterName
                       ? (chatCharacters.find((item) => item.name === streamingCharacterName) ?? null)

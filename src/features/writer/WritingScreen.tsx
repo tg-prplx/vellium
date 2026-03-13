@@ -2469,17 +2469,32 @@ export function WritingScreen() {
     />
       ) : (
         <section className={`mx-auto flex h-full w-full max-w-[1500px] flex-col rounded-xl border border-border bg-bg-secondary p-4 ${writingSimpleModeActive ? "writing-simple-character-shell" : ""}`}>
-          <div className="flex w-full flex-1 flex-col gap-3 overflow-y-auto">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.characterForge")}</h2>
+          <div className="flex w-full flex-1 flex-col gap-4 overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-subtle">
+                  <svg className="h-4 w-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <h2 className="text-sm font-semibold text-text-primary">{t("writing.characterForge")}</h2>
+              </div>
               {renderWorkspaceModeSwitch()}
             </div>
-            <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-xs font-semibold text-text-primary">{t("writing.characterGenerate")}</div>
+
+            {/* Generate card */}
+            <div className="charforge-card rounded-xl border border-border-subtle bg-bg-primary p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <svg className="h-4 w-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                  <span className="text-xs font-semibold text-text-primary">{t("writing.characterGenerate")}</span>
+                </div>
                 <button
                   onClick={() => setCharacterAdvancedMode((prev) => !prev)}
-                  className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
+                  className="rounded-lg border border-border-subtle px-2.5 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:border-accent-border hover:bg-accent-subtle hover:text-accent"
                 >
                   {characterAdvancedMode ? t("writing.characterBasic") : t("writing.characterAdvanced")}
                 </button>
@@ -2491,104 +2506,143 @@ export function WritingScreen() {
                   if (characterError) setCharacterError("");
                 }}
                 placeholder={t("writing.characterPromptPlaceholder")}
-                className="h-20 w-full rounded-md border border-border bg-bg-secondary px-2 py-1.5 text-xs text-text-primary placeholder:text-text-tertiary"
+                className="charforge-textarea h-20 w-full rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2.5 text-xs leading-relaxed text-text-primary placeholder:italic placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle"
               />
               {characterAdvancedMode && (
-                <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <input value={characterAdvanced.name || ""} onChange={(e) => updateCharacterAdvanced("name", e.target.value)}
                     placeholder={t("writing.characterNameHint")}
-                    className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
+                    className="charforge-input rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle" />
                   <input value={characterAdvanced.role || ""} onChange={(e) => updateCharacterAdvanced("role", e.target.value)}
                     placeholder={t("writing.characterRoleHint")}
-                    className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
+                    className="charforge-input rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle" />
                   <input value={characterAdvanced.personality || ""} onChange={(e) => updateCharacterAdvanced("personality", e.target.value)}
                     placeholder={t("writing.characterPersonalityHint")}
-                    className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
+                    className="charforge-input rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle" />
                   <input value={characterAdvanced.scenario || ""} onChange={(e) => updateCharacterAdvanced("scenario", e.target.value)}
                     placeholder={t("writing.characterScenarioHint")}
-                    className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
+                    className="charforge-input rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle" />
                   <input value={characterAdvanced.greetingStyle || ""} onChange={(e) => updateCharacterAdvanced("greetingStyle", e.target.value)}
                     placeholder={t("writing.characterGreetingHint")}
-                    className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
+                    className="charforge-input rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle" />
                   <input value={characterAdvanced.systemPrompt || ""} onChange={(e) => updateCharacterAdvanced("systemPrompt", e.target.value)}
                     placeholder={t("writing.characterSystemHint")}
-                    className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
+                    className="charforge-input rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle" />
                   <input value={characterAdvanced.tags || ""} onChange={(e) => updateCharacterAdvanced("tags", e.target.value)}
                     placeholder={t("writing.characterTagsHint")}
-                    className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary sm:col-span-2" />
+                    className="charforge-input rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle sm:col-span-2" />
                   <textarea value={characterAdvanced.notes || ""} onChange={(e) => updateCharacterAdvanced("notes", e.target.value)}
                     placeholder={t("writing.characterNotesHint")}
-                    className="h-16 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary sm:col-span-2" />
+                    className="charforge-textarea h-16 rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:italic placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle sm:col-span-2" />
                 </div>
               )}
-              <div className="mt-2 flex items-center gap-1.5">
+              <div className="mt-3 flex items-center gap-2">
                 <button onClick={generateCharacterFromDescription} disabled={characterBusy}
-                  className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40">
-                  {characterBusy ? t("writing.characterGenerating") : t("writing.characterGenerate")}
+                  className="charforge-btn-primary rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-text-inverse shadow-sm hover:bg-accent-hover disabled:opacity-40">
+                  {characterBusy ? (
+                    <span className="flex items-center gap-1.5">
+                      <svg className="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      {t("writing.characterGenerating")}
+                    </span>
+                  ) : t("writing.characterGenerate")}
                 </button>
                 <button onClick={() => setCharacterAdvanced({ ...DEFAULT_WRITER_CHARACTER_ADVANCED })}
-                  className="rounded-md border border-border px-3 py-1 text-xs text-text-secondary hover:bg-bg-hover">
+                  className="rounded-lg border border-border-subtle px-3 py-2 text-xs text-text-secondary hover:bg-bg-hover">
                   {t("writing.characterReset")}
                 </button>
               </div>
               {characterError && (
-                <div className="mt-2 rounded-md border border-danger-border bg-danger-subtle px-2 py-1 text-[10px] text-danger">
+                <div className="mt-3 flex items-center gap-2 rounded-lg border border-danger-border bg-danger-subtle px-3 py-2 text-[11px] text-danger">
+                  <svg className="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
                   {characterError}
                 </div>
               )}
             </div>
 
-            <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 md:grid-cols-[340px_minmax(0,1fr)]">
-              <div className="float-card min-h-0 rounded-lg border border-border-subtle bg-bg-primary p-2">
-                <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chars.characters")}</div>
+            {/* Character list + editor grid */}
+            <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
+              {/* Character list */}
+              <div className="charforge-list min-h-0 rounded-xl border border-border-subtle bg-bg-primary">
+                <div className="border-b border-border-subtle px-3 py-2.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chars.characters")} ({characters.length})</div>
+                </div>
                 {characters.length === 0 ? (
-                  <EmptyState title={t("chars.noChars")} description={t("chars.noCharsDesc")} />
+                  <div className="p-3">
+                    <EmptyState title={t("chars.noChars")} description={t("chars.noCharsDesc")} />
+                  </div>
                 ) : (
-                  <div className="max-h-full space-y-1 overflow-y-auto">
+                  <div className="max-h-full space-y-0.5 overflow-y-auto p-1.5">
                     {characters.map((character) => (
                       <button
                         key={character.id}
                         onClick={() => setCharacterEditorId(character.id)}
-                        className={`w-full rounded-md border px-2 py-1.5 text-left text-xs ${
+                        className={`charforge-list-item w-full rounded-lg border px-3 py-2 text-left text-xs transition-all ${
                           characterEditorId === character.id
-                            ? "border-accent-border bg-accent-subtle text-text-primary"
-                            : "border-border-subtle text-text-secondary hover:bg-bg-hover"
+                            ? "border-accent-border bg-accent-subtle text-text-primary shadow-sm"
+                            : "border-transparent text-text-secondary hover:border-border-subtle hover:bg-bg-hover"
                         }`}
                       >
-                        <div className="truncate font-medium">{character.name}</div>
-                        <div className="truncate text-[10px] text-text-tertiary">{(character.tags || []).join(", ")}</div>
+                        <div className="flex items-center gap-2">
+                          <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                            characterEditorId === character.id
+                              ? "bg-accent text-text-inverse"
+                              : "bg-bg-tertiary text-text-tertiary"
+                          }`}>{character.name.charAt(0).toUpperCase()}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium">{character.name}</div>
+                            {(character.tags || []).length > 0 && (
+                              <div className="mt-0.5 truncate text-[10px] text-text-tertiary">{(character.tags || []).join(", ")}</div>
+                            )}
+                          </div>
+                        </div>
                       </button>
                     ))}
                   </div>
                 )}
               </div>
 
-              <div className="float-card min-h-0 rounded-lg border border-border-subtle bg-bg-primary p-3">
+              {/* Character editor */}
+              <div className="charforge-editor min-h-0 rounded-xl border border-border-subtle bg-bg-primary">
                 {selectedCharacterToEdit ? (
-                  <div className="flex h-full flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-semibold text-text-primary">{selectedCharacterToEdit.name}</div>
+                  <div className="flex h-full flex-col">
+                    {/* Editor header */}
+                    <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-text-inverse">
+                          {selectedCharacterToEdit.name.charAt(0).toUpperCase()}
+                        </span>
+                        <span className="truncate text-sm font-semibold text-text-primary">{selectedCharacterToEdit.name}</span>
+                      </div>
                       <button onClick={saveCharacterEditor} disabled={characterEditBusy || characterAiBusy}
-                        className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40">
+                        className="charforge-btn-primary flex-shrink-0 rounded-lg bg-accent px-3.5 py-1.5 text-[11px] font-semibold text-text-inverse shadow-sm hover:bg-accent-hover disabled:opacity-40">
                         {characterEditBusy ? t("writing.working") : t("chat.save")}
                       </button>
                     </div>
-                    <div className="rounded-md border border-border-subtle bg-bg-secondary p-2">
-                      <div className="mb-1 flex items-center justify-between gap-2">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("writing.characterAiEdit")}</div>
-                        <div className="text-[10px] text-text-tertiary">
+
+                    {/* AI Edit section */}
+                    <div className="border-b border-border-subtle bg-bg-secondary/50 px-4 py-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <svg className="h-3.5 w-3.5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                          </svg>
+                          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-secondary">{t("writing.characterAiEdit")}</span>
+                        </div>
+                        <span className="text-[10px] text-text-tertiary">
                           {characterAiFields.length > 0
                             ? `${t("writing.characterAiScope")}: ${characterAiFields.length}`
                             : t("writing.characterAiScopeAuto")}
-                        </div>
+                        </span>
                       </div>
                       <textarea
                         value={characterAiInstruction}
                         onChange={(e) => setCharacterAiInstruction(e.target.value)}
                         placeholder={t("writing.characterAiInstructionPlaceholder")}
-                        className="h-16 w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary"
+                        className="h-14 w-full rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-primary placeholder:italic placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle"
                       />
-                      <div className="mt-1 flex flex-wrap gap-1">
+                      <div className="mt-2 flex flex-wrap gap-1">
                         {CHARACTER_AI_EDIT_FIELDS.map((field) => {
                           const active = characterAiFields.includes(field);
                           return (
@@ -2596,10 +2650,10 @@ export function WritingScreen() {
                               key={field}
                               type="button"
                               onClick={() => toggleCharacterAiField(field)}
-                              className={`rounded-md border px-2 py-0.5 text-[10px] transition-colors ${
+                              className={`rounded-md border px-2.5 py-1 text-[10px] font-medium transition-all ${
                                 active
-                                  ? "border-accent-border bg-accent-subtle text-text-primary"
-                                  : "border-border-subtle text-text-tertiary hover:bg-bg-hover"
+                                  ? "border-accent-border bg-accent-subtle text-accent"
+                                  : "border-border-subtle text-text-tertiary hover:border-border hover:bg-bg-hover hover:text-text-secondary"
                               }`}
                             >
                               {characterFieldLabel(field)}
@@ -2607,56 +2661,68 @@ export function WritingScreen() {
                           );
                         })}
                       </div>
-                      <div className="mt-2 flex items-center gap-1.5">
+                      <div className="mt-2.5 flex items-center gap-2">
                         <button
                           onClick={applyCharacterAiEdit}
                           disabled={characterAiBusy || characterEditBusy}
-                          className="rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold text-text-primary hover:bg-bg-hover disabled:opacity-40"
+                          className="rounded-lg border border-accent-border bg-accent-subtle px-3 py-1.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:opacity-40"
                         >
-                          {characterAiBusy ? t("writing.characterAiEditing") : t("writing.characterAiApply")}
+                          {characterAiBusy ? (
+                            <span className="flex items-center gap-1.5">
+                              <svg className="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                              {t("writing.characterAiEditing")}
+                            </span>
+                          ) : t("writing.characterAiApply")}
                         </button>
                         <button
                           onClick={() => {
                             setCharacterAiInstruction("");
                             setCharacterAiFields([]);
                           }}
-                          className="rounded-md border border-border-subtle px-2 py-1 text-[10px] text-text-tertiary hover:bg-bg-hover"
+                          className="rounded-lg border border-border-subtle px-2.5 py-1.5 text-[10px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
                         >
                           {t("writing.characterAiClear")}
                         </button>
                       </div>
                     </div>
-                    <div className="grid flex-1 min-h-0 grid-cols-1 gap-2 overflow-y-auto pr-1">
-                      <input value={characterEditDraft.name} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, name: e.target.value }))}
-                        placeholder={t("chars.name")}
-                        className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
-                      <textarea value={characterEditDraft.description} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, description: e.target.value }))}
-                        placeholder={t("chars.description")}
-                        className="h-16 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
-                      <textarea value={characterEditDraft.personality} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, personality: e.target.value }))}
-                        placeholder={t("chars.personality")}
-                        className="h-16 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
-                      <textarea value={characterEditDraft.scenario} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, scenario: e.target.value }))}
-                        placeholder={t("chars.scenario")}
-                        className="h-16 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
-                      <textarea value={characterEditDraft.greeting} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, greeting: e.target.value }))}
-                        placeholder={t("chars.firstMessage")}
-                        className="h-16 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
-                      <textarea value={characterEditDraft.systemPrompt} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, systemPrompt: e.target.value }))}
-                        placeholder={t("chars.systemPrompt")}
-                        className="h-16 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
-                      <textarea value={characterEditDraft.mesExample} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, mesExample: e.target.value }))}
-                        placeholder={t("chars.exampleMessages")}
-                        className="h-16 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
-                      <textarea value={characterEditDraft.creatorNotes} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, creatorNotes: e.target.value }))}
-                        placeholder={t("chars.creatorNotes")}
-                        className="h-16 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
-                      <input value={characterEditDraft.tagsText} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, tagsText: e.target.value }))}
-                        placeholder={t("chars.tagsPlaceholder")}
-                        className="rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary placeholder:text-text-tertiary" />
+
+                    {/* Fields */}
+                    <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+                      <div className="grid grid-cols-1 gap-3">
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.06em] text-text-tertiary">{t("chars.name")}</label>
+                          <input value={characterEditDraft.name} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, name: e.target.value }))}
+                            placeholder={t("chars.name")}
+                            className="charforge-input w-full rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle" />
+                        </div>
+                        {([
+                          ["description", t("chars.description"), "h-20"],
+                          ["personality", t("chars.personality"), "h-16"],
+                          ["scenario", t("chars.scenario"), "h-16"],
+                          ["greeting", t("chars.firstMessage"), "h-20"],
+                          ["systemPrompt", t("chars.systemPrompt"), "h-16"],
+                          ["mesExample", t("chars.exampleMessages"), "h-16"],
+                          ["creatorNotes", t("chars.creatorNotes"), "h-16"],
+                        ] as const).map(([field, label, heightClass]) => (
+                          <div key={field}>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.06em] text-text-tertiary">{label}</label>
+                            <textarea value={characterEditDraft[field]} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, [field]: e.target.value }))}
+                              placeholder={label}
+                              className={`charforge-textarea ${heightClass} w-full rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle`} />
+                          </div>
+                        ))}
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.06em] text-text-tertiary">{t("chars.tagsPlaceholder")}</label>
+                          <input value={characterEditDraft.tagsText} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, tagsText: e.target.value }))}
+                            placeholder={t("chars.tagsPlaceholder")}
+                            className="charforge-input w-full rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle" />
+                        </div>
+                      </div>
                     </div>
+
+                    {/* Status */}
                     {characterEditStatus && (
-                      <div className={`rounded-md border px-2 py-1 text-[10px] ${
+                      <div className={`border-t px-4 py-2.5 text-[11px] font-medium ${
                         characterEditStatus.tone === "success"
                           ? "border-success-border bg-success-subtle text-success"
                           : "border-danger-border bg-danger-subtle text-danger"
@@ -2666,7 +2732,9 @@ export function WritingScreen() {
                     )}
                   </div>
                 ) : (
-                  <EmptyState title={t("chars.selectCharacter")} description={t("chars.selectCharacterDesc")} />
+                  <div className="flex h-full items-center justify-center p-4">
+                    <EmptyState title={t("chars.selectCharacter")} description={t("chars.selectCharacterDesc")} />
+                  </div>
                 )}
               </div>
             </div>

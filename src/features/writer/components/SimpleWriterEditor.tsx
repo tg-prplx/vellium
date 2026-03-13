@@ -114,7 +114,8 @@ export function SimpleWriterEditor({
                   onSaveDraft();
                 }
               }}
-              className="writing-simple-editor-textarea w-full resize-none rounded-lg border border-border bg-bg-secondary px-3 py-3 text-sm leading-relaxed text-text-primary placeholder:text-text-tertiary"
+              placeholder="Start writing..."
+              className="writing-simple-editor-textarea w-full resize-none rounded-lg border border-border-subtle bg-bg-secondary px-4 py-3.5 text-[14px] leading-[1.75] tracking-[0.005em] text-text-primary placeholder:text-text-tertiary/50 placeholder:italic focus:border-accent focus:ring-1 focus:ring-accent-subtle"
             />
           </div>
         ) : (
