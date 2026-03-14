@@ -3,6 +3,8 @@ import path from "path";
 import { existsSync } from "fs";
 import { writeFile } from "fs/promises";
 import { pathToFileURL } from "url";
+import { ManagedBackendManager } from "./managedBackends";
+import type { ManagedBackendConfig } from "../src/shared/types/contracts";
 
 const isDev = !app.isPackaged;
 
@@ -21,6 +23,7 @@ if (!isDev) {
 let mainWindow: BrowserWindow | null = null;
 let creatingWindow = false;
 let embeddedServerStart: Promise<void> | null = null;
+const managedBackendManager = new ManagedBackendManager();
 
 const SERVER_PORT = 3001;
 const SERVER_START_TIMEOUT_MS = 20000;
@@ -166,6 +169,8 @@ async function createWindow() {
       }
     });
 
+    managedBackendManager.attachWindow(mainWindow);
+
     const forceShowTimer = setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
         mainWindow.show();
@@ -291,6 +296,27 @@ ipcMain.handle("shell:openExternal", async (_event, rawUrl: unknown) => {
   return { ok: true };
 });
 
+ipcMain.handle("managed-backends:list", () => {
+  return managedBackendManager.listRuntimeStates();
+});
+
+ipcMain.handle("managed-backends:start", async (_event, rawConfig: unknown) => {
+  return managedBackendManager.start(rawConfig as ManagedBackendConfig);
+});
+
+ipcMain.handle("managed-backends:stop", async (_event, backendId: unknown) => {
+  return managedBackendManager.stop(String(backendId || "").trim());
+});
+
+ipcMain.handle("managed-backends:stop-active", async () => {
+  await managedBackendManager.stopActive();
+  return { ok: true };
+});
+
+ipcMain.handle("managed-backends:logs", (_event, backendId: unknown) => {
+  return managedBackendManager.getLogs(String(backendId || "").trim());
+});
+
 app.on("second-instance", () => {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -323,5 +349,5 @@ app.on("activate", () => {
 
 // Bundled server runs in-process; no child teardown needed.
 app.on("before-quit", () => {
-  // no-op
+  void managedBackendManager.stopActive();
 });

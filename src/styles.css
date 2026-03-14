@@ -6,6 +6,8 @@
 
 :root {
   color-scheme: dark;
+  --app-font-scale: 1;
+  --app-ui-scale: 1;
   --motion-fast: 180ms;
   --motion-base: 320ms;
   --motion-slow: 560ms;
@@ -66,6 +68,38 @@
   --shadow-panel: 0 14px 34px rgba(0, 0, 0, 0.28);
   --shadow-float: 0 10px 22px rgba(0, 0, 0, 0.26);
   --shadow-settings-tab: 0 8px 20px rgba(217, 119, 87, 0.3);
+}
+
+html {
+  font-size: 16px;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-shell {
+  zoom: var(--app-ui-scale);
+  width: calc(100vw / var(--app-ui-scale));
+  height: calc(100vh / var(--app-ui-scale));
+}
+
+:root[data-density="compact"] .app-shell main {
+  padding: 0.875rem !important;
+}
+
+:root[data-density="compact"] .panel-shell {
+  padding: 0.875rem !important;
+}
+
+:root[data-density="compact"] .app-nav {
+  padding: 0.1875rem !important;
+}
+
+:root[data-density="compact"] .app-tab-button {
+  padding: 0.3125rem 0.625rem !important;
 }
 
 .theme-light {

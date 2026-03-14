@@ -344,6 +344,20 @@ export function ChatScreen() {
     () => messages.filter((msg) => msg.role !== "tool"),
     [messages]
   );
+  const messageTokensPerSecond = useMemo(() => {
+    const next: Record<string, string> = {};
+    for (const msg of visibleMessages) {
+      if (msg.role !== "assistant" || msg.tokenCount <= 0) continue;
+      const durationMs = Number(msg.generationDurationMs || 0);
+      if (!Number.isFinite(durationMs) || durationMs < 250) continue;
+      const seconds = durationMs / 1000;
+      if (!Number.isFinite(seconds) || seconds <= 0.2) continue;
+      const speed = msg.tokenCount / seconds;
+      if (!Number.isFinite(speed) || speed <= 0) continue;
+      next[msg.id] = `${speed >= 10 ? speed.toFixed(0) : speed.toFixed(1)} t/s`;
+    }
+    return next;
+  }, [visibleMessages]);
   const groupedToolsByParent = useMemo(() => {
     return groupToolMessages(messages);
   }, [messages]);
@@ -990,10 +1004,11 @@ export function ChatScreen() {
   async function applyModelFromChat() {
     if (!chatProviderId || !chatModelId) return;
     try {
-      const updated = await api.providerSetActive(chatProviderId, chatModelId);
-      setActiveModelLabel(updated.activeModel || "");
+      const result = await api.providerActivateModel(chatProviderId, chatModelId);
+      const updated = result.settings;
+      setActiveModelLabel(result.activeModelLabel || updated.activeModel || "");
       if (updated.activeProviderId) setChatProviderId(updated.activeProviderId);
-      if (updated.activeModel) setChatModelId(updated.activeModel);
+      if (result.actualModelId) setChatModelId(result.actualModelId);
       setShowModelSelector(false);
       if (updated.samplerConfig) setSamplerConfig(updated.samplerConfig);
     } catch (error) {
@@ -2045,7 +2060,7 @@ export function ChatScreen() {
                             className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
                           >
                             <option value="">{t("settings.selectModel")}</option>
-                            {models.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
+                            {models.map((m) => (<option key={m.id} value={m.id}>{m.label || m.id}</option>))}
                           </select>
                         </div>
                         <div>
@@ -2407,6 +2422,7 @@ export function ChatScreen() {
                         </span>
                       )}
                       {msg.tokenCount > 0 && <Badge>{msg.tokenCount} tok</Badge>}
+                      {msg.role === "assistant" && messageTokensPerSecond[msg.id] && <Badge>{messageTokensPerSecond[msg.id]}</Badge>}
                     </div>
 
                     {editingId === msg.id ? (
@@ -2826,7 +2842,7 @@ export function ChatScreen() {
                       <select value={chatModelId} onChange={(e) => setChatModelId(e.target.value)}
                         className="chat-simple-model-select">
                         <option value="">{t("settings.selectModel")}</option>
-                        {models.map((m) => (<option key={m.id} value={m.id}>{m.id}</option>))}
+                        {models.map((m) => (<option key={m.id} value={m.id}>{m.label || m.id}</option>))}
                       </select>
                     </div>
                     <div className="chat-simple-model-footer">

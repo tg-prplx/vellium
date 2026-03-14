@@ -434,15 +434,16 @@ export function WritingScreen() {
   async function applyWriterModel() {
     if (!writerProviderId || !writerModelId) return;
     try {
-      const updated = await api.providerSetActive(writerProviderId, writerModelId);
+      const result = await api.providerActivateModel(writerProviderId, writerModelId);
+      const updated = result.settings;
       if (updated.activeProviderId) setWriterProviderId(updated.activeProviderId);
-      if (updated.activeModel) {
-        setWriterModelId(updated.activeModel);
-        setActiveModelLabel(updated.activeModel);
+      if (result.actualModelId) {
+        setWriterModelId(result.actualModelId);
+        setActiveModelLabel(result.activeModelLabel || result.actualModelId);
       } else {
         setActiveModelLabel(writerModelId);
       }
-      log(`${t("writing.modelSet")}: ${updated.activeModel || writerModelId}`);
+      log(`${t("writing.modelSet")}: ${result.activeModelLabel || updated.activeModel || writerModelId}`);
     } catch (err) {
       log(`${t("writing.logError")}: ${String(err)}`);
     }
@@ -1211,9 +1212,19 @@ export function WritingScreen() {
       setSimpleSceneDraftContent("");
       return;
     }
-    setSimpleSceneDraftId(selectedScene.id);
-    setSimpleSceneDraftContent(selectedScene.content);
-  }, [writingSimpleModeActive, selectedScene?.id, selectedScene?.content]);
+    const sceneChanged = simpleSceneDraftId !== selectedScene.id;
+    const draftDirty = simpleSceneDraftId === selectedScene.id && simpleSceneDraftContent !== selectedScene.content;
+    if (sceneChanged || !draftDirty) {
+      setSimpleSceneDraftId(selectedScene.id);
+      setSimpleSceneDraftContent(selectedScene.content);
+    }
+  }, [
+    writingSimpleModeActive,
+    selectedScene?.id,
+    selectedScene?.content,
+    simpleSceneDraftId,
+    simpleSceneDraftContent
+  ]);
 
   useEffect(() => {
     if (!writingSimpleModeActive || !selectedChapterId) return;
@@ -1666,7 +1677,7 @@ export function WritingScreen() {
                   {loadingModels ? `${t("settings.loadModels")}...` : `(${t("settings.selectModel")})`}
                 </option>
                 {models.map((model) => (
-                  <option key={model.id} value={model.id}>{model.id}</option>
+                  <option key={model.id} value={model.id}>{model.label || model.id}</option>
                 ))}
               </select>
               <button

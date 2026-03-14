@@ -130,10 +130,10 @@ function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activ
   );
 
   return (
-    <div className="app-shell flex h-screen w-screen flex-col overflow-hidden bg-bg-primary">
+    <div className="app-shell flex h-full w-full flex-col overflow-hidden bg-bg-primary">
       {isElectron ? (
         <TitleBar>
-          <div className="mx-auto flex w-full max-w-[1600px] items-center px-7 py-1.5">
+          <div className="flex w-full items-center px-7 py-1.5">
             <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-3">
               <div className="justify-self-start" style={noDrag}>
                 {brandNode}
@@ -149,7 +149,7 @@ function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activ
         </TitleBar>
       ) : (
         <header className="flex-shrink-0 border-b border-border">
-          <div className="mx-auto flex w-full max-w-[1600px] items-center px-7 py-4">
+          <div className="flex w-full items-center px-7 py-4">
             <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-3">
               <div className="justify-self-start">{brandNode}</div>
               <div className="justify-self-center">{tabsNode}</div>
@@ -159,7 +159,7 @@ function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activ
         </header>
       )}
 
-      <main className="mx-auto w-full max-w-[1600px] flex-1 overflow-hidden p-4">
+      <main className="w-full flex-1 overflow-hidden p-4">
         <div className="tab-content-enter h-full">
           <Suspense fallback={<ScreenFallback />}>
             {content}
@@ -219,6 +219,15 @@ function findPluginTheme(catalog: PluginCatalog | null, pluginThemeId: string | 
   return null;
 }
 
+function applyDisplaySettings(settings: Pick<AppSettings, "fontScale" | "density">) {
+  const root = document.documentElement;
+  const fontScale = Number(settings.fontScale);
+  const safeFontScale = Number.isFinite(fontScale) ? Math.max(0.65, Math.min(1.5, fontScale)) : 1;
+  root.style.setProperty("--app-font-scale", String(safeFontScale));
+  root.style.setProperty("--app-ui-scale", String(safeFontScale));
+  root.dataset.density = settings.density === "compact" ? "compact" : "comfortable";
+}
+
 async function applyThemeFromSettings(settings: Pick<AppSettings, "theme" | "pluginThemeId">) {
   if (settings.theme !== "custom") {
     applyTheme(settings.theme ?? "dark");
@@ -246,6 +255,7 @@ export function App() {
     Promise.all([api.settingsGet(), api.pluginsList().catch(() => null)]).then(([s, catalog]) => {
       setInitialSettings(s);
       applyTheme(s.theme ?? "dark", findPluginTheme(catalog, s.pluginThemeId));
+      applyDisplaySettings(s);
       if (isSupportedLocale(s.interfaceLanguage)) {
         setLocale(s.interfaceLanguage);
       }
@@ -262,23 +272,34 @@ export function App() {
       }
       if (detail && typeof detail === "object") {
         void applyThemeFromSettings(detail);
+        if ("fontScale" in detail || "density" in detail) {
+          applyDisplaySettings(detail);
+        }
       }
+    };
+    const displayHandler = (e: Event) => {
+      const detail = (e as CustomEvent<Pick<AppSettings, "fontScale" | "density">>).detail;
+      if (!detail || typeof detail !== "object") return;
+      applyDisplaySettings(detail);
     };
     const onboardingResetHandler = (e: Event) => {
       const next = (e as CustomEvent<AppSettings>).detail;
       if (!next) return;
       setInitialSettings(next);
       void applyThemeFromSettings(next);
+      applyDisplaySettings(next);
       if (isSupportedLocale(next.interfaceLanguage)) {
         setLocale(next.interfaceLanguage);
       }
     };
     window.addEventListener("locale-change", handler);
     window.addEventListener("theme-change", themeHandler);
+    window.addEventListener("display-settings-change", displayHandler);
     window.addEventListener("onboarding-reset", onboardingResetHandler);
     return () => {
       window.removeEventListener("locale-change", handler);
       window.removeEventListener("theme-change", themeHandler);
+      window.removeEventListener("display-settings-change", displayHandler);
       window.removeEventListener("onboarding-reset", onboardingResetHandler);
     };
   }, []);
@@ -287,6 +308,7 @@ export function App() {
     const updated = await api.settingsUpdate({ ...patch, onboardingCompleted: true });
     setInitialSettings(updated);
     await applyThemeFromSettings(updated);
+    applyDisplaySettings(updated);
     if (isSupportedLocale(updated.interfaceLanguage)) {
       setLocale(updated.interfaceLanguage);
     }

@@ -4,6 +4,7 @@ import { discoverMcpToolCatalog, isAllowedMcpCommand, testMcpServerConnection, t
 import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { fetchCustomAdapterModels, fetchCustomAdapterVoices } from "../services/customProviderAdapters.js";
 import { normalizeCustomEndpointAdapters, normalizeCustomInspectorFields } from "../services/extensions.js";
+import { normalizeManagedBackends } from "../../src/shared/managedBackends.js";
 
 const router = Router();
 
@@ -142,6 +143,7 @@ function getSettings() {
       ...DEFAULT_SETTINGS.pluginPermissionGrants,
       ...(stored.pluginPermissionGrants ?? {})
     }),
+    managedBackends: normalizeManagedBackends(stored.managedBackends),
     customInspectorFields: normalizeCustomInspectorFields(stored.customInspectorFields),
     customEndpointAdapters: normalizeCustomEndpointAdapters(stored.customEndpointAdapters),
     mcpServers
@@ -354,6 +356,9 @@ router.patch("/", (req, res) => {
       ...current.pluginPermissionGrants,
       ...((patchData as { pluginPermissionGrants?: Record<string, Record<string, boolean>> }).pluginPermissionGrants ?? {})
     }),
+    managedBackends: normalizeManagedBackends(
+      (patchData as { managedBackends?: unknown }).managedBackends ?? current.managedBackends
+    ),
     customInspectorFields: normalizeCustomInspectorFields(
       (patchData as { customInspectorFields?: unknown }).customInspectorFields ?? current.customInspectorFields
     ),
