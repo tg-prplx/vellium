@@ -13,8 +13,87 @@ export interface ProviderProfile {
   adapterId?: string | null;
 }
 
+export type ManagedBackendKind = "koboldcpp" | "ollama" | "generic";
+export type ManagedBackendStatusMode = "auto" | "api" | "stdout" | "none";
+export type ManagedBackendRuntimeStatus = "stopped" | "starting" | "running" | "stopping" | "error";
+
+export interface ManagedBackendKoboldOptions {
+  executable: string;
+  modelPath: string;
+  host: string;
+  port: number;
+  contextSize: number;
+  gpuLayers: number;
+  threads: number;
+  blasThreads: number;
+  batchSize: number;
+  highPriority: boolean;
+  smartContext: boolean;
+  useMmap: boolean;
+  flashAttention: boolean;
+  noMmap: boolean;
+  noKvOffload: boolean;
+}
+
+export interface ManagedBackendOllamaOptions {
+  executable: string;
+  host: string;
+  port: number;
+}
+
+export interface ManagedBackendConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  providerId: string;
+  providerType: "openai" | "koboldcpp" | "custom";
+  adapterId?: string | null;
+  backendKind: ManagedBackendKind;
+  baseUrl: string;
+  commandOverride?: string;
+  extraArgs: string;
+  workingDirectory?: string;
+  envText?: string;
+  defaultModel?: string | null;
+  autoStopOnSwitch: boolean;
+  statusMode: ManagedBackendStatusMode;
+  healthPath?: string;
+  modelsPath?: string;
+  statusPath?: string;
+  statusTextPath?: string;
+  statusProgressPath?: string;
+  stdoutProgressRegex?: string;
+  koboldcpp?: ManagedBackendKoboldOptions;
+  ollama?: ManagedBackendOllamaOptions;
+}
+
+export interface ManagedBackendRuntimeState {
+  backendId: string;
+  status: ManagedBackendRuntimeStatus;
+  pid: number | null;
+  baseUrl: string;
+  commandPreview: string;
+  progress: number | null;
+  progressLabel: string;
+  models: string[];
+  startedAt: string | null;
+  lastError: string | null;
+}
+
+export interface ManagedBackendLogEntry {
+  id: string;
+  stream: "stdout" | "stderr" | "system";
+  text: string;
+  timestamp: string;
+}
+
 export interface ProviderModel {
   id: string;
+  label?: string;
+  managedBackendId?: string | null;
+  managedBackendKind?: ManagedBackendKind | null;
+  runtimeStatus?: ManagedBackendRuntimeStatus | null;
+  placeholder?: boolean;
 }
 
 export interface SamplerConfig {
@@ -91,6 +170,9 @@ export interface ChatMessage {
   content: string;
   tokenCount: number;
   createdAt: string;
+  generationStartedAt?: string;
+  generationCompletedAt?: string;
+  generationDurationMs?: number;
   parentId?: Id | null;
   characterName?: string;
   attachments?: FileAttachment[];
@@ -662,6 +744,7 @@ export interface AppSettings {
   pluginStateConfigured: Record<string, boolean>;
   pluginData: Record<string, Record<string, unknown>>;
   pluginPermissionGrants: Record<string, Record<string, boolean>>;
+  managedBackends: ManagedBackendConfig[];
   mcpServers: McpServerConfig[];
   security: SecuritySettings;
   sceneFieldVisibility: {

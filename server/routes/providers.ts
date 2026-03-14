@@ -116,6 +116,28 @@ router.post("/set-active", (req, res) => {
   res.json(updated);
 });
 
+router.post("/:id/runtime-config", (req, res) => {
+  const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
+  if (!row) {
+    res.status(404).json({ error: "Provider not found" });
+    return;
+  }
+
+  const body = req.body as { baseUrl?: unknown; providerType?: unknown; adapterId?: unknown } | undefined;
+  const baseUrl = String(body?.baseUrl ?? row.base_url).trim() || row.base_url;
+  const providerType = normalizeProviderType(body?.providerType ?? row.provider_type);
+  const adapterId = providerType === "custom" ? String(body?.adapterId ?? row.adapter_id ?? "").trim() || null : null;
+
+  db.prepare(`
+    UPDATE providers
+    SET base_url = ?, provider_type = ?, adapter_id = ?
+    WHERE id = ?
+  `).run(baseUrl, providerType, adapterId, req.params.id);
+
+  const updated = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow;
+  res.json(rowToProfile(updated));
+});
+
 router.post("/:id/test", async (req, res) => {
   const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
   if (!row) { res.json(false); return; }

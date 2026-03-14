@@ -965,6 +965,16 @@ async function streamProviderCompletion(params: {
   res: Response;
   signal: AbortSignal;
 }) {
+  const generationStartedMs = Date.now();
+  const generationStartedAt = new Date(generationStartedMs).toISOString();
+  const finalizeGenerationMeta = () => {
+    const generationCompletedMs = Date.now();
+    return {
+      generationStartedAt,
+      generationCompletedAt: new Date(generationCompletedMs).toISOString(),
+      generationDurationMs: Math.max(1, generationCompletedMs - generationStartedMs)
+    };
+  };
   const providerType = normalizeProviderType(params.provider.provider_type);
   const sc = params.samplerConfig;
   const reasoningTrace: ToolCallTrace = {
@@ -1090,7 +1100,7 @@ async function streamProviderCompletion(params: {
       }
 
       if (fullContent.trim() || reasoningTrace.result.trim()) {
-        return { content: fullContent, toolTraces: finalizeReasoning() };
+        return { content: fullContent, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta() };
       }
     }
 
@@ -1108,7 +1118,7 @@ async function streamProviderCompletion(params: {
     if (split.content) {
       await sendSseText(params.res, params.chatId, split.content, 8);
     }
-    return { content: split.content, toolTraces: finalizeReasoning() };
+    return { content: split.content, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta() };
   }
 
   if (providerType === "custom") {
@@ -1126,7 +1136,7 @@ async function streamProviderCompletion(params: {
     if (split.content) {
       await sendSseText(params.res, params.chatId, split.content, 8);
     }
-    return { content: split.content, toolTraces: finalizeReasoning() };
+    return { content: split.content, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta() };
   }
 
   const baseUrl = String(params.provider.base_url || "").replace(/\/+$/, "");
@@ -1218,7 +1228,7 @@ async function streamProviderCompletion(params: {
     params.res.write(`data: ${JSON.stringify({ type: "delta", chatId: params.chatId, delta: flush.content })}\n\n`);
   }
 
-  return { content: fullContent, toolTraces: finalizeReasoning() };
+  return { content: fullContent, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta() };
 }
 
 async function completeProviderOnce(params: {
@@ -1644,6 +1654,11 @@ async function streamLlmResponse(
       if (toolResult) {
         let fullContent = toolResult.content || "";
         let reasoningTraces: ToolCallTrace[] = [];
+        let generationMeta: {
+          generationStartedAt: string;
+          generationCompletedAt: string;
+          generationDurationMs: number;
+        } | null = null;
         if (Array.isArray(toolResult.streamMessages) && toolResult.streamMessages.length > 0) {
           const streamResult = await streamProviderCompletion({
             provider,
@@ -1657,6 +1672,11 @@ async function streamLlmResponse(
           });
           fullContent = streamResult.content;
           reasoningTraces = streamResult.toolTraces;
+          generationMeta = {
+            generationStartedAt: streamResult.generationStartedAt,
+            generationCompletedAt: streamResult.generationCompletedAt,
+            generationDurationMs: streamResult.generationDurationMs
+          };
         } else if (fullContent) {
           await sendSseText(res, chatId, fullContent, 12);
         }
@@ -1664,17 +1684,20 @@ async function streamLlmResponse(
         if (fullContent || toolResult.toolCalls.length > 0 || reasoningTraces.length > 0) {
           const assistantId = newId();
           db.prepare(
-            "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+            "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, generation_started_at, generation_completed_at, generation_duration_ms, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)"
           ).run(
             assistantId,
-              chatId,
-              branchId,
-              "assistant",
-              fullContent,
-              await countProviderTokens(provider, fullContent),
-              parentMsgId,
-              now(),
-              overrideCharacterName || null,
+            chatId,
+            branchId,
+            "assistant",
+            fullContent,
+            await countProviderTokens(provider, fullContent),
+            parentMsgId,
+            now(),
+            generationMeta?.generationStartedAt ?? null,
+            generationMeta?.generationCompletedAt ?? null,
+            generationMeta?.generationDurationMs ?? null,
+            overrideCharacterName || null,
             nextSortOrder(chatId, branchId)
           );
           if (ragSourcesForAssistant.length > 0) {
@@ -1684,7 +1707,7 @@ async function streamLlmResponse(
           for (const toolCall of toolResult.toolCalls) {
             const toolText = serializeToolTrace(toolCall);
             db.prepare(
-              "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+              "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, generation_started_at, generation_completed_at, generation_duration_ms, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)"
             ).run(
               newId(),
               chatId,
@@ -1694,6 +1717,9 @@ async function streamLlmResponse(
               roughTokenCount(toolText),
               assistantId,
               now(),
+              generationMeta?.generationStartedAt ?? null,
+              generationMeta?.generationCompletedAt ?? null,
+              generationMeta?.generationDurationMs ?? null,
               null,
               nextSortOrder(chatId, branchId)
             );
@@ -1701,7 +1727,7 @@ async function streamLlmResponse(
           for (const reasoningTrace of reasoningTraces) {
             const toolText = serializeToolTrace(reasoningTrace);
             db.prepare(
-              "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+              "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, generation_started_at, generation_completed_at, generation_duration_ms, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)"
             ).run(
               newId(),
               chatId,
@@ -1711,6 +1737,9 @@ async function streamLlmResponse(
               roughTokenCount(toolText),
               assistantId,
               now(),
+              generationMeta?.generationStartedAt ?? null,
+              generationMeta?.generationCompletedAt ?? null,
+              generationMeta?.generationDurationMs ?? null,
               null,
               nextSortOrder(chatId, branchId)
             );
@@ -1739,7 +1768,7 @@ async function streamLlmResponse(
     if (fullContent || reasoningTraces.length > 0) {
       const assistantId = newId();
       db.prepare(
-        "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+        "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, generation_started_at, generation_completed_at, generation_duration_ms, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)"
       ).run(
         assistantId,
         chatId,
@@ -1749,6 +1778,9 @@ async function streamLlmResponse(
         await countProviderTokens(provider, fullContent),
         parentMsgId,
         now(),
+        streamResult.generationStartedAt,
+        streamResult.generationCompletedAt,
+        streamResult.generationDurationMs,
         overrideCharacterName || null,
         nextSortOrder(chatId, branchId)
       );
@@ -1759,7 +1791,7 @@ async function streamLlmResponse(
       for (const reasoningTrace of reasoningTraces) {
         const toolText = serializeToolTrace(reasoningTrace);
         db.prepare(
-          "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+          "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, generation_started_at, generation_completed_at, generation_duration_ms, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)"
         ).run(
           newId(),
           chatId,
@@ -1769,6 +1801,9 @@ async function streamLlmResponse(
           roughTokenCount(toolText),
           assistantId,
           now(),
+          streamResult.generationStartedAt,
+          streamResult.generationCompletedAt,
+          streamResult.generationDurationMs,
           null,
           nextSortOrder(chatId, branchId)
         );

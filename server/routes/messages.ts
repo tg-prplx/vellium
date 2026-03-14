@@ -15,6 +15,9 @@ interface MessageRow {
   parent_id: string | null;
   deleted: number;
   created_at: string;
+  generation_started_at: string | null;
+  generation_completed_at: string | null;
+  generation_duration_ms: number | null;
   character_name: string | null;
   sort_order: number;
 }
@@ -43,6 +46,9 @@ function messageToJson(row: MessageRow) {
     attachments,
     tokenCount: row.token_count,
     createdAt: row.created_at,
+    generationStartedAt: row.generation_started_at || undefined,
+    generationCompletedAt: row.generation_completed_at || undefined,
+    generationDurationMs: typeof row.generation_duration_ms === "number" ? row.generation_duration_ms : undefined,
     parentId: row.parent_id,
     characterName: row.character_name || undefined,
     ragSources

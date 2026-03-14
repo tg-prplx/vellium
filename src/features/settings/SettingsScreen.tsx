@@ -3,7 +3,8 @@ import { isPluginDevAutoRefreshEnabled, PluginSlotMount, setPluginDevAutoRefresh
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
-import type { ApiParamPolicy, AppSettings, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PluginSettingsFieldContribution, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
+import { buildManagedBackendCommand, defaultManagedBackendConfig, normalizeManagedBackends, parseManagedBackendCommand, resolveManagedBackendBaseUrl } from "../../shared/managedBackends";
+import type { ApiParamPolicy, AppSettings, ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PluginSettingsFieldContribution, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="mb-1.5 block text-xs font-medium text-text-secondary">{children}</label>;
@@ -22,9 +23,31 @@ function InputField({
   type?: string;
   onBlur?: () => void;
 }) {
+  const [draftValue, setDraftValue] = useState(value);
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraftValue(value);
+    }
+  }, [value, isFocused]);
+
   return (
-    <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} onBlur={onBlur}
-      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary" />
+    <input
+      type={type}
+      value={draftValue}
+      onFocus={() => setIsFocused(true)}
+      onChange={(e) => {
+        setDraftValue(e.target.value);
+        onChange(e.target.value);
+      }}
+      placeholder={placeholder}
+      onBlur={() => {
+        setIsFocused(false);
+        onBlur?.();
+      }}
+      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary"
+    />
   );
 }
 
@@ -245,6 +268,9 @@ export function SettingsScreen() {
   const [compressModels, setCompressModels] = useState<ProviderModel[]>([]);
   const [ttsModels, setTtsModels] = useState<ProviderModel[]>([]);
   const [ttsVoices, setTtsVoices] = useState<ProviderModel[]>([]);
+  const [managedBackendStates, setManagedBackendStates] = useState<ManagedBackendRuntimeState[]>([]);
+  const [managedBackendLogsFor, setManagedBackendLogsFor] = useState<ManagedBackendConfig | null>(null);
+  const [managedBackendLogs, setManagedBackendLogs] = useState<ManagedBackendLogEntry[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [selectedModelId, setSelectedModelId] = useState("");
 
@@ -264,6 +290,8 @@ export function SettingsScreen() {
       })))
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [plugins]);
+  const managedBackends = useMemo(() => normalizeManagedBackends(settings?.managedBackends), [settings?.managedBackends]);
+  const managedBackendStateMap = useMemo(() => new Map(managedBackendStates.map((item) => [item.backendId, item])), [managedBackendStates]);
 
   const [providerId, setProviderId] = useState(selectedPreset.defaultId);
   const [providerName, setProviderName] = useState(selectedPreset.defaultName);
@@ -274,7 +302,7 @@ export function SettingsScreen() {
   const [providerType, setProviderType] = useState<"openai" | "koboldcpp" | "custom">(selectedPreset.providerType);
   const [providerAdapterId, setProviderAdapterId] = useState("");
 
-  const [activeCategory, setActiveCategory] = useState<"connection" | "interface" | "generation" | "context" | "prompts" | "tools">("connection");
+  const [activeCategory, setActiveCategory] = useState<"connection" | "backends" | "interface" | "generation" | "context" | "prompts" | "tools">("connection");
   const [mcpServersDraft, setMcpServersDraft] = useState<McpServerConfig[]>([]);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [testingMcpId, setTestingMcpId] = useState<string | null>(null);
@@ -297,6 +325,7 @@ export function SettingsScreen() {
   const [pluginPermissionsEnableAfterSave, setPluginPermissionsEnableAfterSave] = useState(false);
   const [pluginInstallBusy, setPluginInstallBusy] = useState(false);
   const pluginInstallInputRef = useRef<HTMLInputElement | null>(null);
+  const [managedBackendImportCommands, setManagedBackendImportCommands] = useState<Record<string, string>>({});
 
   useEffect(() => {
     void (async () => {
@@ -311,6 +340,25 @@ export function SettingsScreen() {
       if (s.activeModel) setSelectedModelId(s.activeModel);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!window.electronAPI?.listManagedBackends) return;
+    let active = true;
+    void window.electronAPI.listManagedBackends().then((states) => {
+      if (active) setManagedBackendStates(states);
+    }).catch(() => {});
+    window.electronAPI.onManagedBackendsUpdate?.((states) => {
+      if (active) setManagedBackendStates(states);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!managedBackendLogsFor || !window.electronAPI?.getManagedBackendLogs) return;
+    void window.electronAPI.getManagedBackendLogs(managedBackendLogsFor.id).then(setManagedBackendLogs).catch(() => {});
+  }, [managedBackendStates, managedBackendLogsFor]);
 
   function showResult(text: string, variant: "info" | "success" | "error" = "info") {
     setProviderResult(text);
@@ -435,6 +483,103 @@ export function SettingsScreen() {
     if (next.theme !== undefined || next.pluginThemeId !== undefined) {
       window.dispatchEvent(new CustomEvent("theme-change", { detail: updated }));
     }
+    if (next.fontScale !== undefined || next.density !== undefined) {
+      window.dispatchEvent(new CustomEvent("display-settings-change", {
+        detail: {
+          fontScale: updated.fontScale,
+          density: updated.density
+        }
+      }));
+    }
+  }
+
+  async function saveManagedBackends(nextBackends: ManagedBackendConfig[]) {
+    if (!settings) return;
+    const updated = await api.settingsUpdate({ managedBackends: nextBackends });
+    setSettings(updated);
+  }
+
+  function addManagedBackend() {
+    const next = [...managedBackends, defaultManagedBackendConfig(managedBackends.length + 1)];
+    void saveManagedBackends(next);
+  }
+
+  function updateManagedBackend(backendId: string, patchData: Partial<ManagedBackendConfig>) {
+    const next = managedBackends.map((backend) => {
+      if (backend.id !== backendId) return backend;
+      const merged: ManagedBackendConfig = {
+        ...backend,
+        ...patchData,
+        koboldcpp: {
+          ...(backend.koboldcpp || defaultManagedBackendConfig().koboldcpp!),
+          ...(patchData.koboldcpp || {})
+        },
+        ollama: {
+          ...(backend.ollama || defaultManagedBackendConfig().ollama!),
+          ...(patchData.ollama || {})
+        }
+      };
+      return {
+        ...merged,
+        baseUrl: merged.baseUrl.trim() || resolveManagedBackendBaseUrl(merged)
+      };
+    });
+    void saveManagedBackends(next);
+  }
+
+  function removeManagedBackend(backendId: string) {
+    const next = managedBackends.filter((backend) => backend.id !== backendId);
+    void saveManagedBackends(next);
+  }
+
+  async function startManagedBackend(backend: ManagedBackendConfig) {
+    if (!window.electronAPI?.startManagedBackend) {
+      showResult("Managed backends require Electron runtime", "error");
+      return;
+    }
+    try {
+      await window.electronAPI.startManagedBackend(backend);
+      showResult(`${backend.name}: started`, "success");
+      await loadModels().catch(() => undefined);
+    } catch (error) {
+      showResult(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
+  async function stopManagedBackend(backendId: string) {
+    if (!window.electronAPI?.stopManagedBackend) return;
+    try {
+      await window.electronAPI.stopManagedBackend(backendId);
+      showResult("Managed backend stopped", "success");
+      await loadModels().catch(() => undefined);
+    } catch (error) {
+      showResult(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
+  async function openManagedBackendLogs(backend: ManagedBackendConfig) {
+    if (!window.electronAPI?.getManagedBackendLogs) return;
+    setManagedBackendLogsFor(backend);
+    try {
+      const logs = await window.electronAPI.getManagedBackendLogs(backend.id);
+      setManagedBackendLogs(logs);
+    } catch (error) {
+      setManagedBackendLogs([]);
+      showResult(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
+  function applyManagedBackendCommand(backend: ManagedBackendConfig) {
+    const raw = String(managedBackendImportCommands[backend.id] || "").trim();
+    if (!raw) return;
+    const parsed = parseManagedBackendCommand(raw, backend.backendKind);
+    if (!parsed) {
+      showResult(t("settings.commandImportFailed"), "error");
+      return;
+    }
+    updateManagedBackend(backend.id, parsed);
+    setManagedBackendImportCommands((current) => ({ ...current, [backend.id]: "" }));
+    showResult(t("settings.commandImported"), "success");
   }
 
   async function patchSceneFieldVisibility(next: Partial<AppSettings["sceneFieldVisibility"]>) {
@@ -605,9 +750,11 @@ export function SettingsScreen() {
 
   async function applyActiveModel() {
     if (!selectedProviderId || !selectedModelId) { showResult(t("settings.selectProviderAndModelFirst"), "error"); return; }
-    const updated = await api.providerSetActive(selectedProviderId, selectedModelId);
+    const result = await api.providerActivateModel(selectedProviderId, selectedModelId);
+    const updated = result.settings;
     setSettings(updated);
-    showResult(`${t("settings.activeModelSet")}: ${selectedProviderId} / ${selectedModelId}`, "success");
+    setSelectedModelId(result.actualModelId || selectedModelId);
+    showResult(`${t("settings.activeModelSet")}: ${selectedProviderId} / ${result.activeModelLabel || result.actualModelId || selectedModelId}`, "success");
   }
 
   async function patchSampler(samplerPatch: Partial<SamplerConfig>) {
@@ -920,6 +1067,7 @@ export function SettingsScreen() {
 
   const categoryNav: Array<{ id: typeof activeCategory; label: string; icon: string }> = [
     { id: "connection", label: t("settings.categoryConnection"), icon: "M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" },
+    { id: "backends", label: t("settings.categoryBackends"), icon: "M4 7h16M4 12h16M4 17h16M8 4v16m8-16v16" },
     { id: "interface", label: t("settings.categoryInterface"), icon: "M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" },
     { id: "generation", label: t("settings.categoryGeneration"), icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" },
     { id: "context", label: t("settings.categoryContext"), icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" },
@@ -936,6 +1084,9 @@ export function SettingsScreen() {
       { id: "settings-translation-model", label: t("settings.translateModel") },
       { id: "settings-compress-model", label: t("settings.compressModel") },
       { id: "settings-tts", label: t("settings.tts") }
+    ],
+    backends: [
+      { id: "settings-managed-backends", label: t("settings.managedBackends") }
     ],
     interface: [
       { id: "settings-general", label: t("settings.general") },
@@ -1173,7 +1324,7 @@ export function SettingsScreen() {
                     <FieldLabel>{t("chat.model")}</FieldLabel>
                     <SelectField value={selectedModelId} onChange={setSelectedModelId}>
                       <option value="">{t("settings.selectModel")}</option>
-                      {models.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                      {models.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                     </SelectField>
                   </div>
                   <button onClick={applyActiveModel} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">{t("settings.useModel")}</button>
@@ -1199,7 +1350,7 @@ export function SettingsScreen() {
                       </div>
                       <SelectField value={settings.translateModel || ""} onChange={(v) => patch({ translateModel: v || null })}>
                         <option value="">({t("settings.activeModel")})</option>
-                        {translateModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                        {translateModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                       </SelectField>
                     </div>
                   )}
@@ -1222,7 +1373,7 @@ export function SettingsScreen() {
                       <FieldLabel>{t("chat.model")}</FieldLabel>
                       <SelectField value={settings.compressModel || ""} onChange={(v) => patch({ compressModel: v || null })}>
                         <option value="">({t("settings.activeModel")})</option>
-                        {compressModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                        {compressModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                       </SelectField>
                     </div>
                   )}
@@ -1243,7 +1394,7 @@ export function SettingsScreen() {
                     </div>
                     <SelectField value={settings.ttsModel || ""} onChange={(v) => patch({ ttsModel: v })}>
                       <option value="">{t("settings.selectModel")}</option>
-                      {ttsModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                      {ttsModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                     </SelectField>
                   </div>
                   <div>
@@ -1259,6 +1410,419 @@ export function SettingsScreen() {
                     </datalist>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== MANAGED BACKENDS ===== */}
+          {activeCategory === "backends" && (
+            <div className="space-y-4">
+              <div id="settings-managed-backends" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.managedBackends")}</div>
+                <p className="mb-4 text-xs text-text-tertiary">{t("settings.managedBackendsDesc")}</p>
+
+                {managedBackends.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border bg-bg-primary px-4 py-5 text-sm text-text-tertiary">
+                    {t("settings.managedBackendsEmpty")}
+                  </div>
+                ) : null}
+
+                <div className="space-y-4">
+                  {managedBackends.map((backend) => {
+                    const runtime = managedBackendStateMap.get(backend.id);
+                    const koboldOptions = backend.koboldcpp || defaultManagedBackendConfig().koboldcpp!;
+                    const ollamaOptions = backend.ollama || defaultManagedBackendConfig().ollama!;
+                    const isStarting = runtime?.status === "starting";
+                    const isRunning = runtime?.status === "running" || isStarting;
+                    const commandPreview = runtime?.commandPreview || buildManagedBackendCommand(backend).command;
+                    const envText = backend.envText || "";
+                    const runtimeStatus = runtime?.status || "idle";
+
+                    return (
+                      <div key={backend.id} className="rounded-2xl border border-border bg-bg-secondary p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-semibold text-text-primary">{backend.name}</div>
+                              <span className="rounded-full border border-border-subtle bg-bg-primary px-2 py-0.5 text-[10px] uppercase tracking-wide text-text-tertiary">
+                                {backend.backendKind}
+                              </span>
+                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                runtimeStatus === "running"
+                                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                                  : isStarting
+                                    ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                                    : runtimeStatus === "error"
+                                      ? "border-rose-500/30 bg-rose-500/10 text-rose-300"
+                                      : "border-border-subtle bg-bg-primary text-text-tertiary"
+                              }`}>
+                                {runtimeStatus}
+                              </span>
+                              {runtime?.pid ? (
+                                <span className="rounded-full border border-border-subtle bg-bg-primary px-2 py-0.5 text-[10px] text-text-tertiary">
+                                  PID {runtime.pid}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-1 text-[11px] text-text-tertiary">
+                              {resolveManagedBackendBaseUrl(backend)}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              onClick={() => void startManagedBackend(backend)}
+                              disabled={isRunning}
+                              className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {t("settings.startBackend")}
+                            </button>
+                            <button
+                              onClick={() => void stopManagedBackend(backend.id)}
+                              disabled={!isRunning}
+                              className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {t("settings.stopBackend")}
+                            </button>
+                            <button
+                              onClick={() => void openManagedBackendLogs(backend)}
+                              className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover"
+                            >
+                              {t("settings.viewLogs")}
+                            </button>
+                            <button
+                              onClick={() => removeManagedBackend(backend.id)}
+                              className="rounded-lg border border-danger-border px-3 py-2 text-xs font-medium text-danger hover:bg-danger-subtle"
+                            >
+                              {t("common.delete")}
+                            </button>
+                          </div>
+                        </div>
+
+                        {typeof runtime?.progress === "number" || runtime?.progressLabel ? (
+                          <div className="mt-4 rounded-xl border border-border-subtle bg-bg-primary px-3 py-3">
+                            <div className="mb-2 flex items-center justify-between gap-3 text-xs text-text-secondary">
+                              <span>{runtime?.progressLabel || runtimeStatus}</span>
+                              <span>{typeof runtime?.progress === "number" ? `${runtime.progress}%` : runtimeStatus}</span>
+                            </div>
+                            <div className="h-2 rounded-full bg-bg-hover">
+                              <div
+                                className="h-2 rounded-full bg-accent transition-all"
+                                style={{ width: `${Math.max(0, Math.min(100, runtime?.progress ?? 0))}%` }}
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {runtime?.lastError ? (
+                          <div className="mt-4 rounded-xl border border-danger-border bg-danger-subtle px-3 py-2 text-xs text-danger">
+                            {runtime.lastError}
+                          </div>
+                        ) : null}
+
+                        {Array.isArray(runtime?.models) && runtime.models.length > 0 ? (
+                          <div className="mt-4 rounded-xl border border-border-subtle bg-bg-primary px-3 py-3">
+                            <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.modelsLoaded")}</div>
+                            <div className="flex flex-wrap gap-2">
+                              {runtime.models.map((model) => (
+                                <span key={model} className="rounded-full border border-border-subtle bg-bg-secondary px-2 py-1 text-[11px] text-text-secondary">
+                                  {model}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <div>
+                            <FieldLabel>{t("settings.backendName")}</FieldLabel>
+                            <InputField
+                              value={backend.name}
+                              onChange={(value) => updateManagedBackend(backend.id, { name: value })}
+                              placeholder={t("settings.backendNamePlaceholder")}
+                            />
+                          </div>
+                          <div>
+                            <FieldLabel>{t("settings.backendKind")}</FieldLabel>
+                            <SelectField
+                              value={backend.backendKind}
+                              onChange={(value) => updateManagedBackend(backend.id, { backendKind: value as ManagedBackendConfig["backendKind"] })}
+                            >
+                              <option value="koboldcpp">KoboldCpp</option>
+                              <option value="ollama">Ollama</option>
+                              <option value="generic">Generic</option>
+                            </SelectField>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-3">
+                          <div>
+                            <FieldLabel>{t("settings.provider")}</FieldLabel>
+                            <SelectField value={backend.providerId} onChange={(value) => updateManagedBackend(backend.id, { providerId: value })}>
+                              {providers.map((provider) => (
+                                <option key={provider.id} value={provider.id}>{provider.name}</option>
+                              ))}
+                            </SelectField>
+                          </div>
+                          <div>
+                            <FieldLabel>{t("settings.providerType")}</FieldLabel>
+                            <SelectField
+                              value={backend.providerType}
+                              onChange={(value) => updateManagedBackend(backend.id, { providerType: value as ManagedBackendConfig["providerType"] })}
+                            >
+                              <option value="openai">{t("settings.providerTypeOpenAi")}</option>
+                              <option value="koboldcpp">{t("settings.providerTypeKobold")}</option>
+                              <option value="custom">{t("settings.providerTypeCustom")}</option>
+                            </SelectField>
+                          </div>
+                          <div>
+                            <FieldLabel>{t("settings.baseUrl")}</FieldLabel>
+                            <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-sm text-text-secondary">
+                              {resolveManagedBackendBaseUrl(backend)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {backend.providerType === "custom" && (
+                          <div className="mt-4">
+                            <FieldLabel>{t("settings.adapterId")}</FieldLabel>
+                            <InputField
+                              value={backend.adapterId || ""}
+                              onChange={(value) => updateManagedBackend(backend.id, { adapterId: value.trim() || null })}
+                              placeholder={t("settings.adapterIdPlaceholder")}
+                            />
+                          </div>
+                        )}
+
+                        <div className="mt-4 rounded-xl border border-border-subtle bg-bg-primary px-3 py-3">
+                          <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.importCommand")}</div>
+                          <div className="flex flex-col gap-3 md:flex-row">
+                            <textarea
+                              value={managedBackendImportCommands[backend.id] || ""}
+                              onChange={(e) => setManagedBackendImportCommands((current) => ({ ...current, [backend.id]: e.target.value }))}
+                              placeholder={t("settings.importCommandPlaceholder")}
+                              className="h-24 min-h-[96px] flex-1 rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
+                            />
+                            <button
+                              onClick={() => applyManagedBackendCommand(backend)}
+                              className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover"
+                            >
+                              {t("settings.applyCommand")}
+                            </button>
+                          </div>
+                        </div>
+
+                        {backend.backendKind === "koboldcpp" && (
+                          <>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              <div>
+                                <FieldLabel>{t("settings.executable")}</FieldLabel>
+                                <InputField value={koboldOptions.executable} onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, executable: value } })} />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.modelPath")}</FieldLabel>
+                                <InputField value={koboldOptions.modelPath || ""} onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, modelPath: value } })} />
+                              </div>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-4">
+                              <div>
+                                <FieldLabel>{t("settings.host")}</FieldLabel>
+                                <InputField value={koboldOptions.host} onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, host: value } })} />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.port")}</FieldLabel>
+                                <InputField type="number" value={String(koboldOptions.port)} onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, port: Number(value || 0) || koboldOptions.port } })} />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.contextWindow")}</FieldLabel>
+                                <InputField
+                                  type="number"
+                                  value={String(koboldOptions.contextSize || 0)}
+                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, contextSize: Number(value || 0) || 0 } })}
+                                />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.gpuLayers")}</FieldLabel>
+                                <InputField
+                                  type="number"
+                                  value={String(koboldOptions.gpuLayers || 0)}
+                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, gpuLayers: Number(value || 0) || 0 } })}
+                                />
+                              </div>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-3">
+                              <div>
+                                <FieldLabel>{t("settings.threads")}</FieldLabel>
+                                <InputField
+                                  type="number"
+                                  value={String(koboldOptions.threads || 0)}
+                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, threads: Number(value || 0) || 0 } })}
+                                />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.blasThreads")}</FieldLabel>
+                                <InputField
+                                  type="number"
+                                  value={String(koboldOptions.blasThreads || 0)}
+                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, blasThreads: Number(value || 0) || 0 } })}
+                                />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.batchSize")}</FieldLabel>
+                                <InputField
+                                  type="number"
+                                  value={String(koboldOptions.batchSize || 0)}
+                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, batchSize: Number(value || 0) || 0 } })}
+                                />
+                              </div>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                              {([
+                                ["highPriority", t("settings.highPriority")],
+                                ["smartContext", t("settings.smartContext")],
+                                ["useMmap", t("settings.useMmap")],
+                                ["flashAttention", t("settings.flashAttention")],
+                                ["noMmap", t("settings.noMmap")],
+                                ["noKvOffload", t("settings.noKvOffload")]
+                              ] as const).map(([key, label]) => (
+                                <label key={key} className="settings-toggle-row rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
+                                  <span className="text-xs font-medium text-text-secondary">{label}</span>
+                                  <ToggleSwitch
+                                    checked={Boolean(koboldOptions[key])}
+                                    onChange={(e) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, [key]: e.target.checked } })}
+                                  />
+                                </label>
+                              ))}
+                            </div>
+                          </>
+                        )}
+
+                        {backend.backendKind === "ollama" && (
+                          <>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              <div>
+                                <FieldLabel>{t("settings.executable")}</FieldLabel>
+                                <InputField value={ollamaOptions.executable} onChange={(value) => updateManagedBackend(backend.id, { ollama: { ...ollamaOptions, executable: value } })} />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.defaultModel")}</FieldLabel>
+                                <InputField value={backend.defaultModel || ""} onChange={(value) => updateManagedBackend(backend.id, { defaultModel: value })} />
+                              </div>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              <div>
+                                <FieldLabel>{t("settings.host")}</FieldLabel>
+                                <InputField value={ollamaOptions.host} onChange={(value) => updateManagedBackend(backend.id, { ollama: { ...ollamaOptions, host: value } })} />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.port")}</FieldLabel>
+                                <InputField type="number" value={String(ollamaOptions.port)} onChange={(value) => updateManagedBackend(backend.id, { ollama: { ...ollamaOptions, port: Number(value || 0) || ollamaOptions.port } })} />
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {backend.backendKind === "generic" && (
+                          <>
+                            <div className="mt-4">
+                              <FieldLabel>{t("settings.commandOverride")}</FieldLabel>
+                              <InputField
+                                value={backend.commandOverride || ""}
+                                onChange={(value) => updateManagedBackend(backend.id, { commandOverride: value })}
+                                placeholder="python server.py --host 127.0.0.1 --port 8000"
+                              />
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              <div>
+                                <FieldLabel>{t("settings.defaultModel")}</FieldLabel>
+                                <InputField value={backend.defaultModel || ""} onChange={(value) => updateManagedBackend(backend.id, { defaultModel: value })} />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.healthPath")}</FieldLabel>
+                                <InputField value={backend.healthPath || ""} onChange={(value) => updateManagedBackend(backend.id, { healthPath: value })} />
+                              </div>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              <div>
+                                <FieldLabel>{t("settings.modelsPath")}</FieldLabel>
+                                <InputField value={backend.modelsPath || ""} onChange={(value) => updateManagedBackend(backend.id, { modelsPath: value })} />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.statusPath")}</FieldLabel>
+                                <InputField value={backend.statusPath || ""} onChange={(value) => updateManagedBackend(backend.id, { statusPath: value })} />
+                              </div>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-3">
+                              <div>
+                                <FieldLabel>{t("settings.statusMode")}</FieldLabel>
+                                <SelectField
+                                  value={backend.statusMode || "auto"}
+                                  onChange={(value) => updateManagedBackend(backend.id, { statusMode: value as ManagedBackendConfig["statusMode"] })}
+                                >
+                                  <option value="auto">auto</option>
+                                  <option value="api">api</option>
+                                  <option value="stdout">stdout</option>
+                                  <option value="none">none</option>
+                                </SelectField>
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.statusTextPath")}</FieldLabel>
+                                <InputField value={backend.statusTextPath || ""} onChange={(value) => updateManagedBackend(backend.id, { statusTextPath: value })} />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.statusProgressPath")}</FieldLabel>
+                                <InputField value={backend.statusProgressPath || ""} onChange={(value) => updateManagedBackend(backend.id, { statusProgressPath: value })} />
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <div>
+                            <FieldLabel>{t("settings.workingDirectory")}</FieldLabel>
+                            <InputField value={backend.workingDirectory || ""} onChange={(value) => updateManagedBackend(backend.id, { workingDirectory: value })} />
+                          </div>
+                          <div>
+                            <FieldLabel>{t("settings.extraArgs")}</FieldLabel>
+                            <InputField value={backend.extraArgs || ""} onChange={(value) => updateManagedBackend(backend.id, { extraArgs: value })} />
+                          </div>
+                        </div>
+
+                        <div className="mt-4">
+                          <FieldLabel>{t("settings.envVars")}</FieldLabel>
+                          <textarea
+                            value={envText}
+                            onChange={(e) => updateManagedBackend(backend.id, { envText: e.target.value })}
+                            placeholder={"KEY=value\nANOTHER=value"}
+                            className="h-24 min-h-[96px] w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
+                          />
+                        </div>
+
+                        <label className="mt-4 settings-toggle-row rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
+                          <span className="text-xs font-medium text-text-secondary">{t("settings.autoStopOnSwitch")}</span>
+                          <ToggleSwitch
+                            checked={backend.autoStopOnSwitch !== false}
+                            onChange={(e) => updateManagedBackend(backend.id, { autoStopOnSwitch: e.target.checked })}
+                          />
+                        </label>
+
+                        <div className="mt-4">
+                          <FieldLabel>{t("settings.commandPreview")}</FieldLabel>
+                          <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 font-mono text-[11px] text-text-secondary">
+                            {commandPreview}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={addManagedBackend}
+                  className="mt-4 w-full rounded-lg border border-border border-dashed px-3 py-2 text-xs font-semibold text-text-secondary hover:bg-bg-hover"
+                >
+                  {t("settings.addManagedBackend")}
+                </button>
               </div>
             </div>
           )}
@@ -1299,7 +1863,7 @@ export function SettingsScreen() {
                       <FieldLabel>{t("settings.textSize")}</FieldLabel>
                       <span className="text-xs text-text-tertiary">{Math.round(settings.fontScale * 100)}%</span>
                     </div>
-                    <input type="range" min={0.8} max={1.4} step={0.05} value={settings.fontScale} onChange={(e) => patch({ fontScale: Number(e.target.value) })} className="w-full" />
+                    <input type="range" min={0.65} max={1.5} step={0.05} value={settings.fontScale} onChange={(e) => patch({ fontScale: Number(e.target.value) })} className="w-full" />
                   </div>
                   <div>
                     <FieldLabel>{t("settings.interfaceLanguage")}</FieldLabel>
@@ -1544,7 +2108,7 @@ export function SettingsScreen() {
                       </div>
                       <SelectField value={settings.ragModel || ""} onChange={(v) => patch({ ragModel: v || null })}>
                         <option value="">{t("settings.selectModel")}</option>
-                        {ragModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                        {ragModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                       </SelectField>
                     </div>
                   )}
@@ -1578,7 +2142,7 @@ export function SettingsScreen() {
                       </div>
                       <SelectField value={settings.ragRerankModel || ""} onChange={(v) => patch({ ragRerankModel: v || null })}>
                         <option value="">{t("settings.selectModel")}</option>
-                        {ragRerankModels.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}
+                        {ragRerankModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                       </SelectField>
                     </div>
                   )}
@@ -2193,6 +2757,41 @@ export function SettingsScreen() {
                   >
                     {pluginSettingsSaving ? t("settings.pluginSettingsSaving") : t("settings.pluginSettingsSave")}
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {managedBackendLogsFor && (
+            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-4">
+              <div className="modal-pop w-full max-w-4xl rounded-2xl border border-border bg-bg-secondary shadow-2xl">
+                <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-4">
+                  <div className="min-w-0">
+                    <div className="text-lg font-semibold text-text-primary">{managedBackendLogsFor.name}</div>
+                    <div className="mt-1 text-xs text-text-tertiary">{t("settings.backendLogsDesc")}</div>
+                  </div>
+                  <button
+                    onClick={() => setManagedBackendLogsFor(null)}
+                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover"
+                  >
+                    {t("common.close")}
+                  </button>
+                </div>
+                <div className="space-y-3 px-5 py-4">
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-[11px] text-text-secondary">
+                    {managedBackendStateMap.get(managedBackendLogsFor.id)?.commandPreview || buildManagedBackendCommand(managedBackendLogsFor).command}
+                  </div>
+                  <div className="max-h-[60vh] overflow-auto rounded-lg border border-border-subtle bg-black/80 px-3 py-2 font-mono text-[11px] text-slate-200">
+                    {managedBackendLogs.length === 0 ? (
+                      <div className="text-slate-400">{t("settings.backendLogsEmpty")}</div>
+                    ) : managedBackendLogs.map((entry) => (
+                      <div key={entry.id} className="mb-1 whitespace-pre-wrap break-words">
+                        <span className={entry.stream === "stderr" ? "text-rose-300" : entry.stream === "system" ? "text-amber-300" : "text-slate-200"}>
+                          [{entry.stream}] {entry.text}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

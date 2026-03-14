@@ -48,6 +48,9 @@ const SCHEMA_SQL = `
     token_count INTEGER NOT NULL,
     parent_id TEXT,
     deleted INTEGER NOT NULL DEFAULT 0,
+    generation_started_at TEXT,
+    generation_completed_at TEXT,
+    generation_duration_ms INTEGER,
     created_at TEXT NOT NULL
   );
 

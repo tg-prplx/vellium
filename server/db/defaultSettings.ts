@@ -113,6 +113,51 @@ export const DEFAULT_SETTINGS = {
   pluginStateConfigured: {} as Record<string, boolean>,
   pluginData: {} as Record<string, Record<string, unknown>>,
   pluginPermissionGrants: {} as Record<string, Record<string, boolean>>,
+  managedBackends: [] as Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    providerId: string;
+    providerType: "openai" | "koboldcpp" | "custom";
+    adapterId?: string | null;
+    backendKind: "koboldcpp" | "ollama" | "generic";
+    baseUrl: string;
+    commandOverride?: string;
+    extraArgs: string;
+    workingDirectory?: string;
+    envText?: string;
+    defaultModel?: string | null;
+    autoStopOnSwitch: boolean;
+    statusMode: "auto" | "api" | "stdout" | "none";
+    healthPath?: string;
+    modelsPath?: string;
+    statusPath?: string;
+    statusTextPath?: string;
+    statusProgressPath?: string;
+    stdoutProgressRegex?: string;
+    koboldcpp?: {
+      executable: string;
+      modelPath: string;
+      host: string;
+      port: number;
+      contextSize: number;
+      gpuLayers: number;
+      threads: number;
+      blasThreads: number;
+      batchSize: number;
+      highPriority: boolean;
+      smartContext: boolean;
+      useMmap: boolean;
+      flashAttention: boolean;
+      noMmap: boolean;
+      noKvOffload: boolean;
+    };
+    ollama?: {
+      executable: string;
+      host: string;
+      port: number;
+    };
+  }>,
   mcpServers: [] as Array<{
     id: string;
     name: string;
