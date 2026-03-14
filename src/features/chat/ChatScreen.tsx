@@ -131,6 +131,11 @@ export function ChatScreen() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [compressing, setCompressing] = useState(false);
+  const [attachmentViewer, setAttachmentViewer] = useState<{
+    attachment: FileAttachment;
+    mode: "image" | "text";
+    previewUrl?: string | null;
+  } | null>(null);
 
   // Model selector in chat — auto-loading
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
@@ -177,6 +182,7 @@ export function ChatScreen() {
 
   // Collapsible sections in left sidebar
   const [presetsCollapsed, setPresetsCollapsed] = useState(true);
+  const [lorebooksCollapsed, setLorebooksCollapsed] = useState(false);
   const [zenMode, setZenMode] = useState(false);
   const [alternateSimpleMode, setAlternateSimpleMode] = useState(false);
   const [simpleSidebarOpen, setSimpleSidebarOpen] = useState(false);
@@ -772,26 +778,18 @@ export function ChatScreen() {
       await api.rpSetSceneState({ ...sceneState, chatId });
       await api.rpUpdateAuthorNote(chatId, authorNote);
 
-      let outgoing = input;
       const currentAttachments = [...attachments];
-      if (currentAttachments.length > 0) {
-        const textAttachments = currentAttachments.filter((a) => a.type === "text" && a.content);
-        if (textAttachments.length > 0) {
-          outgoing += "\n\n---\n[Attached files]\n" +
-            textAttachments.map((a) => `[${a.filename}]:\n${a.content!.slice(0, 4000)}`).join("\n\n");
-        }
-      }
       setInput("");
       setAttachments([]);
 
       const optimisticMsg: ChatMessage = {
         id: `temp-${Date.now()}`, chatId, branchId: branchId || "main",
-        role: "user", content: outgoing, attachments: currentAttachments, tokenCount: 0, createdAt: new Date().toISOString()
+        role: "user", content: input, attachments: currentAttachments, tokenCount: 0, createdAt: new Date().toISOString()
       };
       setMessages((prev) => [...prev, optimisticMsg]);
       startStreamingUi(null);
 
-      const updated = await api.chatSend(chatId, outgoing, branchId || undefined, {
+      const updated = await api.chatSend(chatId, input, branchId || undefined, {
         onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
         onDone: () => { stopStreamingUi(); }
@@ -938,6 +936,109 @@ export function ChatScreen() {
   }
 
   function removeAttachment(id: string) { setAttachments((prev) => prev.filter((a) => a.id !== id)); }
+
+  function resolveAttachmentHref(att: FileAttachment): string | null {
+    return imageSourceFromAttachment(att) || resolveApiAssetUrl(att.url);
+  }
+
+  async function openAttachmentRaw(att: FileAttachment) {
+    const href = resolveAttachmentHref(att);
+    if (!href) return;
+    if (window.electronAPI) {
+      await window.electronAPI.openExternal(href);
+      return;
+    }
+    window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  function previewAttachment(att: FileAttachment) {
+    const imageSrc = imageSourceFromAttachment(att);
+    if (imageSrc) {
+      setAttachmentViewer({ attachment: att, mode: "image", previewUrl: imageSrc });
+      return;
+    }
+    if (att.type === "text" && String(att.content || "").trim()) {
+      setAttachmentViewer({ attachment: att, mode: "text" });
+      return;
+    }
+    void openAttachmentRaw(att);
+  }
+
+  function renderAttachmentCard(att: FileAttachment, key: string, compact = false) {
+    const imageSrc = imageSourceFromAttachment(att);
+    const canPreview = Boolean(imageSrc || (att.type === "text" && String(att.content || "").trim()));
+    const kindLabel = imageSrc ? t("chat.imageAttachment") : (att.mimeType?.split("/")[1] || t("chat.textAttachment"));
+
+    if (compact) {
+      return (
+        <div key={key} className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-bg-primary/80 px-2 py-1.5">
+          <button type="button" onClick={() => previewAttachment(att)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+            {imageSrc ? (
+              <img src={imageSrc} alt={att.filename || t("chat.imageAttachment")} className="h-8 w-8 rounded-md object-cover" />
+            ) : (
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-secondary text-text-tertiary">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[11px] font-medium text-text-primary">{att.filename || t("chat.attachment")}</div>
+              <div className="truncate text-[10px] text-text-tertiary">{kindLabel}</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => removeAttachment(att.id)}
+            className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-danger"
+            title={t("chat.delete")}
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      );
+    }
+
+    if (imageSrc) {
+      return (
+        <button
+          key={key}
+          type="button"
+          onClick={() => previewAttachment(att)}
+          className="flex w-[164px] min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-bg-primary text-left"
+        >
+          <div className="flex min-h-[88px] w-full items-center justify-center overflow-hidden bg-bg-secondary">
+            <img src={imageSrc} alt={att.filename || t("chat.imageAttachment")} className="h-full w-full object-cover" />
+          </div>
+          <div className="px-2.5 py-2">
+            <div className="truncate text-[11px] font-medium text-text-primary">{att.filename || t("chat.attachment")}</div>
+            <div className="mt-0.5 truncate text-[10px] text-text-tertiary">{att.mimeType || kindLabel}</div>
+          </div>
+        </button>
+      );
+    }
+
+    return (
+      <button
+        key={key}
+        type="button"
+        onClick={() => previewAttachment(att)}
+        className="inline-flex min-w-0 max-w-[260px] items-center gap-2 rounded-lg border border-border bg-bg-primary px-2.5 py-1.5 text-left hover:bg-bg-hover"
+      >
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-secondary text-text-tertiary">
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[11px] font-medium text-text-primary">{att.filename || t("chat.attachment")}</div>
+          <div className="truncate text-[10px] text-text-tertiary">{att.mimeType || kindLabel}</div>
+        </div>
+      </button>
+    );
+  }
 
   async function handleFork(message: ChatMessage) {
     if (!activeChat) return;
@@ -1358,6 +1459,62 @@ export function ChatScreen() {
 
   return (
     <>
+      {attachmentViewer && (
+        <div
+          className="overlay-animate fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4 py-6"
+          onClick={() => setAttachmentViewer(null)}
+        >
+          <div
+            className={`modal-pop w-full overflow-hidden rounded-2xl border border-border bg-bg-secondary shadow-2xl ${
+              attachmentViewer.mode === "image" ? "max-w-6xl" : "max-w-4xl"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-text-primary">
+                  {attachmentViewer.attachment.filename || t("chat.attachment")}
+                </div>
+                <div className="truncate text-[11px] text-text-tertiary">
+                  {attachmentViewer.attachment.mimeType || (attachmentViewer.mode === "image" ? t("chat.imageAttachment") : t("chat.textAttachment"))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { void openAttachmentRaw(attachmentViewer.attachment); }}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                >
+                  {t("chat.openAttachment")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAttachmentViewer(null)}
+                  className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                >
+                  {t("chat.closePreview")}
+                </button>
+              </div>
+            </div>
+            {attachmentViewer.mode === "image" ? (
+              <div className="flex max-h-[78vh] items-center justify-center overflow-auto bg-bg-primary p-4">
+                <img
+                  src={attachmentViewer.previewUrl || undefined}
+                  alt={attachmentViewer.attachment.filename || t("chat.imageAttachment")}
+                  className="max-h-[72vh] max-w-full rounded-xl object-contain"
+                />
+              </div>
+            ) : (
+              <div className="max-h-[72vh] overflow-auto bg-bg-primary p-4">
+                <pre className="whitespace-pre-wrap break-words rounded-xl border border-border-subtle bg-bg-secondary p-4 font-mono text-xs leading-relaxed text-text-secondary">
+                  {attachmentViewer.attachment.content || t("chat.noAttachmentPreview")}
+                </pre>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Persona Modal */}
       {showPersonaModal && (
         <div className="overlay-animate fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => { setShowPersonaModal(false); setEditingPersona(null); }}>
@@ -1934,38 +2091,48 @@ export function ChatScreen() {
             )}
 
             {!simpleSidebarCollapsed && simpleModeActive && (
-            <div className="mt-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.lorebook")}</label>
-              <div className="space-y-1.5">
-                <button
-                  onClick={() => { void saveLorebooksForChat([]); }}
-                  className="w-full rounded-md border border-border bg-bg-secondary px-2 py-1.5 text-left text-[11px] text-text-secondary hover:bg-bg-hover"
-                >
-                  {t("chat.none")}
-                </button>
-                <div className="max-h-40 space-y-1 overflow-y-auto">
-                  {lorebooks.map((book) => {
-                    const checked = activeLorebookIds.includes(book.id);
-                    return (
-                      <label
-                        key={book.id}
-                        className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors ${
-                          checked
-                            ? "border-accent-border bg-accent-subtle text-text-primary"
-                            : "border-border bg-bg-secondary text-text-secondary hover:bg-bg-hover"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(event) => { void toggleLorebookForChat(book.id, event.target.checked); }}
-                        />
-                        <span className="min-w-0 flex-1 truncate">{book.name}</span>
-                      </label>
-                    );
-                  })}
+            <div className="mt-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
+              <button
+                onClick={() => setLorebooksCollapsed((prev) => !prev)}
+                className="flex w-full items-center justify-between"
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.lorebook")}</span>
+                <svg className={`h-3 w-3 text-text-tertiary transition-transform ${lorebooksCollapsed ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {!lorebooksCollapsed && (
+                <div className="mt-2 space-y-1.5">
+                  <button
+                    onClick={() => { void saveLorebooksForChat([]); }}
+                    className="w-full rounded-md border border-border bg-bg-secondary px-2 py-1.5 text-left text-[11px] text-text-secondary hover:bg-bg-hover"
+                  >
+                    {t("chat.none")}
+                  </button>
+                  <div className="max-h-40 space-y-1 overflow-y-auto">
+                    {lorebooks.map((book) => {
+                      const checked = activeLorebookIds.includes(book.id);
+                      return (
+                        <label
+                          key={book.id}
+                          className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                            checked
+                              ? "border-accent-border bg-accent-subtle text-text-primary"
+                              : "border-border bg-bg-secondary text-text-secondary hover:bg-bg-hover"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) => { void toggleLorebookForChat(book.id, event.target.checked); }}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{book.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
             )}
 
@@ -2479,35 +2646,10 @@ export function ChatScreen() {
                           </div>
                         )}
                         {msg.attachments && msg.attachments.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-2">
+                          <div className="mt-2 flex flex-wrap gap-2.5">
                             {msg.attachments.map((att, idx) => {
                               const key = `${msg.id}-att-${att.id || idx}`;
-                              const imageSrc = imageSourceFromAttachment(att);
-                              if (att.type === "image" && imageSrc) {
-                                return (
-                                  <a
-                                    key={key}
-                                    href={imageSrc}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="block overflow-hidden rounded-md border border-border-subtle bg-bg-primary">
-                                    <img src={imageSrc} alt={att.filename || t("chat.imageAttachment")} className="h-24 w-24 object-cover" />
-                                  </a>
-                                );
-                              }
-                              return (
-                                <a
-                                  key={key}
-                                  href={att.url || "#"}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-secondary hover:bg-bg-hover">
-                                  <svg className="h-3.5 w-3.5 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                  </svg>
-                                  <span className="max-w-[180px] truncate">{att.filename || t("chat.attachment")}</span>
-                                </a>
-                              );
+                              return renderAttachmentCard(att, key);
                             })}
                           </div>
                         )}
@@ -2737,23 +2879,7 @@ export function ChatScreen() {
                 className={`list-animate mt-2 flex flex-wrap gap-1.5 ${simpleModeActive ? "chat-simple-attachments" : ""} ${simpleHomeState ? "is-home" : "is-docked"}`}
                 style={simpleModeActive && simpleHomeState ? ({ ["--simple-home-composer-width"]: simpleHomeComposerWidth } as Record<string, string>) : undefined}
               >
-                {attachments.map((att) => (
-                  <div key={att.id} className="float-card flex items-center gap-1.5 rounded-md border border-border bg-bg-primary px-2 py-1">
-                    {att.type === "image" ? (
-                      <img src={imageSourceFromAttachment(att) || att.url} alt="" className="h-6 w-6 rounded object-cover" />
-                    ) : (
-                      <svg className="h-3.5 w-3.5 text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                    )}
-                    <span className="max-w-[100px] truncate text-[10px] text-text-secondary">{att.filename}</span>
-                    <button onClick={() => removeAttachment(att.id)} className="text-text-tertiary hover:text-danger">
-                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
+                {attachments.map((att) => renderAttachmentCard(att, att.id, true))}
               </div>
             )}
 

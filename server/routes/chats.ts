@@ -386,6 +386,19 @@ function normalizeLorebookIdList(input: unknown): string[] {
   return out;
 }
 
+function buildAttachmentPromptAppendix(attachments: MessageAttachmentPayload[]): string {
+  const textAttachments = attachments
+    .filter((item) => item.type === "text" && typeof item.content === "string" && item.content.trim().length > 0);
+  if (textAttachments.length === 0) return "";
+  return "\n\n---\n[Attached files]\n" + textAttachments
+    .map((item) => `[${item.filename}]:\n${String(item.content || "").slice(0, 4000)}`)
+    .join("\n\n");
+}
+
+function buildPromptContentWithAttachments(content: string, attachments: MessageAttachmentPayload[]): string {
+  return `${String(content || "")}${buildAttachmentPromptAppendix(attachments)}`;
+}
+
 function resolveLorebookIds(row: { lorebook_id: string | null; lorebook_ids?: string | null } | undefined): string[] {
   if (!row) return [];
   const ids = normalizeLorebookIdList((() => {
@@ -1415,7 +1428,10 @@ async function streamLlmResponse(
     : blocks;
   const promptTimelineForModel = promptTimeline.map((item) => ({
     role: item.role,
-    content: String(item.content || ""),
+    content: buildPromptContentWithAttachments(
+      String(item.content || ""),
+      item.attachments as MessageAttachmentPayload[] | undefined || []
+    ),
     characterName: item.characterName,
     attachments: toChatAttachments(item.attachments as MessageAttachmentPayload[] | undefined)
   }));
@@ -2062,7 +2078,10 @@ router.post("/:id/send", async (req, res: Response) => {
   const activeProvider = activeProviderId
     ? db.prepare("SELECT * FROM providers WHERE id = ?").get(activeProviderId) as ProviderRow | undefined
     : undefined;
-  const userTokenCount = await countProviderTokens(activeProvider, String(content || ""));
+  const userTokenCount = await countProviderTokens(
+    activeProvider,
+    buildPromptContentWithAttachments(String(content || ""), attachments)
+  );
 
   // Insert user message — with character_name set to user persona name in multi-char mode
   const userId = newId();
