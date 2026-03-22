@@ -11,6 +11,7 @@ export interface ProviderProfile {
   fullLocalOnly: boolean;
   providerType?: "openai" | "koboldcpp" | "custom";
   adapterId?: string | null;
+  manualModels?: string[];
 }
 
 export type ManagedBackendKind = "koboldcpp" | "ollama" | "generic";

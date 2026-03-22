@@ -4,255 +4,11 @@ import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
 import { buildManagedBackendCommand, defaultManagedBackendConfig, normalizeManagedBackends, parseManagedBackendCommand, resolveManagedBackendBaseUrl } from "../../shared/managedBackends";
-import type { ApiParamPolicy, AppSettings, ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PluginSettingsFieldContribution, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="mb-1.5 block text-xs font-medium text-text-secondary">{children}</label>;
-}
-
-function InputField({
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-  onBlur
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-  onBlur?: () => void;
-}) {
-  const [draftValue, setDraftValue] = useState(value);
-  const [isFocused, setIsFocused] = useState(false);
-
-  useEffect(() => {
-    if (!isFocused) {
-      setDraftValue(value);
-    }
-  }, [value, isFocused]);
-
-  return (
-    <input
-      type={type}
-      value={draftValue}
-      onFocus={() => setIsFocused(true)}
-      onChange={(e) => {
-        setDraftValue(e.target.value);
-        onChange(e.target.value);
-      }}
-      placeholder={placeholder}
-      onBlur={() => {
-        setIsFocused(false);
-        onBlur?.();
-      }}
-      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary"
-    />
-  );
-}
-
-function SelectField({ value, onChange, children, disabled = false }: { value: string; onChange: (v: string) => void; children: React.ReactNode; disabled?: boolean }) {
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
-      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary">
-      {children}
-    </select>
-  );
-}
-
-function StatusMessage({ text, variant = "info" }: { text: string; variant?: "info" | "success" | "error" }) {
-  if (!text) return null;
-  const styles = { info: "border-border-subtle bg-bg-primary text-text-secondary", success: "border-success-border bg-success-subtle text-success", error: "border-danger-border bg-danger-subtle text-danger" };
-  return <div className={`rounded-lg border px-3 py-2 text-xs ${styles[variant]}`}>{text}</div>;
-}
-
-function ToggleSwitch({
-  checked,
-  onChange,
-  disabled = false
-}: {
-  checked: boolean;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="toggle-switch">
-      <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} />
-      <div className="toggle-track">
-        <div className="toggle-thumb" />
-      </div>
-    </label>
-  );
-}
-
-const DEFAULT_API_PARAM_POLICY: ApiParamPolicy = {
-  openai: {
-    sendSampler: true,
-    temperature: true,
-    topP: true,
-    frequencyPenalty: true,
-    presencePenalty: true,
-    maxTokens: true,
-    stop: true
-  },
-  kobold: {
-    sendSampler: true,
-    memory: true,
-    maxTokens: true,
-    temperature: true,
-    topP: true,
-    topK: true,
-    topA: true,
-    minP: true,
-    typical: true,
-    tfs: true,
-    nSigma: true,
-    repetitionPenalty: true,
-    repetitionPenaltyRange: true,
-    repetitionPenaltySlope: true,
-    samplerOrder: true,
-    stop: true,
-    phraseBans: true,
-    useDefaultBadwords: true
-  }
-};
-const DEFAULT_SCENE_FIELD_VISIBILITY: AppSettings["sceneFieldVisibility"] = {
-  dialogueStyle: true,
-  initiative: true,
-  descriptiveness: true,
-  unpredictability: true,
-  emotionalDepth: true
-};
-
-const DEFAULT_PROMPT_STACK: PromptBlock[] = [
-  { id: "default-1", kind: "system", enabled: true, order: 1, content: "" },
-  { id: "default-2", kind: "jailbreak", enabled: true, order: 2, content: "Never break character. Write as the character would, staying true to their personality." },
-  { id: "default-3", kind: "character", enabled: true, order: 3, content: "" },
-  { id: "default-4", kind: "author_note", enabled: true, order: 4, content: "" },
-  { id: "default-5", kind: "lore", enabled: false, order: 5, content: "" },
-  { id: "default-6", kind: "scene", enabled: true, order: 6, content: "" },
-  { id: "default-7", kind: "history", enabled: true, order: 7, content: "" }
-];
-
-const PROMPT_STACK_COLORS: Record<PromptBlock["kind"], string> = {
-  system: "border-blue-500/30 bg-blue-500/8",
-  jailbreak: "border-red-500/30 bg-red-500/8",
-  character: "border-purple-500/30 bg-purple-500/8",
-  author_note: "border-amber-500/30 bg-amber-500/8",
-  lore: "border-emerald-500/30 bg-emerald-500/8",
-  scene: "border-cyan-500/30 bg-cyan-500/8",
-  history: "border-slate-500/30 bg-slate-500/8"
-};
-
-function normalizePromptStack(raw: PromptBlock[] | null | undefined): PromptBlock[] {
-  if (!Array.isArray(raw) || raw.length === 0) return [...DEFAULT_PROMPT_STACK];
-  return [...raw]
-    .sort((a, b) => a.order - b.order)
-    .map((block, index) => ({ ...block, order: index + 1 }));
-}
-
-function promptBlockLabel(kind: PromptBlock["kind"]): string {
-  if (kind === "jailbreak") return "Character lock";
-  return kind.replace("_", " ");
-}
-
-function normalizeApiParamPolicy(raw: ApiParamPolicy | null | undefined): ApiParamPolicy {
-  return {
-    openai: {
-      ...DEFAULT_API_PARAM_POLICY.openai,
-      ...(raw?.openai ?? {})
-    },
-    kobold: {
-      ...DEFAULT_API_PARAM_POLICY.kobold,
-      ...(raw?.kobold ?? {})
-    }
-  };
-}
-
-function scrollToSettingsSection(id: string) {
-  const node = document.getElementById(id);
-  if (!node) return;
-  node.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-async function triggerBlobDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-const HIGH_RISK_PLUGIN_PERMISSIONS = new Set(["api.write", "pluginSettings.write"]);
-const MEDIUM_RISK_PLUGIN_PERMISSIONS = new Set(["pluginSettings.read"]);
-
-function pluginPermissionTone(permission: string): "high" | "medium" | "normal" {
-  if (HIGH_RISK_PLUGIN_PERMISSIONS.has(permission)) return "high";
-  if (MEDIUM_RISK_PLUGIN_PERMISSIONS.has(permission)) return "medium";
-  return "normal";
-}
-
-function pluginPermissionDescription(t: (key: any) => string, permission: string): string {
-  switch (permission) {
-    case "api.read":
-      return t("settings.pluginPermissionHelp.api.read");
-    case "api.write":
-      return t("settings.pluginPermissionHelp.api.write");
-    case "pluginSettings.read":
-      return t("settings.pluginPermissionHelp.pluginSettings.read");
-    case "pluginSettings.write":
-      return t("settings.pluginPermissionHelp.pluginSettings.write");
-    case "host.resize":
-      return t("settings.pluginPermissionHelp.host.resize");
-    default:
-      return permission;
-  }
-}
-
-function buildPluginSettingsDraft(
-  plugin: PluginDescriptor,
-  current: Record<string, unknown>
-): Record<string, string | number | boolean> {
-  const draft: Record<string, string | number | boolean> = {};
-  for (const field of plugin.settingsFields) {
-    const stored = current[field.key];
-    if (typeof stored === "boolean" || typeof stored === "number" || typeof stored === "string") {
-      draft[field.key] = stored;
-      continue;
-    }
-    if (field.defaultValue !== undefined) {
-      draft[field.key] = field.defaultValue;
-      continue;
-    }
-    draft[field.key] = field.type === "toggle" ? false : field.type === "number" || field.type === "range" ? 0 : "";
-  }
-  return draft;
-}
-
-function sanitizePluginSettingsFieldValue(
-  field: PluginSettingsFieldContribution,
-  raw: string | number | boolean
-): string | number | boolean {
-  if (field.type === "toggle") return raw === true;
-  if (field.type === "number" || field.type === "range") {
-    const value = Number(raw);
-    const fallback = typeof field.defaultValue === "number" ? field.defaultValue : field.min ?? 0;
-    if (!Number.isFinite(value)) return fallback;
-    const min = typeof field.min === "number" && Number.isFinite(field.min) ? field.min : value;
-    const max = typeof field.max === "number" && Number.isFinite(field.max) ? field.max : value;
-    return Math.max(min, Math.min(max, value));
-  }
-  return String(raw ?? "");
-}
-
-function buildPluginPermissionDraft(plugin: PluginDescriptor): Record<string, boolean> {
-  return Object.fromEntries(
-    plugin.requestedPermissions.map((permission) => [permission, plugin.grantedPermissions.includes(permission)])
-  );
-}
+import type { ApiParamPolicy, AppSettings, ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
+import { FieldLabel, InputField, SelectField, ToggleSwitch } from "./components/FormControls";
+import { SettingsSidebar } from "./components/SettingsSidebar";
+import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
+import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue, triggerBlobDownload } from "./utils";
 
 export function SettingsScreen() {
   const { t } = useI18n();
@@ -301,8 +57,9 @@ export function SettingsScreen() {
   const [providerLocalOnly, setProviderLocalOnly] = useState(selectedPreset.localOnly);
   const [providerType, setProviderType] = useState<"openai" | "koboldcpp" | "custom">(selectedPreset.providerType);
   const [providerAdapterId, setProviderAdapterId] = useState("");
+  const [providerManualModels, setProviderManualModels] = useState("");
 
-  const [activeCategory, setActiveCategory] = useState<"connection" | "backends" | "interface" | "generation" | "context" | "prompts" | "tools">("connection");
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>("connection");
   const [mcpServersDraft, setMcpServersDraft] = useState<McpServerConfig[]>([]);
   const [mcpDirty, setMcpDirty] = useState(false);
   const [testingMcpId, setTestingMcpId] = useState<string | null>(null);
@@ -471,6 +228,7 @@ export function SettingsScreen() {
     setProviderLocalOnly(preset.localOnly);
     setProviderType(preset.providerType);
     setProviderAdapterId("");
+    setProviderManualModels("");
     if (preset.key === "openai") {
       void patchApiParamPolicy({ openai: { sendSampler: false } });
     }
@@ -622,7 +380,11 @@ export function SettingsScreen() {
       proxyUrl: providerProxyUrl.trim() || null,
       fullLocalOnly: providerLocalOnly,
       providerType,
-      adapterId: providerType === "custom" ? providerAdapterId.trim() || null : null
+      adapterId: providerType === "custom" ? providerAdapterId.trim() || null : null,
+      manualModels: providerManualModels
+        .split(/\r?\n|,/)
+        .map((item) => item.trim())
+        .filter(Boolean)
     });
     showResult(`${t("settings.providerSaved")}: ${saved.name}`, "success");
     await refreshProviders();
@@ -1065,60 +827,7 @@ export function SettingsScreen() {
     [settings?.promptStack]
   );
 
-  const categoryNav: Array<{ id: typeof activeCategory; label: string; icon: string }> = [
-    { id: "connection", label: t("settings.categoryConnection"), icon: "M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" },
-    { id: "backends", label: t("settings.categoryBackends"), icon: "M4 7h16M4 12h16M4 17h16M8 4v16m8-16v16" },
-    { id: "interface", label: t("settings.categoryInterface"), icon: "M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" },
-    { id: "generation", label: t("settings.categoryGeneration"), icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" },
-    { id: "context", label: t("settings.categoryContext"), icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" },
-    { id: "prompts", label: t("settings.categoryPrompts"), icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
-    { id: "tools", label: t("settings.categoryTools"), icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" }
-  ];
-
-  const categorySections = useMemo<Record<typeof activeCategory, Array<{ id: string; label: string }>>>(() => ({
-    connection: [
-      { id: "settings-quick-presets", label: t("settings.quickPresets") },
-      { id: "settings-manual-provider", label: t("settings.manualConfig") },
-      { id: "settings-runtime-mode", label: t("settings.runtimeMode") },
-      { id: "settings-active-model", label: t("settings.activeModel") },
-      { id: "settings-translation-model", label: t("settings.translateModel") },
-      { id: "settings-compress-model", label: t("settings.compressModel") },
-      { id: "settings-tts", label: t("settings.tts") }
-    ],
-    backends: [
-      { id: "settings-managed-backends", label: t("settings.managedBackends") }
-    ],
-    interface: [
-      { id: "settings-general", label: t("settings.general") },
-      { id: "settings-workspace-mode", label: t("settings.workspaceMode") }
-    ],
-    generation: [
-      { id: "settings-output-behaviour", label: t("settings.outputBehaviour") },
-      { id: "settings-sampler-defaults", label: t("settings.samplerDefaults") },
-      { id: "settings-api-param-forwarding", label: t("settings.apiParamForwarding") }
-    ],
-    context: [
-      { id: "settings-context-window", label: t("settings.contextWindow") },
-      { id: "settings-chat-behaviour", label: t("settings.conversationBehaviour") },
-      { id: "settings-scene-fields", label: t("settings.sceneFields") },
-      { id: "settings-rag-model", label: t("settings.ragModel") },
-      { id: "settings-rag-reranker", label: t("settings.ragReranker") },
-      { id: "settings-rag-retrieval", label: t("settings.ragRetrieval") }
-    ],
-    prompts: [
-      { id: "settings-prompt-templates", label: t("settings.promptTemplates") },
-      { id: "settings-prompt-stack", label: t("inspector.promptStack") },
-      { id: "settings-default-system-prompts", label: t("settings.defaultSysPrompt") }
-    ],
-    tools: [
-      { id: "settings-tools-core", label: t("settings.tools") },
-      { id: "settings-security", label: t("settings.security") },
-      { id: "settings-plugins", label: t("settings.plugins") },
-      { id: "settings-tools-mcp-functions", label: t("settings.mcpFunctions") },
-      { id: "settings-tools-mcp", label: t("settings.mcpServers") },
-      { id: "settings-danger-zone", label: t("settings.dangerZone") }
-    ]
-  }), [t]);
+  const { categoryNav, categorySections } = useMemo(() => buildSettingsNavigation(t), [t]);
 
   const activeCategoryConfig = categoryNav.find((item) => item.id === activeCategory) ?? categoryNav[0];
   const visibleQuickSections = categorySections[activeCategory].filter((section) => {
@@ -1133,87 +842,25 @@ export function SettingsScreen() {
 
   return (
     <div className="settings-root">
-      <aside className="settings-sidebar">
-        <div className="settings-sidebar-status">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-            {t("settings.activeModel")}
-          </div>
-          <div className="space-y-1.5">
-            <div className="rounded-lg border border-border-subtle bg-bg-primary px-2.5 py-1.5">
-              <div className="text-[9px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.provider")}</div>
-              <div className="truncate text-xs font-semibold text-text-primary">{activeProvider?.name || "—"}</div>
-            </div>
-            <div className="rounded-lg border border-border-subtle bg-bg-primary px-2.5 py-1.5">
-              <div className="text-[9px] uppercase tracking-[0.06em] text-text-tertiary">{t("chat.model")}</div>
-              <div className="truncate text-xs font-semibold text-text-primary">{settings.activeModel || "—"}</div>
-            </div>
-          </div>
-        </div>
-
-        <nav className="settings-sidebar-nav">
-          {categoryNav.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setActiveCategory(cat.id)}
-              className={`settings-nav-item ${activeCategory === cat.id ? "is-active" : ""}`}
-            >
-              <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d={cat.icon} />
-              </svg>
-              <span className="min-w-0 flex-1 truncate">{cat.label}</span>
-              <span className="settings-nav-count">{categorySections[cat.id].length}</span>
-            </button>
-          ))}
-          <div className="settings-nav-divider" />
-          <button
-            onClick={() => {
-              setActiveCategory("tools");
-              window.setTimeout(() => scrollToSettingsSection("settings-danger-zone"), 0);
-            }}
-            className="settings-nav-item"
-            style={{ color: "var(--color-danger)" }}
-          >
-            <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <span>{t("settings.dangerZone")}</span>
-          </button>
-        </nav>
-
-        <div className="settings-sidebar-jump">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-            {t("settings.quickJump")}
-          </div>
-          <input
-            type="text"
-            value={quickJumpFilter}
-            onChange={(e) => setQuickJumpFilter(e.target.value)}
-            placeholder={t("settings.searchSections")}
-            className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
-          />
-          <div className="mt-2 max-h-[220px] space-y-1 overflow-y-auto pr-1">
-            {visibleQuickSections.length > 0 ? (
-              visibleQuickSections.map((section) => (
-                <button
-                  key={section.id}
-                  onClick={() => scrollToSettingsSection(section.id)}
-                  className="settings-quick-jump-item"
-                >
-                  <span className="truncate">{section.label}</span>
-                </button>
-              ))
-            ) : (
-              <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-tertiary">
-                {t("settings.noMatchingSections")}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="settings-sidebar-footer">
-          <StatusMessage text={providerResult} variant={resultVariant} />
-        </div>
-      </aside>
+      <SettingsSidebar
+        activeProviderName={activeProvider?.name || ""}
+        activeModel={settings.activeModel || ""}
+        activeCategory={activeCategory}
+        categoryNav={categoryNav}
+        categorySections={categorySections}
+        quickJumpFilter={quickJumpFilter}
+        visibleQuickSections={visibleQuickSections}
+        statusText={providerResult}
+        statusVariant={resultVariant}
+        onCategoryChange={setActiveCategory}
+        onDangerZoneClick={() => {
+          setActiveCategory("tools");
+          window.setTimeout(() => scrollToSettingsSection("settings-danger-zone"), 0);
+        }}
+        onQuickJumpFilterChange={setQuickJumpFilter}
+        onQuickSectionClick={scrollToSettingsSection}
+        t={t}
+      />
 
       <div className="settings-content-area">
         <div className="settings-content-inner">
@@ -1285,6 +932,19 @@ export function SettingsScreen() {
                   )}
                   <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField value={providerApiKey} onChange={setProviderApiKey} placeholder={selectedPreset.apiKeyHint} /></div>
                   <div><FieldLabel>{t("settings.proxyUrl")}</FieldLabel><InputField value={providerProxyUrl} onChange={setProviderProxyUrl} placeholder={t("settings.proxyUrlPlaceholder")} /></div>
+                  <div>
+                    <FieldLabel>Manual models</FieldLabel>
+                    <textarea
+                      value={providerManualModels}
+                      onChange={(e) => setProviderManualModels(e.target.value)}
+                      placeholder={"gpt-4.1\nmy-local-model\nclaude-sonnet"}
+                      rows={4}
+                      className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent"
+                    />
+                    <div className="mt-1 text-[11px] text-text-tertiary">
+                      Used as fallback when this endpoint does not return models from <code>/models</code>.
+                    </div>
+                  </div>
                   <label className="settings-toggle-row cursor-pointer">
                     <span className="text-xs font-medium text-text-secondary">{t("settings.localOnly")}</span>
                     <ToggleSwitch checked={providerLocalOnly} onChange={(e) => setProviderLocalOnly(e.target.checked)} />
@@ -2417,7 +2077,7 @@ export function SettingsScreen() {
                                 })}
                               </div>
                             </div>
-                            {plugin.requestedPermissions.some((permission) => HIGH_RISK_PLUGIN_PERMISSIONS.has(permission)) && (
+                            {hasHighRiskPluginPermissions(plugin.requestedPermissions) && (
                               <div className="mt-2 rounded-lg border border-danger-border bg-danger-subtle px-2.5 py-2 text-[11px] text-danger">
                                 {t("settings.pluginHighTrustWarning")}
                               </div>
