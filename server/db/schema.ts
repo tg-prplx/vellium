@@ -21,7 +21,8 @@ const SCHEMA_SQL = `
     proxy_url TEXT,
     full_local_only INTEGER NOT NULL DEFAULT 0,
     provider_type TEXT NOT NULL DEFAULT 'openai',
-    adapter_id TEXT
+    adapter_id TEXT,
+    manual_models TEXT NOT NULL DEFAULT '[]'
   );
 
   CREATE TABLE IF NOT EXISTS chats (

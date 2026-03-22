@@ -15,6 +15,17 @@ interface ProviderRow {
   full_local_only: number;
   provider_type: string;
   adapter_id: string | null;
+  manual_models: string | null;
+}
+
+function parseManualModels(raw: string | null | undefined): string[] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.map((item) => String(item || "").trim()).filter(Boolean))];
+  } catch {
+    return [];
+  }
 }
 
 function rowToProfile(row: ProviderRow) {
@@ -26,7 +37,8 @@ function rowToProfile(row: ProviderRow) {
     proxyUrl: row.proxy_url,
     fullLocalOnly: Boolean(row.full_local_only),
     providerType: normalizeProviderType(row.provider_type),
-    adapterId: row.adapter_id
+    adapterId: row.adapter_id,
+    manualModels: parseManualModels(row.manual_models)
   };
 }
 
@@ -43,13 +55,16 @@ function getSettings() {
 }
 
 router.post("/", (req, res) => {
-  const { id, name, baseUrl, apiKey, proxyUrl, fullLocalOnly, providerType, adapterId } = req.body;
+  const { id, name, baseUrl, apiKey, proxyUrl, fullLocalOnly, providerType, adapterId, manualModels } = req.body;
   const normalizedType = normalizeProviderType(providerType);
   const normalizedAdapterId = normalizedType === "custom" ? String(adapterId || "").trim() : null;
+  const normalizedManualModels = Array.isArray(manualModels)
+    ? [...new Set(manualModels.map((item) => String(item || "").trim()).filter(Boolean))]
+    : [];
 
   db.prepare(`
-    INSERT INTO providers (id, name, base_url, api_key_cipher, proxy_url, full_local_only, provider_type, adapter_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO providers (id, name, base_url, api_key_cipher, proxy_url, full_local_only, provider_type, adapter_id, manual_models)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       base_url = excluded.base_url,
@@ -57,8 +72,19 @@ router.post("/", (req, res) => {
       proxy_url = excluded.proxy_url,
       full_local_only = excluded.full_local_only,
       provider_type = excluded.provider_type,
-      adapter_id = excluded.adapter_id
-  `).run(id, name, baseUrl, apiKey || "local-key", proxyUrl || null, fullLocalOnly ? 1 : 0, normalizedType, normalizedAdapterId);
+      adapter_id = excluded.adapter_id,
+      manual_models = excluded.manual_models
+  `).run(
+    id,
+    name,
+    baseUrl,
+    apiKey || "local-key",
+    proxyUrl || null,
+    fullLocalOnly ? 1 : 0,
+    normalizedType,
+    normalizedAdapterId,
+    JSON.stringify(normalizedManualModels)
+  );
 
   const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(id) as ProviderRow;
   res.json(rowToProfile(row));
@@ -72,6 +98,7 @@ router.get("/", (_req, res) => {
 router.get("/:id/models", async (req, res) => {
   const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
   if (!row) { res.json([]); return; }
+  const manualModels = parseManualModels(row.manual_models).map((id) => ({ id }));
 
   const settings = getSettings();
   if (settings.fullLocalMode && !isLocalhostUrl(row.base_url)) {
@@ -87,24 +114,26 @@ router.get("/:id/models", async (req, res) => {
     const providerType = normalizeProviderType(row.provider_type);
     if (providerType === "koboldcpp") {
       const koboldModels = await fetchKoboldModels(row);
-      res.json(koboldModels.map((id) => ({ id })));
+      const fetched = koboldModels.map((id) => ({ id }));
+      res.json(fetched.length > 0 ? [...fetched, ...manualModels.filter((item) => !fetched.some((model) => model.id === item.id))] : manualModels);
       return;
     }
     if (providerType === "custom") {
       const customModels = await fetchCustomAdapterModels(row);
-      res.json(customModels.map((id) => ({ id })));
+      const fetched = customModels.map((id) => ({ id }));
+      res.json(fetched.length > 0 ? [...fetched, ...manualModels.filter((item) => !fetched.some((model) => model.id === item.id))] : manualModels);
       return;
     }
 
     const response = await fetch(`${row.base_url}/models`, {
       headers: { Authorization: `Bearer ${row.api_key_cipher}` }
     });
-    if (!response.ok) { res.json([]); return; }
+    if (!response.ok) { res.json(manualModels); return; }
     const body = await response.json() as { data?: { id: string }[] };
     const models = (body.data ?? []).map((m) => ({ id: m.id }));
-    res.json(models);
+    res.json(models.length > 0 ? [...models, ...manualModels.filter((item) => !models.some((model) => model.id === item.id))] : manualModels);
   } catch {
-    res.json([]);
+    res.json(manualModels);
   }
 });
 
