@@ -36,6 +36,22 @@ describe("sanitizePluginSettingsPatch", () => {
   it("rejects non-object patches", () => {
     expect(() => sanitizePluginSettingsPatch([])).toThrow("settings patch must be an object");
   });
+
+  it("drops dangerous object keys", () => {
+    expect(sanitizePluginSettingsPatch(JSON.parse(`{
+      "ok": true,
+      "__proto__": { "polluted": true },
+      "nested": {
+        "constructor": "nope",
+        "fine": "yes"
+      }
+    }`))).toEqual({
+      ok: true,
+      nested: {
+        fine: "yes"
+      }
+    });
+  });
 });
 
 describe("buildPluginAssetHeaders", () => {

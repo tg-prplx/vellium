@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../../shared/api";
+import { isTrustedPluginFrameMessage, normalizePluginApiRequest } from "./security";
 import { buildPluginInlineRequest } from "./utils";
 import type {
   PluginActionContribution,
@@ -77,17 +78,14 @@ async function performPluginApiRequestFor(plugin: PluginDescriptor | null, metho
   if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) {
     throw new Error(`Unsupported plugin API method: ${method}`);
   }
-  const path = String(pathRaw || "").trim();
-  if (!/^\/api\//.test(path)) {
-    throw new Error("Plugin API access is restricted to /api/* routes");
-  }
-  if (/^\/api\/accounts(?:$|[/?#])/.test(path)) {
+  const { fetchPath, pathname } = normalizePluginApiRequest(pathRaw, window.location.origin);
+  if (/^\/api\/account(?:$|[/?#])/.test(pathname)) {
     throw new Error("Plugins cannot access account routes");
   }
-  if (/^\/api\/settings(?:$|[/?#])/.test(path)) {
+  if (/^\/api\/settings(?:$|[/?#])/.test(pathname)) {
     throw new Error("Plugins cannot access global settings directly");
   }
-  const pluginSettingsMatch = path.match(/^\/api\/plugins\/([^/]+)\/settings(?:$|[/?#])/);
+  const pluginSettingsMatch = pathname.match(/^\/api\/plugins\/([^/]+)\/settings(?:$|[/?#])/);
   if (plugin && pluginSettingsMatch) {
     const targetPluginId = decodeURIComponent(pluginSettingsMatch[1] || "");
     if (targetPluginId !== plugin.id) {
@@ -99,7 +97,7 @@ async function performPluginApiRequestFor(plugin: PluginDescriptor | null, metho
     if (method !== "GET" && !hasPluginPermission(plugin, "pluginSettings.write")) {
       throw new Error("Plugin is missing pluginSettings.write permission");
     }
-  } else if (/^\/api\/plugins(?:$|[/?#])/.test(path)) {
+  } else if (/^\/api\/plugins(?:$|[/?#])/.test(pathname)) {
     throw new Error("Plugins cannot access plugin management routes");
   } else if (plugin) {
     const permission = method === "GET" ? "api.read" : "api.write";
@@ -107,7 +105,7 @@ async function performPluginApiRequestFor(plugin: PluginDescriptor | null, metho
       throw new Error(`Plugin is missing ${permission} permission`);
     }
   }
-  const response = await fetch(path, {
+  const response = await fetch(fetchPath, {
     method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined || method === "GET" ? undefined : JSON.stringify(body),
@@ -127,7 +125,7 @@ async function performPluginApiRequestFor(plugin: PluginDescriptor | null, metho
 }
 
 function postMessageToFrame(frame: HTMLIFrameElement | null, payload: Record<string, unknown>) {
-  frame?.contentWindow?.postMessage({ __velliumHost: true, ...payload }, "*");
+  frame?.contentWindow?.postMessage({ __velliumHost: true, ...payload }, window.location.origin);
 }
 
 function readPluginDevAutoRefreshPreference(): boolean {
@@ -502,12 +500,10 @@ export function PluginFrame({
 
   useEffect(() => {
     const onMessage = async (event: MessageEvent) => {
-      const msg = event.data as Record<string, unknown> | null;
-      if (!msg || msg.__velliumPlugin !== true) return;
-      const sameFrame = event.source === iframeRef.current?.contentWindow;
-      const samePlugin = String(msg.pluginId || "").trim() === plugin.id;
-      const sameFrameId = String(msg.frameId || "").trim() === frameId;
-      if (!(sameFrame || sameFrameId || (samePlugin && sameFrameId))) return;
+      if (!isTrustedPluginFrameMessage(event, iframeRef.current?.contentWindow || null, window.location.origin, plugin.id, frameId)) {
+        return;
+      }
+      const msg = event.data as Record<string, unknown>;
       const type = String(msg.type || "");
       const requestId = msg.requestId ? String(msg.requestId) : undefined;
       if (type === "ready" || type === "get-context") {
