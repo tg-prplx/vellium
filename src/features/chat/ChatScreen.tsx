@@ -57,6 +57,10 @@ import {
   useProviderModelLoader,
   useTimelineLoader
 } from "./hooks";
+import { AttachmentPreviewModal, type AttachmentViewerState } from "./components/AttachmentPreviewModal";
+import { PersonaModal } from "./components/PersonaModal";
+import { CustomSceneFieldInput } from "./components/CustomSceneFieldInput";
+import { AttachmentCard } from "./components/AttachmentCard";
 
 interface StreamingToolCall {
   callId: string;
@@ -131,11 +135,7 @@ export function ChatScreen() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [compressing, setCompressing] = useState(false);
-  const [attachmentViewer, setAttachmentViewer] = useState<{
-    attachment: FileAttachment;
-    mode: "image" | "text";
-    previewUrl?: string | null;
-  } | null>(null);
+  const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerState | null>(null);
 
   // Model selector in chat — auto-loading
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
@@ -239,108 +239,6 @@ export function ChatScreen() {
     () => orderedBlocks.find((block) => block.kind === "system") || null,
     [orderedBlocks]
   );
-
-  function getCustomSceneFieldValue(field: CustomInspectorField) {
-    const key = `ext:${field.key}`;
-    const current = String(sceneState.variables?.[key] ?? "");
-    return current || field.defaultValue || "";
-  }
-
-  function setCustomSceneFieldValue(field: CustomInspectorField, value: string) {
-    setSceneVariable(`ext:${field.key}`, value);
-  }
-
-  function renderCustomSceneField(field: CustomInspectorField) {
-    const value = getCustomSceneFieldValue(field);
-    if (field.type === "toggle") {
-      const checked = value === "true" || value === "1" || value === "yes";
-      return (
-        <div key={field.id} className="rounded-xl border border-border-subtle bg-bg-secondary/40 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <label className="block text-[10px] text-text-tertiary">{field.label}</label>
-              {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
-            </div>
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={(e) => setCustomSceneFieldValue(field, e.target.checked ? "true" : "false")}
-              className="h-4 w-4"
-            />
-          </div>
-        </div>
-      );
-    }
-    if (field.type === "select") {
-      return (
-        <div key={field.id}>
-          <label className="mb-1 block text-[10px] text-text-tertiary">{field.label}</label>
-          <select
-            value={value}
-            onChange={(e) => setCustomSceneFieldValue(field, e.target.value)}
-            className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-          >
-            <option value="">{field.placeholder || "—"}</option>
-            {(field.options || []).map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-          {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
-        </div>
-      );
-    }
-    if (field.type === "range") {
-      const min = Number.isFinite(field.min) ? Number(field.min) : 0;
-      const max = Number.isFinite(field.max) ? Number(field.max) : 100;
-      const step = Number.isFinite(field.step) ? Number(field.step) : 1;
-      const numericValue = Number(value || field.defaultValue || min);
-      return (
-        <div key={field.id}>
-          <div className="mb-1 flex items-center justify-between gap-3">
-            <label className="text-[10px] text-text-tertiary">{field.label}</label>
-            <span className="text-[10px] text-text-tertiary">{Number.isFinite(numericValue) ? numericValue : min}</span>
-          </div>
-          <input
-            type="range"
-            min={min}
-            max={max}
-            step={step}
-            value={Number.isFinite(numericValue) ? numericValue : min}
-            onChange={(e) => setCustomSceneFieldValue(field, e.target.value)}
-            className="w-full"
-          />
-          {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
-        </div>
-      );
-    }
-    if (field.type === "textarea") {
-      return (
-        <div key={field.id}>
-          <label className="mb-1 block text-[10px] text-text-tertiary">{field.label}</label>
-          <textarea
-            value={value}
-            rows={field.rows || 3}
-            placeholder={field.placeholder || ""}
-            onChange={(e) => setCustomSceneFieldValue(field, e.target.value)}
-            className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-          />
-          {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
-        </div>
-      );
-    }
-    return (
-      <div key={field.id}>
-        <label className="mb-1 block text-[10px] text-text-tertiary">{field.label}</label>
-        <input
-          value={value}
-          placeholder={field.placeholder || ""}
-          onChange={(e) => setCustomSceneFieldValue(field, e.target.value)}
-          className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
-        />
-        {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
-      </div>
-    );
-  }
 
   const totalTokens = useMemo(
     () => messages.reduce((sum, m) => sum + (m.tokenCount || 0), 0),
@@ -964,82 +862,6 @@ export function ChatScreen() {
     void openAttachmentRaw(att);
   }
 
-  function renderAttachmentCard(att: FileAttachment, key: string, compact = false) {
-    const imageSrc = imageSourceFromAttachment(att);
-    const canPreview = Boolean(imageSrc || (att.type === "text" && String(att.content || "").trim()));
-    const kindLabel = imageSrc ? t("chat.imageAttachment") : (att.mimeType?.split("/")[1] || t("chat.textAttachment"));
-
-    if (compact) {
-      return (
-        <div key={key} className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-bg-primary/80 px-2 py-1.5">
-          <button type="button" onClick={() => previewAttachment(att)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-            {imageSrc ? (
-              <img src={imageSrc} alt={att.filename || t("chat.imageAttachment")} className="h-8 w-8 rounded-md object-cover" />
-            ) : (
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-secondary text-text-tertiary">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[11px] font-medium text-text-primary">{att.filename || t("chat.attachment")}</div>
-              <div className="truncate text-[10px] text-text-tertiary">{kindLabel}</div>
-            </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => removeAttachment(att.id)}
-            className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-danger"
-            title={t("chat.delete")}
-          >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      );
-    }
-
-    if (imageSrc) {
-      return (
-        <button
-          key={key}
-          type="button"
-          onClick={() => previewAttachment(att)}
-          className="flex w-[164px] min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-bg-primary text-left"
-        >
-          <div className="flex min-h-[88px] w-full items-center justify-center overflow-hidden bg-bg-secondary">
-            <img src={imageSrc} alt={att.filename || t("chat.imageAttachment")} className="h-full w-full object-cover" />
-          </div>
-          <div className="px-2.5 py-2">
-            <div className="truncate text-[11px] font-medium text-text-primary">{att.filename || t("chat.attachment")}</div>
-            <div className="mt-0.5 truncate text-[10px] text-text-tertiary">{att.mimeType || kindLabel}</div>
-          </div>
-        </button>
-      );
-    }
-
-    return (
-      <button
-        key={key}
-        type="button"
-        onClick={() => previewAttachment(att)}
-        className="inline-flex min-w-0 max-w-[260px] items-center gap-2 rounded-lg border border-border bg-bg-primary px-2.5 py-1.5 text-left hover:bg-bg-hover"
-      >
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-secondary text-text-tertiary">
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[11px] font-medium text-text-primary">{att.filename || t("chat.attachment")}</div>
-          <div className="truncate text-[10px] text-text-tertiary">{att.mimeType || kindLabel}</div>
-        </div>
-      </button>
-    );
-  }
-
   async function handleFork(message: ChatMessage) {
     if (!activeChat) return;
     try {
@@ -1459,149 +1281,37 @@ export function ChatScreen() {
 
   return (
     <>
-      {attachmentViewer && (
-        <div
-          className="overlay-animate fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4 py-6"
-          onClick={() => setAttachmentViewer(null)}
-        >
-          <div
-            className={`modal-pop w-full overflow-hidden rounded-2xl border border-border bg-bg-secondary shadow-2xl ${
-              attachmentViewer.mode === "image" ? "max-w-6xl" : "max-w-4xl"
-            }`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-text-primary">
-                  {attachmentViewer.attachment.filename || t("chat.attachment")}
-                </div>
-                <div className="truncate text-[11px] text-text-tertiary">
-                  {attachmentViewer.attachment.mimeType || (attachmentViewer.mode === "image" ? t("chat.imageAttachment") : t("chat.textAttachment"))}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => { void openAttachmentRaw(attachmentViewer.attachment); }}
-                  className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                >
-                  {t("chat.openAttachment")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAttachmentViewer(null)}
-                  className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                >
-                  {t("chat.closePreview")}
-                </button>
-              </div>
-            </div>
-            {attachmentViewer.mode === "image" ? (
-              <div className="flex max-h-[78vh] items-center justify-center overflow-auto bg-bg-primary p-4">
-                <img
-                  src={attachmentViewer.previewUrl || undefined}
-                  alt={attachmentViewer.attachment.filename || t("chat.imageAttachment")}
-                  className="max-h-[72vh] max-w-full rounded-xl object-contain"
-                />
-              </div>
-            ) : (
-              <div className="max-h-[72vh] overflow-auto bg-bg-primary p-4">
-                <pre className="whitespace-pre-wrap break-words rounded-xl border border-border-subtle bg-bg-secondary p-4 font-mono text-xs leading-relaxed text-text-secondary">
-                  {attachmentViewer.attachment.content || t("chat.noAttachmentPreview")}
-                </pre>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <AttachmentPreviewModal
+        viewer={attachmentViewer}
+        onClose={() => setAttachmentViewer(null)}
+        onOpenRaw={openAttachmentRaw}
+        t={t}
+      />
 
-      {/* Persona Modal */}
-      {showPersonaModal && (
-        <div className="overlay-animate fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => { setShowPersonaModal(false); setEditingPersona(null); }}>
-          <div className="modal-pop w-full max-w-lg rounded-xl border border-border bg-bg-secondary p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-text-primary">{t("chat.personas")}</h2>
-              <button onClick={() => { setShowPersonaModal(false); setEditingPersona(null); }}
-                className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            {editingPersona ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">{t("chat.personaName")}</label>
-                  <input value={editingPersona.name} onChange={(e) => setEditingPersona({ ...editingPersona, name: e.target.value })}
-                    className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">{t("chat.personaDesc")}</label>
-                  <textarea value={editingPersona.description} onChange={(e) => setEditingPersona({ ...editingPersona, description: e.target.value })}
-                    className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-secondary">{t("chat.personaPersonality")}</label>
-                  <textarea value={editingPersona.personality} onChange={(e) => setEditingPersona({ ...editingPersona, personality: e.target.value })}
-                    className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <button onClick={savePersona}
-                    className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">
-                    {t("chat.save")}
-                  </button>
-                  <button onClick={() => setEditingPersona(null)}
-                    className="rounded-lg border border-border px-4 py-2 text-xs text-text-secondary hover:bg-bg-hover">
-                    {t("chat.cancel")}
-                  </button>
-                  {editingPersona.id && (
-                    <button onClick={() => deletePersona(editingPersona.id)}
-                      className="ml-auto rounded-lg px-4 py-2 text-xs text-danger/70 hover:bg-danger-subtle hover:text-danger">
-                      {t("chat.deletePersona")}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {personas.map((p) => (
-                  <div key={p.id} className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
-                    activePersona?.id === p.id ? "border-accent bg-accent-subtle" : "border-border bg-bg-primary"
-                  }`}>
-                    <button onClick={() => { setActivePersona(p); setShowPersonaModal(false); }}
-                      className="flex-1 text-left">
-                      <div className="text-sm font-medium text-text-primary">
-                        {p.name} {p.isDefault && <span className="text-[10px] text-accent">★ {t("chat.default")}</span>}
-                      </div>
-                      {p.description && <div className="mt-0.5 truncate text-xs text-text-tertiary">{p.description}</div>}
-                    </button>
-                    <div className="ml-2 flex gap-1">
-                      {!p.isDefault && (
-                        <button onClick={async () => {
-                          await api.personaSetDefault(p.id);
-                          setPersonas((prev) => prev.map((x) => ({ ...x, isDefault: x.id === p.id })));
-                        }}
-                          className="rounded-md px-2 py-1 text-[10px] text-text-tertiary hover:bg-bg-hover hover:text-accent">
-                          {t("chat.setDefault")}
-                        </button>
-                      )}
-                      <button onClick={() => setEditingPersona(p)}
-                        className="rounded-md px-2 py-1 text-[10px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary">
-                        {t("chat.edit")}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <button onClick={() => setEditingPersona({ id: "", name: "", description: "", personality: "", scenario: "", isDefault: false, createdAt: "" })}
-                  className="w-full rounded-lg border border-dashed border-border px-3 py-2 text-xs text-text-tertiary hover:bg-bg-hover hover:text-text-secondary">
-                  + {t("chat.newPersona")}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <PersonaModal
+        open={showPersonaModal}
+        personas={personas}
+        activePersona={activePersona}
+        editingPersona={editingPersona}
+        onClose={() => {
+          setShowPersonaModal(false);
+          setEditingPersona(null);
+        }}
+        onSelect={(persona) => {
+          setActivePersona(persona);
+          setShowPersonaModal(false);
+        }}
+        onSetDefault={async (personaId) => {
+          await api.personaSetDefault(personaId);
+          setPersonas((prev) => prev.map((persona) => ({ ...persona, isDefault: persona.id === personaId })));
+        }}
+        onStartEdit={setEditingPersona}
+        onEditChange={setEditingPersona}
+        onCreateNew={() => setEditingPersona({ id: "", name: "", description: "", personality: "", scenario: "", isDefault: false, createdAt: "" })}
+        onSave={savePersona}
+        onDelete={deletePersona}
+        t={t}
+      />
 
       {simpleModeActive && simpleSidebarOpen && (
         <button
@@ -1710,7 +1420,19 @@ export function ChatScreen() {
                 })}
                 {visibleCustomSceneFields.length > 0 && (
                   <div className="space-y-2 pt-1">
-                    {visibleCustomSceneFields.map((field) => renderCustomSceneField(field))}
+                    {visibleCustomSceneFields.map((field) => {
+                      const key = `ext:${field.key}`;
+                      const current = String(sceneState.variables?.[key] ?? "");
+                      const value = current || field.defaultValue || "";
+                      return (
+                        <CustomSceneFieldInput
+                          key={field.id}
+                          field={field}
+                          value={value}
+                          onChange={(nextValue) => setSceneVariable(key, nextValue)}
+                        />
+                      );
+                    })}
                   </div>
                 )}
               </fieldset>
@@ -2649,7 +2371,15 @@ export function ChatScreen() {
                           <div className="mt-2 flex flex-wrap gap-2.5">
                             {msg.attachments.map((att, idx) => {
                               const key = `${msg.id}-att-${att.id || idx}`;
-                              return renderAttachmentCard(att, key);
+                              return (
+                                <AttachmentCard
+                                  key={key}
+                                  cardKey={key}
+                                  attachment={att}
+                                  onPreview={previewAttachment}
+                                  t={t}
+                                />
+                              );
                             })}
                           </div>
                         )}
@@ -2879,7 +2609,17 @@ export function ChatScreen() {
                 className={`list-animate mt-2 flex flex-wrap gap-1.5 ${simpleModeActive ? "chat-simple-attachments" : ""} ${simpleHomeState ? "is-home" : "is-docked"}`}
                 style={simpleModeActive && simpleHomeState ? ({ ["--simple-home-composer-width"]: simpleHomeComposerWidth } as Record<string, string>) : undefined}
               >
-                {attachments.map((att) => renderAttachmentCard(att, att.id, true))}
+                {attachments.map((att) => (
+                  <AttachmentCard
+                    key={att.id}
+                    cardKey={att.id}
+                    attachment={att}
+                    compact
+                    onPreview={previewAttachment}
+                    onRemove={removeAttachment}
+                    t={t}
+                  />
+                ))}
               </div>
             )}
 
@@ -3316,7 +3056,19 @@ export function ChatScreen() {
                     })}
                     {visibleCustomSceneFields.length > 0 && (
                       <div className="space-y-2 pt-1">
-                        {visibleCustomSceneFields.map((field) => renderCustomSceneField(field))}
+                        {visibleCustomSceneFields.map((field) => {
+                          const key = `ext:${field.key}`;
+                          const current = String(sceneState.variables?.[key] ?? "");
+                          const value = current || field.defaultValue || "";
+                          return (
+                            <CustomSceneFieldInput
+                              key={field.id}
+                              field={field}
+                              value={value}
+                              onChange={(nextValue) => setSceneVariable(key, nextValue)}
+                            />
+                          );
+                        })}
                       </div>
                     )}
                   </fieldset>
