@@ -21,6 +21,8 @@ import type {
 } from "../types/contracts";
 import { del, get, patchReq, post, requestBlob } from "./core";
 
+const LONG_RUNNING_REQUEST_OPTIONS = { timeoutMs: 0 };
+
 export const writerClient = {
   writerProjectCreate: (name: string, description: string, characterIds: string[] = []) => post<BookProject>("/writer/projects", { name, description, characterIds }),
   writerProjectList: () => get<BookProject[]>("/writer/projects"),
@@ -31,30 +33,44 @@ export const writerClient = {
   writerProjectGetRag: (projectId: string) => get<RagBinding>(`/writer/projects/${projectId}/rag`),
   writerProjectSaveRag: (projectId: string, enabled: boolean, collectionIds: string[]) => patchReq<RagBinding>(`/writer/projects/${projectId}/rag`, { enabled, collectionIds }),
   writerProjectUpdateNotes: (projectId: string, notes: Partial<WriterProjectNotes>) => patchReq<{ project: BookProject }>(`/writer/projects/${projectId}/notes`, { notes }),
-  writerProjectImportDocx: (projectId: string, base64Data: string, filename: string, parseMode: WriterDocxParseMode = "auto") => post<WriterDocxImportResult>(`/writer/projects/${projectId}/import/docx`, { base64Data, filename, parseMode }),
-  writerImportDocxAsBook: (base64Data: string, filename: string, parseMode: WriterDocxParseMode = "auto", bookName?: string) => post<WriterDocxImportBookResult>("/writer/import/docx-book", { base64Data, filename, parseMode, bookName }),
-  writerProjectSummarize: (projectId: string, force = false) => post<WriterProjectSummaryResult>(`/writer/projects/${projectId}/summarize`, { force }),
+  writerProjectImportDocx: (projectId: string, base64Data: string, filename: string, parseMode: WriterDocxParseMode = "auto") =>
+    post<WriterDocxImportResult>(`/writer/projects/${projectId}/import/docx`, { base64Data, filename, parseMode }, LONG_RUNNING_REQUEST_OPTIONS),
+  writerImportDocxAsBook: (base64Data: string, filename: string, parseMode: WriterDocxParseMode = "auto", bookName?: string) =>
+    post<WriterDocxImportBookResult>("/writer/import/docx-book", { base64Data, filename, parseMode, bookName }, LONG_RUNNING_REQUEST_OPTIONS),
+  writerProjectSummarize: (projectId: string, force = false) =>
+    post<WriterProjectSummaryResult>(`/writer/projects/${projectId}/summarize`, { force }, LONG_RUNNING_REQUEST_OPTIONS),
   writerSummaryLensList: (projectId: string) => get<WriterSummaryLens[]>(`/writer/projects/${projectId}/lenses`),
   writerSummaryLensCreate: (projectId: string, payload: { name: string; prompt: string; scope?: WriterSummaryLensScope; targetId?: string | null }) => post<WriterSummaryLens>(`/writer/projects/${projectId}/lenses`, payload),
   writerSummaryLensUpdate: (projectId: string, lensId: string, payload: { name?: string; prompt?: string; scope?: WriterSummaryLensScope; targetId?: string | null }) => patchReq<WriterSummaryLens>(`/writer/projects/${projectId}/lenses/${lensId}`, payload),
   writerSummaryLensDelete: (projectId: string, lensId: string) => del<{ ok: boolean; id: string }>(`/writer/projects/${projectId}/lenses/${lensId}`),
-  writerSummaryLensRun: (projectId: string, lensId: string, force = false) => post<WriterSummaryLensRunResult>(`/writer/projects/${projectId}/lenses/${lensId}/run`, { force }),
+  writerSummaryLensRun: (projectId: string, lensId: string, force = false) =>
+    post<WriterSummaryLensRunResult>(`/writer/projects/${projectId}/lenses/${lensId}/run`, { force }, LONG_RUNNING_REQUEST_OPTIONS),
   writerChapterCreate: (projectId: string, title: string) => post<Chapter>("/writer/chapters", { projectId, title }),
-  writerGenerateNextChapter: (projectId: string, prompt?: string) => post<WriterGenerateNextChapterResult>(`/writer/projects/${projectId}/generate-next-chapter`, prompt ? { prompt } : {}),
+  writerGenerateNextChapter: (projectId: string, prompt?: string) =>
+    post<WriterGenerateNextChapterResult>(`/writer/projects/${projectId}/generate-next-chapter`, prompt ? { prompt } : {}, LONG_RUNNING_REQUEST_OPTIONS),
   writerChapterUpdate: (chapterId: string, data: { title?: string }) => patchReq<Chapter>(`/writer/chapters/${chapterId}`, data),
   writerChapterDelete: (chapterId: string) => del<{ ok: boolean; id: string }>(`/writer/chapters/${chapterId}`),
   writerChapterUpdateSettings: (chapterId: string, settings: WriterChapterSettings) => patchReq<Chapter>(`/writer/chapters/${chapterId}/settings`, { settings }),
-  writerGenerateDraft: (chapterId: string, prompt: string) => post<Scene>(`/writer/chapters/${chapterId}/generate-draft`, { prompt }),
-  writerSceneExpand: (sceneId: string) => post<Scene>(`/writer/scenes/${sceneId}/expand`),
-  writerSceneRewrite: (sceneId: string, tone?: string) => post<Scene>(`/writer/scenes/${sceneId}/rewrite`, tone ? { tone } : {}),
-  writerSceneSummarize: (sceneId: string) => get<string>(`/writer/scenes/${sceneId}/summarize`),
-  writerConsistencyRun: (projectId: string) => post<ConsistencyIssue[]>(`/writer/projects/${projectId}/consistency`),
-  writerExportMarkdown: (projectId: string) => post<string>(`/writer/projects/${projectId}/export/markdown`),
-  writerExportDocx: (projectId: string) => post<string>(`/writer/projects/${projectId}/export/docx`),
-  writerExportMarkdownDownload: (projectId: string) => requestBlob("POST", `/writer/projects/${projectId}/export/markdown/download`),
-  writerExportDocxDownload: (projectId: string) => requestBlob("POST", `/writer/projects/${projectId}/export/docx/download`),
+  writerGenerateDraft: (chapterId: string, prompt: string) =>
+    post<Scene>(`/writer/chapters/${chapterId}/generate-draft`, { prompt }, LONG_RUNNING_REQUEST_OPTIONS),
+  writerSceneExpand: (sceneId: string) => post<Scene>(`/writer/scenes/${sceneId}/expand`, undefined, LONG_RUNNING_REQUEST_OPTIONS),
+  writerSceneRewrite: (sceneId: string, tone?: string) =>
+    post<Scene>(`/writer/scenes/${sceneId}/rewrite`, tone ? { tone } : {}, LONG_RUNNING_REQUEST_OPTIONS),
+  writerSceneSummarize: (sceneId: string) => get<string>(`/writer/scenes/${sceneId}/summarize`, LONG_RUNNING_REQUEST_OPTIONS),
+  writerConsistencyRun: (projectId: string) =>
+    post<ConsistencyIssue[]>(`/writer/projects/${projectId}/consistency`, undefined, LONG_RUNNING_REQUEST_OPTIONS),
+  writerExportMarkdown: (projectId: string) =>
+    post<string>(`/writer/projects/${projectId}/export/markdown`, undefined, LONG_RUNNING_REQUEST_OPTIONS),
+  writerExportDocx: (projectId: string) =>
+    post<string>(`/writer/projects/${projectId}/export/docx`, undefined, LONG_RUNNING_REQUEST_OPTIONS),
+  writerExportMarkdownDownload: (projectId: string) =>
+    requestBlob("POST", `/writer/projects/${projectId}/export/markdown/download`, undefined, LONG_RUNNING_REQUEST_OPTIONS),
+  writerExportDocxDownload: (projectId: string) =>
+    requestBlob("POST", `/writer/projects/${projectId}/export/docx/download`, undefined, LONG_RUNNING_REQUEST_OPTIONS),
   writerSceneUpdate: (sceneId: string, data: Partial<Scene>) => patchReq<Scene>(`/writer/scenes/${sceneId}`, data),
   writerSceneDelete: (sceneId: string) => del<{ ok: boolean; id: string }>(`/writer/scenes/${sceneId}`),
-  writerGenerateCharacter: (payload: WriterCharacterGenerateRequest) => post<CharacterDetail>("/writer/characters/generate", payload),
-  writerEditCharacter: (characterId: string, payload: WriterCharacterEditRequest) => post<WriterCharacterEditResponse>(`/writer/characters/${characterId}/edit`, payload)
+  writerGenerateCharacter: (payload: WriterCharacterGenerateRequest) =>
+    post<CharacterDetail>("/writer/characters/generate", payload, LONG_RUNNING_REQUEST_OPTIONS),
+  writerEditCharacter: (characterId: string, payload: WriterCharacterEditRequest) =>
+    post<WriterCharacterEditResponse>(`/writer/characters/${characterId}/edit`, payload, LONG_RUNNING_REQUEST_OPTIONS)
 };

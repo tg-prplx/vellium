@@ -3,6 +3,8 @@ import { managedBackendModelId, normalizeManagedBackends, parseManagedBackendMod
 import { get, post } from "./core";
 import { accountSettingsClient } from "./accountSettingsClient";
 
+const LONG_RUNNING_REQUEST_OPTIONS = { timeoutMs: 0 };
+
 function isElectronRuntimeAvailable() {
   return typeof window !== "undefined" && !!window.electronAPI;
 }
@@ -111,7 +113,7 @@ export const providerClient = {
   providerList: () => get<ProviderProfile[]>("/providers"),
   providerFetchModels: async (providerId: string) => {
     const [models, managedBackends, runtimeStates] = await Promise.all([
-      get<ProviderModel[]>(`/providers/${providerId}/models`).catch(() => []),
+      get<ProviderModel[]>(`/providers/${providerId}/models`, LONG_RUNNING_REQUEST_OPTIONS).catch(() => []),
       listManagedBackendsForProvider(providerId),
       listRuntimeStates()
     ]);
@@ -146,5 +148,6 @@ export const providerClient = {
       managedBackendId: null
     };
   },
-  providerTestConnection: (providerId: string) => post<boolean>(`/providers/${providerId}/test`)
+  providerTestConnection: (providerId: string) =>
+    post<boolean>(`/providers/${providerId}/test`, undefined, LONG_RUNNING_REQUEST_OPTIONS)
 };

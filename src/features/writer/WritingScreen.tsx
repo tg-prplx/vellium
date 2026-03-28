@@ -11,7 +11,6 @@ import {
   DEFAULT_CHAPTER_SETTINGS,
   DEFAULT_PROJECT_NOTES,
   DEFAULT_WRITER_CHARACTER_ADVANCED,
-  EMPTY_CHARACTER_EDIT_DRAFT,
   LENS_PRESET_IDS,
   SEVERITY_STYLES
 } from "./constants";
@@ -32,89 +31,10 @@ import type {
   WriterSummaryLens,
   WriterSummaryLensScope
 } from "../../shared/types/contracts";
-
-type LensPresetId = typeof LENS_PRESET_IDS[number];
-
-type WritingWorkspaceMode = "books" | "characters";
-
-interface CharacterEditDraft {
-  name: string;
-  description: string;
-  personality: string;
-  scenario: string;
-  greeting: string;
-  systemPrompt: string;
-  mesExample: string;
-  creatorNotes: string;
-  tagsText: string;
-}
-
-interface CharacterEditStatus {
-  tone: "success" | "error";
-  text: string;
-}
-
-const EMPTY_CHARACTER_EDIT_DRAFT_TYPED: CharacterEditDraft = { ...EMPTY_CHARACTER_EDIT_DRAFT };
-
-function clamp01(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Failed to read export blob"));
-    reader.onload = () => {
-      const raw = String(reader.result || "");
-      const comma = raw.indexOf(",");
-      resolve(comma >= 0 ? raw.slice(comma + 1) : raw);
-    };
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function triggerBlobDownload(blob: Blob, filename: string) {
-  if (window.electronAPI?.saveFile) {
-    const base64Data = await blobToBase64(blob);
-    const saved = await window.electronAPI.saveFile(filename, base64Data);
-    if (!saved.canceled && saved.ok) return;
-  }
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
-}
-
-// Background task tracking — persists across mounts
-interface BackgroundTask {
-  id: string;
-  type: "generate" | "expand" | "rewrite" | "summarize" | "consistency" | "character";
-  label: string;
-  startedAt: number;
-  status: "running" | "done" | "error";
-  result?: string;
-}
-
-const _backgroundTasks: BackgroundTask[] = [];
-
-function getBackgroundTasks(): BackgroundTask[] {
-  return _backgroundTasks;
-}
-
-function addBackgroundTask(task: BackgroundTask) {
-  _backgroundTasks.unshift(task);
-  if (_backgroundTasks.length > 20) _backgroundTasks.pop();
-}
-
-function updateBackgroundTask(id: string, update: Partial<BackgroundTask>) {
-  const task = _backgroundTasks.find((t) => t.id === id);
-  if (task) Object.assign(task, update);
-}
+import { addBackgroundTask, getBackgroundTasks, updateBackgroundTask } from "./taskStore";
+import type { BackgroundTask, CharacterEditDraft, CharacterEditStatus, LensPresetId, WritingWorkspaceMode } from "./types";
+import { EMPTY_CHARACTER_EDIT_DRAFT_TYPED } from "./types";
+import { clamp01, triggerBlobDownload } from "./utils";
 
 export function WritingScreen() {
   const { t } = useI18n();

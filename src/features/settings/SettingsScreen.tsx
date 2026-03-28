@@ -10,6 +10,36 @@ import { SettingsSidebar } from "./components/SettingsSidebar";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
 import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue, triggerBlobDownload } from "./utils";
 
+function isLocalProviderEndpoint(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function resolveProviderPresetKey(provider: Pick<ProviderProfile, "id" | "baseUrl" | "providerType">): string {
+  const normalizedType = provider.providerType === "koboldcpp" || provider.providerType === "custom"
+    ? provider.providerType
+    : "openai";
+  const preset = PROVIDER_PRESETS.find((item) => (
+    item.defaultId === provider.id
+    || (item.baseUrl === provider.baseUrl && item.providerType === normalizedType)
+  ));
+  if (preset) return preset.key;
+  if (normalizedType === "koboldcpp") return "koboldcpp";
+  if (normalizedType === "custom") return "custom";
+  return "custom";
+}
+
+function parseManualModels(raw: string): string[] {
+  return raw
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export function SettingsScreen() {
   const { t } = useI18n();
   const { catalog: pluginCatalog, plugins, loading: pluginsLoading, error: pluginError, setPluginEnabled, refresh: refreshPlugins, pendingPluginStates } = usePlugins();
@@ -58,6 +88,23 @@ export function SettingsScreen() {
   const [providerType, setProviderType] = useState<"openai" | "koboldcpp" | "custom">(selectedPreset.providerType);
   const [providerAdapterId, setProviderAdapterId] = useState("");
   const [providerManualModels, setProviderManualModels] = useState("");
+  const editingProvider = useMemo(
+    () => providers.find((provider) => provider.id === providerId) ?? null,
+    [providers, providerId]
+  );
+  const selectedProviderProfile = useMemo(
+    () => providers.find((provider) => provider.id === selectedProviderId) ?? null,
+    [providers, selectedProviderId]
+  );
+  const draftManualModels = useMemo(() => parseManualModels(providerManualModels), [providerManualModels]);
+  const providerStats = useMemo(() => {
+    const local = providers.filter((provider) => provider.fullLocalOnly || isLocalProviderEndpoint(provider.baseUrl)).length;
+    return {
+      total: providers.length,
+      local,
+      remote: Math.max(providers.length - local, 0)
+    };
+  }, [providers]);
 
   const [activeCategory, setActiveCategory] = useState<SettingsCategory>("connection");
   const [mcpServersDraft, setMcpServersDraft] = useState<McpServerConfig[]>([]);
@@ -120,6 +167,12 @@ export function SettingsScreen() {
   function showResult(text: string, variant: "info" | "success" | "error" = "info") {
     setProviderResult(text);
     setResultVariant(variant);
+  }
+
+  function getProviderTypeLabel(type?: ProviderProfile["providerType"] | "openai" | "koboldcpp" | "custom") {
+    if (type === "koboldcpp") return t("settings.providerTypeKobold");
+    if (type === "custom") return t("settings.providerTypeCustom");
+    return t("settings.providerTypeOpenAi");
   }
 
   async function openPluginSettings(plugin: PluginDescriptor) {
@@ -233,6 +286,21 @@ export function SettingsScreen() {
       void patchApiParamPolicy({ openai: { sendSampler: false } });
     }
     showResult(`${t("settings.presetApplied")}: ${preset.label}`, "info");
+  }
+
+  function loadProviderIntoForm(profile: ProviderProfile) {
+    setSelectedPresetKey(resolveProviderPresetKey(profile));
+    setProviderId(profile.id);
+    setProviderName(profile.name);
+    setProviderBaseUrl(profile.baseUrl);
+    setProviderApiKey("");
+    setProviderProxyUrl(profile.proxyUrl || "");
+    setProviderLocalOnly(Boolean(profile.fullLocalOnly));
+    setProviderType(profile.providerType === "koboldcpp" || profile.providerType === "custom" ? profile.providerType : "openai");
+    setProviderAdapterId(profile.adapterId || "");
+    setProviderManualModels(Array.isArray(profile.manualModels) ? profile.manualModels.join("\n") : "");
+    setSelectedProviderId(profile.id);
+    showResult(`${t("settings.providerLoadedIntoEditor")}: ${profile.name}`, "info");
   }
 
   async function patch(next: Partial<AppSettings>) {
@@ -381,10 +449,7 @@ export function SettingsScreen() {
       fullLocalOnly: providerLocalOnly,
       providerType,
       adapterId: providerType === "custom" ? providerAdapterId.trim() || null : null,
-      manualModels: providerManualModels
-        .split(/\r?\n|,/)
-        .map((item) => item.trim())
-        .filter(Boolean)
+      manualModels: draftManualModels
     });
     showResult(`${t("settings.providerSaved")}: ${saved.name}`, "success");
     await refreshProviders();
@@ -835,6 +900,13 @@ export function SettingsScreen() {
     if (!query) return true;
     return section.label.toLowerCase().includes(query);
   });
+  const draftHasApiKey = Boolean(providerApiKey.trim()) || Boolean(editingProvider?.apiKeyMasked);
+  const canTestProvider = Boolean(selectedProviderId || editingProvider);
+  const canActivateSelectedModel = Boolean(selectedProviderId && selectedModelId);
+  const primaryActionClass = "rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60";
+  const secondaryActionClass = "rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60";
+  const subtleChipClass = "inline-flex items-center rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] font-medium text-text-secondary";
+  const insetPanelClass = "rounded-lg border border-border-subtle bg-bg-primary";
 
   if (!settings) {
     return <div className="flex h-full items-center justify-center"><div className="text-sm text-text-tertiary">{t("settings.loading")}</div></div>;
@@ -893,181 +965,394 @@ export function SettingsScreen() {
           {activeCategory === "connection" && (
             <div className="space-y-4">
               <div id="settings-quick-presets" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.quickPresets")}</div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {PROVIDER_PRESETS.map((preset) => (
-                    <button key={preset.key} onClick={() => applyPresetToForm(preset)}
-                      className={`rounded-lg border p-2.5 text-left transition-colors ${selectedPresetKey === preset.key ? "border-accent-border bg-accent-subtle" : "border-border hover:bg-bg-hover"}`}>
-                      <div className="text-xs font-semibold text-text-primary">{preset.label}</div>
-                      <div className="mt-0.5 text-[10px] text-text-tertiary">{preset.description}</div>
-                    </button>
-                  ))}
+                <div className="settings-section-header">
+                  <div>
+                    <div className="settings-section-title">{t("settings.quickPresets")}</div>
+                    <p className="settings-section-desc">{t("settings.quickPresetsDescConnection")}</p>
+                  </div>
                 </div>
-                <button onClick={quickAddPreset} className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">
-                  {t("settings.quickAdd")}
-                </button>
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_280px]">
+                  <div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {PROVIDER_PRESETS.map((preset) => (
+                        <button
+                          key={preset.key}
+                          onClick={() => applyPresetToForm(preset)}
+                          className={`rounded-lg border p-3 text-left transition-colors ${
+                            selectedPresetKey === preset.key
+                              ? "border-accent-border bg-accent-subtle"
+                              : "border-border-subtle bg-bg-primary hover:bg-bg-hover"
+                          }`}
+                        >
+                          <div className="text-xs font-semibold text-text-primary">{preset.label}</div>
+                          <div className="mt-1 text-[10px] leading-relaxed text-text-tertiary">{preset.description}</div>
+                          <div className="mt-2 text-[10px] text-text-tertiary">{preset.baseUrl}</div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button onClick={quickAddPreset} className={primaryActionClass}>
+                        {t("settings.quickAdd")}
+                      </button>
+                      <button onClick={refreshProviders} className={secondaryActionClass}>
+                        {t("settings.refresh")}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className={`${insetPanelClass} p-3`}>
+                    <div className="text-[11px] font-medium text-text-secondary">{t("settings.activeRouting")}</div>
+                    <div className="mt-2 text-sm font-semibold text-text-primary">
+                      {activeProvider?.name || t("settings.activeRoutingEmpty")}
+                    </div>
+                    <div className="mt-1 break-all text-[11px] leading-relaxed text-text-tertiary">
+                      {activeProvider?.baseUrl || t("settings.connectionOverviewDesc")}
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      <div className="rounded-md border border-border-subtle bg-bg-secondary px-2.5 py-2">
+                        <div className="text-[9px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.providerCount")}</div>
+                        <div className="mt-1 text-sm font-semibold text-text-primary">{providerStats.total}</div>
+                      </div>
+                      <div className="rounded-md border border-border-subtle bg-bg-secondary px-2.5 py-2">
+                        <div className="text-[9px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.localEndpoints")}</div>
+                        <div className="mt-1 text-sm font-semibold text-text-primary">{providerStats.local}</div>
+                      </div>
+                      <div className="rounded-md border border-border-subtle bg-bg-secondary px-2.5 py-2">
+                        <div className="text-[9px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.remoteEndpoints")}</div>
+                        <div className="mt-1 text-sm font-semibold text-text-primary">{providerStats.remote}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {activeProvider && <span className={subtleChipClass}>{getProviderTypeLabel(activeProvider.providerType)}</span>}
+                      {settings.activeModel && <span className={subtleChipClass}>{settings.activeModel}</span>}
+                      {settings.fullLocalMode && <span className={subtleChipClass}>{t("settings.fullLocalMode")}</span>}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {activeProvider && (
+                        <button onClick={() => loadProviderIntoForm(activeProvider)} className={secondaryActionClass}>
+                          {t("chat.edit")}
+                        </button>
+                      )}
+                      <button onClick={testProvider} disabled={!canTestProvider} className={secondaryActionClass}>
+                        {t("settings.test")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div id="settings-manual-provider" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.manualConfig")}</div>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><FieldLabel>{t("settings.providerId")}</FieldLabel><InputField value={providerId} onChange={setProviderId} placeholder={t("settings.providerIdPlaceholder")} /></div>
-                    <div><FieldLabel>{t("settings.providerName")}</FieldLabel><InputField value={providerName} onChange={setProviderName} placeholder={t("settings.providerNamePlaceholder")} /></div>
-                  </div>
-                  <div><FieldLabel>{t("settings.baseUrl")}</FieldLabel><InputField value={providerBaseUrl} onChange={setProviderBaseUrl} placeholder={t("settings.baseUrlPlaceholder")} /></div>
-                  <div>
-                    <FieldLabel>{t("settings.providerType")}</FieldLabel>
-                    <SelectField value={providerType} onChange={(v) => setProviderType(v as "openai" | "koboldcpp" | "custom")}>
-                      <option value="openai">{t("settings.providerTypeOpenAi")}</option>
-                      <option value="koboldcpp">{t("settings.providerTypeKobold")}</option>
-                      <option value="custom">{t("settings.providerTypeCustom")}</option>
-                    </SelectField>
-                  </div>
-                  {providerType === "custom" && (
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_320px]">
+                <div id="settings-manual-provider" className="settings-section scroll-mt-24">
+                  <div className="settings-section-header">
                     <div>
-                      <FieldLabel>{t("settings.adapterId")}</FieldLabel>
-                      <InputField value={providerAdapterId} onChange={setProviderAdapterId} placeholder={t("settings.adapterIdPlaceholder")} />
-                    </div>
-                  )}
-                  <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField value={providerApiKey} onChange={setProviderApiKey} placeholder={selectedPreset.apiKeyHint} /></div>
-                  <div><FieldLabel>{t("settings.proxyUrl")}</FieldLabel><InputField value={providerProxyUrl} onChange={setProviderProxyUrl} placeholder={t("settings.proxyUrlPlaceholder")} /></div>
-                  <div>
-                    <FieldLabel>Manual models</FieldLabel>
-                    <textarea
-                      value={providerManualModels}
-                      onChange={(e) => setProviderManualModels(e.target.value)}
-                      placeholder={"gpt-4.1\nmy-local-model\nclaude-sonnet"}
-                      rows={4}
-                      className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-text-primary outline-none transition focus:border-accent"
-                    />
-                    <div className="mt-1 text-[11px] text-text-tertiary">
-                      Used as fallback when this endpoint does not return models from <code>/models</code>.
+                      <div className="settings-section-title">{t("settings.manualConfig")}</div>
+                      <p className="settings-section-desc">{t("settings.providerEditorDesc")}</p>
                     </div>
                   </div>
-                  <label className="settings-toggle-row cursor-pointer">
-                    <span className="text-xs font-medium text-text-secondary">{t("settings.localOnly")}</span>
-                    <ToggleSwitch checked={providerLocalOnly} onChange={(e) => setProviderLocalOnly(e.target.checked)} />
-                  </label>
-                  <div className="flex gap-2">
-                    <button onClick={saveProvider} className="flex-1 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">{t("settings.saveProvider")}</button>
-                    <button onClick={testProvider} className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover">{t("settings.test")}</button>
-                    <button onClick={refreshProviders} className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover">{t("settings.refresh")}</button>
+                  <div className="space-y-4">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <FieldLabel>{t("settings.providerId")}</FieldLabel>
+                        <InputField value={providerId} onChange={setProviderId} placeholder={t("settings.providerIdPlaceholder")} />
+                      </div>
+                      <div>
+                        <FieldLabel>{t("settings.providerName")}</FieldLabel>
+                        <InputField value={providerName} onChange={setProviderName} placeholder={t("settings.providerNamePlaceholder")} />
+                      </div>
+                    </div>
+                    <div>
+                      <FieldLabel>{t("settings.baseUrl")}</FieldLabel>
+                      <InputField value={providerBaseUrl} onChange={setProviderBaseUrl} placeholder={t("settings.baseUrlPlaceholder")} />
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <FieldLabel>{t("settings.providerType")}</FieldLabel>
+                        <SelectField value={providerType} onChange={(v) => setProviderType(v as "openai" | "koboldcpp" | "custom")}>
+                          <option value="openai">{t("settings.providerTypeOpenAi")}</option>
+                          <option value="koboldcpp">{t("settings.providerTypeKobold")}</option>
+                          <option value="custom">{t("settings.providerTypeCustom")}</option>
+                        </SelectField>
+                      </div>
+                      <div>
+                        <FieldLabel>{providerType === "custom" ? t("settings.adapterId") : t("settings.apiKey")}</FieldLabel>
+                        {providerType === "custom" ? (
+                          <InputField value={providerAdapterId} onChange={setProviderAdapterId} placeholder={t("settings.adapterIdPlaceholder")} />
+                        ) : (
+                          <InputField value={providerApiKey} onChange={setProviderApiKey} placeholder={selectedPreset.apiKeyHint} />
+                        )}
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {providerType === "custom" && (
+                        <div>
+                          <FieldLabel>{t("settings.apiKey")}</FieldLabel>
+                          <InputField value={providerApiKey} onChange={setProviderApiKey} placeholder={selectedPreset.apiKeyHint} />
+                        </div>
+                      )}
+                      <div className={providerType === "custom" ? "" : "md:col-span-2"}>
+                        <FieldLabel>{t("settings.proxyUrl")}</FieldLabel>
+                        <InputField value={providerProxyUrl} onChange={setProviderProxyUrl} placeholder={t("settings.proxyUrlPlaceholder")} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between gap-3">
+                        <FieldLabel>{t("settings.providerManualFallback")}</FieldLabel>
+                        <span className="text-[11px] text-text-tertiary">{draftManualModels.length}</span>
+                      </div>
+                      <textarea
+                        value={providerManualModels}
+                        onChange={(e) => setProviderManualModels(e.target.value)}
+                        placeholder={"gpt-4.1\nmy-local-model\nclaude-sonnet"}
+                        rows={4}
+                        className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary outline-none transition focus:border-accent"
+                      />
+                      <div className="mt-1 text-[11px] text-text-tertiary">{t("settings.providerManualFallbackDesc")}</div>
+                    </div>
+                    <label className="settings-toggle-row cursor-pointer">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-text-primary">{t("settings.localOnly")}</div>
+                        <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.fullLocalDesc")}</div>
+                      </div>
+                      <ToggleSwitch checked={providerLocalOnly} onChange={(e) => setProviderLocalOnly(e.target.checked)} />
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={saveProvider} className={primaryActionClass}>{t("settings.saveProvider")}</button>
+                      <button onClick={testProvider} disabled={!canTestProvider} className={secondaryActionClass}>{t("settings.test")}</button>
+                      <button onClick={refreshProviders} className={secondaryActionClass}>{t("settings.refresh")}</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="settings-section">
+                    <div className="settings-section-header">
+                      <div>
+                        <div className="settings-section-title">{t("settings.providerLibrary")}</div>
+                        <p className="settings-section-desc">{t("settings.providerLibraryDesc")}</p>
+                      </div>
+                    </div>
+                    {providers.length > 0 ? (
+                      <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+                        {providers.map((provider) => {
+                          const isEditing = provider.id === providerId;
+                          const isActive = provider.id === settings.activeProviderId;
+                          return (
+                            <button
+                              key={provider.id}
+                              onClick={() => loadProviderIntoForm(provider)}
+                              className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                                isEditing
+                                  ? "border-accent-border bg-accent-subtle"
+                                  : isActive
+                                    ? "border-border bg-bg-primary"
+                                    : "border-border-subtle bg-bg-primary hover:bg-bg-hover"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="truncate text-xs font-semibold text-text-primary">{provider.name}</div>
+                                  <div className="mt-0.5 truncate text-[10px] text-text-tertiary">{provider.id}</div>
+                                </div>
+                                {isActive && <span className={subtleChipClass}>{t("settings.activeModelSet")}</span>}
+                              </div>
+                              <div className="mt-2 break-all text-[10px] leading-relaxed text-text-tertiary">{provider.baseUrl}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className={`${insetPanelClass} px-3 py-2 text-xs text-text-tertiary`}>
+                        {t("settings.providerLibraryHint")}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="settings-section">
+                    <div className="settings-section-header">
+                      <div>
+                        <div className="settings-section-title">{providerName || t("settings.provider")}</div>
+                        <p className="settings-section-desc">{t("settings.providerEditorDesc")}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3 text-xs text-text-secondary">
+                        <span>{t("settings.providerType")}</span>
+                        <span className="text-text-primary">{getProviderTypeLabel(providerType)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-xs text-text-secondary">
+                        <span>{t("settings.apiKey")}</span>
+                        <span className="text-text-primary">{draftHasApiKey ? t("chat.enable") : "—"}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-xs text-text-secondary">
+                        <span>{t("settings.providerManualFallback")}</span>
+                        <span className="text-text-primary">{draftManualModels.length || "—"}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-xs text-text-secondary">
+                        <span>{t("settings.localOnly")}</span>
+                        <span className="text-text-primary">{providerLocalOnly ? t("chat.enable") : t("chat.disable")}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <div id="settings-runtime-mode" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.runtimeMode")}</div>
-                <div className="space-y-2">
-                  <div className="settings-toggle-row">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.fullLocalMode")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.fullLocalDesc")}</div>
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+                <div id="settings-active-model" className="settings-section scroll-mt-24">
+                  <div className="settings-section-header">
+                    <div>
+                      <div className="settings-section-title">{t("settings.activeModel")}</div>
+                      <p className="settings-section-desc">{t("settings.activeModelDesc")}</p>
                     </div>
-                    <ToggleSwitch checked={settings.fullLocalMode === true} onChange={(e) => patch({ fullLocalMode: e.target.checked })} />
                   </div>
-                </div>
-              </div>
-
-              <div id="settings-active-model" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.activeModel")}</div>
-                <div className="space-y-3">
-                  <div>
-                    <FieldLabel>{t("settings.provider")}</FieldLabel>
-                    <SelectField value={selectedProviderId} onChange={setSelectedProviderId}>
-                      <option value="">{t("settings.selectProvider")}</option>
-                      {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </SelectField>
-                  </div>
-                  <div>
-                    <FieldLabel>{t("chat.model")}</FieldLabel>
-                    <SelectField value={selectedModelId} onChange={setSelectedModelId}>
-                      <option value="">{t("settings.selectModel")}</option>
-                      {models.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
-                    </SelectField>
-                  </div>
-                  <button onClick={applyActiveModel} className="w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover">{t("settings.useModel")}</button>
-                </div>
-              </div>
-
-              <div id="settings-translation-model" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.translateModel")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.translateModelDesc")}</p>
-                <div className="space-y-2">
-                  <div>
-                    <FieldLabel>{t("settings.provider")}</FieldLabel>
-                    <SelectField value={settings.translateProviderId || ""} onChange={(v) => { void patch({ translateProviderId: v || null, translateModel: null }); }}>
-                      <option value="">({t("settings.activeModel")})</option>
-                      {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </SelectField>
-                  </div>
-                  {settings.translateProviderId && (
+                  <div className="space-y-3">
+                    <div>
+                      <FieldLabel>{t("settings.provider")}</FieldLabel>
+                      <SelectField value={selectedProviderId} onChange={setSelectedProviderId}>
+                        <option value="">{t("settings.selectProvider")}</option>
+                        {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </SelectField>
+                    </div>
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
                         <FieldLabel>{t("chat.model")}</FieldLabel>
-                        <button onClick={() => void loadTranslateModels(settings.translateProviderId)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("settings.loadModels")}</button>
+                        <button onClick={loadModels} disabled={!selectedProviderId} className={secondaryActionClass}>
+                          {t("settings.loadModels")}
+                        </button>
                       </div>
-                      <SelectField value={settings.translateModel || ""} onChange={(v) => patch({ translateModel: v || null })}>
-                        <option value="">({t("settings.activeModel")})</option>
-                        {translateModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
+                      <SelectField value={selectedModelId} onChange={setSelectedModelId}>
+                        <option value="">{t("settings.selectModel")}</option>
+                        {models.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                       </SelectField>
                     </div>
-                  )}
+                    <div className="text-[11px] text-text-tertiary">
+                      {models.length ? `${t("settings.modelsLoaded")}: ${models.length}` : t("settings.noModelsReturned")}
+                      {selectedProviderProfile?.baseUrl ? ` • ${selectedProviderProfile.baseUrl}` : ""}
+                    </div>
+                    <button onClick={applyActiveModel} disabled={!canActivateSelectedModel} className={primaryActionClass}>
+                      {t("settings.useModel")}
+                    </button>
+                  </div>
+                </div>
+
+                <div id="settings-runtime-mode" className="settings-section scroll-mt-24">
+                  <div className="settings-section-header">
+                    <div>
+                      <div className="settings-section-title">{t("settings.runtimeMode")}</div>
+                      <p className="settings-section-desc">{t("settings.runtimeModeDesc")}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="settings-toggle-row">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-text-primary">{t("settings.fullLocalMode")}</div>
+                        <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.fullLocalDesc")}</div>
+                      </div>
+                      <ToggleSwitch checked={settings.fullLocalMode === true} onChange={(e) => patch({ fullLocalMode: e.target.checked })} />
+                    </div>
+                    <div className={`${insetPanelClass} px-3 py-2 text-[11px] leading-relaxed text-text-tertiary`}>
+                      {settings.fullLocalMode ? t("settings.activeRoutingLocalMode") : t("settings.activeRoutingRemoteMode")}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div id="settings-compress-model" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.compressModel")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.compressModelDesc")}</p>
-                <div className="space-y-3">
-                  <div>
-                    <FieldLabel>{t("settings.compressProvider")}</FieldLabel>
-                    <SelectField value={settings.compressProviderId || ""} onChange={(v) => { patch({ compressProviderId: v || null }); }}>
-                      <option value="">({t("settings.activeModel")})</option>
-                      {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </SelectField>
-                  </div>
-                  {settings.compressProviderId && (
+              <div className="grid gap-4 xl:grid-cols-2">
+                <div id="settings-translation-model" className="settings-section scroll-mt-24">
+                  <div className="settings-section-header">
                     <div>
-                      <FieldLabel>{t("chat.model")}</FieldLabel>
-                      <SelectField value={settings.compressModel || ""} onChange={(v) => patch({ compressModel: v || null })}>
+                      <div className="settings-section-title">{t("settings.translateModel")}</div>
+                      <p className="settings-section-desc">{t("settings.translateModelDesc")}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <FieldLabel>{t("settings.provider")}</FieldLabel>
+                      <SelectField value={settings.translateProviderId || ""} onChange={(v) => { void patch({ translateProviderId: v || null, translateModel: null }); }}>
                         <option value="">({t("settings.activeModel")})</option>
-                        {compressModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
+                        {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </SelectField>
                     </div>
-                  )}
+                    {settings.translateProviderId && (
+                      <div>
+                        <div className="mb-1.5 flex items-center justify-between">
+                          <FieldLabel>{t("chat.model")}</FieldLabel>
+                          <button onClick={() => void loadTranslateModels(settings.translateProviderId)} className={secondaryActionClass}>
+                            {t("settings.loadModels")}
+                          </button>
+                        </div>
+                        <SelectField value={settings.translateModel || ""} onChange={(v) => patch({ translateModel: v || null })}>
+                          <option value="">({t("settings.activeModel")})</option>
+                          {translateModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
+                        </SelectField>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div id="settings-compress-model" className="settings-section scroll-mt-24">
+                  <div className="settings-section-header">
+                    <div>
+                      <div className="settings-section-title">{t("settings.compressModel")}</div>
+                      <p className="settings-section-desc">{t("settings.compressModelDesc")}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <FieldLabel>{t("settings.compressProvider")}</FieldLabel>
+                      <SelectField value={settings.compressProviderId || ""} onChange={(v) => { patch({ compressProviderId: v || null }); }}>
+                        <option value="">({t("settings.activeModel")})</option>
+                        {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </SelectField>
+                    </div>
+                    {settings.compressProviderId && (
+                      <div>
+                        <FieldLabel>{t("chat.model")}</FieldLabel>
+                        <SelectField value={settings.compressModel || ""} onChange={(v) => patch({ compressModel: v || null })}>
+                          <option value="">({t("settings.activeModel")})</option>
+                          {compressModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
+                        </SelectField>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
               <div id="settings-tts" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.tts")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ttsDesc")}</p>
-                <div className="space-y-3">
-                  <div><FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel><InputField value={settings.ttsBaseUrl || ""} onChange={(v) => patch({ ttsBaseUrl: v })} placeholder="https://api.openai.com/v1" /></div>
-                  <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField type="password" value={settings.ttsApiKey || ""} onChange={(v) => patch({ ttsApiKey: v })} placeholder={t("settings.apiKey")} /></div>
-                  <div><FieldLabel>{t("settings.ttsAdapterId")}</FieldLabel><InputField value={settings.ttsAdapterId || ""} onChange={(v) => patch({ ttsAdapterId: v.trim() || null })} placeholder={t("settings.ttsAdapterIdPlaceholder")} /></div>
+                <div className="settings-section-header">
                   <div>
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <FieldLabel>{t("settings.ttsModel")}</FieldLabel>
-                      <button onClick={() => void loadTtsModels()} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("settings.loadModels")}</button>
-                    </div>
-                    <SelectField value={settings.ttsModel || ""} onChange={(v) => patch({ ttsModel: v })}>
-                      <option value="">{t("settings.selectModel")}</option>
-                      {ttsModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
-                    </SelectField>
+                    <div className="settings-section-title">{t("settings.tts")}</div>
+                    <p className="settings-section-desc">{t("settings.ttsDesc")}</p>
                   </div>
-                  <div>
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <FieldLabel>{t("settings.ttsVoice")}</FieldLabel>
-                      <button onClick={() => void loadTtsVoices()} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("settings.loadVoices")}</button>
+                </div>
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="space-y-3">
+                    <div><FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel><InputField value={settings.ttsBaseUrl || ""} onChange={(v) => patch({ ttsBaseUrl: v })} placeholder="https://api.openai.com/v1" /></div>
+                    <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField type="password" value={settings.ttsApiKey || ""} onChange={(v) => patch({ ttsApiKey: v })} placeholder={t("settings.apiKey")} /></div>
+                    <div><FieldLabel>{t("settings.ttsAdapterId")}</FieldLabel><InputField value={settings.ttsAdapterId || ""} onChange={(v) => patch({ ttsAdapterId: v.trim() || null })} placeholder={t("settings.ttsAdapterIdPlaceholder")} /></div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <FieldLabel>{t("settings.ttsModel")}</FieldLabel>
+                        <button onClick={() => void loadTtsModels()} className={secondaryActionClass}>{t("settings.loadModels")}</button>
+                      </div>
+                      <SelectField value={settings.ttsModel || ""} onChange={(v) => patch({ ttsModel: v })}>
+                        <option value="">{t("settings.selectModel")}</option>
+                        {ttsModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
+                      </SelectField>
                     </div>
-                    <input list="tts-voice-options" value={settings.ttsVoice || ""} onChange={(e) => patch({ ttsVoice: e.target.value })} placeholder="alloy"
-                      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary" />
-                    <datalist id="tts-voice-options">
-                      <option value="alloy" /><option value="echo" /><option value="fable" /><option value="onyx" /><option value="nova" /><option value="shimmer" />
-                      {ttsVoices.map((v) => <option key={v.id} value={v.id} />)}
-                    </datalist>
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <FieldLabel>{t("settings.ttsVoice")}</FieldLabel>
+                        <button onClick={() => void loadTtsVoices()} className={secondaryActionClass}>{t("settings.loadVoices")}</button>
+                      </div>
+                      <input list="tts-voice-options" value={settings.ttsVoice || ""} onChange={(e) => patch({ ttsVoice: e.target.value })} placeholder="alloy"
+                        className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary" />
+                      <datalist id="tts-voice-options">
+                        <option value="alloy" /><option value="echo" /><option value="fable" /><option value="onyx" /><option value="nova" /><option value="shimmer" />
+                        {ttsVoices.map((v) => <option key={v.id} value={v.id} />)}
+                      </datalist>
+                    </div>
                   </div>
                 </div>
               </div>
