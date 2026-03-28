@@ -3,6 +3,8 @@ export const MAX_PLUGIN_SETTINGS_KEYS = 200;
 export const MAX_PLUGIN_SETTINGS_ARRAY = 200;
 export const MAX_PLUGIN_SETTINGS_STRING = 20_000;
 export const MAX_PLUGIN_SETTINGS_BYTES = 64 * 1024;
+const BLOCKED_PLUGIN_SETTINGS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const DISALLOWED_OBJECT_KEY_CHARS = /[\u0000-\u001f\u007f]/;
 
 function sanitizeValue(value: unknown, depth: number): unknown {
   if (value === null) return null;
@@ -20,7 +22,14 @@ function sanitizeValue(value: unknown, depth: number): unknown {
     const entries = Object.entries(value as Record<string, unknown>).slice(0, MAX_PLUGIN_SETTINGS_KEYS);
     return Object.fromEntries(
       entries
-        .map(([key, item]) => [String(key).slice(0, 200), sanitizeValue(item, depth + 1)] as const)
+        .map(([key, item]) => {
+          const normalizedKey = String(key).trim().slice(0, 200);
+          if (!normalizedKey || BLOCKED_PLUGIN_SETTINGS_KEYS.has(normalizedKey) || DISALLOWED_OBJECT_KEY_CHARS.test(normalizedKey)) {
+            return null;
+          }
+          return [normalizedKey, sanitizeValue(item, depth + 1)] as const;
+        })
+        .filter((entry): entry is readonly [string, unknown] => entry !== null)
         .filter(([, item]) => item !== undefined)
     );
   }

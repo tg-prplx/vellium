@@ -1,6 +1,12 @@
 import { Router } from "express";
 import { db, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
 import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
+import {
+  sanitizePluginRuntimeId,
+  sanitizePluginRuntimeMessages,
+  sanitizePluginRuntimePrompt,
+  sanitizePluginRuntimeSamplerConfig
+} from "../services/requestSecurity.js";
 import { unifiedGenerateText, type UnifiedGenerateMessage } from "../services/unifiedGeneration.js";
 
 const router = Router();
@@ -42,23 +48,25 @@ function getSettings() {
   }
 }
 
-function normalizeMessages(raw: unknown): UnifiedGenerateMessage[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => {
-      if (!item || typeof item !== "object" || Array.isArray(item)) return null;
-      const row = item as { role?: unknown; content?: unknown };
-      const role = String(row.role || "user").trim();
-      if (!role) return null;
-      return { role, content: row.content ?? "" };
-    })
-    .filter((item): item is UnifiedGenerateMessage => item !== null);
-}
-
 router.post("/generate", async (req, res) => {
   const settings = getSettings();
-  const providerId = String(req.body?.providerId || settings.activeProviderId || "").trim();
-  const modelId = String(req.body?.modelId || settings.activeModel || "").trim();
+  let providerId = "";
+  let modelId = "";
+  let messages: UnifiedGenerateMessage[] = [];
+  let systemPrompt = "";
+  let userPrompt = "";
+  let samplerConfig: Record<string, unknown> = {};
+  try {
+    providerId = sanitizePluginRuntimeId(req.body?.providerId || settings.activeProviderId || "", "providerId");
+    modelId = sanitizePluginRuntimeId(req.body?.modelId || settings.activeModel || "", "modelId");
+    messages = sanitizePluginRuntimeMessages(req.body?.messages);
+    systemPrompt = sanitizePluginRuntimePrompt(req.body?.systemPrompt, "systemPrompt");
+    userPrompt = sanitizePluginRuntimePrompt(req.body?.userPrompt, "userPrompt");
+    samplerConfig = sanitizePluginRuntimeSamplerConfig(req.body?.samplerConfig);
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Invalid plugin runtime payload" });
+    return;
+  }
   if (!providerId || !modelId) {
     res.status(400).json({ error: "providerId and modelId are required (or set active provider/model first)" });
     return;
@@ -77,9 +85,6 @@ router.post("/generate", async (req, res) => {
     return;
   }
 
-  const messages = normalizeMessages(req.body?.messages);
-  const systemPrompt = String(req.body?.systemPrompt || "").trim();
-  const userPrompt = String(req.body?.userPrompt || "").trim();
   const payloadMessages = messages.length > 0
     ? messages
     : [
@@ -98,9 +103,7 @@ router.post("/generate", async (req, res) => {
       messages: payloadMessages,
       samplerConfig: {
         ...settings.samplerConfig,
-        ...((req.body?.samplerConfig && typeof req.body.samplerConfig === "object" && !Array.isArray(req.body.samplerConfig))
-          ? req.body.samplerConfig as Record<string, unknown>
-          : {})
+        ...samplerConfig
       },
       apiParamPolicy: settings.apiParamPolicy
     });
