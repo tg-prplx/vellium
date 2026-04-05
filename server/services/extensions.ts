@@ -13,6 +13,7 @@ export interface CustomInspectorField {
   label: string;
   type: "text" | "textarea" | "select" | "range" | "toggle";
   section: "scene" | "context";
+  enabled: boolean;
   helpText?: string;
   placeholder?: string;
   options?: CustomInspectorFieldOption[];
@@ -133,6 +134,7 @@ export function normalizeCustomInspectorFields(raw: unknown): CustomInspectorFie
       label: String(row.label || key).trim().slice(0, 120) || key,
       type,
       section,
+      enabled: row.enabled !== false,
       helpText: String(row.helpText || "").trim().slice(0, 300) || undefined,
       placeholder: String(row.placeholder || "").trim().slice(0, 200) || undefined,
       options: options.length > 0 ? options : undefined,

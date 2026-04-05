@@ -1,4 +1,6 @@
-import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+
+type CommitMode = "immediate" | "debounced" | "blur";
 
 export function FieldLabel({ children }: { children: ReactNode }) {
   return <label className="mb-1.5 block text-xs font-medium text-text-secondary">{children}</label>;
@@ -10,6 +12,11 @@ interface InputFieldProps {
   placeholder?: string;
   type?: string;
   onBlur?: () => void;
+  commitMode?: CommitMode;
+  debounceMs?: number;
+  disabled?: boolean;
+  className?: string;
+  list?: string;
 }
 
 export function InputField({
@@ -17,10 +24,17 @@ export function InputField({
   onChange,
   placeholder,
   type = "text",
-  onBlur
+  onBlur,
+  commitMode = "immediate",
+  debounceMs = 420,
+  disabled = false,
+  className = "",
+  list
 }: InputFieldProps) {
   const [draftValue, setDraftValue] = useState(value);
   const [isFocused, setIsFocused] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCommittedValueRef = useRef(value);
 
   useEffect(() => {
     if (!isFocused) {
@@ -28,21 +42,157 @@ export function InputField({
     }
   }, [value, isFocused]);
 
+  useEffect(() => {
+    lastCommittedValueRef.current = value;
+  }, [value]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+
+  function commitValue(nextValue: string) {
+    if (nextValue === lastCommittedValueRef.current) return;
+    lastCommittedValueRef.current = nextValue;
+    onChange(nextValue);
+  }
+
+  function scheduleCommit(nextValue: string) {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      commitValue(nextValue);
+    }, debounceMs);
+  }
+
   return (
     <input
       type={type}
+      list={list}
       value={draftValue}
+      disabled={disabled}
       onFocus={() => setIsFocused(true)}
       onChange={(event) => {
-        setDraftValue(event.target.value);
-        onChange(event.target.value);
+        const nextValue = event.target.value;
+        setDraftValue(nextValue);
+        if (commitMode === "immediate") {
+          commitValue(nextValue);
+        } else if (commitMode === "debounced") {
+          scheduleCommit(nextValue);
+        }
       }}
       placeholder={placeholder}
       onBlur={() => {
+        if (debounceRef.current) {
+          clearTimeout(debounceRef.current);
+          debounceRef.current = null;
+        }
         setIsFocused(false);
+        if (commitMode !== "immediate") {
+          commitValue(draftValue);
+        }
         onBlur?.();
       }}
-      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary"
+      className={`w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary ${className}`.trim()}
+    />
+  );
+}
+
+interface TextareaFieldProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  rows?: number;
+  onBlur?: () => void;
+  commitMode?: CommitMode;
+  debounceMs?: number;
+  className?: string;
+  disabled?: boolean;
+}
+
+export function TextareaField({
+  value,
+  onChange,
+  placeholder,
+  rows = 4,
+  onBlur,
+  commitMode = "immediate",
+  debounceMs = 420,
+  className = "",
+  disabled = false
+}: TextareaFieldProps) {
+  const [draftValue, setDraftValue] = useState(value);
+  const [isFocused, setIsFocused] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCommittedValueRef = useRef(value);
+
+  useEffect(() => {
+    if (!isFocused) {
+      setDraftValue(value);
+    }
+  }, [value, isFocused]);
+
+  useEffect(() => {
+    lastCommittedValueRef.current = value;
+  }, [value]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+
+  function commitValue(nextValue: string) {
+    if (nextValue === lastCommittedValueRef.current) return;
+    lastCommittedValueRef.current = nextValue;
+    onChange(nextValue);
+  }
+
+  function scheduleCommit(nextValue: string) {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      commitValue(nextValue);
+    }, debounceMs);
+  }
+
+  return (
+    <textarea
+      rows={rows}
+      value={draftValue}
+      disabled={disabled}
+      onFocus={() => setIsFocused(true)}
+      onChange={(event) => {
+        const nextValue = event.target.value;
+        setDraftValue(nextValue);
+        if (commitMode === "immediate") {
+          commitValue(nextValue);
+        } else if (commitMode === "debounced") {
+          scheduleCommit(nextValue);
+        }
+      }}
+      placeholder={placeholder}
+      onBlur={() => {
+        if (debounceRef.current) {
+          clearTimeout(debounceRef.current);
+          debounceRef.current = null;
+        }
+        setIsFocused(false);
+        if (commitMode !== "immediate") {
+          commitValue(draftValue);
+        }
+        onBlur?.();
+      }}
+      className={`w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary ${className}`.trim()}
     />
   );
 }

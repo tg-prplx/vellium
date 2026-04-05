@@ -15,13 +15,35 @@ function resolveDefaultDataDir() {
   return resolve(__dirname, "..", "..", "data");
 }
 
+function resolveBundledPluginsDir() {
+  if (process.env.SLV_BUNDLED_PLUGINS_DIR) {
+    return process.env.SLV_BUNDLED_PLUGINS_DIR;
+  }
+
+  const cwdPackageJson = resolve(process.cwd(), "package.json");
+  if (existsSync(cwdPackageJson)) {
+    return resolve(process.cwd(), "data", "bundled-plugins");
+  }
+
+  const candidates = [
+    process.resourcesPath ? resolve(process.resourcesPath, "data", "bundled-plugins") : null,
+    resolve(__dirname, "data", "bundled-plugins"),
+    resolve(__dirname, "..", "data", "bundled-plugins"),
+    resolve(__dirname, "..", "..", "data", "bundled-plugins")
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+
+  return candidates[0] || resolve(__dirname, "..", "..", "data", "bundled-plugins");
+}
+
 export const DATA_DIR = resolveDefaultDataDir();
 export const AVATARS_DIR = join(DATA_DIR, "avatars");
 export const UPLOADS_DIR = join(DATA_DIR, "uploads");
 export const PLUGINS_DIR = join(DATA_DIR, "plugins");
-export const BUNDLED_PLUGINS_DIR = existsSync(resolve(process.cwd(), "package.json"))
-  ? resolve(process.cwd(), "data", "bundled-plugins")
-  : resolve(__dirname, "..", "..", "data", "bundled-plugins");
+export const BUNDLED_PLUGINS_DIR = resolveBundledPluginsDir();
 
 const VELLIUM_DB_PATH = join(DATA_DIR, "vellum.db");
 const LEGACY_DB_PATH = join(DATA_DIR, "sillytauri.db");

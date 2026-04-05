@@ -31,10 +31,11 @@ import type {
   WriterSummaryLens,
   WriterSummaryLensScope
 } from "../../shared/types/contracts";
-import { addBackgroundTask, getBackgroundTasks, updateBackgroundTask } from "./taskStore";
+import { addBackgroundTask, updateBackgroundTask } from "./taskStore";
 import type { BackgroundTask, CharacterEditDraft, CharacterEditStatus, LensPresetId, WritingWorkspaceMode } from "./types";
 import { EMPTY_CHARACTER_EDIT_DRAFT_TYPED } from "./types";
 import { clamp01, triggerBlobDownload } from "./utils";
+import { useBackgroundTasks } from "../../shared/backgroundTasks";
 
 export function WritingScreen() {
   const { t } = useI18n();
@@ -68,7 +69,7 @@ export function WritingScreen() {
   const [consistencyCollapsed, setConsistencyCollapsed] = useState(false);
   const [tasksCollapsed, setTasksCollapsed] = useState(true);
   const [logCollapsed, setLogCollapsed] = useState(true);
-  const [bgTasks, setBgTasks] = useState<BackgroundTask[]>(getBackgroundTasks());
+  const bgTasks = useBackgroundTasks();
   const [chapterSettings, setChapterSettings] = useState<WriterChapterSettings>({ ...DEFAULT_CHAPTER_SETTINGS });
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [models, setModels] = useState<ProviderModel[]>([]);
@@ -126,8 +127,6 @@ export function WritingScreen() {
         setActiveModelLabel(settings.activeModel);
       }
     }).catch(() => {});
-    // Show any running/completed background tasks from previous visits
-    setBgTasks([...getBackgroundTasks()]);
   }, []);
 
   const writingSimpleModeActive = alternateSimpleMode;
@@ -185,15 +184,13 @@ export function WritingScreen() {
 
   function startBgTask(type: BackgroundTask["type"], label: string): string {
     const id = `task-${Date.now()}`;
-    const task: BackgroundTask = { id, type, label, startedAt: Date.now(), status: "running" };
+    const task: BackgroundTask = { id, scope: "writing", type, label, startedAt: Date.now(), status: "running" };
     addBackgroundTask(task);
-    setBgTasks([...getBackgroundTasks()]);
     return id;
   }
 
   function finishBgTask(id: string, status: "done" | "error", result?: string) {
     updateBackgroundTask(id, { status, result });
-    setBgTasks([...getBackgroundTasks()]);
   }
 
   async function createProject() {
@@ -1175,17 +1172,6 @@ export function WritingScreen() {
 
   return (
     <div className={`flex h-full flex-col gap-3 px-1 pb-1 ${writingSimpleModeActive ? "writing-simple-root" : ""}`}>
-      {writingSimpleModeActive && workspaceMode === "books" && (simpleWritingLibraryOpen || simpleWritingInspectorOpen) && (
-        <button
-          type="button"
-          aria-label="Close writing panels"
-          className="writing-simple-overlay xl:hidden"
-          onClick={() => {
-            setSimpleWritingLibraryOpen(false);
-            setSimpleWritingInspectorOpen(false);
-          }}
-        />
-      )}
       {workspaceMode === "books" ? (
         <ThreePanelLayout
       className={writingSimpleModeActive ? `writing-simple-layout ${simpleWritingLibraryOpen ? "is-library-open" : "is-library-closed"} ${simpleWritingInspectorOpen ? "is-outline-open" : "is-outline-closed"}` : ""}

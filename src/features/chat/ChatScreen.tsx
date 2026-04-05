@@ -61,6 +61,13 @@ import { AttachmentPreviewModal, type AttachmentViewerState } from "./components
 import { PersonaModal } from "./components/PersonaModal";
 import { CustomSceneFieldInput } from "./components/CustomSceneFieldInput";
 import { AttachmentCard } from "./components/AttachmentCard";
+import { SceneControlsEditor } from "./components/SceneControlsEditor";
+import {
+  failBackgroundTask,
+  finishBackgroundTask,
+  startBackgroundTask,
+  useBackgroundTasks
+} from "../../shared/backgroundTasks";
 
 interface StreamingToolCall {
   callId: string;
@@ -72,6 +79,7 @@ interface StreamingToolCall {
 
 export function ChatScreen() {
   const { t } = useI18n();
+  const backgroundTasks = useBackgroundTasks();
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [activeChat, setActiveChat] = useState<ChatSession | null>(null);
   const [branches, setBranches] = useState<BranchNode[]>([]);
@@ -189,6 +197,9 @@ export function ChatScreen() {
   const [simpleSceneOpen, setSimpleSceneOpen] = useState(false);
   const [simpleInspectorOpen, setSimpleInspectorOpen] = useState(false);
   const [simpleGreetingIndex, setSimpleGreetingIndex] = useState(0);
+  const [sceneControlsOpen, setSceneControlsOpen] = useState(false);
+  const [sceneControlsSaving, setSceneControlsSaving] = useState(false);
+  const [sceneControlsError, setSceneControlsError] = useState("");
 
   // Inspector collapse
   const [inspectorSection, setInspectorSection] = useState<Record<string, boolean>>({
@@ -205,6 +216,7 @@ export function ChatScreen() {
   const modelSelectorTriggerRef = useRef<HTMLButtonElement>(null);
   const streamChunkIdRef = useRef(0);
   const promptStackRef = useRef<PromptBlock[]>([...DEFAULT_PROMPT_STACK]);
+  const backgroundChatTaskIdRef = useRef<string | null>(null);
 
   const orderedBlocks = useMemo(
     () => normalizePromptStack(promptStack),
@@ -227,12 +239,17 @@ export function ChatScreen() {
   const simpleGreeting = simpleGreetings[simpleGreetingIndex % simpleGreetings.length] || t("chat.simpleGreetingOne");
   const hasDraftPayload = input.trim().length > 0 || attachments.length > 0;
   const canResendLast = messages.length > 0 && messages[messages.length - 1]?.role === "user";
+  const activeBackgroundChatTask = useMemo(
+    () => backgroundTasks.find((task) => task.scope === "chat" && task.status === "running") || null,
+    [backgroundTasks]
+  );
+  const chatGenerationBusy = streaming || autoConvoRunning || Boolean(activeBackgroundChatTask);
   const simpleHomeComposerWidth = useMemo(() => {
     return calcSimpleHomeComposerWidth(simpleHomeState, input, attachments.length);
   }, [simpleHomeState, input, attachments.length]);
   const visibleCustomSceneFields = useMemo(() => {
     return customInspectorFields
-      .filter((field) => field.section === "scene" && (!pureChatMode || field.visibleInPureChat))
+      .filter((field) => field.section === "scene" && field.enabled !== false && (!pureChatMode || field.visibleInPureChat))
       .sort((a, b) => a.order - b.order);
   }, [customInspectorFields, pureChatMode]);
   const systemPromptBlock = useMemo(
@@ -323,6 +340,10 @@ export function ChatScreen() {
     if (!simpleModeActive) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      if (sceneControlsOpen) {
+        setSceneControlsOpen(false);
+        return;
+      }
       if (simpleSceneOpen) {
         setSimpleSceneOpen(false);
         return;
@@ -337,7 +358,16 @@ export function ChatScreen() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [simpleModeActive, simpleSceneOpen, simpleInspectorOpen, simpleSidebarOpen]);
+  }, [simpleModeActive, sceneControlsOpen, simpleSceneOpen, simpleInspectorOpen, simpleSidebarOpen]);
+
+  useEffect(() => {
+    if (!sceneControlsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSceneControlsOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sceneControlsOpen]);
 
   useEffect(() => {
     if (simpleModeActive) return;
@@ -520,6 +550,26 @@ export function ChatScreen() {
     setStreamingReasoningExpanded(false);
   }
 
+  function resolveActiveChatTaskId() {
+    return backgroundChatTaskIdRef.current || activeBackgroundChatTask?.id || null;
+  }
+
+  function startChatBackgroundTask(label: string) {
+    const id = startBackgroundTask({
+      scope: "chat",
+      type: "generate",
+      label
+    });
+    backgroundChatTaskIdRef.current = id;
+    return id;
+  }
+
+  function clearChatBackgroundTask(taskId: string) {
+    if (backgroundChatTaskIdRef.current === taskId) {
+      backgroundChatTaskIdRef.current = null;
+    }
+  }
+
   function handleStreamingToolEvent(event: {
     phase: "start" | "delta" | "done";
     callId: string;
@@ -655,9 +705,10 @@ export function ChatScreen() {
   }
 
   async function handleSend() {
-    if ((!input.trim() && attachments.length === 0) || autoConvoRunning) return;
+    if ((!input.trim() && attachments.length === 0) || chatGenerationBusy) return;
     setErrorText("");
     setShowModelSelector(false);
+    const taskId = startChatBackgroundTask(t("chat.send"));
     try {
       let chatId = activeChat?.id;
       let branchId = activeBranchId;
@@ -693,19 +744,32 @@ export function ChatScreen() {
         onDone: () => { stopStreamingUi(); }
       }, activePersonaPayload, currentAttachments);
       setMessages(updated);
+      if (backgroundChatTaskIdRef.current === taskId) {
+        finishBackgroundTask(taskId);
+        clearChatBackgroundTask(taskId);
+      }
     } catch (error) {
       stopStreamingUi();
+      if (backgroundChatTaskIdRef.current === taskId) {
+        failBackgroundTask(taskId, String(error));
+        clearChatBackgroundTask(taskId);
+      }
       setErrorText(String(error));
     }
   }
 
   async function handleAbort() {
     if (!activeChat) return;
+    const taskId = resolveActiveChatTaskId();
     try {
       await api.chatAbort(activeChat.id);
       stopStreamingUi();
       autoConvoRef.current = false;
       setAutoConvoRunning(false);
+      if (taskId) {
+        failBackgroundTask(taskId, t("chat.stop"));
+        clearChatBackgroundTask(taskId);
+      }
       await refreshActiveTimeline();
     } catch (error) {
       setErrorText(String(error));
@@ -713,8 +777,9 @@ export function ChatScreen() {
   }
 
   async function handleRegenerate() {
-    if (!activeChat || autoConvoRunning) return;
+    if (!activeChat || chatGenerationBusy) return;
     setErrorText("");
+    const taskId = startChatBackgroundTask(t("chat.regenerate"));
     try {
       await flushPromptStack();
       startStreamingUi(null);
@@ -724,8 +789,16 @@ export function ChatScreen() {
         onDone: () => { stopStreamingUi(); }
       });
       setMessages(updated);
+      if (backgroundChatTaskIdRef.current === taskId) {
+        finishBackgroundTask(taskId);
+        clearChatBackgroundTask(taskId);
+      }
     } catch (error) {
       stopStreamingUi();
+      if (backgroundChatTaskIdRef.current === taskId) {
+        failBackgroundTask(taskId, String(error));
+        clearChatBackgroundTask(taskId);
+      }
       setErrorText(String(error));
     }
   }
@@ -1064,8 +1137,9 @@ export function ChatScreen() {
 
   // Next turn for a specific character (multi-char)
   async function handleNextTurn(characterName: string) {
-    if (!activeChat || streaming || autoConvoRunning) return;
+    if (!activeChat || chatGenerationBusy) return;
     setErrorText("");
+    const taskId = startChatBackgroundTask(`${t("chat.nextTurn")}: ${characterName}`);
     startStreamingUi(characterName);
     try {
       await flushPromptStack();
@@ -1075,18 +1149,27 @@ export function ChatScreen() {
         onDone: () => { stopStreamingUi(); }
       }, false, activePersonaPayload);
       setMessages(updated);
+      if (backgroundChatTaskIdRef.current === taskId) {
+        finishBackgroundTask(taskId);
+        clearChatBackgroundTask(taskId);
+      }
     } catch (error) {
       stopStreamingUi();
+      if (backgroundChatTaskIdRef.current === taskId) {
+        failBackgroundTask(taskId, String(error));
+        clearChatBackgroundTask(taskId);
+      }
       setErrorText(String(error));
     }
   }
 
   // Auto-conversation: characters take turns automatically
   async function startAutoConversation() {
-    if (!activeChat || chatCharacterIds.length < 2 || autoConvoRunning || streaming) return;
+    if (!activeChat || chatCharacterIds.length < 2 || chatGenerationBusy) return;
     await flushPromptStack();
     autoConvoRef.current = true;
     setAutoConvoRunning(true);
+    const taskId = startChatBackgroundTask(t("chat.autoConvo"));
 
     const charNames = chatCharacterIds
       .map((id) => characters.find((c) => c.id === id))
@@ -1096,6 +1179,10 @@ export function ChatScreen() {
     if (charNames.length < 2) {
       autoConvoRef.current = false;
       setAutoConvoRunning(false);
+      if (backgroundChatTaskIdRef.current === taskId) {
+        failBackgroundTask(taskId, t("chat.autoConvoStop"));
+        clearChatBackgroundTask(taskId);
+      }
       return;
     }
     const lastAssistantChar = [...messages]
@@ -1122,6 +1209,10 @@ export function ChatScreen() {
         setMessages(updated);
       } catch (error) {
         stopStreamingUi();
+        if (backgroundChatTaskIdRef.current === taskId) {
+          failBackgroundTask(taskId, String(error));
+          clearChatBackgroundTask(taskId);
+        }
         setErrorText(String(error));
         break;
       }
@@ -1134,12 +1225,21 @@ export function ChatScreen() {
     autoConvoRef.current = false;
     setAutoConvoRunning(false);
     stopStreamingUi();
+    if (backgroundChatTaskIdRef.current === taskId) {
+      finishBackgroundTask(taskId);
+      clearChatBackgroundTask(taskId);
+    }
   }
 
   function stopAutoConversation() {
+    const taskId = resolveActiveChatTaskId();
     autoConvoRef.current = false;
     setAutoConvoRunning(false);
     stopStreamingUi();
+    if (taskId) {
+      failBackgroundTask(taskId, t("chat.autoConvoStop"));
+      clearChatBackgroundTask(taskId);
+    }
     if (activeChat) {
       api.chatAbort(activeChat.id).catch(() => {});
     }
@@ -1193,6 +1293,35 @@ export function ChatScreen() {
     setSceneVariable(key, String(clamped));
   }
 
+  function openSceneControlsEditor() {
+    setSceneControlsError("");
+    setSceneControlsOpen(true);
+  }
+
+  async function saveSceneControls(
+    nextVisibility: typeof sceneFieldVisibility,
+    nextFields: CustomInspectorField[]
+  ) {
+    setSceneControlsSaving(true);
+    setSceneControlsError("");
+    try {
+      const updated = await api.settingsUpdate({
+        sceneFieldVisibility: nextVisibility,
+        customInspectorFields: nextFields
+      });
+      setSceneFieldVisibility({
+        ...DEFAULT_SCENE_FIELD_VISIBILITY,
+        ...(updated.sceneFieldVisibility || nextVisibility)
+      });
+      setCustomInspectorFields(Array.isArray(updated.customInspectorFields) ? updated.customInspectorFields : nextFields);
+      setSceneControlsOpen(false);
+    } catch (error) {
+      setSceneControlsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSceneControlsSaving(false);
+    }
+  }
+
   function toggleSection(key: string) {
     setInspectorSection((prev) => ({ ...prev, [key]: !prev[key] }));
   }
@@ -1214,6 +1343,24 @@ export function ChatScreen() {
     const primaryId = chatCharacterIds[0] || activeChat?.characterId;
     return primaryId ? characters.find((c) => c.id === primaryId) ?? null : null;
   }, [activeChat, chatCharacterIds, characters]);
+
+  function renderChatAvatar(name: string, avatarUrl?: string | null) {
+    const label = String(name || "?").trim() || "?";
+    if (avatarUrl) {
+      return (
+        <img
+          src={resolveApiAssetUrl(avatarUrl) ?? undefined}
+          alt=""
+          className="h-8 w-8 flex-shrink-0 rounded-full object-cover ring-1 ring-border-subtle"
+        />
+      );
+    }
+    return (
+      <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/15 text-xs font-semibold text-purple-400 ring-1 ring-purple-500/20">
+        {label.charAt(0).toUpperCase()}
+      </span>
+    );
+  }
 
   const streamingRenderedHtml = useMemo(() => {
     if (!streamText) return "";
@@ -1313,14 +1460,21 @@ export function ChatScreen() {
         t={t}
       />
 
-      {simpleModeActive && simpleSidebarOpen && (
-        <button
-          type="button"
-          aria-label="Close sidebar overlay"
-          className="chat-simple-overlay chat-simple-overlay-sidebar xl:hidden"
-          onClick={() => openSimpleSidebar(false)}
-        />
-      )}
+      <SceneControlsEditor
+        open={sceneControlsOpen}
+        saving={sceneControlsSaving}
+        errorText={sceneControlsError}
+        builtInVisibility={sceneFieldVisibility}
+        customFields={customInspectorFields}
+        onClose={() => {
+          if (sceneControlsSaving) return;
+          setSceneControlsOpen(false);
+        }}
+        onSave={(nextVisibility, nextFields) => {
+          void saveSceneControls(nextVisibility, nextFields);
+        }}
+        t={t}
+      />
 
       {simpleModeActive && simpleSceneOpen && (
         <>
@@ -1328,14 +1482,23 @@ export function ChatScreen() {
             <div className="chat-simple-scene-modal-header">
               <div>
                 <h3 className="text-sm font-semibold text-text-primary">{t("inspector.sceneState")}</h3>
-                <p className="mt-0.5 text-[11px] text-text-tertiary">{t("inspector.sceneState")}</p>
+                <p className="mt-0.5 text-[11px] text-text-tertiary">{t("chat.sceneControlsDesc")}</p>
               </div>
-              <button
-                onClick={() => setSimpleSceneOpen(false)}
-                className="rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-secondary"
-              >
-                {t("chat.cancel")}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={openSceneControlsEditor}
+                  className="rounded-md border border-border-subtle bg-bg-primary px-2.5 py-1 text-[10px] text-text-secondary hover:bg-bg-hover"
+                >
+                  {t("chat.sceneControlsEdit")}
+                </button>
+                <button
+                  onClick={() => setSimpleSceneOpen(false)}
+                  className="rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-secondary"
+                >
+                  {t("chat.cancel")}
+                </button>
+              </div>
             </div>
             <div className="chat-simple-scene-modal-body">
               <fieldset disabled={pureChatMode} className="space-y-2 disabled:opacity-50">
@@ -1993,19 +2156,19 @@ export function ChatScreen() {
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      {streaming && (
+                      {chatGenerationBusy && (
                         <button onClick={handleAbort}
                           className="rounded-md border border-danger-border bg-danger-subtle px-2.5 py-1 text-[11px] font-medium text-danger hover:bg-danger/20">
                           {t("chat.stop")}
                         </button>
                       )}
                       <button onClick={handleRegenerate}
-                        disabled={streaming || autoConvoRunning || !activeChat || messages.length === 0}
+                        disabled={chatGenerationBusy || !activeChat || messages.length === 0}
                         className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-40">
                         {t("chat.regenerate")}
                       </button>
                       <button onClick={handleCompress}
-                        disabled={compressing || streaming || !activeChat || messages.length < 4}
+                        disabled={compressing || chatGenerationBusy || !activeChat || messages.length < 4}
                         className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                           compressing
                             ? "border-accent bg-accent-subtle text-accent"
@@ -2064,7 +2227,7 @@ export function ChatScreen() {
                     </span>
                   )}
                   <div className="chat-simple-thread-actions">
-                    {streaming && (
+                    {chatGenerationBusy && (
                       <button onClick={handleAbort}
                         className="chat-simple-thread-action-btn is-danger">
                         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2074,14 +2237,14 @@ export function ChatScreen() {
                       </button>
                     )}
                     <button onClick={handleRegenerate}
-                      disabled={streaming || autoConvoRunning || !activeChat || messages.length === 0}
+                      disabled={chatGenerationBusy || !activeChat || messages.length === 0}
                       className="chat-simple-thread-action-btn" title={t("chat.regenerate")}>
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h4.586M20 20v-5h-4.586M4.93 9A8 8 0 0119.07 9M19.07 15A8 8 0 014.93 15" />
                       </svg>
                     </button>
                     <button onClick={handleCompress}
-                      disabled={compressing || streaming || !activeChat || messages.length < 4}
+                      disabled={compressing || chatGenerationBusy || !activeChat || messages.length < 4}
                       className={`chat-simple-thread-action-btn ${compressing ? "is-active" : ""}`}
                       title={compressing ? t("chat.compressing") : t("chat.compress")}>
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2143,7 +2306,7 @@ export function ChatScreen() {
                       <div
                         key={ch.id}
                         className={`chat-multi-bar-chip ${draggingCharacterId === ch.id ? "is-dragging" : ""}`}
-                        draggable={chatCharacters.length > 1 && !streaming && !autoConvoRunning}
+                        draggable={chatCharacters.length > 1 && !chatGenerationBusy}
                         onDragStart={(e) => {
                           setDraggingCharacterId(ch.id);
                           e.dataTransfer.effectAllowed = "move";
@@ -2161,7 +2324,7 @@ export function ChatScreen() {
                         }}
                         onDragEnd={() => setDraggingCharacterId(null)}
                         onClick={() => {
-                          if (chatCharacters.length > 1 && !streaming && !autoConvoRunning) {
+                          if (chatCharacters.length > 1 && !chatGenerationBusy) {
                             void handleNextTurn(ch.name);
                           }
                         }}
@@ -2219,7 +2382,7 @@ export function ChatScreen() {
                           {t("chat.autoConvoStop")}
                         </button>
                       ) : (
-                        <button onClick={startAutoConversation} disabled={streaming || autoConvoRunning}
+                        <button onClick={startAutoConversation} disabled={chatGenerationBusy}
                           className="chat-multi-bar-auto-btn">
                           {t("chat.autoConvoStart")}
                         </button>
@@ -2266,7 +2429,7 @@ export function ChatScreen() {
               </div>
             )}
 
-            <div className={`chat-scroll flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3 ${simpleModeActive ? "chat-simple-scroll chat-simple-surface" : ""} ${simpleHomeState ? "chat-simple-scroll-home" : ""}`}>
+            <div className={`chat-scroll min-w-0 flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3 ${simpleModeActive ? "chat-simple-scroll chat-simple-surface" : ""} ${simpleHomeState ? "chat-simple-scroll-home" : ""}`}>
               {messages.length === 0 && !streaming && (
                 <EmptyState title={t("chat.startConvo")} description={t("chat.startConvoDesc")} />
               )}
@@ -2287,31 +2450,32 @@ export function ChatScreen() {
                 const renderCharName = msgChar?.name || activeChatCharacter?.name;
                 return (
                   <article key={msg.id}
-                    className={`chat-message group max-w-[88%] px-3.5 py-2.5 text-sm leading-relaxed ${deletingMessageIds[msg.id] ? "is-deleting" : ""} ${
+                    className={`chat-message group min-w-0 max-w-[88%] px-3.5 py-2.5 text-sm leading-relaxed ${deletingMessageIds[msg.id] ? "is-deleting" : ""} ${
                       msg.role === "user"
                         ? "chat-message-user ml-auto bg-accent-subtle text-text-primary"
                         : "chat-message-assistant mr-auto border border-border-subtle bg-bg-secondary text-text-primary"
                     }`}>
-                    <div className="mb-2 flex items-center gap-2">
-                      {msgChar ? (
-                        <>
-                          {msgChar.avatarUrl ? (
-                            <img src={resolveApiAssetUrl(msgChar.avatarUrl) ?? undefined}
-                              alt="" className="h-5 w-5 rounded-full object-cover ring-1 ring-border-subtle" />
-                          ) : (
-                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500/20 text-[9px] font-bold text-purple-400">{(msg.characterName || msgChar.name || "?").charAt(0).toUpperCase()}</span>
-                          )}
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-400">{msg.characterName || msgChar.name}</span>
-                        </>
-                      ) : msg.role === "user" && msg.characterName ? (
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">{msg.characterName}</span>
-                      ) : (
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
-                          {msg.role === "user" ? (activePersona?.name || t("chat.user")) : msg.role}
+                    <div className="mb-2 flex min-w-0 items-start gap-2.5">
+                      {msgChar && renderChatAvatar(msg.characterName || msgChar.name || "?", msgChar.avatarUrl)}
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                        <span
+                          className={`max-w-full truncate text-[10px] font-semibold uppercase tracking-wider ${
+                            msgChar
+                              ? "text-purple-400"
+                              : msg.role === "user" && msg.characterName
+                                ? "text-accent"
+                                : "text-text-tertiary"
+                          }`}
+                        >
+                          {msgChar
+                            ? (msg.characterName || msgChar.name)
+                            : msg.role === "user" && msg.characterName
+                              ? msg.characterName
+                              : (msg.role === "user" ? (activePersona?.name || t("chat.user")) : msg.role)}
                         </span>
-                      )}
-                      {msg.tokenCount > 0 && <Badge>{msg.tokenCount} tok</Badge>}
-                      {msg.role === "assistant" && messageTokensPerSecond[msg.id] && <Badge>{messageTokensPerSecond[msg.id]}</Badge>}
+                        {msg.tokenCount > 0 && <Badge>{msg.tokenCount} tok</Badge>}
+                        {msg.role === "assistant" && messageTokensPerSecond[msg.id] && <Badge>{messageTokensPerSecond[msg.id]}</Badge>}
+                      </div>
                     </div>
 
                     {editingId === msg.id ? (
@@ -2342,7 +2506,7 @@ export function ChatScreen() {
                             </button>
                             {reasoningPanelOpen && (
                               <div className="border-t border-border-subtle px-2 py-2">
-                                <div className="whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">{reasoningText}</div>
+                                <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">{reasoningText}</div>
                               </div>
                             )}
                           </div>
@@ -2497,19 +2661,24 @@ export function ChatScreen() {
               })}
 
               {streaming && (
-                <article className="chat-message chat-streaming mr-auto max-w-[88%] border border-accent-border bg-bg-secondary px-4 py-3 text-sm text-text-primary">
+                <article className="chat-message chat-streaming mr-auto min-w-0 max-w-[88%] border border-accent-border bg-bg-secondary px-4 py-3 text-sm text-text-primary">
                   {(() => {
                     const streamChar = streamingCharacterName
                       ? (chatCharacters.find((item) => item.name === streamingCharacterName) ?? null)
                       : activeChatCharacter;
                     return (
                       <>
-                  <div className="mb-1.5 flex items-center gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-accent">{streamingCharacterName || streamChar?.name || t("chat.assistant")}</span>
-                    <span className="flex items-center gap-1">
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                      <span className="text-[10px] text-accent">{t("chat.streaming")}</span>
-                    </span>
+                  <div className="mb-1.5 flex min-w-0 items-start gap-2.5">
+                    {renderChatAvatar(streamingCharacterName || streamChar?.name || t("chat.assistant"), streamChar?.avatarUrl)}
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                      <span className="max-w-full truncate text-[10px] font-semibold uppercase tracking-wider text-accent">
+                        {streamingCharacterName || streamChar?.name || t("chat.assistant")}
+                      </span>
+                      <span className="flex flex-shrink-0 items-center gap-1">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                        <span className="text-[10px] text-accent">{t("chat.streaming")}</span>
+                      </span>
+                    </div>
                   </div>
                   {!zenMode && streamingReasoningCalls.length > 0 && (
                     <div className="mb-2 rounded-md border border-border-subtle bg-bg-tertiary/80">
@@ -2532,7 +2701,7 @@ export function ChatScreen() {
                       </button>
                       {streamingReasoningExpanded && (
                         <div className="border-t border-border-subtle px-2 py-2">
-                          <div className="whitespace-pre-wrap text-xs leading-relaxed text-text-secondary">
+                          <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">
                             {streamingReasoningCalls.map((call) => String(call.result || "")).join("\n")}
                           </div>
                         </div>
@@ -2668,10 +2837,13 @@ export function ChatScreen() {
                       </span>
                     )}
                     <div className="flex-1" />
-                    <button onClick={streaming ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
-                      disabled={!streaming && !hasDraftPayload && !canResendLast}
-                      className={`chat-simple-send-btn ${streaming ? "is-stop" : ""}`}>
-                      {streaming ? (
+                    {!streaming && activeBackgroundChatTask && (
+                      <span className="chat-simple-bar-mode">{activeBackgroundChatTask.label}</span>
+                    )}
+                    <button onClick={chatGenerationBusy ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
+                      disabled={!chatGenerationBusy && !hasDraftPayload && !canResendLast}
+                      className={`chat-simple-send-btn ${chatGenerationBusy ? "is-stop" : ""}`}>
+                      {chatGenerationBusy ? (
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <rect x="6" y="6" width="12" height="12" rx="1" />
                         </svg>
@@ -2744,14 +2916,14 @@ export function ChatScreen() {
                   accept="image/*,.txt,.md,.json,.csv,.log,.xml,.html,.js,.ts,.py,.rb,.yaml,.yml,.pdf,.docx" />
               </div>
               {!simpleModeActive && (
-                <button onClick={streaming ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
-                  disabled={!streaming && !hasDraftPayload && !canResendLast}
+                <button onClick={chatGenerationBusy ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
+                  disabled={!chatGenerationBusy && !hasDraftPayload && !canResendLast}
                   className={`flex h-[80px] w-[80px] flex-col items-center justify-center rounded-xl text-text-inverse ${
-                    streaming
+                    chatGenerationBusy
                       ? "bg-danger hover:bg-danger/80"
                       : "bg-accent hover:bg-accent-hover disabled:opacity-40"
                   }`}>
-                  {streaming ? (
+                  {chatGenerationBusy ? (
                     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <rect x="6" y="6" width="12" height="12" rx="1" />
                     </svg>
@@ -2760,7 +2932,7 @@ export function ChatScreen() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0l-7 7m7-7l7 7" />
                     </svg>
                   )}
-                  <span className="mt-1 text-[10px] font-semibold">{streaming ? t("chat.stop") : (hasDraftPayload ? t("chat.send") : t("chat.resend"))}</span>
+                  <span className="mt-1 text-[10px] font-semibold">{chatGenerationBusy ? t("chat.stop") : (hasDraftPayload ? t("chat.send") : t("chat.resend"))}</span>
                 </button>
               )}
             </div>
@@ -2978,13 +3150,22 @@ export function ChatScreen() {
 
             {!simpleModeActive && (
               <div>
-                <button onClick={() => toggleSection("scene")}
-                  className="mb-1.5 flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-                  {t("inspector.sceneState")}
-                  <svg className={`h-3 w-3 transition-transform ${inspectorSection.scene ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <button onClick={() => toggleSection("scene")}
+                    className="flex min-w-0 flex-1 items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
+                    {t("inspector.sceneState")}
+                    <svg className={`h-3 w-3 transition-transform ${inspectorSection.scene ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openSceneControlsEditor}
+                    className="rounded-md border border-border-subtle bg-bg-primary px-2.5 py-1 text-[10px] font-medium text-text-secondary hover:bg-bg-hover"
+                  >
+                    {t("chat.sceneControlsEdit")}
+                  </button>
+                </div>
                 {inspectorSection.scene && (
                   <fieldset disabled={pureChatMode} className="space-y-2 disabled:opacity-50">
                     <div>

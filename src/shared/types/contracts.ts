@@ -515,6 +515,7 @@ export interface CustomInspectorField {
   label: string;
   type: "text" | "textarea" | "select" | "range" | "toggle";
   section: "scene" | "context";
+  enabled: boolean;
   helpText?: string;
   placeholder?: string;
   options?: CustomInspectorFieldOption[];
