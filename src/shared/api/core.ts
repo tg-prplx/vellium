@@ -1,4 +1,4 @@
-const BASE = import.meta.env.DEV ? "http://localhost:3001/api" : "/api";
+const BASE = "/api";
 const PROD_FALLBACK_BASES = ["http://127.0.0.1:3001/api", "http://localhost:3001/api"];
 const REQUEST_TIMEOUT_MS = 6000;
 
@@ -15,8 +15,7 @@ export function resolveApiAssetUrl(url: string | null | undefined): string | nul
   if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:")) {
     return url;
   }
-  if (!import.meta.env.DEV) return url;
-  return `http://localhost:3001${url}`;
+  return url;
 }
 
 function isNetworkError(err: unknown): boolean {

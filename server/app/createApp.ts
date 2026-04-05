@@ -1,4 +1,5 @@
 import cors from "cors";
+import { timingSafeEqual } from "crypto";
 import express from "express";
 import { existsSync, writeFileSync } from "fs";
 import mammoth from "mammoth";
@@ -39,6 +40,76 @@ function isAllowedLocalOrigin(origin: string | undefined): boolean {
     const isLocalHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1";
     const isHttp = parsed.protocol === "http:" || parsed.protocol === "https:";
     return isLocalHost && isHttp;
+  } catch {
+    return false;
+  }
+}
+
+function isHeadlessPublicModeEnabled() {
+  return process.env.SLV_SERVER_PUBLIC === "1";
+}
+
+function resolveRequestOrigin(req: express.Request): string | null {
+  const forwardedProto = typeof req.headers["x-forwarded-proto"] === "string"
+    ? req.headers["x-forwarded-proto"].split(",")[0]?.trim()
+    : null;
+  const forwardedHost = typeof req.headers["x-forwarded-host"] === "string"
+    ? req.headers["x-forwarded-host"].split(",")[0]?.trim()
+    : null;
+  const protocol = forwardedProto || req.protocol || "http";
+  const host = forwardedHost || req.headers.host;
+  if (!host) return null;
+  return `${protocol}://${host}`;
+}
+
+function isAllowedRequestOrigin(req: express.Request, origin: string | undefined): boolean {
+  if (!origin) return true;
+  if (isAllowedLocalOrigin(origin)) return true;
+  if (!isHeadlessPublicModeEnabled()) return false;
+  try {
+    const requestOrigin = resolveRequestOrigin(req);
+    if (!requestOrigin) return false;
+    return new URL(origin).origin === new URL(requestOrigin).origin;
+  } catch {
+    return false;
+  }
+}
+
+function buildContentSecurityPolicy() {
+  const connectSrc = isHeadlessPublicModeEnabled()
+    ? "'self'"
+    : "'self' http://127.0.0.1:3001 http://localhost:3001";
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https: http:",
+    `connect-src ${connectSrc}`,
+    "font-src 'self' data:",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'"
+  ].join("; ");
+}
+
+function resolveBasicAuthSecret() {
+  const raw = String(process.env.SLV_BASIC_AUTH || "").trim();
+  if (!raw || !raw.includes(":")) return null;
+  return raw;
+}
+
+function isAuthorizedByBasicAuth(req: express.Request): boolean {
+  const secret = resolveBasicAuthSecret();
+  if (!secret) return true;
+  const header = String(req.headers.authorization || "");
+  if (!header.startsWith("Basic ")) return false;
+  try {
+    const provided = Buffer.from(header.slice(6), "base64").toString("utf8");
+    const expectedBuffer = Buffer.from(secret, "utf8");
+    const providedBuffer = Buffer.from(provided, "utf8");
+    if (expectedBuffer.length !== providedBuffer.length) return false;
+    return timingSafeEqual(expectedBuffer, providedBuffer);
   } catch {
     return false;
   }
@@ -231,10 +302,16 @@ function registerRoutes(app: express.Express) {
 }
 
 function registerFrontendStatic(app: express.Express) {
-  if (process.env.ELECTRON_SERVE_STATIC !== "1") return;
+  if (process.env.SLV_SERVE_STATIC !== "1" && process.env.ELECTRON_SERVE_STATIC !== "1") return;
 
-  const distPath = process.env.ELECTRON_DIST_PATH || join(__dirname, "..", "..", "dist");
-  if (!existsSync(distPath)) return;
+  const distPathCandidates = [
+    process.env.SLV_DIST_PATH,
+    process.env.ELECTRON_DIST_PATH,
+    join(process.cwd(), "dist"),
+    join(__dirname, "..", "..", "dist")
+  ].filter((value): value is string => Boolean(value));
+  const distPath = distPathCandidates.find((candidate) => existsSync(candidate));
+  if (!distPath) return;
 
   app.use(express.static(distPath));
   app.get("*", (req, res) => {
@@ -247,15 +324,25 @@ function registerFrontendStatic(app: express.Express) {
 export function createApp() {
   const app = express();
   app.disable("x-powered-by");
+  app.set("trust proxy", isHeadlessPublicModeEnabled());
 
-  app.use(cors({
-    origin: (origin, callback) => {
-      callback(null, isAllowedLocalOrigin(origin));
-    }
+  app.use(cors((req, callback) => {
+    const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+    callback(null, {
+      origin: origin && isAllowedRequestOrigin(req, origin) ? origin : false
+    });
   }));
   app.use((req, res, next) => {
+    if (!isAuthorizedByBasicAuth(req)) {
+      res.setHeader("WWW-Authenticate", 'Basic realm="Vellium"');
+      res.status(401).send("Authentication required");
+      return;
+    }
+    next();
+  });
+  app.use((req, res, next) => {
     const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-    if (req.path.startsWith("/api") && !isAllowedLocalOrigin(origin)) {
+    if (req.path.startsWith("/api") && !isAllowedRequestOrigin(req, origin)) {
       res.status(403).json({ error: "Origin blocked by security policy" });
       return;
     }
@@ -271,10 +358,7 @@ export function createApp() {
       res.setHeader("Cache-Control", "no-store");
     }
     if (!req.path.startsWith("/api")) {
-      res.setHeader(
-        "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; connect-src 'self' http://127.0.0.1:3001 http://localhost:3001; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
-      );
+      res.setHeader("Content-Security-Policy", buildContentSecurityPolicy());
     }
     next();
   });

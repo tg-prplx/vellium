@@ -1,4 +1,5 @@
 import type { WriterCharacterEditField } from "../../shared/types/contracts";
+export type { BackgroundTask } from "../../shared/backgroundTasks";
 import { EMPTY_CHARACTER_EDIT_DRAFT, LENS_PRESET_IDS } from "./constants";
 
 export type LensPresetId = typeof LENS_PRESET_IDS[number];
@@ -20,15 +21,6 @@ export interface CharacterEditDraft {
 export interface CharacterEditStatus {
   tone: "success" | "error";
   text: string;
-}
-
-export interface BackgroundTask {
-  id: string;
-  type: "generate" | "expand" | "rewrite" | "summarize" | "consistency" | "character";
-  label: string;
-  startedAt: number;
-  status: "running" | "done" | "error";
-  result?: string;
 }
 
 export const EMPTY_CHARACTER_EDIT_DRAFT_TYPED: CharacterEditDraft = { ...EMPTY_CHARACTER_EDIT_DRAFT };

@@ -5,7 +5,7 @@ import { useI18n } from "../../shared/i18n";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
 import { buildManagedBackendCommand, defaultManagedBackendConfig, normalizeManagedBackends, parseManagedBackendCommand, resolveManagedBackendBaseUrl } from "../../shared/managedBackends";
 import type { ApiParamPolicy, AppSettings, ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
-import { FieldLabel, InputField, SelectField, ToggleSwitch } from "./components/FormControls";
+import { FieldLabel, InputField, SelectField, TextareaField, ToggleSwitch } from "./components/FormControls";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
 import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue, triggerBlobDownload } from "./utils";
@@ -40,6 +40,18 @@ function parseManualModels(raw: string): string[] {
     .filter(Boolean);
 }
 
+function clampInteger(raw: string, fallback: number, min: number, max: number): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+function clampDecimal(raw: string, fallback: number, min: number, max: number, precision = 2): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Number(Math.max(min, Math.min(max, parsed)).toFixed(precision));
+}
+
 export function SettingsScreen() {
   const { t } = useI18n();
   const { catalog: pluginCatalog, plugins, loading: pluginsLoading, error: pluginError, setPluginEnabled, refresh: refreshPlugins, pendingPluginStates } = usePlugins();
@@ -69,12 +81,28 @@ export function SettingsScreen() {
     return plugins
       .flatMap((plugin) => plugin.themes.map((theme) => ({
         id: `${plugin.id}:${theme.id}`,
-        label: `${plugin.name} · ${theme.label}`,
+        label: theme.label,
         description: theme.description,
         pluginId: plugin.id,
-        themeId: theme.id
+        pluginName: plugin.name,
+        pluginSource: plugin.source,
+        themeId: theme.id,
+        base: theme.base,
+        order: theme.order,
+        variables: theme.variables
       })))
-      .sort((a, b) => a.label.localeCompare(b.label));
+      .sort((a, b) => {
+        if (a.pluginSource !== b.pluginSource) {
+          return a.pluginSource === "bundled" ? -1 : 1;
+        }
+        if (a.pluginName !== b.pluginName) {
+          return a.pluginName.localeCompare(b.pluginName);
+        }
+        if (a.order !== b.order) {
+          return a.order - b.order;
+        }
+        return a.label.localeCompare(b.label);
+      });
   }, [plugins]);
   const managedBackends = useMemo(() => normalizeManagedBackends(settings?.managedBackends), [settings?.managedBackends]);
   const managedBackendStateMap = useMemo(() => new Map(managedBackendStates.map((item) => [item.backendId, item])), [managedBackendStates]);
@@ -130,6 +158,10 @@ export function SettingsScreen() {
   const [pluginInstallBusy, setPluginInstallBusy] = useState(false);
   const pluginInstallInputRef = useRef<HTMLInputElement | null>(null);
   const [managedBackendImportCommands, setManagedBackendImportCommands] = useState<Record<string, string>>({});
+  const [settingsSaveState, setSettingsSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const settingsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const managedBackendsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const managedBackendsDraftRef = useRef<ManagedBackendConfig[]>([]);
 
   useEffect(() => {
     void (async () => {
@@ -163,6 +195,21 @@ export function SettingsScreen() {
     if (!managedBackendLogsFor || !window.electronAPI?.getManagedBackendLogs) return;
     void window.electronAPI.getManagedBackendLogs(managedBackendLogsFor.id).then(setManagedBackendLogs).catch(() => {});
   }, [managedBackendStates, managedBackendLogsFor]);
+
+  useEffect(() => {
+    return () => {
+      if (settingsSaveTimerRef.current) {
+        clearTimeout(settingsSaveTimerRef.current);
+      }
+      if (managedBackendsSaveTimerRef.current) {
+        clearTimeout(managedBackendsSaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    managedBackendsDraftRef.current = managedBackends;
+  }, [managedBackends]);
 
   function showResult(text: string, variant: "info" | "success" | "error" = "info") {
     setProviderResult(text);
@@ -304,34 +351,101 @@ export function SettingsScreen() {
   }
 
   async function patch(next: Partial<AppSettings>) {
-    const updated = await api.settingsUpdate(next);
-    setSettings(updated);
-    if (next.theme !== undefined || next.pluginThemeId !== undefined) {
-      window.dispatchEvent(new CustomEvent("theme-change", { detail: updated }));
+    setSettingsSaveState("saving");
+    try {
+      const updated = await api.settingsUpdate(next);
+      setSettings(updated);
+      if (next.theme !== undefined || next.pluginThemeId !== undefined) {
+        window.dispatchEvent(new CustomEvent("theme-change", { detail: updated }));
+      }
+      if (next.fontScale !== undefined || next.density !== undefined) {
+        window.dispatchEvent(new CustomEvent("display-settings-change", {
+          detail: {
+            fontScale: updated.fontScale,
+            density: updated.density
+          }
+        }));
+      }
+      setSettingsSaveState("saved");
+      if (settingsSaveTimerRef.current) {
+        clearTimeout(settingsSaveTimerRef.current);
+      }
+      settingsSaveTimerRef.current = setTimeout(() => {
+        setSettingsSaveState("idle");
+        settingsSaveTimerRef.current = null;
+      }, 1600);
+    } catch (error) {
+      setSettingsSaveState("error");
+      showResult(error instanceof Error ? error.message : String(error), "error");
     }
-    if (next.fontScale !== undefined || next.density !== undefined) {
-      window.dispatchEvent(new CustomEvent("display-settings-change", {
-        detail: {
-          fontScale: updated.fontScale,
-          density: updated.density
-        }
-      }));
+  }
+
+  function handleThemeModeChange(nextValue: string) {
+    if (!settings) return;
+    const nextTheme = nextValue as AppSettings["theme"];
+    if (nextTheme === "custom") {
+      const fallbackThemeId = settings.pluginThemeId || pluginThemes[0]?.id || null;
+      void patch({
+        theme: "custom",
+        pluginThemeId: fallbackThemeId
+      });
+      return;
     }
+    void patch({ theme: nextTheme });
+  }
+
+  function applyPluginTheme(themeId: string) {
+    void patch({
+      theme: "custom",
+      pluginThemeId: themeId
+    });
   }
 
   async function saveManagedBackends(nextBackends: ManagedBackendConfig[]) {
     if (!settings) return;
-    const updated = await api.settingsUpdate({ managedBackends: nextBackends });
-    setSettings(updated);
+    setSettingsSaveState("saving");
+    try {
+      const updated = await api.settingsUpdate({ managedBackends: nextBackends });
+      setSettings(updated);
+      managedBackendsDraftRef.current = normalizeManagedBackends(updated.managedBackends);
+      setSettingsSaveState("saved");
+      if (settingsSaveTimerRef.current) {
+        clearTimeout(settingsSaveTimerRef.current);
+      }
+      settingsSaveTimerRef.current = setTimeout(() => {
+        setSettingsSaveState("idle");
+        settingsSaveTimerRef.current = null;
+      }, 1600);
+    } catch (error) {
+      setSettingsSaveState("error");
+      showResult(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
+  function scheduleManagedBackendsSave(nextBackends: ManagedBackendConfig[]) {
+    if (managedBackendsSaveTimerRef.current) {
+      clearTimeout(managedBackendsSaveTimerRef.current);
+    }
+    managedBackendsSaveTimerRef.current = setTimeout(() => {
+      managedBackendsSaveTimerRef.current = null;
+      void saveManagedBackends(nextBackends);
+    }, 420);
   }
 
   function addManagedBackend() {
-    const next = [...managedBackends, defaultManagedBackendConfig(managedBackends.length + 1)];
+    if (managedBackendsSaveTimerRef.current) {
+      clearTimeout(managedBackendsSaveTimerRef.current);
+      managedBackendsSaveTimerRef.current = null;
+    }
+    const base = managedBackendsDraftRef.current;
+    const next = [...base, defaultManagedBackendConfig(base.length + 1)];
+    managedBackendsDraftRef.current = next;
     void saveManagedBackends(next);
   }
 
   function updateManagedBackend(backendId: string, patchData: Partial<ManagedBackendConfig>) {
-    const next = managedBackends.map((backend) => {
+    const base = managedBackendsDraftRef.current;
+    const next = base.map((backend) => {
       if (backend.id !== backendId) return backend;
       const merged: ManagedBackendConfig = {
         ...backend,
@@ -350,11 +464,18 @@ export function SettingsScreen() {
         baseUrl: merged.baseUrl.trim() || resolveManagedBackendBaseUrl(merged)
       };
     });
-    void saveManagedBackends(next);
+    managedBackendsDraftRef.current = next;
+    scheduleManagedBackendsSave(next);
   }
 
   function removeManagedBackend(backendId: string) {
-    const next = managedBackends.filter((backend) => backend.id !== backendId);
+    if (managedBackendsSaveTimerRef.current) {
+      clearTimeout(managedBackendsSaveTimerRef.current);
+      managedBackendsSaveTimerRef.current = null;
+    }
+    const base = managedBackendsDraftRef.current;
+    const next = base.filter((backend) => backend.id !== backendId);
+    managedBackendsDraftRef.current = next;
     void saveManagedBackends(next);
   }
 
@@ -907,6 +1028,15 @@ export function SettingsScreen() {
   const secondaryActionClass = "rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60";
   const subtleChipClass = "inline-flex items-center rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] font-medium text-text-secondary";
   const insetPanelClass = "rounded-lg border border-border-subtle bg-bg-primary";
+  const autosaveProps = { commitMode: "debounced" as const, debounceMs: 420 };
+  const autosaveVariant = settingsSaveState === "error" ? "error" : settingsSaveState === "saved" ? "success" : "info";
+  const autosaveText = settingsSaveState === "saving"
+    ? t("settings.autosaveSaving")
+    : settingsSaveState === "saved"
+      ? t("settings.autosaveSaved")
+      : settingsSaveState === "error"
+        ? t("settings.autosaveError")
+        : t("settings.autosaveHint");
 
   if (!settings) {
     return <div className="flex h-full items-center justify-center"><div className="text-sm text-text-tertiary">{t("settings.loading")}</div></div>;
@@ -922,8 +1052,8 @@ export function SettingsScreen() {
         categorySections={categorySections}
         quickJumpFilter={quickJumpFilter}
         visibleQuickSections={visibleQuickSections}
-        statusText={providerResult}
-        statusVariant={resultVariant}
+        statusText={providerResult || autosaveText}
+        statusVariant={providerResult ? resultVariant : autosaveVariant}
         onCategoryChange={setActiveCategory}
         onDangerZoneClick={() => {
           setActiveCategory("tools");
@@ -938,13 +1068,14 @@ export function SettingsScreen() {
         <div className="settings-content-inner">
           <div className="settings-workbench-header">
             <div>
-              <div className="settings-workbench-kicker">{t("settings.quickJump")}</div>
+              <div className="settings-workbench-kicker">{t("settings.autosaveLabel")}</div>
               <h1 className="settings-workbench-title">{activeCategoryConfig.label}</h1>
               <p className="settings-workbench-desc">
-                {categorySections[activeCategory].map((section) => section.label).join(" • ")}
+                {autosaveText}
               </p>
             </div>
             <div className="settings-workbench-meta">
+              <span className={`settings-workbench-pill is-status is-${autosaveVariant}`}>{autosaveText}</span>
               <span className="settings-workbench-pill">{activeProvider?.name || t("settings.provider")}</span>
               <span className="settings-workbench-pill">{settings.activeModel || t("settings.selectModel")}</span>
             </div>
@@ -1326,9 +1457,9 @@ export function SettingsScreen() {
                 </div>
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                   <div className="space-y-3">
-                    <div><FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel><InputField value={settings.ttsBaseUrl || ""} onChange={(v) => patch({ ttsBaseUrl: v })} placeholder="https://api.openai.com/v1" /></div>
-                    <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField type="password" value={settings.ttsApiKey || ""} onChange={(v) => patch({ ttsApiKey: v })} placeholder={t("settings.apiKey")} /></div>
-                    <div><FieldLabel>{t("settings.ttsAdapterId")}</FieldLabel><InputField value={settings.ttsAdapterId || ""} onChange={(v) => patch({ ttsAdapterId: v.trim() || null })} placeholder={t("settings.ttsAdapterIdPlaceholder")} /></div>
+                    <div><FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel><InputField value={settings.ttsBaseUrl || ""} onChange={(v) => patch({ ttsBaseUrl: v })} placeholder="https://api.openai.com/v1" {...autosaveProps} /></div>
+                    <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField type="password" value={settings.ttsApiKey || ""} onChange={(v) => patch({ ttsApiKey: v })} placeholder={t("settings.apiKey")} {...autosaveProps} /></div>
+                    <div><FieldLabel>{t("settings.ttsAdapterId")}</FieldLabel><InputField value={settings.ttsAdapterId || ""} onChange={(v) => patch({ ttsAdapterId: v.trim() || null })} placeholder={t("settings.ttsAdapterIdPlaceholder")} {...autosaveProps} /></div>
                   </div>
                   <div className="space-y-3">
                     <div>
@@ -1346,8 +1477,13 @@ export function SettingsScreen() {
                         <FieldLabel>{t("settings.ttsVoice")}</FieldLabel>
                         <button onClick={() => void loadTtsVoices()} className={secondaryActionClass}>{t("settings.loadVoices")}</button>
                       </div>
-                      <input list="tts-voice-options" value={settings.ttsVoice || ""} onChange={(e) => patch({ ttsVoice: e.target.value })} placeholder="alloy"
-                        className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary" />
+                      <InputField
+                        value={settings.ttsVoice || ""}
+                        onChange={(v) => patch({ ttsVoice: v })}
+                        placeholder="alloy"
+                        list="tts-voice-options"
+                        {...autosaveProps}
+                      />
                       <datalist id="tts-voice-options">
                         <option value="alloy" /><option value="echo" /><option value="fable" /><option value="onyx" /><option value="nova" /><option value="shimmer" />
                         {ttsVoices.map((v) => <option key={v.id} value={v.id} />)}
@@ -1735,11 +1871,12 @@ export function SettingsScreen() {
 
                         <div className="mt-4">
                           <FieldLabel>{t("settings.envVars")}</FieldLabel>
-                          <textarea
+                          <TextareaField
                             value={envText}
-                            onChange={(e) => updateManagedBackend(backend.id, { envText: e.target.value })}
+                            onChange={(value) => updateManagedBackend(backend.id, { envText: value })}
                             placeholder={"KEY=value\nANOTHER=value"}
-                            className="h-24 min-h-[96px] w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
+                            className="h-24 min-h-[96px] text-xs"
+                            {...autosaveProps}
                           />
                         </div>
 
@@ -1780,27 +1917,92 @@ export function SettingsScreen() {
                 <div className="space-y-3">
                   <div>
                     <FieldLabel>{t("settings.theme")}</FieldLabel>
-                    <SelectField value={settings.theme} onChange={(v) => patch({ theme: v as AppSettings["theme"] })}>
+                    <SelectField value={settings.theme} onChange={handleThemeModeChange}>
                       <option value="dark">{t("settings.dark")}</option>
                       <option value="light">{t("settings.light")}</option>
                       <option value="custom">{t("settings.themePlugin")}</option>
                     </SelectField>
                   </div>
-                  {settings.theme === "custom" && (
+                  {pluginThemes.length > 0 && (
                     <div>
                       <FieldLabel>{t("settings.pluginTheme")}</FieldLabel>
-                      {pluginThemes.length === 0 ? (
-                        <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-tertiary">
-                          {t("settings.noPluginThemes")}
-                        </div>
-                      ) : (
-                        <SelectField value={settings.pluginThemeId || ""} onChange={(v) => patch({ pluginThemeId: v || null })}>
-                          <option value="">{t("settings.selectPluginTheme")}</option>
-                          {pluginThemes.map((theme) => (
-                            <option key={theme.id} value={theme.id}>{theme.label}</option>
-                          ))}
-                        </SelectField>
-                      )}
+                      <SelectField value={settings.pluginThemeId || ""} onChange={(v) => applyPluginTheme(v || pluginThemes[0]?.id || "")}>
+                        <option value="">{t("settings.selectPluginTheme")}</option>
+                        {pluginThemes.map((theme) => (
+                          <option key={theme.id} value={theme.id}>{theme.pluginName} · {theme.label}</option>
+                        ))}
+                      </SelectField>
+                      <div className="settings-theme-grid mt-2">
+                        {pluginThemes.map((theme) => {
+                          const isActive = settings.theme === "custom" && settings.pluginThemeId === theme.id;
+                          const accent = theme.variables["--color-accent"] || (theme.base === "light" ? "#1e66f5" : "#8aadf4");
+                          const primary = theme.variables["--color-bg-primary"] || (theme.base === "light" ? "#eff1f5" : "#11111b");
+                          const secondary = theme.variables["--color-bg-secondary"] || (theme.base === "light" ? "#e6e9ef" : "#181825");
+                          const tertiary = theme.variables["--color-bg-tertiary"] || (theme.base === "light" ? "#dce0e8" : "#1e1e2e");
+                          const text = theme.variables["--color-text-primary"] || (theme.base === "light" ? "#4c4f69" : "#cdd6f4");
+                          const border = theme.variables["--color-border"] || tertiary;
+
+                          return (
+                            <button
+                              key={theme.id}
+                              type="button"
+                              onClick={() => applyPluginTheme(theme.id)}
+                              className={`settings-theme-card ${isActive ? "is-active" : ""}`}
+                            >
+                              <div className="settings-theme-card-head">
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-semibold text-text-primary">{theme.label}</div>
+                                  <div className="truncate text-[11px] text-text-tertiary">{theme.pluginName}</div>
+                                </div>
+                                {isActive ? (
+                                  <div className="settings-theme-card-check" aria-hidden="true">
+                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                                <span className="rounded-full border border-border-subtle bg-bg-primary px-2 py-0.5 text-text-secondary">
+                                  {theme.pluginSource === "bundled" ? t("settings.pluginBundled") : t("settings.pluginUser")}
+                                </span>
+                                <span className="rounded-full border border-border-subtle bg-bg-primary px-2 py-0.5 text-text-secondary">
+                                  {theme.base === "light" ? t("settings.light") : t("settings.dark")}
+                                </span>
+                              </div>
+                              <div
+                                className="settings-theme-preview mt-3"
+                                style={{
+                                  background: `linear-gradient(135deg, ${primary} 0%, ${secondary} 58%, ${tertiary} 100%)`,
+                                  borderColor: border
+                                }}
+                              >
+                                <div className="settings-theme-preview-bar" style={{ backgroundColor: secondary, borderColor: border }}>
+                                  <span className="settings-theme-preview-pill" style={{ backgroundColor: accent, color: theme.base === "light" ? "#eff1f5" : "#11111b" }} />
+                                  <span className="settings-theme-preview-line" style={{ backgroundColor: border }} />
+                                </div>
+                                <div className="settings-theme-preview-body">
+                                  <div className="settings-theme-preview-card" style={{ backgroundColor: secondary, borderColor: border }}>
+                                    <div className="settings-theme-preview-title" style={{ color: text }} />
+                                    <div className="settings-theme-preview-copy" style={{ backgroundColor: border }} />
+                                  </div>
+                                  <div className="settings-theme-preview-accent" style={{ backgroundColor: accent, color: theme.base === "light" ? "#eff1f5" : "#11111b" }}>
+                                    Aa
+                                  </div>
+                                </div>
+                              </div>
+                              {theme.description ? (
+                                <p className="mt-2 line-clamp-2 text-[11px] leading-5 text-text-tertiary">{theme.description}</p>
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {settings.theme === "custom" && pluginThemes.length === 0 && (
+                    <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-tertiary">
+                      {t("settings.noPluginThemes")}
                     </div>
                   )}
                   <div>
@@ -1843,8 +2045,8 @@ export function SettingsScreen() {
               <div id="settings-output-behaviour" className="settings-section scroll-mt-24">
                 <div className="settings-section-title">{t("settings.outputBehaviour")}</div>
                 <div className="space-y-3">
-                  <div><FieldLabel>{t("settings.responseLanguage")}</FieldLabel><InputField value={settings.responseLanguage} onChange={(v) => patch({ responseLanguage: v })} /></div>
-                  <div><FieldLabel>{t("settings.translateLanguage")}</FieldLabel><InputField value={settings.translateLanguage || settings.responseLanguage || "English"} onChange={(v) => patch({ translateLanguage: v })} /></div>
+                  <div><FieldLabel>{t("settings.responseLanguage")}</FieldLabel><InputField value={settings.responseLanguage} onChange={(v) => patch({ responseLanguage: v })} {...autosaveProps} /></div>
+                  <div><FieldLabel>{t("settings.translateLanguage")}</FieldLabel><InputField value={settings.translateLanguage || settings.responseLanguage || "English"} onChange={(v) => patch({ translateLanguage: v })} {...autosaveProps} /></div>
                   <div>
                     <FieldLabel>{t("settings.censorship")}</FieldLabel>
                     <SelectField value={settings.censorshipMode} onChange={(v) => patch({ censorshipMode: v as AppSettings["censorshipMode"] })}>
@@ -1872,8 +2074,8 @@ export function SettingsScreen() {
                       <input type="range" min={min} max={max} step={0.05} value={settings.samplerConfig[key]} onChange={(e) => patchSampler({ [key]: Number(e.target.value) })} className="w-full" />
                     </div>
                   ))}
-                  <div><FieldLabel>{t("inspector.maxTokens")}</FieldLabel><input type="number" value={settings.samplerConfig.maxTokens} onChange={(e) => patchSampler({ maxTokens: Number(e.target.value) })} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
-                  <div><FieldLabel>{t("settings.stopSequences")}</FieldLabel><InputField value={(settings.samplerConfig.stop || []).join(", ")} onChange={(v) => patchSampler({ stop: v.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder={t("settings.stopSequencesPlaceholder")} /></div>
+                  <div><FieldLabel>{t("inspector.maxTokens")}</FieldLabel><InputField type="number" value={String(settings.samplerConfig.maxTokens)} onChange={(v) => patchSampler({ maxTokens: clampInteger(v, settings.samplerConfig.maxTokens, 1, 32768) })} {...autosaveProps} /></div>
+                  <div><FieldLabel>{t("settings.stopSequences")}</FieldLabel><InputField value={(settings.samplerConfig.stop || []).join(", ")} onChange={(v) => patchSampler({ stop: v.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder={t("settings.stopSequencesPlaceholder")} {...autosaveProps} /></div>
 
                   <div className="settings-field-group">
                     <div className="mb-3 text-xs font-semibold text-text-secondary">{t("settings.koboldSampler")}</div>
@@ -1896,7 +2098,7 @@ export function SettingsScreen() {
                         </div>
                       ))}
                     </div>
-                    <div className="mt-3"><FieldLabel>{t("settings.koboldMemoryLabel")}</FieldLabel><textarea value={settings.samplerConfig.koboldMemory || ""} onChange={(e) => patchSampler({ koboldMemory: e.target.value })} className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary" placeholder={t("settings.koboldMemoryPlaceholder")} /></div>
+                    <div className="mt-3"><FieldLabel>{t("settings.koboldMemoryLabel")}</FieldLabel><TextareaField value={settings.samplerConfig.koboldMemory || ""} onChange={(v) => patchSampler({ koboldMemory: v })} className="h-20 text-xs" placeholder={t("settings.koboldMemoryPlaceholder")} {...autosaveProps} /></div>
                     <div className="mt-3"><FieldLabel>{t("settings.koboldPhraseBansLabel")}</FieldLabel><InputField value={koboldBansInput} onChange={setKoboldBansInput} onBlur={() => patchSampler({ koboldBannedPhrases: parsePhraseBansInput(koboldBansInput) })} placeholder={t("settings.koboldPhraseBansPlaceholder")} /></div>
                     <label className="mt-3 flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2">
                       <span className="text-xs font-medium text-text-secondary">{t("settings.koboldUseDefaultBadwordsIds")}</span>
@@ -1982,9 +2184,9 @@ export function SettingsScreen() {
               <div id="settings-context-window" className="settings-section scroll-mt-24">
                 <div className="settings-section-title">{t("settings.contextWindow")}</div>
                 <div className="space-y-3">
-                  <div><FieldLabel>{t("settings.contextSize")}</FieldLabel><input type="number" value={settings.contextWindowSize} onChange={(e) => patch({ contextWindowSize: Number(e.target.value) })} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
-                  <div><FieldLabel>{t("settings.contextTailWithSummary")}</FieldLabel><input type="number" min={5} max={95} value={settings.contextTailBudgetWithSummaryPercent ?? 35} onChange={(e) => { const v = Number(e.target.value); patch({ contextTailBudgetWithSummaryPercent: Number.isFinite(v) ? Math.max(5, Math.min(95, Math.floor(v))) : 35 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
-                  <div><FieldLabel>{t("settings.contextTailWithoutSummary")}</FieldLabel><input type="number" min={5} max={95} value={settings.contextTailBudgetWithoutSummaryPercent ?? 75} onChange={(e) => { const v = Number(e.target.value); patch({ contextTailBudgetWithoutSummaryPercent: Number.isFinite(v) ? Math.max(5, Math.min(95, Math.floor(v))) : 75 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.contextSize")}</FieldLabel><InputField type="number" value={String(settings.contextWindowSize)} onChange={(v) => patch({ contextWindowSize: clampInteger(v, settings.contextWindowSize, 256, 1048576) })} {...autosaveProps} /></div>
+                  <div><FieldLabel>{t("settings.contextTailWithSummary")}</FieldLabel><InputField type="number" value={String(settings.contextTailBudgetWithSummaryPercent ?? 35)} onChange={(v) => patch({ contextTailBudgetWithSummaryPercent: clampInteger(v, settings.contextTailBudgetWithSummaryPercent ?? 35, 5, 95) })} {...autosaveProps} /></div>
+                  <div><FieldLabel>{t("settings.contextTailWithoutSummary")}</FieldLabel><InputField type="number" value={String(settings.contextTailBudgetWithoutSummaryPercent ?? 75)} onChange={(v) => patch({ contextTailBudgetWithoutSummaryPercent: clampInteger(v, settings.contextTailBudgetWithoutSummaryPercent ?? 75, 5, 95) })} {...autosaveProps} /></div>
                   <div className="settings-toggle-row">
                     <div>
                       <div className="text-sm font-medium text-text-primary">{t("settings.strictGrounding")}</div>
@@ -2091,7 +2293,7 @@ export function SettingsScreen() {
                       </SelectField>
                     </div>
                   )}
-                  <div><FieldLabel>{t("settings.ragRerankTopN")}</FieldLabel><input type="number" min={5} max={200} value={settings.ragRerankTopN ?? 40} onChange={(e) => { const v = Number(e.target.value); patch({ ragRerankTopN: Number.isFinite(v) ? Math.max(5, Math.min(200, Math.floor(v))) : 40 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.ragRerankTopN")}</FieldLabel><InputField type="number" value={String(settings.ragRerankTopN ?? 40)} onChange={(v) => patch({ ragRerankTopN: clampInteger(v, settings.ragRerankTopN ?? 40, 5, 200) })} {...autosaveProps} /></div>
                 </div>
               </div>
 
@@ -2099,12 +2301,12 @@ export function SettingsScreen() {
                 <div className="settings-section-title">{t("settings.ragRetrieval")}</div>
                 <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ragRetrievalDesc")}</p>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div><FieldLabel>{t("settings.ragTopK")}</FieldLabel><input type="number" min={1} max={12} value={settings.ragTopK ?? 6} onChange={(e) => { const v = Number(e.target.value); patch({ ragTopK: Number.isFinite(v) ? Math.max(1, Math.min(12, Math.floor(v))) : 6 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
-                  <div><FieldLabel>{t("settings.ragCandidateCount")}</FieldLabel><input type="number" min={10} max={300} value={settings.ragCandidateCount ?? 80} onChange={(e) => { const v = Number(e.target.value); patch({ ragCandidateCount: Number.isFinite(v) ? Math.max(10, Math.min(300, Math.floor(v))) : 80 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
-                  <div><FieldLabel>{t("settings.ragSimilarityThreshold")}</FieldLabel><input type="number" min={-1} max={1} step={0.01} value={settings.ragSimilarityThreshold ?? 0.15} onChange={(e) => { const v = Number(e.target.value); patch({ ragSimilarityThreshold: Number.isFinite(v) ? Number(Math.max(-1, Math.min(1, v)).toFixed(2)) : 0.15 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
-                  <div><FieldLabel>{t("settings.ragMaxContextTokens")}</FieldLabel><input type="number" min={200} max={4000} value={settings.ragMaxContextTokens ?? 900} onChange={(e) => { const v = Number(e.target.value); patch({ ragMaxContextTokens: Number.isFinite(v) ? Math.max(200, Math.min(4000, Math.floor(v))) : 900 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
-                  <div><FieldLabel>{t("settings.ragChunkSize")}</FieldLabel><input type="number" min={300} max={8000} value={settings.ragChunkSize ?? 1200} onChange={(e) => { const v = Number(e.target.value); patch({ ragChunkSize: Number.isFinite(v) ? Math.max(300, Math.min(8000, Math.floor(v))) : 1200 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
-                  <div><FieldLabel>{t("settings.ragChunkOverlap")}</FieldLabel><input type="number" min={0} max={3000} value={settings.ragChunkOverlap ?? 220} onChange={(e) => { const v = Number(e.target.value); patch({ ragChunkOverlap: Number.isFinite(v) ? Math.max(0, Math.min(3000, Math.floor(v))) : 220 }); }} className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" /></div>
+                  <div><FieldLabel>{t("settings.ragTopK")}</FieldLabel><InputField type="number" value={String(settings.ragTopK ?? 6)} onChange={(v) => patch({ ragTopK: clampInteger(v, settings.ragTopK ?? 6, 1, 12) })} {...autosaveProps} /></div>
+                  <div><FieldLabel>{t("settings.ragCandidateCount")}</FieldLabel><InputField type="number" value={String(settings.ragCandidateCount ?? 80)} onChange={(v) => patch({ ragCandidateCount: clampInteger(v, settings.ragCandidateCount ?? 80, 10, 300) })} {...autosaveProps} /></div>
+                  <div><FieldLabel>{t("settings.ragSimilarityThreshold")}</FieldLabel><InputField type="number" value={String(settings.ragSimilarityThreshold ?? 0.15)} onChange={(v) => patch({ ragSimilarityThreshold: clampDecimal(v, settings.ragSimilarityThreshold ?? 0.15, -1, 1, 2) })} {...autosaveProps} /></div>
+                  <div><FieldLabel>{t("settings.ragMaxContextTokens")}</FieldLabel><InputField type="number" value={String(settings.ragMaxContextTokens ?? 900)} onChange={(v) => patch({ ragMaxContextTokens: clampInteger(v, settings.ragMaxContextTokens ?? 900, 200, 4000) })} {...autosaveProps} /></div>
+                  <div><FieldLabel>{t("settings.ragChunkSize")}</FieldLabel><InputField type="number" value={String(settings.ragChunkSize ?? 1200)} onChange={(v) => patch({ ragChunkSize: clampInteger(v, settings.ragChunkSize ?? 1200, 300, 8000) })} {...autosaveProps} /></div>
+                  <div><FieldLabel>{t("settings.ragChunkOverlap")}</FieldLabel><InputField type="number" value={String(settings.ragChunkOverlap ?? 220)} onChange={(v) => patch({ ragChunkOverlap: clampInteger(v, settings.ragChunkOverlap ?? 220, 0, 3000) })} {...autosaveProps} /></div>
                 </div>
               </div>
             </div>
@@ -2129,8 +2331,8 @@ export function SettingsScreen() {
                     <div key={key}>
                       <FieldLabel>{label}</FieldLabel>
                       <p className="mb-1.5 text-[10px] text-text-tertiary">{desc}</p>
-                      <textarea value={settings.promptTemplates?.[key] ?? ""} onChange={(e) => { const tpl: PromptTemplates = { ...settings.promptTemplates, [key]: e.target.value }; patch({ promptTemplates: tpl }); }}
-                        className="h-24 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary" />
+                      <TextareaField value={settings.promptTemplates?.[key] ?? ""} onChange={(value) => { const tpl: PromptTemplates = { ...settings.promptTemplates, [key]: value }; patch({ promptTemplates: tpl }); }}
+                        className="h-24 text-xs leading-relaxed" {...autosaveProps} />
                     </div>
                   ))}
                 </div>
@@ -2156,8 +2358,8 @@ export function SettingsScreen() {
                         <span className={`text-xs font-medium capitalize ${block.enabled ? "text-text-primary" : "text-text-tertiary"}`}>{promptBlockLabel(block.kind)}</span>
                       </div>
                       {(block.kind === "system" || block.kind === "jailbreak") && (
-                        <textarea value={block.content || ""} onChange={(e) => updatePromptBlockContent(block.id, e.target.value)}
-                          className="mt-2 h-20 w-full rounded-md border border-border bg-bg-primary px-2 py-1.5 text-xs text-text-primary" />
+                        <TextareaField value={block.content || ""} onChange={(value) => updatePromptBlockContent(block.id, value)}
+                          className="mt-2 h-20 rounded-md px-2 py-1.5 text-xs" {...autosaveProps} />
                       )}
                     </div>
                   ))}
@@ -2168,9 +2370,10 @@ export function SettingsScreen() {
               <div id="settings-default-system-prompts" className="settings-section scroll-mt-24">
                 <div className="settings-section-title">{t("settings.defaultSysPrompt")}</div>
                 <p className="mb-2 text-[10px] text-text-tertiary">{t("settings.baseSysPromptDesc")}</p>
-                <textarea value={settings.defaultSystemPrompt} onChange={(e) => patch({ defaultSystemPrompt: e.target.value })}
-                  className="h-40 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary"
-                  placeholder={t("settings.defaultSystemPromptPlaceholder")} />
+                <TextareaField value={settings.defaultSystemPrompt} onChange={(value) => patch({ defaultSystemPrompt: value })}
+                  className="h-40 text-xs leading-relaxed"
+                  placeholder={t("settings.defaultSystemPromptPlaceholder")}
+                  {...autosaveProps} />
                 <p className="mt-2 text-[10px] text-text-tertiary">{t("settings.defaultSysPromptDesc")}</p>
               </div>
             </div>
@@ -2203,9 +2406,9 @@ export function SettingsScreen() {
                   </div>
                   <div className={toolCallingLocked ? "opacity-60" : ""}>
                     <FieldLabel>{t("settings.maxToolCalls")}</FieldLabel>
-                    <input type="number" min={1} max={12} value={settings.maxToolCallsPerTurn ?? 4} disabled={toolCallingLocked}
-                      onChange={(e) => { const v = Number(e.target.value); patch({ maxToolCallsPerTurn: Number.isFinite(v) ? Math.max(1, Math.min(12, Math.floor(v))) : 4 }); }}
-                      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary" />
+                    <InputField type="number" value={String(settings.maxToolCallsPerTurn ?? 4)} disabled={toolCallingLocked}
+                      onChange={(v) => { patch({ maxToolCallsPerTurn: clampInteger(v, settings.maxToolCallsPerTurn ?? 4, 1, 12) }); }}
+                      {...autosaveProps} />
                   </div>
                   <div className={`settings-toggle-row ${toolCallingLocked ? "opacity-60" : ""}`}>
                     <div>

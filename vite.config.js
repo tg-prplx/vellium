@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+var apiPort = Number(process.env.SLV_SERVER_PORT || 3002);
 export default defineConfig(function () { return ({
     plugins: [react()],
     clearScreen: false,
@@ -8,7 +9,7 @@ export default defineConfig(function () { return ({
         strictPort: true,
         proxy: {
             "/api": {
-                target: "http://localhost:3001",
+                target: "http://127.0.0.1:".concat(apiPort),
                 changeOrigin: true
             }
         },

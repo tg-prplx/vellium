@@ -186,6 +186,7 @@ export const DEFAULT_SETTINGS = {
     label: string;
     type: "text" | "textarea" | "select" | "range" | "toggle";
     section: "scene" | "context";
+    enabled: boolean;
     helpText?: string;
     placeholder?: string;
     options?: Array<{ value: string; label: string }>;

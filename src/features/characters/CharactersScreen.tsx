@@ -3,6 +3,12 @@ import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../components/Panels";
 import type { CharacterDetail } from "../../shared/types/contracts";
+import {
+  failBackgroundTask,
+  finishBackgroundTask,
+  startBackgroundTask,
+  useBackgroundTasks
+} from "../../shared/backgroundTasks";
 
 const ALT_GREETING_SEPARATOR = "\n\n---\n\n";
 
@@ -115,6 +121,7 @@ function buildFilenameBase(raw: string, fallback: string): string {
 
 export function CharactersScreen() {
   const { t } = useI18n();
+  const backgroundTasks = useBackgroundTasks();
   const [characters, setCharacters] = useState<CharacterDetail[]>([]);
   const [selected, setSelected] = useState<CharacterDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -166,6 +173,9 @@ export function CharactersScreen() {
     meta: false,
     advanced: false
   });
+  const translateCopyBusy = translateCopyLoading || backgroundTasks.some((task) => (
+    task.scope === "characters" && task.type === "translate" && task.status === "running"
+  ));
 
   function toggleEditorSection(key: string) {
     setEditorSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -358,21 +368,28 @@ export function CharactersScreen() {
   }
 
   async function handleTranslateCopy() {
-    if (!selected || translateCopyLoading) return;
+    if (!selected || translateCopyBusy) return;
     setSaveStatus("");
     setSaveStatusType(null);
     setTranslateCopyLoading(true);
+    const taskId = startBackgroundTask({
+      scope: "characters",
+      type: "translate",
+      label: t("chars.translateCopy")
+    });
     try {
       const copied = await api.characterTranslateCopy(selected.id);
       setCharacters((prev) => [copied, ...prev]);
       setSelected(copied);
       setSaveStatus(`${t("chars.translatedCopyCreated")}: ${copied.name}`);
       setSaveStatusType("success");
+      finishBackgroundTask(taskId, copied.name);
       setTimeout(() => {
         setSaveStatus("");
         setSaveStatusType(null);
       }, 2500);
     } catch (error) {
+      failBackgroundTask(taskId, String(error));
       setSaveStatus(`${t("chars.errorPrefix")}: ${String(error)}`);
       setSaveStatusType("error");
     } finally {
@@ -674,10 +691,10 @@ export function CharactersScreen() {
                 <button onClick={handleSave} className="char-editor-btn is-primary">{t("chat.save")}</button>
                 <button
                   onClick={handleTranslateCopy}
-                  disabled={translateCopyLoading}
+                  disabled={translateCopyBusy}
                   className="char-editor-btn"
                 >
-                  {translateCopyLoading ? t("chars.translatingCopy") : t("chars.translateCopy")}
+                  {translateCopyBusy ? t("chars.translatingCopy") : t("chars.translateCopy")}
                 </button>
                 <button
                   onClick={() => { void handleExportJson(); }}

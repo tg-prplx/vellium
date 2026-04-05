@@ -3,9 +3,16 @@ import { ThreePanelLayout, PanelTitle, EmptyState } from "../../components/Panel
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import type { RagCollection, RagDocument } from "../../shared/types/contracts";
+import {
+  failBackgroundTask,
+  finishBackgroundTask,
+  startBackgroundTask,
+  useBackgroundTasks
+} from "../../shared/backgroundTasks";
 
 export function KnowledgeScreen() {
   const { t } = useI18n();
+  const backgroundTasks = useBackgroundTasks();
   const [collections, setCollections] = useState<RagCollection[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [documents, setDocuments] = useState<RagDocument[]>([]);
@@ -24,6 +31,9 @@ export function KnowledgeScreen() {
     () => collections.find((item) => item.id === selectedId) || null,
     [collections, selectedId]
   );
+  const ingestBusy = ingesting || backgroundTasks.some((task) => (
+    task.scope === "knowledge" && task.type === "ingest" && task.status === "running"
+  ));
 
   function setErrorStatus(error: unknown) {
     const text = error instanceof Error ? error.message : String(error);
@@ -121,10 +131,15 @@ export function KnowledgeScreen() {
   }
 
   async function ingestDocument() {
-    if (!selectedCollection) return;
+    if (!selectedCollection || ingestBusy) return;
     const text = docText.trim();
     if (!text) return;
     setIngesting(true);
+    const taskId = startBackgroundTask({
+      scope: "knowledge",
+      type: "ingest",
+      label: t("knowledge.ingesting")
+    });
     try {
       await api.ragIngestDocument(selectedCollection.id, {
         title: docTitle.trim() || t("knowledge.untitledDocument"),
@@ -135,7 +150,9 @@ export function KnowledgeScreen() {
       setDocTitle("");
       await refreshDocuments(selectedCollection.id);
       setStatus(t("knowledge.documentIngested"));
+      finishBackgroundTask(taskId, t("knowledge.documentIngested"));
     } catch (error) {
+      failBackgroundTask(taskId, error instanceof Error ? error.message : String(error));
       setErrorStatus(error);
     } finally {
       setIngesting(false);
@@ -251,10 +268,10 @@ export function KnowledgeScreen() {
               <div className="mt-2">
                 <button
                   onClick={() => { void ingestDocument(); }}
-                  disabled={ingesting || !docText.trim()}
+                  disabled={ingestBusy || !docText.trim()}
                   className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-60"
                 >
-                  {ingesting ? t("knowledge.ingesting") : t("knowledge.ingest")}
+                  {ingestBusy ? t("knowledge.ingesting") : t("knowledge.ingest")}
                 </button>
               </div>
             </div>

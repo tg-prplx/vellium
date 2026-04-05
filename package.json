@@ -1,7 +1,7 @@
 {
   "name": "vellium",
   "private": true,
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -9,7 +9,7 @@
     "dev:frontend": "vite",
     "dev:server": "tsx watch server/index.ts",
     "predev:server": "node scripts/ensure-better-sqlite3.cjs && node scripts/ensure-dev-port.cjs",
-    "dev:electron": "npm run build:electron-main && npm run build:electron-preload && concurrently -n server,vite,electron -c blue,green,magenta \"npm run dev:server\" \"npm run dev:frontend\" \"wait-on -t 120000 http-get://localhost:1420 http-get://127.0.0.1:3001/api/health && electron .\"",
+    "dev:electron": "npm run build:electron-main && npm run build:electron-preload && concurrently -n server,vite,electron -c blue,green,magenta \"npm run dev:server\" \"npm run dev:frontend\" \"wait-on -t 120000 http-get://localhost:1420 http-get://127.0.0.1:3002/api/health && electron .\"",
     "rebuild:native": "npm rebuild better-sqlite3",
     "rebuild:native:electron": "npx electron-rebuild -f -w better-sqlite3 -v 40.4.1",
     "build": "tsc -b && vite build",
@@ -18,8 +18,10 @@
     "build:electron-main": "esbuild electron/main.ts --bundle --platform=node --format=cjs --outfile=dist-electron/main.cjs --external:electron",
     "build:electron-preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.cjs --external:electron",
     "build:desktop": "npm run build && npm run build:icons && npm run build:server && npm run build:electron-main && npm run build:electron-preload",
+    "headless": "npm run build && npm run build:server && node server-bundle.mjs --headless",
     "dist": "npm run rebuild:native:electron && npm run build:desktop && electron-builder --publish never",
     "dist:mac": "npm run rebuild:native:electron && npm run build:desktop && electron-builder --mac --publish never",
+    "dist:linux": "npm run rebuild:native:electron && npm run build:desktop && electron-builder --linux AppImage --publish never",
     "dist:win": "npm run rebuild:native:electron && npm run build:desktop && electron-builder --win --publish never",
     "preview": "vite preview",
     "test": "vitest run"
@@ -71,6 +73,15 @@
       "server-bundle.mjs",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "data/bundled-plugins",
+        "to": "data/bundled-plugins",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "asar": true,
     "asarUnpack": [
       "node_modules/better-sqlite3/build/Release/*.node",
@@ -104,6 +115,18 @@
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Utility",
+      "target": [
+        {
+          "target": "AppImage",
           "arch": [
             "x64"
           ]

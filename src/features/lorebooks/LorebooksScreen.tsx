@@ -3,6 +3,12 @@ import { ThreePanelLayout, PanelTitle, EmptyState } from "../../components/Panel
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import type { LoreBook, LoreBookEntry } from "../../shared/types/contracts";
+import {
+  failBackgroundTask,
+  finishBackgroundTask,
+  startBackgroundTask,
+  useBackgroundTasks
+} from "../../shared/backgroundTasks";
 
 const POSITION_OPTIONS = [
   "after_char",
@@ -79,6 +85,7 @@ function buildFilenameBase(raw: string, fallback: string): string {
 
 export function LorebooksScreen() {
   const { t } = useI18n();
+  const backgroundTasks = useBackgroundTasks();
   const [loading, setLoading] = useState(true);
   const [lorebooks, setLorebooks] = useState<LoreBook[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -88,6 +95,9 @@ export function LorebooksScreen() {
   const [status, setStatus] = useState("");
   const [entryKeysInput, setEntryKeysInput] = useState<Record<string, string>>({});
   const importInputRef = useRef<HTMLInputElement>(null);
+  const translateCopyBusy = translatingCopy || backgroundTasks.some((task) => (
+    task.scope === "lorebooks" && task.type === "translate" && task.status === "running"
+  ));
 
   useEffect(() => {
     void (async () => {
@@ -198,13 +208,20 @@ export function LorebooksScreen() {
   }
 
   async function translateLorebookCopy() {
-    if (!selected || translatingCopy) return;
+    if (!selected || translateCopyBusy) return;
     setTranslatingCopy(true);
+    const taskId = startBackgroundTask({
+      scope: "lorebooks",
+      type: "translate",
+      label: t("lore.translateKeysCopy")
+    });
     try {
       const copied = await api.lorebookTranslateCopy(selected.id);
       await refreshLorebooks(copied.id);
       setStatus(`${t("lore.statusTranslated")}: ${copied.name}`);
+      finishBackgroundTask(taskId, copied.name);
     } catch (error) {
+      failBackgroundTask(taskId, String(error));
       setStatus(`${t("lore.statusTranslateFailed")} ${error instanceof Error ? error.message : ""}`.trim());
     } finally {
       setTranslatingCopy(false);
@@ -490,10 +507,10 @@ export function LorebooksScreen() {
               {selected && (
                 <button
                   onClick={() => { void translateLorebookCopy(); }}
-                  disabled={translatingCopy}
+                  disabled={translateCopyBusy}
                   className="rounded-lg border border-border-subtle px-3 py-2 text-xs font-medium text-text-secondary hover:border-border hover:bg-bg-hover disabled:opacity-60"
                 >
-                  {translatingCopy ? t("lore.translating") : t("lore.translateKeysCopy")}
+                  {translateCopyBusy ? t("lore.translating") : t("lore.translateKeysCopy")}
                 </button>
               )}
               {selected && (

@@ -2,7 +2,8 @@ const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 
 const projectRoot = path.resolve(__dirname, "..");
-const port = Number(process.env.SLV_SERVER_PORT || 3001);
+const defaultPort = process.env.ELECTRON_SERVE_STATIC === "1" ? 3001 : 3002;
+const port = Number(process.env.SLV_SERVER_PORT || defaultPort);
 
 function run(cmd, args) {
   return spawnSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });

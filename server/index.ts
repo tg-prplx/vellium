@@ -1,15 +1,20 @@
 import { pathToFileURL } from "url";
+import { applyServerRuntimeEnv, formatServerUrl, parseServerRuntimeOptions } from "./runtimeConfig.js";
 import { createApp } from "./app/createApp.js";
 
-const DEFAULT_PORT = Number(process.env.SLV_SERVER_PORT || 3001);
+const runtimeOptions = parseServerRuntimeOptions();
+applyServerRuntimeEnv(runtimeOptions);
 const app = createApp();
 
 export { app };
 
-export function startServer(port: number = DEFAULT_PORT): Promise<number> {
+export function startServer(
+  port: number = runtimeOptions.port,
+  host: string = runtimeOptions.host
+): Promise<number> {
   return new Promise((resolve, reject) => {
-    const server = app.listen(port, "127.0.0.1", () => {
-      console.log(`Server running on http://127.0.0.1:${port}`);
+    const server = app.listen(port, host, () => {
+      console.log(`Server running on ${formatServerUrl({ host, port })}`);
       resolve(port);
     });
     server.on("error", reject);
@@ -30,7 +35,7 @@ const isDirectRun = (() => {
 })();
 
 if (isDirectRun) {
-  startServer(DEFAULT_PORT).catch((error) => {
+  startServer(runtimeOptions.port, runtimeOptions.host).catch((error) => {
     console.error("Failed to start server:", error);
     process.exit(1);
   });

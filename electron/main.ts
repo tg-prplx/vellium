@@ -5,11 +5,15 @@ import { writeFile } from "fs/promises";
 import { pathToFileURL } from "url";
 import { ManagedBackendManager } from "./managedBackends";
 import type { ManagedBackendConfig } from "../src/shared/types/contracts";
+import { applyServerRuntimeEnv, formatServerUrl, parseServerRuntimeOptions } from "../server/runtimeConfig";
 
 const isDev = !app.isPackaged;
+const runtimeOptions = parseServerRuntimeOptions(process.argv.slice(1));
+const isHeadless = runtimeOptions.headless;
 
-// Prevent multiple instances
-const gotTheLock = app.requestSingleInstanceLock();
+// Prevent multiple production instances, but allow a local dev build
+// to run alongside the packaged app.
+const gotTheLock = isDev || isHeadless ? true : app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
   process.exit(0);
@@ -25,7 +29,8 @@ let creatingWindow = false;
 let embeddedServerStart: Promise<void> | null = null;
 const managedBackendManager = new ManagedBackendManager();
 
-const SERVER_PORT = 3001;
+const SERVER_PORT = runtimeOptions.port;
+const SERVER_HOST = runtimeOptions.host;
 const SERVER_START_TIMEOUT_MS = 20000;
 
 function sanitizeFilename(name: string, fallback = "export.txt"): string {
@@ -49,7 +54,7 @@ function isAllowedAppNavigation(rawUrl: string): boolean {
     if (isDev) {
       return parsed.origin === "http://localhost:1420";
     }
-    return parsed.origin === `http://127.0.0.1:${SERVER_PORT}`;
+    return parsed.origin === new URL(formatServerUrl({ host: SERVER_HOST, port: SERVER_PORT })).origin;
   } catch {
     return false;
   }
@@ -77,8 +82,15 @@ function resolveBundledDistPath(): string {
   return path.join(__dirname, "..", "dist");
 }
 
+function resolveBundledPluginsPath(): string {
+  if (isDev) {
+    return path.join(__dirname, "..", "data", "bundled-plugins");
+  }
+  return path.join(process.resourcesPath, "data", "bundled-plugins");
+}
+
 async function isServerHealthy(): Promise<boolean> {
-  const healthUrl = `http://127.0.0.1:${SERVER_PORT}/api/health`;
+  const healthUrl = `${formatServerUrl({ host: SERVER_HOST, port: SERVER_PORT })}/api/health`;
   try {
     const response = await fetch(healthUrl, { cache: "no-store" });
     return response.ok;
@@ -89,7 +101,7 @@ async function isServerHealthy(): Promise<boolean> {
 
 async function waitForServerReady(timeoutMs = SERVER_START_TIMEOUT_MS): Promise<void> {
   const startedAt = Date.now();
-  const healthUrl = `http://127.0.0.1:${SERVER_PORT}/api/health`;
+  const healthUrl = `${formatServerUrl({ host: SERVER_HOST, port: SERVER_PORT })}/api/health`;
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
@@ -115,18 +127,24 @@ function startProductionServer(): Promise<void> {
 
     // These are read at module init time in the bundled server.
     process.env.SLV_DATA_DIR = process.env.SLV_DATA_DIR || path.join(app.getPath("userData"), "data");
-    process.env.SLV_SERVER_PORT = String(SERVER_PORT);
+    applyServerRuntimeEnv({
+      ...runtimeOptions,
+      headless: isHeadless || runtimeOptions.headless,
+      serveStatic: true
+    });
     process.env.SLV_SERVER_AUTOSTART = "0";
     process.env.ELECTRON_SERVE_STATIC = "1";
     process.env.ELECTRON_DIST_PATH = distPath;
+    process.env.SLV_DIST_PATH = distPath;
+    process.env.SLV_BUNDLED_PLUGINS_DIR = resolveBundledPluginsPath();
     process.env.NODE_ENV = "production";
 
     const moduleUrl = pathToFileURL(serverScript).href;
-    const mod = await import(moduleUrl) as { startServer?: (port?: number) => Promise<number> };
+    const mod = await import(moduleUrl) as { startServer?: (port?: number, host?: string) => Promise<number> };
     if (typeof mod.startServer !== "function") {
       throw new Error(`Bundled server missing startServer(): ${serverScript}`);
     }
-    await mod.startServer(SERVER_PORT);
+    await mod.startServer(SERVER_PORT, SERVER_HOST);
     await waitForServerReady();
   })();
   return embeddedServerStart;
@@ -217,7 +235,7 @@ async function createWindow() {
       mainWindow.webContents.openDevTools({ mode: "detach" });
     } else {
       // In prod, server serves both API and static frontend
-      void mainWindow.loadURL(`http://127.0.0.1:${SERVER_PORT}`).catch((error) => {
+      void mainWindow.loadURL(formatServerUrl({ host: SERVER_HOST, port: SERVER_PORT })).catch((error) => {
         console.error("Failed to load bundled app URL:", error);
       });
     }
@@ -325,6 +343,18 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(() => {
+  if (isHeadless) {
+    app.dock?.hide();
+    void startProductionServer()
+      .then(() => {
+        console.log(`Vellium headless mode running at ${formatServerUrl({ host: SERVER_HOST, port: SERVER_PORT })}`);
+      })
+      .catch((error) => {
+        console.error("Failed to start headless server:", error);
+        app.quit();
+      });
+    return;
+  }
   void createWindow().catch((error) => {
     console.error("Failed to create main window:", error);
     const message = error instanceof Error ? error.stack || error.message : String(error);
@@ -340,6 +370,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
+  if (isHeadless) return;
   if (BrowserWindow.getAllWindows().length === 0) {
     void createWindow().catch((error) => {
       console.error("Failed to recreate main window:", error);
