@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resolveApiAssetUrl, streamPost } from "./core";
+import { request, resolveApiAssetUrl, streamPost } from "./core";
 
 const originalWindow = globalThis.window;
 
@@ -26,6 +26,32 @@ describe("resolveApiAssetUrl", () => {
     });
 
     expect(resolveApiAssetUrl("/api/avatars/example.png")).toBe("http://127.0.0.1:3001/api/avatars/example.png");
+  });
+});
+
+describe("request", () => {
+  it("extracts readable messages from JSON error payloads", async () => {
+    Object.defineProperty(globalThis, "window", {
+      value: {
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis)
+      },
+      configurable: true
+    });
+
+    globalThis.fetch = vi.fn(async () => new Response(
+      JSON.stringify({ error: "Provider blocked by Full Local Mode" }),
+      {
+        status: 403,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    )) as typeof fetch;
+
+    await expect(request("POST", "/providers/preview/models", { baseUrl: "https://example.com/v1" }))
+      .rejects
+      .toThrow("Provider blocked by Full Local Mode");
   });
 });
 

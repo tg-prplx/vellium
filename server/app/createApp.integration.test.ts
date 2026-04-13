@@ -546,6 +546,16 @@ process.stdin.on("data", (chunk) => {
 
     const previewTest = await postJson("/api/providers/preview/test", previewPayload);
     expect(previewTest).toEqual({ ok: true });
+
+    const blockedPreviewTest = await postJson("/api/providers/preview/test", {
+      ...previewPayload,
+      baseUrl: "https://example.com/v1",
+      fullLocalOnly: true
+    });
+    expect(blockedPreviewTest).toEqual({
+      ok: false,
+      error: "Provider is set to Local-only. Disable Local-only for external URLs."
+    });
   });
 
   it("streams tool-calling turns through an MCP server and persists tool traces", async () => {
