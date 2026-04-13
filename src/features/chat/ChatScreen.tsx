@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { AvatarBadge } from "../../components/AvatarBadge";
 import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../components/Panels";
 import { PluginActionBar, PluginSlotMount } from "../plugins/PluginHost";
 import { api, resolveApiAssetUrl } from "../../shared/api";
@@ -1445,24 +1446,6 @@ export function ChatScreen() {
     return primaryId ? characters.find((c) => c.id === primaryId) ?? null : null;
   }, [activeChat, chatCharacterIds, characters]);
 
-  function renderChatAvatar(name: string, avatarUrl?: string | null) {
-    const label = String(name || "?").trim() || "?";
-    if (avatarUrl) {
-      return (
-        <img
-          src={resolveApiAssetUrl(avatarUrl) ?? undefined}
-          alt=""
-          className="h-8 w-8 flex-shrink-0 rounded-full object-cover ring-1 ring-border-subtle"
-        />
-      );
-    }
-    return (
-      <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-purple-500/15 text-xs font-semibold text-purple-400 ring-1 ring-purple-500/20">
-        {label.charAt(0).toUpperCase()}
-      </span>
-    );
-  }
-
   const streamingRenderedHtml = useMemo(() => {
     if (!streamText) return "";
     const streamChar = streamingCharacterName
@@ -1835,14 +1818,13 @@ export function ChatScreen() {
                       <button key={char.id}
                         onClick={() => handleCreateChat(char.id)}
                         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-bg-hover">
-                        {char.avatarUrl ? (
-                          <img src={resolveApiAssetUrl(char.avatarUrl) ?? undefined}
-                            alt={char.name} className="h-6 w-6 rounded-full object-cover" />
-                        ) : (
-                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-subtle text-[10px] font-bold text-accent">
-                            {char.name.charAt(0).toUpperCase()}
-                          </div>
-                        )}
+                        <AvatarBadge
+                          name={char.name}
+                          src={resolveApiAssetUrl(char.avatarUrl)}
+                          alt={char.name}
+                          className="h-6 w-6 rounded-full"
+                          fallbackClassName="bg-accent-subtle text-[10px] font-bold text-accent"
+                        />
                         <span className="truncate text-xs font-medium text-text-primary">{char.name}</span>
                       </button>
                     ))}
@@ -2001,13 +1983,13 @@ export function ChatScreen() {
                               setSimpleSidebarOpen(false);
                             }
                           }} className="flex min-w-0 flex-1 items-start gap-2 text-left">
-                            {chatChar?.avatarUrl ? (
-                              <img src={resolveApiAssetUrl(chatChar.avatarUrl) ?? undefined}
-                                alt="" className="h-6 w-6 flex-shrink-0 rounded-full object-cover" />
-                            ) : chatChar ? (
-                              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-accent-subtle text-[9px] font-bold text-accent">
-                                {chatChar.name.charAt(0).toUpperCase()}
-                              </div>
+                            {chatChar ? (
+                              <AvatarBadge
+                                name={chatChar.name}
+                                src={resolveApiAssetUrl(chatChar.avatarUrl)}
+                                className="h-6 w-6 flex-shrink-0 rounded-full"
+                                fallbackClassName="bg-accent-subtle text-[9px] font-bold text-accent"
+                              />
                             ) : null}
                             <div className="min-w-0 flex-1">
                               <div className="break-words whitespace-normal text-sm font-medium leading-snug">{chat.title}</div>
@@ -2431,14 +2413,12 @@ export function ChatScreen() {
                         }}
                         title={chatCharacters.length > 1 ? `${t("chat.nextTurn")}: ${ch.name}` : ch.name}
                       >
-                        {ch.avatarUrl ? (
-                          <img src={resolveApiAssetUrl(ch.avatarUrl) ?? undefined}
-                            alt="" className="h-5 w-5 rounded-full object-cover" />
-                        ) : (
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500/20 text-[9px] font-bold text-purple-300">
-                            {ch.name.charAt(0).toUpperCase()}
-                          </span>
-                        )}
+                        <AvatarBadge
+                          name={ch.name}
+                          src={resolveApiAssetUrl(ch.avatarUrl)}
+                          className="h-5 w-5 rounded-full"
+                          fallbackClassName="bg-purple-500/20 text-[9px] font-bold text-purple-300"
+                        />
                         <span className="truncate">{ch.name}</span>
                         <button
                           onClick={(e) => {
@@ -2557,7 +2537,15 @@ export function ChatScreen() {
                         : "chat-message-assistant mr-auto border border-border-subtle bg-bg-secondary text-text-primary"
                     }`}>
                     <div className="mb-2 flex min-w-0 items-start gap-2.5">
-                      {msgChar && renderChatAvatar(msg.characterName || msgChar.name || "?", msgChar.avatarUrl)}
+                      {msgChar && (
+                        <AvatarBadge
+                          name={msg.characterName || msgChar.name || "?"}
+                          src={resolveApiAssetUrl(msgChar.avatarUrl)}
+                          className="h-8 w-8 flex-shrink-0 rounded-full"
+                          imageClassName="ring-1 ring-border-subtle"
+                          fallbackClassName="bg-purple-500/15 text-xs font-semibold text-purple-400 ring-1 ring-purple-500/20"
+                        />
+                      )}
                       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                         <span
                           className={`max-w-full truncate text-[10px] font-semibold uppercase tracking-wider ${
@@ -2770,7 +2758,13 @@ export function ChatScreen() {
                     return (
                       <>
                   <div className="mb-1.5 flex min-w-0 items-start gap-2.5">
-                    {renderChatAvatar(streamingCharacterName || streamChar?.name || t("chat.assistant"), streamChar?.avatarUrl)}
+                    <AvatarBadge
+                      name={streamingCharacterName || streamChar?.name || t("chat.assistant")}
+                      src={resolveApiAssetUrl(streamChar?.avatarUrl)}
+                      className="h-8 w-8 flex-shrink-0 rounded-full"
+                      imageClassName="ring-1 ring-border-subtle"
+                      fallbackClassName="bg-purple-500/15 text-xs font-semibold text-purple-400 ring-1 ring-purple-500/20"
+                    />
                     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                       <span className="max-w-full truncate text-[10px] font-semibold uppercase tracking-wider text-accent">
                         {streamingCharacterName || streamChar?.name || t("chat.assistant")}

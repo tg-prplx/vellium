@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
+import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
+import { AvatarBadge } from "../../components/AvatarBadge";
 import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../components/Panels";
 import type { CharacterDetail } from "../../shared/types/contracts";
 import {
@@ -79,44 +81,6 @@ function formatObjectJson(value: unknown): string {
   } catch {
     return "{}";
   }
-}
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Failed to read export blob"));
-    reader.onload = () => {
-      const raw = String(reader.result || "");
-      const comma = raw.indexOf(",");
-      resolve(comma >= 0 ? raw.slice(comma + 1) : raw);
-    };
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function triggerBlobDownload(blob: Blob, filename: string) {
-  if (window.electronAPI?.saveFile) {
-    const base64Data = await blobToBase64(blob);
-    const saved = await window.electronAPI.saveFile(filename, base64Data);
-    if (!saved.canceled && saved.ok) return;
-  }
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
-}
-
-function buildFilenameBase(raw: string, fallback: string): string {
-  return String(raw || "")
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/\s+/g, " ")
-    .replace(/^-+|-+$/g, "") || fallback;
 }
 
 export function CharactersScreen() {
@@ -624,13 +588,12 @@ export function CharactersScreen() {
                       : "text-text-secondary hover:bg-bg-hover"
                   }`}
                 >
-                  {char.avatarUrl ? (
-                    <img src={avatarSrc(char.avatarUrl, char.id)!} alt="" className="h-8 w-8 flex-shrink-0 rounded-full object-cover" />
-                  ) : (
-                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-accent-subtle text-xs font-bold text-accent">
-                      {char.name.charAt(0).toUpperCase()}
-                    </div>
-                  )}
+                  <AvatarBadge
+                    name={char.name}
+                    src={avatarSrc(char.avatarUrl, char.id)}
+                    className="h-8 w-8 flex-shrink-0 rounded-full"
+                    fallbackClassName="bg-accent-subtle text-xs font-bold text-accent"
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{char.name}</div>
                     {char.tags.length > 0 && (
@@ -654,13 +617,12 @@ export function CharactersScreen() {
             <div className="char-editor-header mb-4">
               <div className="char-editor-header-top">
                 <label className="group relative cursor-pointer flex-shrink-0">
-                  {selected.avatarUrl ? (
-                    <img src={avatarSrc(selected.avatarUrl, selected.id)!} alt="" className="h-14 w-14 rounded-2xl object-cover ring-2 ring-border" />
-                  ) : (
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-subtle text-lg font-bold text-accent ring-2 ring-border">
-                      {name.charAt(0).toUpperCase() || "?"}
-                    </div>
-                  )}
+                  <AvatarBadge
+                    name={name || selected.name || t("chars.unnamed")}
+                    src={avatarSrc(selected.avatarUrl, selected.id)}
+                    className="h-14 w-14 rounded-2xl ring-2 ring-border"
+                    fallbackClassName="bg-accent-subtle text-lg font-bold text-accent"
+                  />
                   <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
                     <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -888,13 +850,12 @@ export function CharactersScreen() {
             <div className="float-card mt-3 rounded-lg border border-border-subtle bg-bg-primary p-3">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.preview")}</div>
               <div className="flex items-center gap-2">
-                {selected.avatarUrl ? (
-                  <img src={avatarSrc(selected.avatarUrl, selected.id)!} alt="" className="h-8 w-8 rounded-full object-cover" />
-                ) : (
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-subtle text-xs font-bold text-accent">
-                    {name.charAt(0).toUpperCase() || "?"}
-                  </div>
-                )}
+                <AvatarBadge
+                  name={name || selected.name || t("chars.unnamed")}
+                  src={avatarSrc(selected.avatarUrl, selected.id)}
+                  className="h-8 w-8 rounded-full"
+                  fallbackClassName="bg-accent-subtle text-xs font-bold text-accent"
+                />
                 <div>
                   <div className="text-sm font-medium text-text-primary">{name || t("chars.unnamed")}</div>
                   {tags && (

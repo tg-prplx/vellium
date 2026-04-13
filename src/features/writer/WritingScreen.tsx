@@ -3,6 +3,7 @@ import { ThreePanelLayout, Badge, EmptyState } from "../../components/Panels";
 import { PluginActionBar, PluginSlotMount } from "../plugins/PluginHost";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
+import { triggerBlobDownload } from "../../shared/download";
 import { CollapsibleSection } from "./components/CollapsibleSection";
 import { WritingWorkspaceModeSwitch } from "./components/WritingWorkspaceModeSwitch";
 import { SimpleWriterEditor } from "./components/SimpleWriterEditor";
@@ -34,7 +35,7 @@ import type {
 import { addBackgroundTask, updateBackgroundTask } from "./taskStore";
 import type { BackgroundTask, CharacterEditDraft, CharacterEditStatus, LensPresetId, WritingWorkspaceMode } from "./types";
 import { EMPTY_CHARACTER_EDIT_DRAFT_TYPED } from "./types";
-import { clamp01, triggerBlobDownload } from "./utils";
+import { clamp01 } from "./utils";
 import { useBackgroundTasks } from "../../shared/backgroundTasks";
 
 export function WritingScreen() {
