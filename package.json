@@ -49,8 +49,8 @@
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.0",
-    "electron": "^40.4.1",
-    "electron-builder": "^26.7.0",
+    "electron": "^40.8.5",
+    "electron-builder": "^26.8.1",
     "esbuild": "^0.27.3",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.13",
@@ -58,7 +58,30 @@
     "typescript": "^5.6.2",
     "vite": "^5.4.8",
     "vitest": "^2.1.1",
-    "wait-on": "^9.0.4"
+    "wait-on": "^9.0.5"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "0.8.12",
+    "axios": "1.15.0",
+    "lodash": "4.18.1",
+    "path-to-regexp": "0.1.13",
+    "tar": "7.5.13",
+    "rollup": "4.59.0",
+    "anymatch": {
+      "picomatch": "2.3.2"
+    },
+    "micromatch": {
+      "picomatch": "2.3.2"
+    },
+    "readdirp": {
+      "picomatch": "2.3.2"
+    },
+    "tinyglobby": {
+      "picomatch": "4.0.4"
+    },
+    "fdir": {
+      "picomatch": "4.0.4"
+    }
   },
   "build": {
     "appId": "com.vellium.app",

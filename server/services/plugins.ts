@@ -41,6 +41,7 @@ export const PLUGIN_SDK_SOURCE = `(() => {
   const UI_STYLE_ID = 'vellium-plugin-ui';
   const PLUGIN_ID = new URLSearchParams(window.location.search).get('pluginId') || '';
   const FRAME_ID = new URLSearchParams(window.location.search).get('frameId') || '';
+  const HOST_ORIGIN = window.location.origin;
   const UI_STYLE_SOURCE = ${JSON.stringify(`
 :root {
   color-scheme: dark;
@@ -293,7 +294,7 @@ body.vp-body {
     }
   }
   function post(type, payload = {}) {
-    window.parent.postMessage({ __velliumPlugin: true, pluginId: PLUGIN_ID, frameId: FRAME_ID, type, ...payload }, '*');
+    window.parent.postMessage({ __velliumPlugin: true, pluginId: PLUGIN_ID, frameId: FRAME_ID, type, ...payload }, HOST_ORIGIN);
   }
   function request(type, payload = {}) {
     const requestId = 'req-' + (++seq);
@@ -308,6 +309,8 @@ body.vp-body {
     });
   }
   window.addEventListener('message', (event) => {
+    if (event.origin !== HOST_ORIGIN) return;
+    if (event.source !== window.parent) return;
     const msg = event.data;
     if (!msg || msg.__velliumHost !== true) return;
     if (msg.type === 'context') {
