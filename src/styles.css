@@ -2843,7 +2843,18 @@ select {
   overflow-x: auto;
 }
 
-.prose-chat img,
+.prose-chat img {
+  display: block;
+  width: auto;
+  max-width: min(100%, 32rem);
+  max-height: min(70vh, 32rem);
+  height: auto;
+  margin: 0.6rem 0;
+  border-radius: 12px;
+  object-fit: contain;
+  background: var(--color-bg-tertiary);
+}
+
 .prose-chat video,
 .prose-chat iframe {
   display: block;

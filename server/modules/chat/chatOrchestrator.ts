@@ -35,6 +35,7 @@ import {
   type UserPersonaPayload
 } from "./routeHelpers.js";
 import {
+  appendMissingToolImageMarkdown,
   OpenAICompletionMessage,
   runToolCallingCompletion,
   serializeToolTrace,
@@ -52,6 +53,9 @@ async function sendSseText(res: Response, chatId: string, text: string, paceMs =
   const chunks = text.match(/[\s\S]{1,140}/g) ?? [];
   for (const chunk of chunks) {
     res.write(`data: ${JSON.stringify({ type: "delta", chatId, delta: chunk })}\n\n`);
+    if (typeof (res as Response & { flush?: () => void }).flush === "function") {
+      (res as Response & { flush?: () => void }).flush?.();
+    }
     if (paceMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, paceMs));
     }
@@ -433,14 +437,23 @@ export async function streamLlmResponse(params: {
   params.res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
-    Connection: "keep-alive"
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no"
   });
+  params.res.flushHeaders?.();
 
   const abortController = new AbortController();
   activeAbortControllers.set(params.chatId, abortController);
+  let responseSettled = false;
 
+  params.res.on("finish", () => {
+    responseSettled = true;
+    activeAbortControllers.delete(params.chatId);
+  });
   params.res.on("close", () => {
-    abortController.abort();
+    if (!responseSettled) {
+      abortController.abort();
+    }
     activeAbortControllers.delete(params.chatId);
   });
 
@@ -457,6 +470,13 @@ export async function streamLlmResponse(params: {
         apiMessages: apiMessages as unknown as OpenAICompletionMessage[],
         settings: settings as Record<string, unknown>,
         signal: abortController.signal,
+        onAssistantDelta: (delta) => {
+          if (!delta) return;
+          params.res.write(`data: ${JSON.stringify({ type: "delta", chatId: params.chatId, delta })}\n\n`);
+          if (typeof (params.res as Response & { flush?: () => void }).flush === "function") {
+            (params.res as Response & { flush?: () => void }).flush?.();
+          }
+        },
         onToolEvent: (event) => {
           const safeArgs = String(event.args || "").slice(0, 2000);
           const safeResult = typeof event.result === "string" ? event.result.slice(0, 4000) : undefined;
@@ -469,12 +489,17 @@ export async function streamLlmResponse(params: {
             args: safeArgs,
             result: safeResult
           })}\n\n`);
+          if (typeof (params.res as Response & { flush?: () => void }).flush === "function") {
+            (params.res as Response & { flush?: () => void }).flush?.();
+          }
         }
       });
 
       if (toolResult) {
         let fullContent = toolResult.content || "";
         let reasoningTraces: ToolCallTrace[] = [];
+        const finalAssistantStreamed = toolResult.assistantWasStreamed === true
+          || (Array.isArray(toolResult.streamMessages) && toolResult.streamMessages.length > 0);
         let generationMeta: {
           generationStartedAt: string | null;
           generationCompletedAt: string | null;
@@ -503,8 +528,22 @@ export async function streamLlmResponse(params: {
             generationCompletedAt: streamResult.generationCompletedAt,
             generationDurationMs: streamResult.generationDurationMs
           };
-        } else if (fullContent) {
-          await sendSseText(params.res, params.chatId, fullContent, 12);
+        }
+
+        const combinedToolTraces = [...toolResult.toolCalls, ...reasoningTraces];
+        const imageAugmentation = appendMissingToolImageMarkdown(fullContent, combinedToolTraces);
+        if (imageAugmentation.appended) {
+          fullContent = imageAugmentation.content;
+          await sendSseText(
+            params.res,
+            params.chatId,
+            finalAssistantStreamed ? imageAugmentation.appended : fullContent,
+            12
+          );
+        } else if (!finalAssistantStreamed) {
+          if (fullContent) {
+            await sendSseText(params.res, params.chatId, fullContent, 12);
+          }
         }
 
         await persistAssistantTurn({
@@ -515,11 +554,14 @@ export async function streamLlmResponse(params: {
           content: fullContent,
           overrideCharacterName: params.overrideCharacterName,
           ragSources: ragSourcesForAssistant,
-          toolTraces: [...toolResult.toolCalls, ...reasoningTraces],
+          toolTraces: combinedToolTraces,
           generationMeta
         });
 
         params.res.write(`data: ${JSON.stringify({ type: "done", chatId: params.chatId })}\n\n`);
+        if (typeof (params.res as Response & { flush?: () => void }).flush === "function") {
+          (params.res as Response & { flush?: () => void }).flush?.();
+        }
         params.res.end();
         return;
       }
@@ -553,11 +595,16 @@ export async function streamLlmResponse(params: {
     });
 
     params.res.write(`data: ${JSON.stringify({ type: "done", chatId: params.chatId })}\n\n`);
+    if (typeof (params.res as Response & { flush?: () => void }).flush === "function") {
+      (params.res as Response & { flush?: () => void }).flush?.();
+    }
     params.res.end();
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
-      params.res.write(`data: ${JSON.stringify({ type: "done", chatId: params.chatId, interrupted: true })}\n\n`);
-      params.res.end();
+      if (!params.res.writableEnded) {
+        params.res.write(`data: ${JSON.stringify({ type: "done", chatId: params.chatId, interrupted: true })}\n\n`);
+        params.res.end();
+      }
     } else {
       const errMsg = err instanceof Error ? err.message : "Network error";
       insertFallbackAssistantMessage({
@@ -567,8 +614,10 @@ export async function streamLlmResponse(params: {
         content: `[Error] ${errMsg}`,
         characterName: params.overrideCharacterName
       });
-      params.res.write(`data: ${JSON.stringify({ type: "done", chatId: params.chatId })}\n\n`);
-      params.res.end();
+      if (!params.res.writableEnded) {
+        params.res.write(`data: ${JSON.stringify({ type: "done", chatId: params.chatId })}\n\n`);
+        params.res.end();
+      }
     }
   } finally {
     activeAbortControllers.delete(params.chatId);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../components/Panels";
 import { PluginActionBar, PluginSlotMount } from "../plugins/PluginHost";
 import { api, resolveApiAssetUrl } from "../../shared/api";
@@ -37,6 +37,7 @@ import {
   normalizePromptStack,
   parseInlineReasoning,
   parseToolCallContent,
+  parseToolResultDisplay,
   readSceneVarPercent,
   renderContent,
   resolveChatMode,
@@ -577,6 +578,11 @@ export function ChatScreen() {
     args?: string;
     result?: string;
   }) {
+    if (event.name === REASONING_CALL_NAME) {
+      if (event.phase !== "done") setStreamingReasoningExpanded(true);
+    } else if (event.phase !== "done") {
+      setStreamingToolsExpanded(true);
+    }
     const targetSetter = event.name === REASONING_CALL_NAME ? setStreamingReasoningCalls : setStreamingToolCalls;
     targetSetter((prev) => {
       const callId = String(event.callId || "").trim() || `${event.name || "tool"}-${Date.now()}`;
@@ -723,9 +729,11 @@ export function ChatScreen() {
         branchId = branchList[0]?.id ?? null;
         setActiveBranchId(branchId);
       }
-      await flushPromptStack();
-      await api.rpSetSceneState({ ...sceneState, chatId });
-      await api.rpUpdateAuthorNote(chatId, authorNote);
+      await Promise.allSettled([
+        flushPromptStack(),
+        api.rpSetSceneState({ ...sceneState, chatId }),
+        api.rpUpdateAuthorNote(chatId, authorNote)
+      ]);
 
       const currentAttachments = [...attachments];
       setInput("");
@@ -741,9 +749,10 @@ export function ChatScreen() {
       const updated = await api.chatSend(chatId, input, branchId || undefined, {
         onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
-        onDone: () => { stopStreamingUi(); }
+        onDone: () => {}
       }, activePersonaPayload, currentAttachments);
       setMessages(updated);
+      stopStreamingUi();
       if (backgroundChatTaskIdRef.current === taskId) {
         finishBackgroundTask(taskId);
         clearChatBackgroundTask(taskId);
@@ -786,9 +795,10 @@ export function ChatScreen() {
       const updated = await api.chatRegenerate(activeChat.id, activeBranchId || undefined, {
         onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
-        onDone: () => { stopStreamingUi(); }
+        onDone: () => {}
       });
       setMessages(updated);
+      stopStreamingUi();
       if (backgroundChatTaskIdRef.current === taskId) {
         finishBackgroundTask(taskId);
         clearChatBackgroundTask(taskId);
@@ -879,18 +889,38 @@ export function ChatScreen() {
     }
   }
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!e.target.files?.length) return;
+  function buildClipboardFilename(file: File, index: number): string {
+    const original = String(file.name || "").trim();
+    if (original) return original;
+    const type = String(file.type || "").toLowerCase();
+    const ext = type.startsWith("image/")
+      ? type.slice("image/".length).replace(/[^a-z0-9]+/gi, "") || "png"
+      : "bin";
+    return `pasted-image-${Date.now()}-${index + 1}.${ext}`;
+  }
+
+  async function readFileAsBase64(file: File): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(",")[1] || result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadComposerFiles(files: File[]) {
+    if (!files.length) return;
     setUploading(true);
     try {
-      for (const file of Array.from(e.target.files)) {
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => { const r = reader.result as string; resolve(r.split(",")[1] || r); };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const attachment = await api.uploadFile(base64, file.name);
+      for (const [index, file] of files.entries()) {
+        const uploadFile = file.name
+          ? file
+          : new File([file], buildClipboardFilename(file, index), { type: file.type || "image/png" });
+        const base64 = await readFileAsBase64(uploadFile);
+        const attachment = await api.uploadFile(base64, uploadFile.name);
         const mimeType = attachment.mimeType || file.type || guessMimeType(file.name);
         const normalizedAttachment: FileAttachment = {
           ...attachment,
@@ -901,9 +931,73 @@ export function ChatScreen() {
         }
         setAttachments((prev) => [...prev, normalizedAttachment]);
       }
-    } catch (error) { setErrorText(String(error)); }
-    setUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (error) {
+      setErrorText(String(error));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    await uploadComposerFiles(files);
+  }
+
+  function handleComposerPaste(e: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageFiles = items
+      .filter((item) => item.kind === "file" && String(item.type || "").startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((item): item is File => Boolean(item));
+
+    if (imageFiles.length === 0) return;
+    e.preventDefault();
+    setErrorText("");
+    void uploadComposerFiles(imageFiles);
+  }
+
+  function renderToolResultPreview(result: string, summary?: string, media?: Array<{
+    type: "image";
+    url: string;
+    markdown?: string;
+    alt?: string;
+  }>) {
+    const hasMedia = Array.isArray(media) && media.length > 0;
+    if (!hasMedia) {
+      return (
+        <pre className="mt-0.5 max-h-28 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">
+          {result || t("chat.empty")}
+        </pre>
+      );
+    }
+
+    return (
+      <div className="mt-0.5 rounded border border-border-subtle bg-bg-secondary p-2">
+        <div className="text-[10px] text-text-secondary">{summary || "Image created and shown to the user."}</div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {media.map((item, index) => (
+            <a
+              key={`${item.url}-${index}`}
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group block overflow-hidden rounded-md border border-border-subtle bg-bg-primary"
+              title={item.alt || `Image ${index + 1}`}
+            >
+              <img
+                src={item.url}
+                alt={item.alt || `Image ${index + 1}`}
+                className="h-24 w-24 object-cover transition-transform group-hover:scale-[1.03]"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
+            </a>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   function removeAttachment(id: string) { setAttachments((prev) => prev.filter((a) => a.id !== id)); }
@@ -1146,9 +1240,10 @@ export function ChatScreen() {
       const updated = await api.chatNextTurn(activeChat.id, characterName, activeBranchId || undefined, {
         onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
-        onDone: () => { stopStreamingUi(); }
+        onDone: () => {}
       }, false, activePersonaPayload);
       setMessages(updated);
+      stopStreamingUi();
       if (backgroundChatTaskIdRef.current === taskId) {
         finishBackgroundTask(taskId);
         clearChatBackgroundTask(taskId);
@@ -1204,9 +1299,10 @@ export function ChatScreen() {
         const updated = await api.chatNextTurn(activeChat.id, charName, activeBranchId || undefined, {
           onDelta: appendStreamDelta,
           onToolEvent: handleStreamingToolEvent,
-          onDone: () => { stopStreamingUi(); }
+          onDone: () => {}
         }, true, activePersonaPayload); // isAutoConvo = true
         setMessages(updated);
+        stopStreamingUi();
       } catch (error) {
         stopStreamingUi();
         if (backgroundChatTaskIdRef.current === taskId) {
@@ -1278,7 +1374,12 @@ export function ChatScreen() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (!uploading) {
+        void handleSend();
+      }
+    }
   }
 
   function setSceneVariable(key: string, value: string) {
@@ -2587,7 +2688,7 @@ export function ChatScreen() {
                                       <div className="mt-1 text-[10px] text-text-tertiary">{t("chat.args")}</div>
                                       <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">{payload.args || "{}"}</pre>
                                       <div className="mt-1 text-[10px] text-text-tertiary">{t("chat.result")}</div>
-                                      <pre className="mt-0.5 max-h-28 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">{payload.result || t("chat.empty")}</pre>
+                                      {renderToolResultPreview(payload.result, payload.resultSummary, payload.media)}
                                     </div>
                                   );
                                 })}
@@ -2739,26 +2840,29 @@ export function ChatScreen() {
                       {streamingToolsExpanded && (
                         <div className="space-y-1.5 border-t border-warning-border/60 px-2 py-2">
                           {streamingToolCalls.map((call) => (
-                            <div key={call.callId} className="rounded-md border border-warning-border/60 bg-bg-primary px-2 py-1.5">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="truncate text-[11px] font-semibold text-text-primary">{call.name}</span>
-                                {call.status === "running" ? (
-                                  <span className="flex items-center gap-1 text-[10px] text-warning">
-                                    <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" className="opacity-30" />
-                                      <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                                    </svg>
-                                    {t("chat.running")}
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] text-success">{t("chat.done")}</span>
-                                )}
-                              </div>
-                              <pre className="mt-1 max-h-16 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">{call.args || "{}"}</pre>
-                              {call.result && (
-                                <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">{call.result}</pre>
-                              )}
-                            </div>
+                            (() => {
+                              const parsedResult = parseToolResultDisplay(String(call.result || ""));
+                              return (
+                                <div key={call.callId} className="rounded-md border border-warning-border/60 bg-bg-primary px-2 py-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="truncate text-[11px] font-semibold text-text-primary">{call.name}</span>
+                                    {call.status === "running" ? (
+                                      <span className="flex items-center gap-1 text-[10px] text-warning">
+                                        <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" className="opacity-30" />
+                                          <path d="M21 12a9 9 0 00-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                                        </svg>
+                                        {t("chat.running")}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-success">{t("chat.done")}</span>
+                                    )}
+                                  </div>
+                                  <pre className="mt-1 max-h-16 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">{call.args || "{}"}</pre>
+                                  {call.result && renderToolResultPreview(parsedResult.result, parsedResult.resultSummary, parsedResult.media)}
+                                </div>
+                              );
+                            })()
                           ))}
                         </div>
                       )}
@@ -2799,6 +2903,7 @@ export function ChatScreen() {
               <div className={simpleModeActive ? "chat-simple-composer-shell" : "relative flex-1"}>
                 <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
+                  onPaste={handleComposerPaste}
                   className={simpleModeActive
                     ? "chat-simple-textarea"
                     : "h-[80px] w-full resize-none rounded-xl border border-border bg-bg-primary px-4 py-2.5 pr-10 text-sm text-text-primary placeholder:text-text-tertiary"}
@@ -2841,7 +2946,7 @@ export function ChatScreen() {
                       <span className="chat-simple-bar-mode">{activeBackgroundChatTask.label}</span>
                     )}
                     <button onClick={chatGenerationBusy ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
-                      disabled={!chatGenerationBusy && !hasDraftPayload && !canResendLast}
+                      disabled={uploading || (!chatGenerationBusy && !hasDraftPayload && !canResendLast)}
                       className={`chat-simple-send-btn ${chatGenerationBusy ? "is-stop" : ""}`}>
                       {chatGenerationBusy ? (
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2917,7 +3022,7 @@ export function ChatScreen() {
               </div>
               {!simpleModeActive && (
                 <button onClick={chatGenerationBusy ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
-                  disabled={!chatGenerationBusy && !hasDraftPayload && !canResendLast}
+                  disabled={uploading || (!chatGenerationBusy && !hasDraftPayload && !canResendLast)}
                   className={`flex h-[80px] w-[80px] flex-col items-center justify-center rounded-xl text-text-inverse ${
                     chatGenerationBusy
                       ? "bg-danger hover:bg-danger/80"

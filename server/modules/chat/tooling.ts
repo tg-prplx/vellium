@@ -1,6 +1,13 @@
 import { buildOpenAiSamplingPayload } from "../../services/apiParamPolicy.js";
 import { prepareMcpTools, type McpServerConfig } from "../../services/mcp.js";
 import type { ProviderRow } from "./routeHelpers.js";
+import {
+  consumeSseEventBlocks,
+  extractOpenAiStreamErrorMessage,
+  extractOpenAiStreamTextDelta,
+  extractSseEventData,
+  extractSseEventType
+} from "./openAiStream.js";
 
 export interface OpenAICompletionMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -25,6 +32,31 @@ export interface ToolCallTrace {
   result: string;
 }
 
+interface MarkdownImageMatch {
+  markdown: string;
+  url: string;
+}
+
+interface StructuredToolResultMedia {
+  markdown: string;
+  url: string;
+}
+
+interface RawToolCallCandidate {
+  raw: string;
+  payload: string;
+}
+
+interface StreamedToolCallDelta {
+  index: number;
+  id?: string;
+  type?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+}
+
 export interface ToolCallStreamEvent {
   phase: "start" | "delta" | "done";
   callId: string;
@@ -34,6 +66,7 @@ export interface ToolCallStreamEvent {
 }
 
 export const REASONING_CALL_NAME = "__reasoning__";
+const MARKDOWN_IMAGE_PATTERN = /!\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/gi;
 
 function clampToolIterationLimit(raw: unknown): number {
   const value = Number(raw);
@@ -63,6 +96,132 @@ function normalizeAssistantContent(content: unknown): string {
   }
   if (content === null || content === undefined) return "";
   return String(content);
+}
+
+export function extractOpenAiStreamToolCallDeltas(parsed: unknown): StreamedToolCallDelta[] {
+  if (!parsed || typeof parsed !== "object") return [];
+  const root = parsed as {
+    choices?: Array<{
+      delta?: {
+        tool_calls?: Array<{
+          index?: unknown;
+          id?: unknown;
+          type?: unknown;
+          function?: {
+            name?: unknown;
+            arguments?: unknown;
+          };
+        }>;
+        function_call?: {
+          name?: unknown;
+          arguments?: unknown;
+        };
+      };
+    }>;
+  };
+  const delta = root.choices?.[0]?.delta;
+  if (!delta || typeof delta !== "object") return [];
+
+  const toolCallDeltas = Array.isArray(delta.tool_calls)
+    ? delta.tool_calls
+      .map((item, index) => ({
+        index: Number.isFinite(Number(item?.index)) ? Number(item?.index) : index,
+        id: typeof item?.id === "string" ? item.id : undefined,
+        type: typeof item?.type === "string" ? item.type : undefined,
+        function: item?.function && typeof item.function === "object"
+          ? {
+              name: typeof item.function.name === "string" ? item.function.name : undefined,
+              arguments: typeof item.function.arguments === "string" ? item.function.arguments : undefined
+            }
+          : undefined
+      }))
+      .filter((item) => Number.isFinite(item.index))
+    : [];
+  if (toolCallDeltas.length > 0) return toolCallDeltas;
+
+  const legacyFunctionCall = delta.function_call;
+  if (legacyFunctionCall && typeof legacyFunctionCall === "object") {
+    return [{
+      index: 0,
+      type: "function",
+      function: {
+        name: typeof legacyFunctionCall.name === "string" ? legacyFunctionCall.name : undefined,
+        arguments: typeof legacyFunctionCall.arguments === "string" ? legacyFunctionCall.arguments : undefined
+      }
+    }];
+  }
+
+  return [];
+}
+
+function extractMarkdownImages(text: string): MarkdownImageMatch[] {
+  const source = String(text || "");
+  if (!source) return [];
+  const matches: MarkdownImageMatch[] = [];
+
+  for (const match of source.matchAll(MARKDOWN_IMAGE_PATTERN)) {
+    const markdown = String(match[0] || "").trim();
+    const url = String(match[1] || "").trim();
+    if (!markdown || !url) continue;
+    matches.push({ markdown, url });
+  }
+
+  return matches;
+}
+
+function extractStructuredToolResultImages(text: string): StructuredToolResultMedia[] {
+  const source = String(text || "").trim();
+  if (!source.startsWith("{")) return [];
+  try {
+    const parsed = JSON.parse(source) as {
+      kind?: unknown;
+      media?: Array<{ type?: unknown; markdown?: unknown; url?: unknown }>;
+    };
+    if (parsed.kind !== "vellium_media_result" || !Array.isArray(parsed.media)) return [];
+    return parsed.media
+      .map((item) => {
+        const markdown = String(item?.markdown || "").trim();
+        const url = String(item?.url || "").trim();
+        if (!markdown || !url) return null;
+        return { markdown, url };
+      })
+      .filter((item): item is StructuredToolResultMedia => item !== null);
+  } catch {
+    return [];
+  }
+}
+
+export function appendMissingToolImageMarkdown(content: string, toolTraces: ToolCallTrace[]): { content: string; appended: string } {
+  const assistantText = String(content || "");
+  const existingImageUrls = new Set(
+    extractMarkdownImages(assistantText).map((item) => item.url)
+  );
+  const appendedMarkdown: string[] = [];
+
+  for (const trace of toolTraces) {
+    const images = [
+      ...extractStructuredToolResultImages(String(trace.result || "")),
+      ...extractMarkdownImages(String(trace.result || ""))
+    ];
+    for (const image of images) {
+      if (existingImageUrls.has(image.url)) continue;
+      existingImageUrls.add(image.url);
+      appendedMarkdown.push(image.markdown);
+    }
+  }
+
+  if (appendedMarkdown.length === 0) {
+    return {
+      content: assistantText,
+      appended: ""
+    };
+  }
+
+  const appended = `${assistantText.trimEnd() ? "\n\n" : ""}${appendedMarkdown.join("\n\n")}`;
+  return {
+    content: `${assistantText.trimEnd()}${appended}`,
+    appended
+  };
 }
 
 function flattenContentToText(content: unknown): string {
@@ -193,12 +352,216 @@ function parseToolServers(raw: unknown): McpServerConfig[] {
         name: String(row.name || id),
         command,
         args: String(row.args || ""),
+        cwd: String(row.cwd || "").trim() || undefined,
         env: String(row.env || ""),
         enabled: row.enabled !== false,
         timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : 15000
       } as McpServerConfig;
     })
     .filter((item): item is McpServerConfig => item !== null);
+}
+
+function normalizeToolCallAlias(name: string): string {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+}
+
+function resolveRequestedToolName(rawName: string, availableNames: string[]): string {
+  const trimmed = String(rawName || "").trim();
+  if (!trimmed) return "";
+  if (availableNames.includes(trimmed)) return trimmed;
+  const normalized = normalizeToolCallAlias(trimmed);
+  return availableNames.find((name) => normalizeToolCallAlias(name) === normalized) || "";
+}
+
+function buildParsedToolCall(rawPayload: string, availableNames: string[], idPrefix: string): OpenAIToolCall | null {
+  const payload = String(rawPayload || "").trim();
+  if (!payload) return null;
+  try {
+    const parsed = JSON.parse(payload) as {
+      name?: unknown;
+      tool?: unknown;
+      tool_name?: unknown;
+      arguments?: unknown;
+      args?: unknown;
+      input?: unknown;
+      function?: { name?: unknown; arguments?: unknown };
+    };
+    const requestedName = String(
+      parsed.function?.name
+      || parsed.name
+      || parsed.tool_name
+      || parsed.tool
+      || ""
+    ).trim();
+    const resolvedName = resolveRequestedToolName(requestedName, availableNames);
+    if (!resolvedName) return null;
+
+    const rawArguments = parsed.function?.arguments
+      ?? parsed.arguments
+      ?? parsed.args
+      ?? parsed.input
+      ?? {};
+    const serializedArgs = typeof rawArguments === "string"
+      ? rawArguments
+      : JSON.stringify(rawArguments ?? {});
+
+    return {
+      id: `${idPrefix}-${resolvedName}`,
+      type: "function",
+      function: {
+        name: resolvedName,
+        arguments: serializedArgs
+      }
+    };
+  } catch {
+    return null;
+  }
+}
+
+function collectBalancedJsonCandidates(text: string): RawToolCallCandidate[] {
+  const source = String(text || "");
+  const out: RawToolCallCandidate[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        const raw = source.slice(start, index + 1);
+        if (/"(?:name|tool|tool_name|function|arguments|args|input)"/i.test(raw)) {
+          out.push({
+            raw,
+            payload: raw
+          });
+        }
+        start = -1;
+      }
+    }
+  }
+
+  return out;
+}
+
+function collectRawToolCallCandidates(text: string): RawToolCallCandidate[] {
+  const source = String(text || "");
+  if (!source) return [];
+  const candidates: RawToolCallCandidate[] = [];
+  const seen = new Set<string>();
+  const pushCandidate = (candidate: RawToolCallCandidate) => {
+    const raw = String(candidate.raw || "");
+    const payload = String(candidate.payload || "").trim();
+    if (!raw || !payload) return;
+    const key = `${raw}\n---\n${payload}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({ raw, payload });
+  };
+
+  const taggedPattern = /\[TOOL_REQUEST\]\s*([\s\S]*?)\s*\[END_TOOL_REQUEST\]/gi;
+  for (const match of source.matchAll(taggedPattern)) {
+    pushCandidate({
+      raw: String(match[0] || ""),
+      payload: String(match[1] || "")
+    });
+  }
+
+  const fencedPattern = /```(?:json|tool|tool_call|tools)?\s*([\s\S]*?)```/gi;
+  for (const match of source.matchAll(fencedPattern)) {
+    pushCandidate({
+      raw: String(match[0] || ""),
+      payload: String(match[1] || "")
+    });
+  }
+
+  const callPattern = /([A-Za-z0-9_.:-]+)\s*\(\s*(\{[\s\S]*?\})\s*\)/g;
+  for (const match of source.matchAll(callPattern)) {
+    const toolName = String(match[1] || "").trim();
+    const argsPayload = String(match[2] || "").trim();
+    if (!toolName || !argsPayload) continue;
+    pushCandidate({
+      raw: String(match[0] || ""),
+      payload: JSON.stringify({
+        name: toolName,
+        arguments: JSON.parse(argsPayload)
+      })
+    });
+  }
+
+  for (const candidate of collectBalancedJsonCandidates(source)) {
+    pushCandidate(candidate);
+  }
+
+  return candidates;
+}
+
+function stripRawToolCallText(text: string, rawBlocks: string[]): string {
+  let visible = String(text || "");
+  for (const raw of [...rawBlocks].sort((a, b) => b.length - a.length)) {
+    if (!raw) continue;
+    visible = visible.replace(raw, "");
+  }
+  return visible.trim();
+}
+
+export function extractTextToolCalls(text: string, availableNames: string[]): {
+  toolCalls: OpenAIToolCall[];
+  visibleContent: string;
+} {
+  const source = String(text || "");
+  if (!source) {
+    return { toolCalls: [], visibleContent: "" };
+  }
+
+  const toolCalls: OpenAIToolCall[] = [];
+  const rawBlocks: string[] = [];
+  const seenCalls = new Set<string>();
+  const candidates = collectRawToolCallCandidates(source);
+
+  for (const candidate of candidates) {
+    const toolCall = buildParsedToolCall(candidate.payload, availableNames, `text-tool-${toolCalls.length + 1}`);
+    if (!toolCall) continue;
+    const callKey = `${String(toolCall.function?.name || "")}\n${String(toolCall.function?.arguments || "")}`;
+    if (seenCalls.has(callKey)) continue;
+    seenCalls.add(callKey);
+    toolCalls.push(toolCall);
+    rawBlocks.push(candidate.raw);
+  }
+
+  return {
+    toolCalls,
+    visibleContent: toolCalls.length > 0 ? stripRawToolCallText(source, rawBlocks) : source.trim()
+  };
 }
 
 function parseToolNameList(raw: unknown): string[] {
@@ -282,6 +645,146 @@ async function requestChatCompletion(
   }>;
 }
 
+async function requestChatCompletionStream(
+  provider: ProviderRow,
+  modelId: string,
+  body: Record<string, unknown>,
+  signal: AbortSignal,
+  onToolEvent?: (event: ToolCallStreamEvent) => void,
+  onAssistantDelta?: (delta: string) => void
+): Promise<{
+  choices?: Array<{
+    message?: {
+      content?: unknown;
+      tool_calls?: OpenAIToolCall[];
+    };
+  }>;
+}> {
+  const baseUrl = String(provider.base_url || "").replace(/\/+$/, "");
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${provider.api_key_cipher}`
+    },
+    body: JSON.stringify({ model: modelId, ...body, stream: true }),
+    signal
+  });
+  if (!response.ok || !response.body) {
+    const errText = await response.text().catch(() => "Unknown error");
+    throw new Error(`[API Error: ${response.status}] ${errText.slice(0, 500)}`);
+  }
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("text/event-stream")) {
+    throw new Error(`Streaming tool calling unsupported: expected text/event-stream, got ${contentType || "unknown"}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const assistantTextParts: string[] = [];
+  const streamedToolCalls = new Map<number, OpenAIToolCall>();
+  const startedCallIds = new Set<string>();
+  let buffer = "";
+
+  const emitToolDelta = (call: OpenAIToolCall) => {
+    const callId = String(call.id || "");
+    const args = String(call.function?.arguments || "");
+    const name = String(call.function?.name || "").trim() || "tool";
+    if (!callId) return;
+    if (!startedCallIds.has(callId)) {
+      startedCallIds.add(callId);
+      onToolEvent?.({
+        phase: "start",
+        callId,
+        name,
+        args
+      });
+      return;
+    }
+    onToolEvent?.({
+      phase: "delta",
+      callId,
+      name,
+      args
+    });
+  };
+
+  const processEventBlock = (eventBlock: string) => {
+    const eventType = extractSseEventType(eventBlock);
+    const payload = extractSseEventData(eventBlock);
+    if (!payload || payload === "[DONE]") return;
+    try {
+      const parsed = JSON.parse(payload) as unknown;
+      const streamError = extractOpenAiStreamErrorMessage(parsed);
+      if (eventType === "error" || streamError) {
+        throw new Error(streamError || "Provider stream returned an error event");
+      }
+      const textDelta = extractOpenAiStreamTextDelta(parsed);
+      if (textDelta) {
+        assistantTextParts.push(textDelta);
+        onAssistantDelta?.(textDelta);
+      }
+      const toolCallDeltas = extractOpenAiStreamToolCallDeltas(parsed);
+      for (const delta of toolCallDeltas) {
+        const index = Number.isFinite(delta.index) ? delta.index : streamedToolCalls.size;
+        const existing = streamedToolCalls.get(index) || {
+          id: delta.id || `tool-call-${index + 1}`,
+          type: delta.type || "function",
+          function: {
+            name: "",
+            arguments: ""
+          }
+        };
+        existing.id = delta.id || existing.id || `tool-call-${index + 1}`;
+        existing.type = delta.type || existing.type || "function";
+        existing.function = existing.function || {};
+        if (typeof delta.function?.name === "string" && delta.function.name) {
+          existing.function.name = `${String(existing.function.name || "")}${delta.function.name}`;
+        }
+        if (typeof delta.function?.arguments === "string" && delta.function.arguments) {
+          existing.function.arguments = `${String(existing.function.arguments || "")}${delta.function.arguments}`;
+        }
+        streamedToolCalls.set(index, existing);
+        emitToolDelta(existing);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error("Malformed provider stream chunk");
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const consumed = consumeSseEventBlocks(buffer);
+    buffer = consumed.rest;
+    for (const eventBlock of consumed.events) {
+      processEventBlock(eventBlock);
+    }
+  }
+
+  const flushed = consumeSseEventBlocks(buffer, true);
+  for (const eventBlock of flushed.events) {
+    processEventBlock(eventBlock);
+  }
+
+  const toolCalls = [...streamedToolCalls.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, call]) => call);
+
+  return {
+    choices: [{
+      message: {
+        content: assistantTextParts.join(""),
+        tool_calls: toolCalls
+      }
+    }]
+  };
+}
+
 export async function runToolCallingCompletion(params: {
   provider: ProviderRow;
   modelId: string;
@@ -290,7 +793,8 @@ export async function runToolCallingCompletion(params: {
   settings: Record<string, unknown>;
   signal: AbortSignal;
   onToolEvent?: (event: ToolCallStreamEvent) => void;
-}): Promise<{ content: string; toolCalls: ToolCallTrace[]; streamMessages?: Array<Record<string, unknown>> } | null> {
+  onAssistantDelta?: (delta: string) => void;
+}): Promise<{ content: string; toolCalls: ToolCallTrace[]; streamMessages?: Array<Record<string, unknown>>; assistantWasStreamed?: boolean } | null> {
   const autoAttach = params.settings.mcpAutoAttachTools !== false;
   if (!autoAttach) return null;
 
@@ -339,30 +843,61 @@ export async function runToolCallingCompletion(params: {
     let executedTools = 0;
 
     while (executedTools < maxToolCalls) {
-      const body = await requestChatCompletion(params.provider, params.modelId, {
-        messages: workingMessages,
-        stream: false,
-        ...openAiSampling,
-        tools: exposedTools,
-        ...(policy === "aggressive" ? { tool_choice: "auto" } : {})
-      }, params.signal);
+      let body: Awaited<ReturnType<typeof requestChatCompletion>>;
+      try {
+        body = await requestChatCompletionStream(
+          params.provider,
+          params.modelId,
+          {
+            messages: workingMessages,
+            ...openAiSampling,
+            tools: exposedTools,
+            ...(policy === "aggressive" ? { tool_choice: "auto" } : {})
+          },
+          params.signal,
+          params.onToolEvent,
+          executedTools > 0 ? params.onAssistantDelta : undefined
+        );
+      } catch (streamErr) {
+        const streamMessage = streamErr instanceof Error ? streamErr.message : "";
+        if (!/stream|sse|event-stream/i.test(streamMessage)) throw streamErr;
+        body = await requestChatCompletion(params.provider, params.modelId, {
+          messages: workingMessages,
+          stream: false,
+          ...openAiSampling,
+          tools: exposedTools,
+          ...(policy === "aggressive" ? { tool_choice: "auto" } : {})
+        }, params.signal);
+      }
 
       const assistant = body.choices?.[0]?.message;
       const assistantContent = normalizeAssistantContent(assistant?.content);
-      const toolCalls = Array.isArray(assistant?.tool_calls) ? assistant.tool_calls : [];
+      let toolCalls = Array.isArray(assistant?.tool_calls) ? assistant.tool_calls : [];
+      let visibleAssistantContent = assistantContent;
+      if (toolCalls.length === 0) {
+        const extracted = extractTextToolCalls(
+          assistantContent,
+          exposedTools.map((tool) => tool.function.name)
+        );
+        toolCalls = extracted.toolCalls;
+        visibleAssistantContent = extracted.visibleContent;
+      }
 
       if (toolCalls.length === 0) {
-        // No tool calls on first pass: fallback to standard streaming path.
+        // Keep the original assistant answer instead of re-running without tools.
         if (executedTools === 0) {
-          return null;
+          return { content: visibleAssistantContent, toolCalls: [] };
         }
-        // Tools were used already: run a final streamed assistant pass in caller.
-        return { content: assistantContent, toolCalls: toolTraces, streamMessages: workingMessages };
+        return {
+          content: visibleAssistantContent,
+          toolCalls: toolTraces,
+          assistantWasStreamed: true
+        };
       }
 
       workingMessages.push({
         role: "assistant",
-        content: assistantContent,
+        content: visibleAssistantContent,
         tool_calls: toolCalls
       });
 
@@ -384,18 +919,18 @@ export async function runToolCallingCompletion(params: {
           callId: toolCallId,
           name: toolName,
           args: toolArgs,
-          result: toolResult
+          result: toolResult.traceText
         });
         toolTraces.push({
           callId: toolCallId,
           name: toolName,
           args: toolArgs,
-          result: toolResult
+          result: toolResult.traceText
         });
         workingMessages.push({
           role: "tool",
           tool_call_id: toolCallId,
-          content: toolResult
+          content: toolResult.modelText
         });
         executedTools += 1;
       }

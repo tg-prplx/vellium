@@ -13,7 +13,23 @@ import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPlugin
 function isLocalProviderEndpoint(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(parsed.hostname);
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (hostname === "localhost" || hostname.endsWith(".local")) return true;
+    if (hostname === "::1" || hostname.startsWith("fc") || hostname.startsWith("fd") || hostname.startsWith("fe80:")) {
+      return true;
+    }
+
+    const parts = hostname.split(".").map((segment) => Number(segment));
+    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+      return false;
+    }
+
+    return parts[0] === 10
+      || parts[0] === 127
+      || parts[0] === 0
+      || (parts[0] === 192 && parts[1] === 168)
+      || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+      || (parts[0] === 169 && parts[1] === 254);
   } catch {
     return false;
   }
@@ -125,6 +141,11 @@ export function SettingsScreen() {
     [providers, selectedProviderId]
   );
   const draftManualModels = useMemo(() => parseManualModels(providerManualModels), [providerManualModels]);
+  const draftProviderIsLocalEndpoint = useMemo(
+    () => isLocalProviderEndpoint(providerBaseUrl.trim()),
+    [providerBaseUrl]
+  );
+  const showExternalProviderWarning = providerLocalOnly && Boolean(providerBaseUrl.trim()) && !draftProviderIsLocalEndpoint;
   const providerStats = useMemo(() => {
     const local = providers.filter((provider) => provider.fullLocalOnly || isLocalProviderEndpoint(provider.baseUrl)).length;
     return {
@@ -577,6 +598,17 @@ export function SettingsScreen() {
     setSelectedProviderId(saved.id);
   }
 
+  function buildProviderDraftPayload() {
+    return {
+      baseUrl: providerBaseUrl.trim(),
+      apiKey: providerApiKey.trim() || "local-key",
+      fullLocalOnly: providerLocalOnly,
+      providerType,
+      adapterId: providerType === "custom" ? providerAdapterId.trim() || null : null,
+      manualModels: draftManualModels
+    };
+  }
+
   async function quickAddPreset() {
     applyPresetToForm(selectedPreset);
     await api.providerUpsert({
@@ -593,10 +625,16 @@ export function SettingsScreen() {
   }
 
   async function testProvider() {
-    const targetId = selectedProviderId || providerId;
-    if (!targetId) { showResult(t("settings.selectOrSaveProviderFirst"), "error"); return; }
-    const ok = await api.providerTestConnection(targetId);
-    showResult(ok ? t("settings.connectionCheckOk") : t("settings.providerBlockedOrInvalid"), ok ? "success" : "error");
+    if (!providerBaseUrl.trim()) {
+      showResult(t("settings.fillProviderRequired"), "error");
+      return;
+    }
+    try {
+      const result = await api.providerPreviewTest(buildProviderDraftPayload());
+      showResult(result.ok ? t("settings.connectionCheckOk") : (result.error || t("settings.providerBlockedOrInvalid")), result.ok ? "success" : "error");
+    } catch (error) {
+      showResult(error instanceof Error ? error.message : String(error), "error");
+    }
   }
 
   async function loadModels() {
@@ -612,7 +650,28 @@ export function SettingsScreen() {
         list.length ? `${t("settings.modelsLoaded")}: ${list.length}` : t("settings.noModelsReturned"),
         list.length ? "success" : "info"
       );
-    } catch (error) { showResult(`${t("settings.loadModelsFailed")}: ${String(error)}`, "error"); }
+    } catch (error) { showResult(`${t("settings.loadModelsFailed")}: ${error instanceof Error ? error.message : String(error)}`, "error"); }
+  }
+
+  async function loadDraftModels() {
+    if (!providerBaseUrl.trim()) {
+      showResult(t("settings.fillProviderRequired"), "error");
+      return;
+    }
+    try {
+      const list = await api.providerPreviewModels(buildProviderDraftPayload());
+      setModels(list);
+      setSelectedModelId((prev) => {
+        if (list.length === 0) return "";
+        return list.some((model) => model.id === prev) ? prev : list[0].id;
+      });
+      showResult(
+        list.length ? `${t("settings.modelsLoaded")}: ${list.length}` : t("settings.noModelsReturned"),
+        list.length ? "success" : "info"
+      );
+    } catch (error) {
+      showResult(`${t("settings.loadModelsFailed")}: ${error instanceof Error ? error.message : String(error)}`, "error");
+    }
   }
 
   async function loadCompressModels() {
@@ -1022,7 +1081,7 @@ export function SettingsScreen() {
     return section.label.toLowerCase().includes(query);
   });
   const draftHasApiKey = Boolean(providerApiKey.trim()) || Boolean(editingProvider?.apiKeyMasked);
-  const canTestProvider = Boolean(selectedProviderId || editingProvider);
+  const canTestProvider = Boolean(providerBaseUrl.trim());
   const canActivateSelectedModel = Boolean(selectedProviderId && selectedModelId);
   const primaryActionClass = "rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60";
   const secondaryActionClass = "rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60";
@@ -1246,10 +1305,15 @@ export function SettingsScreen() {
                       </div>
                       <ToggleSwitch checked={providerLocalOnly} onChange={(e) => setProviderLocalOnly(e.target.checked)} />
                     </label>
+                    {showExternalProviderWarning && (
+                      <div className="rounded-lg border border-danger-border bg-danger-subtle px-3 py-2 text-xs text-danger">
+                        {t("settings.localOnlyExternalWarning")}
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-2">
                       <button onClick={saveProvider} className={primaryActionClass}>{t("settings.saveProvider")}</button>
                       <button onClick={testProvider} disabled={!canTestProvider} className={secondaryActionClass}>{t("settings.test")}</button>
-                      <button onClick={refreshProviders} className={secondaryActionClass}>{t("settings.refresh")}</button>
+                      <button onClick={loadDraftModels} disabled={!canTestProvider} className={secondaryActionClass}>{t("settings.refresh")}</button>
                     </div>
                   </div>
                 </div>

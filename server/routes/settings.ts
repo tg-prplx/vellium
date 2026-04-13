@@ -241,6 +241,26 @@ function normalizeMcpServer(raw: unknown, fallbackIndex = 1): McpServerConfig | 
     cmd?: unknown;
     arguments?: unknown;
     url?: unknown;
+    cwd?: unknown;
+  };
+  const normalizeArgs = (value: unknown): string => {
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => String(item ?? "").trim())
+        .filter(Boolean)
+        .map((item) => (/\s/.test(item) ? JSON.stringify(item) : item))
+        .join(" ");
+    }
+    return String(value || "").trim();
+  };
+  const normalizeEnv = (value: unknown): string => {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      return Object.entries(value as Record<string, unknown>)
+        .map(([key, entryValue]) => `${String(key || "").trim()}=${String(entryValue ?? "")}`)
+        .filter((line) => !line.startsWith("="))
+        .join("\n");
+    }
+    return String(value || "").trim();
   };
   const id = String(row.id || row.serverId || "").trim() || `mcp-${Date.now()}-${fallbackIndex}`;
   const name = String(row.name || row.displayName || id).trim() || id;
@@ -248,8 +268,9 @@ function normalizeMcpServer(raw: unknown, fallbackIndex = 1): McpServerConfig | 
   const command = String(row.command || row.cmd || (url ? "npx" : "")).trim();
   if (!command) return null;
   if (!isAllowedMcpCommand(command)) return null;
-  const args = String(row.args || row.arguments || (url ? `-y mcp-remote ${url}` : "")).trim();
-  const env = String(row.env || "").trim();
+  const args = normalizeArgs(row.args || row.arguments || (url ? `-y mcp-remote ${url}` : ""));
+  const env = normalizeEnv(row.env);
+  const cwd = String(row.cwd || "").trim();
   const timeoutMsRaw = Number(row.timeoutMs);
   const defaultTimeout = url ? 45000 : 15000;
   return {
@@ -257,6 +278,7 @@ function normalizeMcpServer(raw: unknown, fallbackIndex = 1): McpServerConfig | 
     name,
     command,
     args,
+    cwd: cwd || undefined,
     env,
     enabled: row.enabled !== false,
     timeoutMs: Number.isFinite(timeoutMsRaw) ? Math.max(1000, Math.min(120000, Math.floor(timeoutMsRaw))) : defaultTimeout
