@@ -10,12 +10,29 @@ function requestBases(): string[] {
   return import.meta.env.DEV ? [BASE] : [BASE, ...PROD_FALLBACK_BASES];
 }
 
+function resolveDesktopApiBase(): string | null {
+  if (typeof window === "undefined") return null;
+  if (window.location?.protocol !== "file:") return null;
+  return PROD_FALLBACK_BASES.find((candidate) => /^https?:\/\//i.test(candidate)) ?? null;
+}
+
 export function resolveApiAssetUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:")) {
-    return url;
+  const trimmed = String(url || "").trim();
+  if (!trimmed) return null;
+  if (/^(https?:|data:|blob:)/i.test(trimmed)) {
+    return trimmed;
   }
-  return url;
+  if (/^(\/|\.{1,2}\/)/.test(trimmed)) {
+    const desktopBase = resolveDesktopApiBase();
+    if (desktopBase) {
+      try {
+        return new URL(trimmed, desktopBase).toString();
+      } catch {
+        return trimmed;
+      }
+    }
+  }
+  return trimmed;
 }
 
 function isNetworkError(err: unknown): boolean {

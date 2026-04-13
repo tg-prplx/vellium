@@ -248,6 +248,11 @@ function isInitializeTimeoutError(error: unknown): boolean {
   return error instanceof Error && /MCP timeout on initialize\b/.test(error.message);
 }
 
+function isFatalConnectError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /MCP command is not allowed|MCP command not found/i.test(error.message) || error.message === "Aborted";
+}
+
 function normalizeSchema(input: unknown): Record<string, unknown> {
   if (input && typeof input === "object" && !Array.isArray(input)) {
     return input as Record<string, unknown>;
@@ -614,15 +619,16 @@ async function connectMcpClient(server: McpServerConfig, signal?: AbortSignal): 
   const probeTimeout = Math.max(1000, Math.min(1800, fullTimeout));
   let lastError: unknown = null;
 
-  if (preferred === "content-length") {
-    for (const format of attempts) {
-      try {
-        return await tryConnectMcpClient(server, format, signal, probeTimeout);
-      } catch (error) {
-        lastError = error;
-        if (!isInitializeTimeoutError(error)) {
-          throw error instanceof Error ? error : new Error(String(error || "Failed to connect to MCP server"));
-        }
+  // Probe both wire formats quickly before committing to a full initialize timeout.
+  // Some MCP servers are regular node scripts that still speak content-length framing,
+  // so a heuristic-only choice can otherwise stall tool use for the entire timeout window.
+  for (const format of attempts) {
+    try {
+      return await tryConnectMcpClient(server, format, signal, probeTimeout);
+    } catch (error) {
+      lastError = error;
+      if (isFatalConnectError(error)) {
+        throw error instanceof Error ? error : new Error(String(error || "Failed to connect to MCP server"));
       }
     }
   }
@@ -632,6 +638,9 @@ async function connectMcpClient(server: McpServerConfig, signal?: AbortSignal): 
       return await tryConnectMcpClient(server, format, signal, fullTimeout);
     } catch (error) {
       lastError = error;
+      if (isFatalConnectError(error)) {
+        throw error instanceof Error ? error : new Error(String(error || "Failed to connect to MCP server"));
+      }
     }
   }
 

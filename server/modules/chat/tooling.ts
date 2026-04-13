@@ -844,30 +844,35 @@ export async function runToolCallingCompletion(params: {
 
     while (executedTools < maxToolCalls) {
       let body: Awaited<ReturnType<typeof requestChatCompletion>>;
-      try {
-        body = await requestChatCompletionStream(
-          params.provider,
-          params.modelId,
-          {
-            messages: workingMessages,
-            ...openAiSampling,
-            tools: exposedTools,
-            ...(policy === "aggressive" ? { tool_choice: "auto" } : {})
-          },
-          params.signal,
-          params.onToolEvent,
-          executedTools > 0 ? params.onAssistantDelta : undefined
-        );
-      } catch (streamErr) {
-        const streamMessage = streamErr instanceof Error ? streamErr.message : "";
-        if (!/stream|sse|event-stream/i.test(streamMessage)) throw streamErr;
-        body = await requestChatCompletion(params.provider, params.modelId, {
-          messages: workingMessages,
-          stream: false,
-          ...openAiSampling,
-          tools: exposedTools,
-          ...(policy === "aggressive" ? { tool_choice: "auto" } : {})
-        }, params.signal);
+      let assistantPassWasStreamed = false;
+      const completionRequest = {
+        messages: workingMessages,
+        ...openAiSampling,
+        tools: exposedTools,
+        ...(policy === "aggressive" ? { tool_choice: "auto" } : {})
+      };
+
+      if (executedTools === 0) {
+        body = await requestChatCompletion(params.provider, params.modelId, completionRequest, params.signal);
+      } else {
+        try {
+          body = await requestChatCompletionStream(
+            params.provider,
+            params.modelId,
+            completionRequest,
+            params.signal,
+            params.onToolEvent,
+            params.onAssistantDelta
+          );
+          assistantPassWasStreamed = true;
+        } catch (streamErr) {
+          const streamMessage = streamErr instanceof Error ? streamErr.message : "";
+          if (!/stream|sse|event-stream/i.test(streamMessage)) throw streamErr;
+          body = await requestChatCompletion(params.provider, params.modelId, {
+            ...completionRequest,
+            stream: false
+          }, params.signal);
+        }
       }
 
       const assistant = body.choices?.[0]?.message;
@@ -891,7 +896,7 @@ export async function runToolCallingCompletion(params: {
         return {
           content: visibleAssistantContent,
           toolCalls: toolTraces,
-          assistantWasStreamed: true
+          assistantWasStreamed: assistantPassWasStreamed
         };
       }
 

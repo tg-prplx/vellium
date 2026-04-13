@@ -1,9 +1,32 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { streamPost } from "./core";
+import { resolveApiAssetUrl, streamPost } from "./core";
+
+const originalWindow = globalThis.window;
 
 afterEach(() => {
   vi.restoreAllMocks();
+  if (originalWindow === undefined) {
+    Reflect.deleteProperty(globalThis, "window");
+    return;
+  }
+  Object.defineProperty(globalThis, "window", {
+    value: originalWindow,
+    configurable: true
+  });
+});
+
+describe("resolveApiAssetUrl", () => {
+  it("keeps desktop asset URLs on the local backend instead of file://", () => {
+    Object.defineProperty(globalThis, "window", {
+      value: {
+        location: { protocol: "file:" }
+      },
+      configurable: true
+    });
+
+    expect(resolveApiAssetUrl("/api/avatars/example.png")).toBe("http://127.0.0.1:3001/api/avatars/example.png");
+  });
 });
 
 describe("streamPost", () => {
