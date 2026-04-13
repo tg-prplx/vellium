@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ThreePanelLayout, PanelTitle, EmptyState } from "../../components/Panels";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
+import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
 import type { LoreBook, LoreBookEntry } from "../../shared/types/contracts";
 import {
   failBackgroundTask,
@@ -43,44 +44,6 @@ function newEntry(index: number): LoreBookEntry {
     position: "after_char",
     insertionOrder: (index + 1) * 100
   };
-}
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Failed to read export blob"));
-    reader.onload = () => {
-      const raw = String(reader.result || "");
-      const comma = raw.indexOf(",");
-      resolve(comma >= 0 ? raw.slice(comma + 1) : raw);
-    };
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function triggerBlobDownload(blob: Blob, filename: string) {
-  if (window.electronAPI?.saveFile) {
-    const base64Data = await blobToBase64(blob);
-    const saved = await window.electronAPI.saveFile(filename, base64Data);
-    if (!saved.canceled && saved.ok) return;
-  }
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1500);
-}
-
-function buildFilenameBase(raw: string, fallback: string): string {
-  return String(raw || "")
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/\s+/g, " ")
-    .replace(/^-+|-+$/g, "") || fallback;
 }
 
 export function LorebooksScreen() {

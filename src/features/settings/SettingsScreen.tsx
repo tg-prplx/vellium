@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { isPluginDevAutoRefreshEnabled, PluginSlotMount, setPluginDevAutoRefreshEnabled, usePlugins } from "../plugins/PluginHost";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
+import { triggerBlobDownload } from "../../shared/download";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
 import { buildManagedBackendCommand, defaultManagedBackendConfig, normalizeManagedBackends, parseManagedBackendCommand, resolveManagedBackendBaseUrl } from "../../shared/managedBackends";
 import type { ApiParamPolicy, AppSettings, ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
 import { FieldLabel, InputField, SelectField, TextareaField, ToggleSwitch } from "./components/FormControls";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
-import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue, triggerBlobDownload } from "./utils";
+import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue } from "./utils";
 
 function isLocalProviderEndpoint(url: string): boolean {
   try {
