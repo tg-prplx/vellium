@@ -46,6 +46,24 @@ export const translations = {
     "tab.knowledge": "Knowledge",
     "tab.settings": "Settings",
 
+    // Task manager
+    "taskManager.title": "Tasks",
+    "taskManager.active": "active",
+    "taskManager.recent": "recent",
+    "taskManager.open": "Open",
+    "taskManager.stop": "Stop",
+    "taskManager.dismiss": "Dismiss",
+    "taskManager.clearFinished": "Clear Finished",
+    "taskManager.empty": "No tasks yet",
+    "taskManager.running": "Running",
+    "taskManager.done": "Done",
+    "taskManager.error": "Error",
+    "taskManager.scope.chat": "Chat",
+    "taskManager.scope.writing": "Writing",
+    "taskManager.scope.characters": "Characters",
+    "taskManager.scope.lorebooks": "LoreBooks",
+    "taskManager.scope.knowledge": "Knowledge",
+
     // Chat screen
     "chat.title": "Chats",
     "chat.new": "New",
@@ -986,6 +1004,24 @@ export const translations = {
     "tab.lorebooks": "Лорбуки",
     "tab.knowledge": "Знания",
     "tab.settings": "Настройки",
+
+    // Task manager
+    "taskManager.title": "Задачи",
+    "taskManager.active": "активно",
+    "taskManager.recent": "недавние",
+    "taskManager.open": "Открыть",
+    "taskManager.stop": "Остановить",
+    "taskManager.dismiss": "Убрать",
+    "taskManager.clearFinished": "Очистить завершенные",
+    "taskManager.empty": "Задач пока нет",
+    "taskManager.running": "В работе",
+    "taskManager.done": "Готово",
+    "taskManager.error": "Ошибка",
+    "taskManager.scope.chat": "Чат",
+    "taskManager.scope.writing": "Писательство",
+    "taskManager.scope.characters": "Персонажи",
+    "taskManager.scope.lorebooks": "Лорбуки",
+    "taskManager.scope.knowledge": "Знания",
 
     // Chat screen
     "chat.title": "Чаты",
