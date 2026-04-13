@@ -52,6 +52,10 @@ function taskStatusLabel(t: TaskTranslator, task: BackgroundTask) {
   return t("taskManager.running");
 }
 
+export function syncTaskManagerOpenState(isOpen: boolean, taskCount: number) {
+  return taskCount === 0 ? false : isOpen;
+}
+
 function TaskProgress({ task }: { task: BackgroundTask }) {
   const width = typeof task.progress === "number"
     ? `${Math.max(2, Math.min(100, task.progress))}%`
@@ -182,14 +186,8 @@ export function TaskManager({
   );
 
   useEffect(() => {
-    if (tasks.length === 0) {
-      setIsOpen(false);
-      return;
-    }
-    if (runningTasks.length > 0) {
-      setIsOpen(true);
-    }
-  }, [tasks.length, runningTasks.length]);
+    setIsOpen((prev) => syncTaskManagerOpenState(prev, tasks.length));
+  }, [tasks.length]);
 
   useEffect(() => {
     if (!isOpen) return;

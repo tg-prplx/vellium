@@ -1,41 +1,41 @@
-# Characters и LoreBooks
+# Characters and LoreBooks
 
-`Characters` и `LoreBooks` - это два разных, но тесно связанных слоя контекста.
+`Characters` and `LoreBooks` are two different but closely related layers of context.
 
-- `Character` описывает конкретного персонажа
-- `LoreBook` описывает мир, факты, правила, термины и триггерные вставки контекста
+- a `Character` describes one specific persona
+- a `LoreBook` describes the world, facts, rules, terminology, and trigger-based context inserts
 
-Если вы используете RP, их обычно настраивают вместе.
+If you use RP, you will usually configure them together.
 
-## Characters: зачем нужен отдельный раздел
+## Characters: why there is a dedicated screen
 
-Отдельный экран `Characters` нужен для того, чтобы:
+The separate `Characters` screen exists so you can:
 
-- импортировать готовые character cards
-- создавать новых персонажей с нуля
-- редактировать их через GUI и raw JSON
-- загружать avatar
-- экспортировать карту обратно в JSON
-- делать translated copy
+- import ready-made character cards
+- create new characters from scratch
+- edit them through both GUI fields and raw JSON
+- upload an avatar
+- export the card back to JSON
+- create translated copies
 
-## Способы создать персонажа
+## Ways to create a character
 
-Vellium поддерживает несколько сценариев:
+Vellium supports several paths:
 
-- импорт из `.json` файла
-- вставка JSON вручную
-- создание пустого персонажа
-- загрузка sample character
+- import from a `.json` file
+- paste JSON manually
+- create a blank character
+- load a sample character
 
-Это удобно, если вы:
+This is useful if you:
 
-- мигрируете карточки из другого RP-инструмента
-- создаете персонажа прямо внутри Vellium
-- хотите быстро протестировать UI на sample data
+- migrate cards from another RP tool
+- want to build the character entirely inside Vellium
+- just need sample data to test the UI quickly
 
-## Что хранит character card
+## What a character card stores
 
-На экране `Characters` редактируются поля вроде:
+The `Characters` screen exposes fields such as:
 
 - `Name`
 - `Description`
@@ -53,81 +53,81 @@ Vellium поддерживает несколько сценариев:
 - `Creator Notes (Multilingual JSON)`
 - `Extensions (JSON)`
 
-Это покрывает как базовый RP, так и более продвинутые карточки в стиле `chara_card_v2`.
+This covers both basic RP cards and more advanced `chara_card_v2`-style cards.
 
-## GUI и Raw JSON
+## GUI and Raw JSON
 
-Редактор персонажей в Vellium двусторонний:
+The character editor in Vellium is bidirectional:
 
-- GUI-поля для нормального редактирования
-- raw JSON-панель для ручной доработки
+- GUI fields for normal editing
+- a raw JSON panel for exact manual control
 
-Это удобно в двух случаях:
+This is useful in two common cases:
 
-- вам нужен быстрый визуальный редактор
-- вам нужно отредактировать низкоуровневые поля или проверить точную структуру карты
+- you want a fast visual editor
+- you need to edit low-level fields or verify the exact card structure
 
-Рекомендация:
+Recommended practice:
 
-- начинайте через GUI
-- переходите к raw JSON только для тонкой правки или импорта/диагностики
+- start in the GUI
+- move to raw JSON only for fine-tuning, imports, or diagnostics
 
 ## Alternate Greetings
 
-Vellium поддерживает альтернативные приветствия персонажа. Их можно вводить:
+Vellium supports alternate greetings for one character. You can enter them:
 
-- через разделитель `---`
-- через JSON-массив
+- with the `---` separator
+- as a JSON array
 
-Это удобно, если вы хотите несколько стартовых интонаций для одной и той же character card.
+This is useful if you want several starting tones for the same character card.
 
-## Аватар, превью и экспорт
+## Avatar, Preview, and Export
 
-На карточке персонажа можно:
+Inside the character card you can:
 
-- загрузить avatar
-- видеть preview
-- экспортировать JSON
+- upload an avatar
+- view the preview
+- export the character JSON
 
-Экспорт полезен для:
+Export is useful for:
 
-- резервного копирования
-- обмена карточками
-- миграции между машинами или инструментами
+- backups
+- card sharing
+- migration between machines or tools
 
 ## Translate Copy
 
-Для персонажа доступен `Translate Copy`. Это создает отдельную копию карточки с переводом ее текстовых данных.
+Each character supports `Translate Copy`. This creates a separate translated version of the card.
 
-Сценарий полезен, если:
+Use it when:
 
-- у вас есть англоязычная карточка и нужен русскоязычный вариант
-- вы хотите держать несколько локализованных версий персонажа
-- нужно сохранить оригинал без изменений
+- you have an English card and want a localized version
+- you want several language-specific variants of the same character
+- you want to preserve the original card unchanged
 
-## LoreBooks: зачем они отдельно
+## LoreBooks: why they are separate
 
-Экран `LoreBooks` нужен для world info и background context, который не должен жить внутри character card.
+The `LoreBooks` screen is for world info and background context that should not live inside one character card.
 
-Типичные кейсы:
+Typical use cases:
 
-- история мира
-- социальные правила
-- описание городов, фракций, магии, технологий
-- терминология
-- справочные факты, которые нужно подмешивать по ключам
+- setting history
+- social rules
+- cities, factions, magic, technology
+- terminology
+- background facts that should be injected by trigger keys
 
-## Что можно делать с лорбуком
+## What you can do with a LoreBook
 
-- создать новый lorebook
-- импортировать world info JSON
-- редактировать структуру книги и entry
-- экспортировать в world info
-- сделать translated copy ключей
+- create a new LoreBook
+- import world info JSON
+- edit the book and each entry
+- export back to world info format
+- create translated copies of trigger keys
 
-## Структура entry
+## Entry structure
 
-Каждая запись лорбука содержит как минимум:
+Each LoreBook entry contains at least:
 
 - `Name`
 - `Keys`
@@ -137,21 +137,21 @@ Vellium поддерживает альтернативные приветств
 - `Position`
 - `Insertion Order`
 
-### Что значат важные поля
+### What the important fields mean
 
 `Keys`
 
-- список ключей/триггеров, которые активируют запись
+- the trigger words or phrases that activate the entry
 
 `Constant`
 
-- если включено, запись считается всегда активной
+- if enabled, the entry is treated as always active
 
 `Position`
 
-- задает, куда вставлять запись относительно других частей prompt stack
+- defines where the entry is inserted relative to other parts of the prompt stack
 
-Поддерживаются такие позиции:
+Supported positions include:
 
 - `after_char`
 - `before_char`
@@ -164,46 +164,45 @@ Vellium поддерживает альтернативные приветств
 
 `Insertion Order`
 
-- помогает тонко расставить приоритет, если в одной зоне несколько записей
+- gives you fine priority control when several entries land in the same area
 
-## SillyTavern / World Info совместимость
+## SillyTavern / World Info compatibility
 
-Vellium явно поддерживает:
+Vellium explicitly supports:
 
-- import/export world info
-- совместимость с SillyTavern-подобными структурами world info
+- world info import and export
+- compatibility with SillyTavern-like world info structures
 
-Это делает раздел `LoreBooks` удобным, если вы мигрируете существующие RP-материалы.
+That makes `LoreBooks` a practical migration target for existing RP material.
 
-## Когда использовать character card, а когда lorebook
+## When to use a character card vs a LoreBook
 
-Используйте `Character`, если информация относится к одному персонажу:
+Use a `Character` when the information belongs to one character:
 
-- личность
-- стиль речи
+- personality
+- speaking style
 - greeting
-- характер
-- персональный system prompt
+- personal behavior
+- a character-specific system prompt
 
-Используйте `LoreBook`, если информация относится к миру:
+Use a `LoreBook` when the information belongs to the world:
 
-- сеттинг
-- канон
-- терминология
-- исторические факты
-- правила или ограничения
+- setting canon
+- terminology
+- historical facts
+- rules and restrictions
 
-## Рекомендуемый workflow
+## Recommended workflow
 
-1. Создайте или импортируйте персонажа.
-2. Заполните identity/content.
-3. Если мир сложный, создайте отдельный lorebook.
-4. Вынесите общие факты мира в lorebook, а не в character card.
-5. В `Chat` подключите нужного персонажа и lorebook.
+1. Create or import the character.
+2. Fill in the identity and speaking fields.
+3. If the setting is complex, create a separate LoreBook.
+4. Move shared world facts into the LoreBook instead of stuffing them into the character card.
+5. In `Chat`, attach the correct character and LoreBook together.
 
-## Практические советы
+## Practical Advice
 
-- Не превращайте character card в encyclopaedia. Для этого есть lorebook и knowledge collections.
-- Если структура карты сложная, держите GUI как основной слой, а raw JSON как технический.
-- Для worldbuilding с большим количеством терминов лучше делать несколько понятных entries, а не одну гигантскую.
-- Если у вас много импортированных карточек, используйте `Tags` и preview для быстрой навигации.
+- Do not turn the character card into an encyclopedia. That is what LoreBooks and knowledge collections are for.
+- If the card structure becomes complex, keep the GUI as the main layer and raw JSON as the technical layer.
+- For large worldbuilding sets, several focused entries work better than one giant blob.
+- If you import many cards, use `Tags` and previews for navigation.

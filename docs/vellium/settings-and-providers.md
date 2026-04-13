@@ -1,26 +1,28 @@
-# Settings и Providers
+# Settings and Providers
 
-`Settings` в Vellium - это не просто экран с общими переключателями. Это центр маршрутизации моделей, UI-поведения, контекста, security-политик, plugins и MCP.
+`Settings` in Vellium is not just a preferences page. It is the routing center for models, UI behavior, context policies, security policies, plugins, and MCP.
 
-## Категории настроек
+![Provider and routing settings](./assets/settings-providers.png)
 
-Vellium делит настройки на крупные категории:
+## Settings categories
 
-| Категория | Что внутри |
+Vellium groups settings into large categories:
+
+| Category | What is inside |
 | --- | --- |
-| `Connection` | Провайдеры, активная модель, translation/compress/TTS модели |
-| `Backends` | Managed backends |
-| `Interface` | Общие UI-настройки и workspace mode |
-| `Generation` | Output behaviour, sampler defaults, API param forwarding |
-| `Context` | Context window, chat behaviour, scene fields, RAG |
+| `Connection` | Providers, active model, translation/compress/TTS routing |
+| `Backends` | Managed local backends |
+| `Interface` | UI language, themes, density, Simple Mode, general UX |
+| `Generation` | Output behavior, sampler defaults, API parameter forwarding |
+| `Context` | Context window, scene fields, chat behavior, RAG tuning |
 | `Prompts` | Prompt templates, prompt stack, default system prompts |
-| `Tools & MCP` | Tool calling, security, plugins, MCP servers/functions, reset |
+| `Tools & MCP` | Tool calling, security, plugins, MCP servers, MCP functions, reset flows |
 
-## Connection: провайдеры и модели
+## Connection: providers and models
 
-### Быстрые пресеты
+### Quick presets
 
-Из `Settings` и `Welcome` можно быстро поднять provider profile из пресета:
+From both `Settings` and `Welcome`, you can create a provider profile from a preset:
 
 - `OpenAI`
 - `LM Studio`
@@ -29,9 +31,9 @@ Vellium делит настройки на крупные категории:
 - `OpenRouter`
 - `Custom`
 
-### Manual provider
+### Manual provider setup
 
-Если готовый пресет не подходит, можно настроить провайдера вручную. Обычно редактируются:
+If no preset fits, configure the provider manually. Typical fields include:
 
 - provider ID
 - display name
@@ -41,100 +43,101 @@ Vellium делит настройки на крупные категории:
 - local-only flag
 - manual fallback models
 
-### Типы провайдеров
+### Provider types
 
-Vellium различает:
+Vellium distinguishes between:
 
 - `OpenAI-compatible`
 - `KoboldCpp`
 - `Custom adapter`
 
-Это важно, потому что не все функции доступны для всех типов одинаково.
+That matters because not every feature behaves the same across all provider types.
 
 ### Active model routing
 
-В Settings задается не только provider profile, но и активная рабочая модель, которую использует `Chat` прямо сейчас.
+`Settings` does not only store provider profiles. It also stores the active model used by `Chat` right now.
 
-Если она не назначена, основные workflow будут неполными.
+If the active model is not assigned, the main flows are incomplete.
 
-## Раздельные модели под разные задачи
+## Separate models for separate jobs
 
-Vellium умеет держать отдельные модели/провайдеры для:
+Vellium can keep separate models or providers for:
 
-- перевода
-- компрессии контекста
+- translation
+- context compression
 - TTS
-- embedding/RAG
-- reranker
+- embeddings / RAG
+- reranking
 
-Это одно из главных преимуществ Vellium как workbench-инструмента: вам не нужно заставлять один и тот же endpoint делать все.
+This is one of the biggest advantages of Vellium as a workbench: one endpoint does not have to do everything.
 
-## Runtime mode и local-only политика
+## Runtime mode and local-only policy
 
-Через `runtime mode` и local-only ограничения можно контролировать, разрешены ли:
+Through runtime mode and local-only restrictions you can control whether the app allows:
 
-- только локальные endpoint'ы
-- private LAN endpoint'ы
-- внешние удаленные endpoint'ы
+- localhost-only endpoints
+- private LAN endpoints
+- external remote endpoints
 
-Это особенно полезно в приватных, локальных или self-hosted инсталляциях.
+This matters most in private, local, or self-hosted deployments.
 
 ## Backends
 
-Раздел `Backends` нужен, если вы хотите управлять локально запускаемыми backend-процессами рядом с Vellium.
+The `Backends` section exists for users who want Vellium to help manage locally launched backend processes.
 
-По коду видно, что экран рассчитан на:
+From the code and UI structure, this section is built around:
 
 - managed backends
-- import CLI command
-- runtime state / logs
+- imported CLI commands
+- runtime state
+- logs
 
-Используйте его, если у вас сложный self-hosted стек и вы хотите централизовать запуск рядом с приложением.
+Use it when your self-hosted stack is complex enough that you want launch control close to the app.
 
 ## Interface
 
-В `Interface` обычно настраивают:
+The `Interface` section usually contains:
 
-- язык интерфейса
+- interface language
 - response language
 - theme
 - plugin theme
-- simple mode / workspace mode
+- Simple Mode / workspace mode
 
-Если Vellium используется несколькими людьми на одной машине, имеет смысл зафиксировать эти настройки сразу.
+If several people use Vellium on the same machine, it is worth defining these early.
 
 ## Generation
 
-Здесь сосредоточены параметры, влияющие на стиль и форму генерации:
+This section holds the settings that affect output style and form:
 
-- output behaviour
+- output behavior
 - sampler defaults
 - API parameter forwarding
 
-Особенно важен блок `API param forwarding`, потому что он определяет, какие generation-параметры реально передаются backend'у.
+The `API param forwarding` block is especially important, because it controls which generation parameters are actually sent to the backend.
 
 ## Context
 
-В `Context` лежат настройки, которые сильнее всего влияют на длинные диалоги и RP:
+The `Context` section affects long chats and RP more than almost anything else:
 
-- context window
-- conversation behaviour
+- context window size
+- conversation behavior
 - scene field visibility
-- RAG model
-- reranker
+- RAG routing
+- reranker routing
 - retrieval tuning
 
-Если чат становится нестабильным на длинной истории, сюда стоит смотреть одним из первых.
+If long conversations become unstable, this is one of the first places to inspect.
 
 ## Prompts
 
-Этот раздел отвечает за системный слой генерации:
+This section controls the system layer of generation:
 
 - prompt templates
 - prompt stack
 - default system prompts
 
-Prompt stack в Vellium состоит из блоков вроде:
+The Vellium prompt stack uses blocks such as:
 
 - `system`
 - `jailbreak`
@@ -144,58 +147,58 @@ Prompt stack в Vellium состоит из блоков вроде:
 - `scene`
 - `history`
 
-Это ключевой раздел для тех, кто тонко настраивает RP или хочет жестко контролировать структуру промпта.
+This is the key section for users who tune RP deeply or want strict prompt structure control.
 
-## Tools & MCP
+## Tools and MCP
 
 ### Tool calling
 
-В `Tools & MCP` можно:
+Inside `Tools & MCP` you can:
 
-- включить `Enable Tool Calling`
-- выбрать политику: `Conservative`, `Balanced`, `Aggressive`
-- задать лимит вызовов за ход
-- включить `Auto-attach MCP tools`
+- enable `Tool Calling`
+- choose the policy: `Conservative`, `Balanced`, or `Aggressive`
+- set the per-turn call limit
+- enable `Auto-attach MCP tools`
 
-Важно:
+Important:
 
-- для `KoboldCpp` tool calling отключен
-- для OpenAI-compatible providers он может быть активен
+- tool calling is disabled for `KoboldCpp`
+- it can be enabled for OpenAI-compatible providers
 
 ### Security
 
-В security-блоке управляются как минимум такие переключатели:
+The security block controls at least:
 
-- sanitize markdown HTML
-- allow external links
-- allow remote images
-- allow unsafe uploads
+- Markdown HTML sanitization
+- external link policy
+- remote image policy
+- unsafe upload policy
 
-Это напрямую влияет на то, как Vellium будет рендерить модельный markdown и обращаться с внешними ресурсами.
+This directly affects how Vellium renders model-generated Markdown and handles external resources.
 
 ### Plugins
 
-Из `Settings -> Plugins` можно:
+From `Settings -> Plugins` you can:
 
-- установить plugin из `Pluginfile`
-- экспортировать plugin обратно в `Pluginfile`
-- перезагрузить каталог
-- скопировать путь к plugins directory
-- открыть plugin settings
-- управлять permissions
-- включать и выключать plugins
+- install a plugin from `Pluginfile`
+- export a plugin back into `Pluginfile`
+- reload the catalog
+- copy the plugins directory path
+- open plugin settings
+- manage permissions
+- enable or disable plugins
 
 ### MCP Functions
 
-В этом блоке Vellium:
+This block is where Vellium:
 
-- загружает доступные функции с MCP servers
-- показывает их группами по серверу
-- позволяет точечно отключать вызов конкретных функций
+- loads function definitions from configured MCP servers
+- groups them by server
+- lets you disable individual callable functions
 
 ### MCP Servers
 
-Для каждого MCP server можно задать:
+For each MCP server you can configure:
 
 - `Server ID`
 - `Display Name`
@@ -205,50 +208,50 @@ Prompt stack в Vellium состоит из блоков вроде:
 - `Enabled`
 - `Timeout`
 
-Также сервер можно:
+You can also:
 
-- импортировать из URL или JSON
-- протестировать
-- сохранить
-- удалить
+- import server definitions from URL or JSON
+- test a server
+- save it
+- delete it
 
 ## Danger Zone
 
-В `Danger Zone` находится полный сброс настроек к значениям по умолчанию.
+`Danger Zone` contains the full settings reset.
 
-Используйте этот раздел только если:
+Use it only when:
 
-- конфигурация явно зашла в тупик
-- вы хотите начать настройку заново
-- нужно быстро очистить экспериментальный state
+- the configuration is clearly stuck
+- you want to restart setup from a clean baseline
+- you need to discard experimental state quickly
 
-## Рекомендуемые профили настройки
+## Recommended setup profiles
 
-### Локальный RP-стек
+### Local RP stack
 
-- provider: `LM Studio`, `Ollama` или `KoboldCpp`
-- local-only: включен
-- simple mode: на ваше усмотрение
-- RAG: только при наличии collections
-- tool calling: если нужен и если provider совместим
+- provider: `LM Studio`, `Ollama`, or `KoboldCpp`
+- local-only: enabled
+- Simple Mode: personal preference
+- RAG: only if you actually use collections
+- tool calling: only if you need it and the provider supports it
 
-### Универсальный удаленный стек
+### General remote stack
 
-- provider: `OpenAI` или `OpenRouter`
-- local-only: выключен
-- translation/compress/TTS: можно развести на разные модели
-- tool calling: включать только после настройки MCP
+- provider: `OpenAI` or `OpenRouter`
+- local-only: disabled
+- translation / compression / TTS can be split across separate models
+- enable tool calling only after MCP is configured
 
-### Писательский стек
+### Writing stack
 
-- отдельная writer-friendly модель
-- отдельная compress model
-- отдельная embedding model
-- Book Bible + Knowledge collections + summary lenses
+- one writer-friendly generation model
+- a separate compression model
+- a separate embedding model
+- Book Bible + knowledge collections + summary lenses
 
-## Практические советы
+## Practical Advice
 
-- Не пытайтесь сразу настроить все разделы. Сначала `Connection`, потом `Context`, потом `Prompts`.
-- Если меняете backend, всегда перепроверяйте активную модель.
-- Если что-то перестало работать после экспериментов с prompt stack, откатите default prompts раньше, чем будете менять provider.
-- Plugins и MCP лучше включать после того, как базовый chat flow уже стабилен.
+- Do not try to configure every section at once. Start with `Connection`, then `Context`, then `Prompts`.
+- If you change backend infrastructure, always re-check the active model.
+- If prompt behavior breaks after experiments, restore prompt defaults before switching providers.
+- Plugins and MCP are safer to enable only after the base chat flow is already stable.

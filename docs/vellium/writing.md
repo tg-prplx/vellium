@@ -1,92 +1,96 @@
 # Writing
 
-`Writing` в Vellium - это отдельная workspace-зона для длинных текстов, книг, сцен и писательских AI-flow, а не просто еще один чат.
+`Writing` in Vellium is a dedicated workspace for long-form text, books, scenes, and writing-specific AI flows. It is not just another chat window.
 
-## Что покрывает Writing
+The screenshot below shows the `Simple Mode` writing workspace, which is the cleaner option for first-time use.
 
-- проекты книг
-- главы и сцены
-- генерация следующей главы
-- rewrite / expand / summarize
+![Simple Mode writing workspace](./assets/simple-writing.png)
+
+## What Writing Covers
+
+- book projects
+- chapters and scenes
+- next-chapter generation
+- rewrite / expand / summarize flows
 - consistency checks
-- Book Bible
+- a Book Bible
 - writer-side RAG
 - Character Forge
 - summary lenses
-- импорт DOCX и экспорт DOCX/Markdown
+- DOCX import and DOCX / Markdown export
 
-## Главные сущности
+## Main Entities
 
-| Сущность | Что это |
+| Entity | What it means |
 | --- | --- |
-| `Project` | Отдельная книга или писательский проект |
-| `Chapter` | Глава или крупный блок проекта |
-| `Scene` | Подглава/сцена внутри главы |
-| `Book Bible` | Структурированные notes по книге |
-| `Cast` | Набор связанных персонажей |
-| `Lens` | Аналитический шаблон для summary/diagnostics |
+| `Project` | A separate book or writing project |
+| `Chapter` | A chapter or major structural block |
+| `Scene` | A scene inside a chapter |
+| `Book Bible` | Structured notes for the whole project |
+| `Cast` | The set of related characters |
+| `Lens` | An analysis template for summaries and diagnostics |
 
-## Режимы workspace
+## Workspace Modes
 
-Writing поддерживает как минимум два смысловых режима:
+Writing supports at least two meaningful modes:
 
 - `Books`
 - `Chars`
 
-`Books` нужен для собственно текста, глав и сцен.
+`Books` is for actual manuscript work: projects, chapters, scenes, and exports.
 
-`Chars` нужен для Character Forge и редактора персонажей с фокусом на писательский pipeline.
+`Chars` is for Character Forge and character editing with a writing-first workflow.
 
-## Базовый workflow книги
+## Basic Book Workflow
 
-1. Создайте новый project.
-2. Добавьте первую главу.
-3. Создайте сцену или сгенерируйте следующий текст.
-4. Используйте `Expand`, `Rewrite`, `Summarize` и `Consistency` по мере редактирования.
-5. Ведите `Book Bible`, чтобы долгий проект не распался.
-6. Экспортируйте результат в Markdown или DOCX.
+1. Create a new project.
+2. Add the first chapter.
+3. Create or generate the first scene.
+4. Use `Expand`, `Rewrite`, `Summarize`, and `Consistency` while editing.
+5. Keep the `Book Bible` updated so the project does not drift.
+6. Export to Markdown or DOCX when needed.
 
-## Проекты, главы и сцены
+## Projects, Chapters, and Scenes
 
-В `Books` режиме Vellium позволяет:
+In `Books`, Vellium lets you:
 
-- создавать и переименовывать проекты
-- удалять книги, главы и сцены
-- искать по книгам
-- генерировать `next chapter`
-- редактировать сцену inline
+- create and rename projects
+- delete books, chapters, and scenes
+- search through books
+- generate the next chapter
+- edit scene text inline
 
-Это значит, что Writing подходит не только для генерации, но и для последовательной ручной сборки черновика.
+That means Writing supports both AI generation and deliberate manual draft construction.
 
-## Основные writer-операции
+## Main Writer Operations
 
 ### Generate
 
-Используйте, когда нужен новый черновик сцены или продолжение текста на основе текущего контекста.
+Use it when you need a fresh scene draft or a continuation based on the current context.
 
 ### Generate Next Chapter
 
-Подходит для перехода между крупными блоками текста, когда книга уже имеет структуру.
+Use it when the book already has a structure and you want help moving from one major block to the next.
 
 ### Expand
 
-Увеличивает уже существующую сцену, добавляя детали, переходы или объем.
+Adds detail, transitions, and additional texture to an existing scene.
 
 ### Rewrite
 
-Переписывает текущий фрагмент, когда идея верная, а формулировка нет.
+Useful when the idea is right but the phrasing or tone is wrong.
 
 ### Summarize
 
-Создает сводку по сцене или книге, полезную для навигации и поддержания контекста.
+Builds short summaries for scenes or the whole project, which helps navigation and context retention.
 
 ### Consistency
 
-Проверяет проект на continuity-проблемы и помогает находить расхождения.
+Runs continuity checks and helps surface contradictions inside the project.
 
 ## Chapter Dynamics
 
-Для глав доступен отдельный блок динамики, где можно управлять параметрами вроде:
+Each chapter can carry its own dynamics profile, including controls such as:
 
 - `Tone`
 - `POV`
@@ -95,11 +99,11 @@ Writing поддерживает как минимум два смысловых
 - `Detail`
 - `Dialogue Share`
 
-Это полезно, когда вы хотите держать формальные характеристики главы под контролем, а не надеяться только на prompt.
+This is useful when you want a chapter to obey formal constraints instead of relying only on prompt wording.
 
 ## Book Bible
 
-Book Bible - это структурированная память проекта. В ней можно хранить:
+The Book Bible is the project's structured memory. It can hold:
 
 - `Book premise / core hook`
 - `Style guide`
@@ -107,13 +111,13 @@ Book Bible - это структурированная память проект
 - `Character ledger / arcs`
 - `Book summary`
 
-Практически это один из самых важных разделов для длинного проекта. Если вы пишете роман, сериализованную историю или большую кампанию, Book Bible нужно заполнять с первых дней.
+For long projects this is one of the most important sections. If you are writing a novel, a serial, or a campaign-like story, fill it from the beginning.
 
 ## Summary Lenses
 
-`Summary Lenses` - это аналитические шаблоны, которые прогоняют проект через специализированный взгляд.
+`Summary Lenses` are analytic templates that let you inspect the project from a focused angle.
 
-Из коробки в Vellium есть пресеты вроде:
+Built-in examples include:
 
 - `Character Arc`
 - `Object Tracker`
@@ -121,76 +125,76 @@ Book Bible - это структурированная память проект
 - `Timeline`
 - `Theme Development`
 
-Каждый lens можно:
+Each lens can be:
 
-- создать
-- загрузить
-- запустить
-- удалить
-- ограничить scope
+- created
+- loaded
+- run
+- deleted
+- scoped
 
-Это особенно полезно для диагностики больших рукописей.
+This is especially useful for larger manuscripts.
 
 ## Character Forge
 
-В режиме `Chars` Writing умеет:
+In `Chars` mode Writing can:
 
-- генерировать нового персонажа по описанию
-- добавлять персонажа в cast
-- редактировать персонажа через AI Edit
-- работать с basic и advanced параметрами
+- generate a new character from a description
+- add characters to the cast
+- edit a character through AI Edit
+- work with both basic and advanced inputs
 
-AI Edit позволяет не пересоздавать персонажа с нуля, а адресно менять отдельные поля по инструкции.
+AI Edit is useful when you do not want to rebuild a character from scratch and only need targeted changes.
 
-## Writer-side RAG
+## Writer-Side RAG
 
-Writing может использовать retrieval-контекст отдельно от chat workflow. Это удобно, если вы хотите:
+Writing can use retrieval separately from chat. This is useful when you want to:
 
-- держать референсы мира вне самой книги
-- подтягивать исследования, справки и notes
-- использовать общую базу знаний только для писательских задач
+- keep world references outside the manuscript itself
+- pull in research notes, references, or background material
+- maintain a shared knowledge base for writing tasks only
 
-Сами knowledge collections создаются в `Knowledge`, а подключение и выбор моделей настраиваются через `Settings`.
+The collections themselves live in `Knowledge`, while model routing lives in `Settings`.
 
-## DOCX import/export
+## DOCX Import and Export
 
-Writing поддерживает:
+Writing supports:
 
 - `Import DOCX`
 - `Export MD`
 - `Export DOCX`
 
-При импорте доступны режимы парсинга:
+On import, Vellium offers parsing modes such as:
 
 - `Auto`
 - `Chapter markers`
 - `Heading lines / DOCX headings`
 - `Single book`
 
-Это важно, если ваши входные документы имеют разную структуру.
+That matters because incoming manuscripts can have very different structures.
 
-## Когда импортировать DOCX как новую книгу
+## When to import DOCX as a new book
 
-Этот режим полезен, когда:
+This mode is useful when:
 
-- вы переносите уже существующую рукопись в Vellium
-- исходный документ лучше считать самостоятельным project
-- вы не хотите смешивать импорт с текущей книгой
+- you are moving an existing manuscript into Vellium
+- the source document should become its own project
+- you do not want to merge the import into an already active book
 
-## Логи, задачи и диагностика
+## Logs, Tasks, and Diagnostics
 
-Writing ведет:
+Writing keeps track of:
 
-- generation log
-- tasks
-- consistency issue list
+- generation logs
+- background tasks
+- consistency issue lists
 
-Эти панели полезны не только для истории действий, но и для отладки собственного workflow.
+These are useful not only for history, but also for debugging your own workflow.
 
-## Практические советы
+## Practical Advice
 
-- Для длинного проекта сначала настройте `Book Bible`, потом AI-generation.
-- `Rewrite` и `Expand` работают лучше, если сцена уже внятно сформулирована.
-- `Summary Lenses` особенно полезны после нескольких глав, а не в самом начале.
-- Если проект зависим от research, заведите отдельную knowledge collection и включайте writer-side RAG.
-- DOCX import лучше делать на чистом проекте, чтобы проще было проверить структуру после разбора.
+- For long projects, set up the `Book Bible` before leaning on generation.
+- `Rewrite` and `Expand` work best when the scene already has a clear intent.
+- `Summary Lenses` become much more useful after several chapters, not on page one.
+- If the project depends on research, create a dedicated knowledge collection and enable writer-side RAG.
+- DOCX import is easiest to verify on a clean project, where structure problems are more obvious.

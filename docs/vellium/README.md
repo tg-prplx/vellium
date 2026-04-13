@@ -1,34 +1,36 @@
-# Руководство по использованию Vellium
+# Vellium User Guide
 
 ![Vellium icon](../vellium-icon.png)
 
-Vellium - это локально-ориентированное desktop/workbench-приложение для:
+Vellium is a local-first desktop/workbench app for:
 
-- AI-чата и RP-сценариев
-- писательских workflow
-- персонажей и лорбуков
-- баз знаний и RAG
-- MCP/tool calling
-- локальных плагинов и тем
+- AI chat and RP workflows
+- long-form writing workflows
+- characters and LoreBooks
+- knowledge collections and RAG
+- MCP / tool calling
+- local plugins and themes
 
-Это руководство описывает текущее поведение интерфейса и опирается на реальные разделы приложения: `Welcome`, `Chat`, `Writing`, `Characters`, `LoreBooks`, `Knowledge`, `Settings` и plugin tabs.
+This guide documents the current UI and is based on the real app areas: `Welcome`, `Chat`, `Writing`, `Characters`, `LoreBooks`, `Knowledge`, `Settings`, and plugin-powered surfaces.
 
-![Общий вид Vellium](https://github.com/user-attachments/assets/b4f68d1a-1c12-4abc-b810-1280f3ef49cb)
+The screenshots in this guide are local captures from the current app build. Where it makes onboarding clearer, they use `Simple Mode` so the first-run flow matches what many users will actually see.
 
-## Карта документации
+![Simple Mode chat thread](./assets/simple-chat-thread.png)
 
-| Файл | О чем раздел |
+## Documentation Map
+
+| File | What it covers |
 | --- | --- |
-| [getting-started.md](./getting-started.md) | Первый запуск, пресеты провайдеров, базовая настройка и быстрый старт |
-| [chat-and-rp.md](./chat-and-rp.md) | Чат, RP, персонажи в чате, Inspector, RAG, TTS, перевод и multi-character режим |
-| [characters-and-lorebooks.md](./characters-and-lorebooks.md) | Создание и импорт персонажей, JSON/GUI редактор, лорбуки и world info |
-| [writing.md](./writing.md) | Проекты, главы, сцены, Character Forge, summary lenses, DOCX/Markdown |
-| [knowledge-and-rag.md](./knowledge-and-rag.md) | Коллекции знаний, ingestion, scope и подключение RAG к chat/writing |
-| [settings-and-providers.md](./settings-and-providers.md) | Провайдеры, модели, интерфейс, генерация, контекст, security, MCP |
-| [plugins-and-security.md](./plugins-and-security.md) | Работа с плагинами, Pluginfile, permissions, themes и безопасное использование |
-| [troubleshooting.md](./troubleshooting.md) | Частые проблемы, диагностика и восстановление |
+| [getting-started.md](./getting-started.md) | First launch, provider presets, basic setup, and the shortest path to a working chat |
+| [chat-and-rp.md](./chat-and-rp.md) | Chat, RP flows, character usage, inspector controls, RAG, TTS, translation, and multi-character scenes |
+| [characters-and-lorebooks.md](./characters-and-lorebooks.md) | Character cards, import/export, GUI vs raw JSON editing, LoreBooks, and world info |
+| [writing.md](./writing.md) | Projects, chapters, scenes, Character Forge, summary lenses, DOCX / Markdown workflows |
+| [knowledge-and-rag.md](./knowledge-and-rag.md) | Knowledge collections, ingestion, scope, and how RAG plugs into chat and writing |
+| [settings-and-providers.md](./settings-and-providers.md) | Providers, models, UI settings, generation, context, security, plugins, and MCP |
+| [plugins-and-security.md](./plugins-and-security.md) | Plugin management, permissions, Pluginfile, themes, and safe usage guidelines |
+| [troubleshooting.md](./troubleshooting.md) | Common failures, diagnostics, and a practical fallback plan |
 
-## Как устроен Vellium
+## How Vellium Fits Together
 
 ```mermaid
 flowchart LR
@@ -44,39 +46,39 @@ flowchart LR
   H --> D
 ```
 
-## Рабочие области
+## Workspaces
 
-| Раздел | Основная задача | Что обычно настраивают рядом |
+| Area | Main job | Usually configured together with |
 | --- | --- | --- |
-| `Chat` | Диалоги, RP, tool calling, перевод, TTS | `Characters`, `LoreBooks`, `Knowledge`, `Settings` |
-| `Writing` | Книги, главы, сцены, черновики, summary lenses | `Characters`, `Knowledge`, `Settings` |
-| `Characters` | Импорт и редактирование character cards | `Chat`, `Writing` |
-| `LoreBooks` | Факты мира, ключи и инъекции контекста | `Chat` |
-| `Knowledge` | Базы знаний для retrieval | `Chat`, `Writing`, `Settings` |
-| `Settings` | Провайдеры, модели, UI, prompt stack, security, plugins, MCP | Все разделы |
-| `Plugin tabs` | Расширения, которые добавляют собственные вкладки | `Settings -> Plugins` |
+| `Chat` | Dialogues, RP, tool calling, translation, TTS | `Characters`, `LoreBooks`, `Knowledge`, `Settings` |
+| `Writing` | Books, chapters, scenes, drafts, summaries, lenses | `Characters`, `Knowledge`, `Settings` |
+| `Characters` | Importing and editing character cards | `Chat`, `Writing` |
+| `LoreBooks` | World facts, trigger keys, scripted prompt injections | `Chat` |
+| `Knowledge` | Retrieval collections for RAG | `Chat`, `Writing`, `Settings` |
+| `Settings` | Providers, models, UI, prompt stack, security, plugins, MCP | Everything |
+| `Plugin tabs / widgets` | Plugin-powered extensions and extra UI surfaces | `Settings -> Plugins` |
 
-## Рекомендуемая последовательность освоения
+## Recommended Learning Order
 
-1. Пройти [быстрый старт](./getting-started.md) и создать первый рабочий provider profile.
-2. В `Settings` выбрать активную модель для chat.
-3. Создать простой чат без персонажа, чтобы проверить, что генерация работает.
-4. Добавить или импортировать персонажа в `Characters`.
-5. При необходимости создать лорбук для мира и коллекцию знаний для RAG.
-6. Только после этого переходить к multi-character сценам, writer workflow, plugin tabs и MCP.
+1. Finish the [quick start](./getting-started.md) and create your first working provider profile.
+2. In `Settings`, choose an active chat model.
+3. Open `Chat` and send a simple message without a character first.
+4. Add or import a character in `Characters`.
+5. If your workflow needs world facts, create a LoreBook.
+6. If your workflow needs retrieval, create a knowledge collection in `Knowledge`.
+7. Only after that move on to multi-character scenes, writer workflows, plugins, and MCP.
 
-## Что важно знать заранее
+## Important Things to Know Up Front
 
-- Vellium не привязан к одному backend'у: модели для чата, перевода, компрессии, TTS и RAG могут отличаться.
-- `Local-only mode` ограничивает работу локальными или приватными endpoint'ами.
-- Tool calling через MCP работает только с OpenAI-compatible chat/completions провайдерами, а не с KoboldCpp.
-- `Knowledge` отвечает за retrieval-коллекции, а `LoreBooks` отвечают за scripted/world-info контекст. Это разные механики.
-- Плагины в Vellium локальные. Их права надо проверять так же внимательно, как shell-утилиты или сторонние скрипты.
+- Vellium is not tied to a single backend. Chat, translation, compression, TTS, and RAG can all use different models.
+- `Local-only mode` limits the app to localhost or private-network endpoints.
+- Tool calling through MCP only works with OpenAI-compatible chat/completions providers, not with KoboldCpp.
+- `Knowledge` and `LoreBooks` solve different problems: one is retrieval-based, the other is trigger-based scripted context.
+- Plugins in Vellium are local extensions. Treat their permissions the same way you would treat shell tools or third-party scripts.
 
-## Скриншоты
+## Screenshot Notes
 
-Ниже использован текущий UI-скрин из материалов репозитория:
+- `Welcome`, `Chat`, and `Writing` screenshots in this guide use `Simple Mode`, because that is the cleaner default for first-time onboarding.
+- `Knowledge` and `Settings` screenshots use the standard workspace layout, since those sections are not meaningfully simplified in the same way.
 
-![Основной workspace](https://github.com/user-attachments/assets/03e75de3-5b39-4012-98f8-4c959eb1fc80)
-
-Если вы используете собственную сборку, точные цвета, тема или набор plugin tabs могут отличаться, но структура рабочих областей останется той же.
+![Providers and model routing](./assets/settings-providers.png)

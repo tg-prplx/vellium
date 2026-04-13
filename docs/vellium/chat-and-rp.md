@@ -1,218 +1,225 @@
-# Chat и RP
+# Chat and RP
 
-`Chat` - центральная рабочая область Vellium. Здесь сходятся активная модель, персонажи, лорбуки, knowledge collections, перевод, TTS, tool calling и режимы RP.
+`Chat` is the central workspace in Vellium. It is where the active model, characters, LoreBooks, knowledge collections, translation, TTS, tool calling, and RP modes all meet.
 
-## Что умеет Chat
+The screenshots below use `Simple Mode`, because that is the cleanest first-run view for most users.
 
-- обычные assistant-чаты без персонажа
-- одиночные character-чаты
-- multi-character сцены
-- ветвление истории
-- редактирование, повторная отправка, удаление и регенерация сообщений
-- перевод сообщений
-- TTS для сообщений
-- вложения: картинки для vision и текстовые файлы
-- подключение LoreBook и RAG
-- tool calling через MCP при поддерживаемом provider'е
+![Simple Mode home state](./assets/simple-chat-home.png)
 
-## Базовый рабочий сценарий
+![Simple Mode thread state](./assets/simple-chat-thread.png)
 
-1. Перейдите в `Chat`.
-2. Создайте новый чат.
-3. Решите, нужен ли персонаж:
-   - без персонажа - обычный assistant flow
-   - с персонажем - roleplay или character-driven диалог
-4. Отправьте первое сообщение.
-5. При необходимости настройте Inspector справа или в simple mode-панелях.
+## What Chat Can Do
 
-## Создание нового чата
+- normal assistant chats without a character
+- single-character chats
+- multi-character scenes
+- branching history
+- edit, resend, delete, and regenerate flows
+- message translation
+- TTS for messages
+- attachments for vision and text context
+- LoreBook and RAG integration
+- MCP tool calling when the active provider supports it
 
-В чате можно стартовать несколькими путями:
+## Basic Workflow
 
-- обычный новый чат
-- чат с выбранным персонажем
-- multi-character чат
-- старт без явного чата: первый message автоматически создаст чат
+1. Open `Chat`.
+2. Start a new chat.
+3. Decide whether you need a character:
+   - no character: normal assistant flow
+   - one character: character-driven dialog or RP
+   - multiple characters: scene-driven RP
+4. Send the first message.
+5. Adjust the right-side inspector or the Simple Mode controls only if you actually need them.
 
-Также доступен поиск по чатам, переименование и удаление.
+## Starting a New Chat
 
-## Режимы персонажей
+You can begin in several ways:
 
-### Чат без персонажа
+- a normal new chat
+- a chat with a selected character
+- a multi-character chat
+- no explicit chat at all, where the first message creates the chat automatically
 
-Подходит для:
+The chat screen also supports search, renaming, and deletion.
 
-- обычных ассистентских запросов
-- code/help/general productivity
-- коротких быстрых диалогов
+## Character Modes
 
-### Чат с одним персонажем
+### Chat without a character
 
-Используйте этот режим, если вам нужен:
+Use it for:
+
+- normal assistant requests
+- coding / help / productivity questions
+- short, direct conversations
+
+### Chat with one character
+
+Use it when you need:
 
 - roleplay
-- персонаж с собственным `greeting`, `description`, `personality`, `system prompt`
-- сценарий, в котором поведение персонажа определяется его карточкой
+- a character with its own `greeting`, `description`, `personality`, and `system prompt`
+- a conversation whose behavior is defined by a character card
 
-### Multi-character чат
+### Multi-character chat
 
-Vellium умеет держать несколько персонажей в одной сцене. В multi-character режиме можно:
+Vellium can hold several characters inside one scene. In multi-character mode you can:
 
-- собрать набор персонажей в одном чате
-- менять порядок персонажей
-- убирать персонажей из сцены
-- запускать auto-conversation
-- вручную передавать следующий ход нужному персонажу
+- assemble multiple characters in one chat
+- change their order
+- remove characters from the scene
+- run auto-conversation
+- hand the next turn to a specific character manually
 
-Это особенно полезно для RP-групп, сцен диалога и worldbuilding.
+This is especially useful for RP groups, dialogue-heavy scenes, and worldbuilding sessions.
 
-## Управление сообщениями
+## Message Management
 
-Для сообщений и веток чата Vellium поддерживает:
+For messages and branches Vellium supports:
 
-- `Regenerate` - пересоздать ответ
-- `Edit` - поправить текст сообщения
-- `Delete` - удалить сообщение
-- `Resend` - повторно отправить пользовательское сообщение
-- `Fork` - создать ветку на основе текущего места истории
+- `Regenerate`
+- `Edit`
+- `Delete`
+- `Resend`
+- `Fork`
 
-Практический смысл:
+Practical meaning:
 
-- `Edit` удобен, когда хотите сохранить структуру диалога, но подправить контекст
-- `Regenerate` полезен, если логика верная, но качество ответа не устраивает
-- `Fork` полезен, когда хотите сохранить каноничную ветку и параллельно попробовать альтернативу
+- `Edit` is useful when you want to preserve the conversation structure but fix context
+- `Regenerate` is useful when the logic is fine but the answer quality is not
+- `Fork` is useful when you want to keep a canon branch and still test alternatives
 
 ## Personas
 
-В `Chat` есть отдельная сущность `Persona`, которая описывает пользователя в роли участника сцены или собеседника.
+`Persona` is a separate entity that describes the user as a participant in the scene or conversation.
 
-Persona полезна, если вы хотите:
+A persona is useful when you want to:
 
-- задавать стабильное имя пользователя
-- описывать личность, тон, поведение
-- быстро переключаться между несколькими пользовательскими ролями
+- keep a stable user name
+- describe the user's tone, behavior, or role
+- switch quickly between several user identities
 
-Это особенно удобно в RP или длительных character-driven диалогах.
+This matters most in RP or in long-running character-driven chats.
 
-## Inspector и RP-контроль
+## Inspector and RP Control
 
-Inspector управляет скрытым контекстом чата и RP-параметрами. Внутри него обычно настраивают:
+The inspector controls the hidden context and RP parameters of the chat. Typical controls include:
 
 - `Author's Note`
 - `Scene State`
-- sampler-параметры
+- sampler settings
 - `Prompt Stack`
 - `Compressed Context`
-- `System Prompt` для pure mode
+- the `System Prompt` used in pure-chat mode
 
 ### Chat Mode
 
-Vellium поддерживает несколько профилей поведения:
+Vellium supports several behavior profiles:
 
 - `Full RP`
 - `Light RP`
 - `Pure Chat`
 
-`Pure Chat` отключает скрытые RP-инъекции и использует только явный system prompt. Это полезно для слабых моделей или обычного assistant-чата.
+`Pure Chat` removes hidden RP injections and relies only on the explicit system prompt. It is useful for weak models or for normal assistant use.
 
-`Light RP` сохраняет часть RP-контроля, но делает пайплайн проще.
+`Light RP` keeps some RP control but simplifies the pipeline.
 
-`Full RP` рассчитан на наиболее насыщенный RP-контекст.
+`Full RP` is the richest mode and is meant for heavier roleplay context.
 
-## Scene controls
+## Scene Controls
 
-Сцена может включать готовые и кастомные контролы:
+The scene can include built-in and custom controls such as:
 
-- стиль диалога
-- инициативность
-- описательность
-- непредсказуемость
-- эмоциональная глубина
-- пользовательские слайдеры
+- dialogue style
+- initiative
+- descriptiveness
+- unpredictability
+- emotional depth
+- custom sliders or toggles
 
-Это нужно, когда вы хотите управлять не только фактическим контентом, но и характером генерации сцены.
+These controls are useful when you want to shape not only what is said, but how the scene is generated.
 
-## LoreBook и RAG в чате
+## LoreBook and RAG in Chat
 
 ### LoreBook
 
-LoreBook - это scripted/world-info слой. Он подходит для:
+LoreBook is the scripted / world-info layer. Use it for:
 
-- фактов мира
-- терминов
-- правил сеттинга
-- реакций на ключевые слова
+- world facts
+- terms
+- setting rules
+- keyword-triggered context
 
-Он не заменяет RAG, а работает как отдельный источник контекста.
+It does not replace RAG. It solves a different problem.
 
 ### RAG
 
-RAG нужен, когда контекст должен извлекаться из коллекции знаний:
+RAG is for retrieval from knowledge collections:
 
-- по семантическому совпадению
-- с top-k retrieval
-- с возможным reranker-проходом
+- semantic retrieval
+- top-k retrieval
+- optional reranker passes
 
-В чате можно включить RAG и выбрать knowledge collections, которые будут использоваться на ходу.
+In Chat you can enable RAG and choose which collections are attached to the active chat.
 
-## Вложения
+## Attachments
 
-Чат поддерживает как минимум два рабочих типа вложений:
+The chat supports at least two practical attachment types:
 
-- изображения - для vision-сценариев
-- текстовые файлы - для текстового контекста и knowledge-oriented workflow
+- images for vision-capable scenarios
+- text files for extra context and knowledge-oriented flows
 
-Также есть preview для совместимых вложений.
+Compatible attachments also have preview support.
 
-## Перевод и TTS
+## Translation and TTS
 
-Внутри чата можно:
+Inside the chat you can:
 
-- переводить сообщения
-- показывать перевод рядом или заменять им исходный текст
-- озвучивать сообщения через TTS
+- translate messages
+- show translation next to the original or replace the original visually
+- generate TTS audio for messages
 
-Это удобно для:
+This is useful for:
 
-- bilingual-чтения
-- работы с RP на одном языке и итоговым выводом на другом
-- прослушивания черновиков или assistant-ответов
+- bilingual reading
+- writing RP in one language and reading output in another
+- listening back to drafts or assistant answers
 
-## Tool calling и MCP
+## Tool Calling and MCP
 
-Если в `Settings` включены `Tool Calling` и настроены MCP servers, модель может вызывать инструменты прямо во время генерации.
+If `Tool Calling` is enabled in `Settings` and MCP servers are configured, the model can call tools during generation.
 
-Важно:
+Important:
 
-- это работает только с OpenAI-compatible chat/completions providers
-- для KoboldCpp tool calling отключен
-- набор доступных функций задается в `Settings -> Tools & MCP`
+- this works only with OpenAI-compatible chat/completions providers
+- tool calling is disabled for KoboldCpp
+- the available functions are managed in `Settings -> Tools & MCP`
 
-Внутри чата вы увидите tool calls и их результаты как часть ответа.
+Inside the chat, tool calls and tool results appear as part of the response flow.
 
-## Когда стоит использовать Simple Mode
+## When Simple Mode is the better choice
 
-Simple Mode хорош, если вы:
+Simple Mode is a strong default if you:
 
-- хотите чище визуальный поток
-- не хотите постоянно держать перед глазами расширенные панели
-- используете чат как основной интерфейс
+- want a cleaner visual flow
+- do not want advanced side panels open all the time
+- use chat as your main entry point into the app
 
-## Когда лучше перейти в advanced flow
+## When to move back to the advanced flow
 
-Оставайтесь в полном режиме, если вам нужны:
+Stay in the fuller layout if you need:
 
-- branch-heavy эксперименты
-- ручной prompt stack
-- scene state
-- кастомные scene controls
-- отладка sampler-параметров
-- tool calling / MCP
+- branch-heavy experiments
+- manual prompt stack work
+- scene state tuning
+- custom scene controls
+- sampler debugging
+- heavy MCP and tool-calling inspection
 
-## Практические советы
+## Practical Advice
 
-- Сначала добейтесь стабильной генерации без персонажа, потом добавляйте RP-слои.
-- Для RP длиннее нескольких сообщений лучше сразу выбрать character card и настроить persona.
-- Если ответ становится слишком шумным, попробуйте `Pure Chat` или `Light RP`.
-- Если модель забывает факты, сначала решайте, нужен вам LoreBook или RAG. Это разные механизмы.
-- Multi-character чат полезен, но быстро раздувает контекст. Следите за компрессией и context window.
+- First get stable generation without a character, then add RP layers.
+- For RP longer than a few messages, set up both a character card and a persona early.
+- If responses become noisy, try `Pure Chat` or `Light RP`.
+- If the model forgets facts, first decide whether the problem belongs to LoreBook or RAG. They are different mechanisms.
+- Multi-character chat is powerful, but it expands context quickly. Watch your compression flow and context window.
