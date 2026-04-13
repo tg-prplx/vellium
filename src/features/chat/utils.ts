@@ -1,4 +1,5 @@
 import { marked } from "marked";
+import { resolveApiAssetUrl } from "../../shared/api";
 import type { AppSettings, FileAttachment, PromptBlock, RpSceneState } from "../../shared/types/contracts";
 import { DEFAULT_CHAT_SECURITY_SETTINGS, DEFAULT_PROMPT_STACK, REASONING_CALL_NAME, type ChatMode } from "./constants";
 
@@ -151,11 +152,11 @@ export function imageSourceFromAttachment(att: FileAttachment): string | null {
   if (att.type !== "image") return null;
   if ((att.mimeType || "").toLowerCase() === "image/svg+xml") return null;
   if (att.dataUrl?.startsWith("data:image/")) return att.dataUrl;
-  if (att.url?.startsWith("http://") || att.url?.startsWith("https://")) {
-    return att.url.toLowerCase().includes(".svg") ? null : att.url;
-  }
-  if (att.url?.startsWith("/")) {
-    return att.url.toLowerCase().includes(".svg") ? null : att.url;
+  const resolvedUrl = resolveApiAssetUrl(att.url);
+  if (!resolvedUrl) return null;
+  if (/^blob:/i.test(resolvedUrl)) return resolvedUrl;
+  if (/^https?:/i.test(resolvedUrl) || resolvedUrl.startsWith("/")) {
+    return resolvedUrl.toLowerCase().includes(".svg") ? null : resolvedUrl;
   }
   return null;
 }
