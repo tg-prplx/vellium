@@ -187,6 +187,11 @@ async function createWindow() {
       }
     });
 
+    const session = mainWindow.webContents.session;
+    session.setPermissionCheckHandler?.(() => false);
+    session.setPermissionRequestHandler?.((_webContents, _permission, callback) => callback(false));
+    session.setDevicePermissionHandler?.(() => false);
+
     managedBackendManager.attachWindow(mainWindow);
 
     const forceShowTimer = setTimeout(() => {
