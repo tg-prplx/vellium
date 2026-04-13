@@ -68,6 +68,7 @@ import {
   failBackgroundTask,
   finishBackgroundTask,
   startBackgroundTask,
+  updateBackgroundTask,
   useBackgroundTasks
 } from "../../shared/backgroundTasks";
 
@@ -556,14 +557,34 @@ export function ChatScreen() {
     return backgroundChatTaskIdRef.current || activeBackgroundChatTask?.id || null;
   }
 
-  function startChatBackgroundTask(label: string) {
+  type ChatTaskOptions = {
+    progress?: number | null;
+    progressLabel?: string;
+    cancellable?: boolean;
+    cancelLabel?: string;
+    onCancel?: (() => Promise<void> | void) | null;
+  };
+
+  function startChatBackgroundTask(
+    label: string,
+    options: ChatTaskOptions = {}
+  ) {
     const id = startBackgroundTask({
       scope: "chat",
       type: "generate",
-      label
+      label,
+      ...options
     });
     backgroundChatTaskIdRef.current = id;
     return id;
+  }
+
+  function getChatTaskTemplate(chatId: string) {
+    return {
+      cancellable: true,
+      cancelLabel: t("taskManager.stop"),
+      onCancel: () => api.chatAbort(chatId).then(() => {})
+    };
   }
 
   function clearChatBackgroundTask(taskId: string) {
@@ -730,6 +751,7 @@ export function ChatScreen() {
         branchId = branchList[0]?.id ?? null;
         setActiveBranchId(branchId);
       }
+      updateBackgroundTask(taskId, getChatTaskTemplate(chatId));
       await Promise.allSettled([
         flushPromptStack(),
         api.rpSetSceneState({ ...sceneState, chatId }),
@@ -789,7 +811,7 @@ export function ChatScreen() {
   async function handleRegenerate() {
     if (!activeChat || chatGenerationBusy) return;
     setErrorText("");
-    const taskId = startChatBackgroundTask(t("chat.regenerate"));
+    const taskId = startChatBackgroundTask(t("chat.regenerate"), getChatTaskTemplate(activeChat.id));
     try {
       await flushPromptStack();
       startStreamingUi(null);
@@ -1234,7 +1256,7 @@ export function ChatScreen() {
   async function handleNextTurn(characterName: string) {
     if (!activeChat || chatGenerationBusy) return;
     setErrorText("");
-    const taskId = startChatBackgroundTask(`${t("chat.nextTurn")}: ${characterName}`);
+    const taskId = startChatBackgroundTask(`${t("chat.nextTurn")}: ${characterName}`, getChatTaskTemplate(activeChat.id));
     startStreamingUi(characterName);
     try {
       await flushPromptStack();
@@ -1265,7 +1287,10 @@ export function ChatScreen() {
     await flushPromptStack();
     autoConvoRef.current = true;
     setAutoConvoRunning(true);
-    const taskId = startChatBackgroundTask(t("chat.autoConvo"));
+    const taskId = startChatBackgroundTask(t("chat.autoConvo"), {
+      ...getChatTaskTemplate(activeChat.id),
+      progress: 0
+    });
 
     const charNames = chatCharacterIds
       .map((id) => characters.find((c) => c.id === id))
@@ -1289,11 +1314,19 @@ export function ChatScreen() {
       ? (Math.max(0, charNames.indexOf(lastAssistantChar)) + 1) % charNames.length
       : 0;
     const turns = Number.isFinite(autoTurnsCount) ? Math.max(1, Math.min(50, Math.floor(autoTurnsCount))) : 1;
+    updateBackgroundTask(taskId, {
+      progress: 0,
+      progressLabel: `0 / ${turns} ${t("chat.turns")}`
+    });
 
     for (let turn = 0; turn < turns; turn++) {
       if (!autoConvoRef.current) break;
 
       const charName = charNames[(startIndex + turn) % charNames.length];
+      updateBackgroundTask(taskId, {
+        progress: (turn / turns) * 100,
+        progressLabel: `${turn + 1} / ${turns} · ${charName}`
+      });
       startStreamingUi(charName);
 
       try {
@@ -1313,6 +1346,11 @@ export function ChatScreen() {
         setErrorText(String(error));
         break;
       }
+
+      updateBackgroundTask(taskId, {
+        progress: ((turn + 1) / turns) * 100,
+        progressLabel: `${turn + 1} / ${turns} ${t("chat.turns")}`
+      });
 
       if (autoConvoRef.current && turn < turns - 1) {
         await new Promise((r) => setTimeout(r, 500));

@@ -3,8 +3,8 @@ import { PluginActionBar, PluginActionModalHost, PluginActionToastHost, PluginFr
 import { I18nContext, translations, useI18n, type Locale } from "./shared/i18n";
 import { api } from "./shared/api";
 import { TitleBar } from "./components/TitleBar";
+import { TaskManager } from "./components/TaskManager";
 import type { AppSettings, PluginCatalog, PluginDescriptor } from "./shared/types/contracts";
-import { useBackgroundTasks } from "./shared/backgroundTasks";
 
 const ChatScreen = lazy(() => import("./features/chat/ChatScreen").then((module) => ({ default: module.ChatScreen })));
 const WritingScreen = lazy(() => import("./features/writer/WritingScreen").then((module) => ({ default: module.WritingScreen })));
@@ -35,37 +35,6 @@ function ScreenFallback() {
   return (
     <div className="flex h-full min-h-[240px] items-center justify-center rounded-2xl border border-border-subtle bg-bg-secondary/60">
       <div className="text-sm text-text-tertiary">Loading workspace...</div>
-    </div>
-  );
-}
-
-function BackgroundTaskChip() {
-  const tasks = useBackgroundTasks();
-  const runningTasks = useMemo(
-    () => tasks.filter((task) => task.status === "running"),
-    [tasks]
-  );
-
-  if (runningTasks.length === 0) return null;
-
-  const leadTask = runningTasks[0];
-  const extraCount = runningTasks.length - 1;
-
-  return (
-    <div
-      className="flex max-w-[260px] items-center gap-2 rounded-full border border-border-subtle bg-bg-secondary px-3 py-1.5 text-[11px] text-text-secondary"
-      title={runningTasks.map((task) => task.label).join("\n")}
-    >
-      <svg className="h-3.5 w-3.5 animate-spin text-accent" fill="none" viewBox="0 0 24 24">
-        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-      </svg>
-      <span className="truncate text-text-primary">{leadTask.label}</span>
-      {extraCount > 0 && (
-        <span className="rounded-full bg-bg-hover px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
-          +{extraCount}
-        </span>
-      )}
     </div>
   );
 }
@@ -163,7 +132,7 @@ function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activ
 
   const toolbarNode = (
     <div className="flex items-center gap-2" style={noDrag}>
-      <BackgroundTaskChip />
+      <TaskManager isElectron={isElectron} onOpenTab={setActiveTab} />
       <PluginActionBar location="app.toolbar" />
     </div>
   );
