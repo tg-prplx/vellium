@@ -221,7 +221,7 @@ router.post("/preview/test", async (req, res) => {
     res.json({ ok: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    res.status(400).json({ ok: false, error: message || "Connection check failed" });
+    res.json({ ok: false, error: message || "Connection check failed" });
   }
 });
 

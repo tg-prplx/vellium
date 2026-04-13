@@ -48,6 +48,31 @@ function isStreamTerminationError(err: unknown): boolean {
   return err.name === "AbortError" || isNetworkError(err);
 }
 
+function extractStructuredErrorMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const record = payload as Record<string, unknown>;
+  const direct = typeof record.error === "string" && record.error.trim()
+    ? record.error.trim()
+    : typeof record.message === "string" && record.message.trim()
+      ? record.message.trim()
+      : "";
+  if (direct) return direct;
+  return null;
+}
+
+async function readErrorResponseMessage(res: Response): Promise<string> {
+  const fallback = `HTTP ${res.status}`;
+  const text = (await res.text()).trim();
+  if (!text) return fallback;
+
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return extractStructuredErrorMessage(parsed) || text;
+  } catch {
+    return text;
+  }
+}
+
 export async function request<T>(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<T> {
   const bases = requestBases();
   let lastErr: unknown = new Error("Request failed");
@@ -70,8 +95,7 @@ export async function request<T>(method: string, path: string, body?: unknown, o
           signal: controller.signal
         });
         if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || `HTTP ${res.status}`);
+          throw new Error(await readErrorResponseMessage(res));
         }
         return res.json();
       } finally {
@@ -116,8 +140,7 @@ export async function requestBlob(method: string, path: string, body?: unknown, 
           signal: controller.signal
         });
         if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || `HTTP ${res.status}`);
+          throw new Error(await readErrorResponseMessage(res));
         }
         return await res.blob();
       } finally {
@@ -224,8 +247,7 @@ export async function streamPost(path: string, body: unknown, callbacks: StreamC
         referrerPolicy: "no-referrer"
       });
       if (!candidate.ok) {
-        const text = await candidate.text();
-        throw new Error(text || `HTTP ${candidate.status}`);
+        throw new Error(await readErrorResponseMessage(candidate));
       }
       res = candidate;
       break;
