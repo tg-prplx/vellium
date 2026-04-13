@@ -42,4 +42,24 @@ describe("markdown security rendering", () => {
     expect(allowed).toContain("<img");
     expect(allowed).toContain("https://example.com/x.png");
   });
+
+  it("allows localhost and LAN images even when remote markdown images are disabled", () => {
+    const localhostImage = renderContent("![x](http://127.0.0.1:8188/view?filename=test.png&type=output)", undefined, undefined, {
+      sanitizeMarkdown: true,
+      allowExternalLinks: false,
+      allowRemoteImages: false,
+      allowUnsafeUploads: false
+    });
+    expect(localhostImage).toContain("<img");
+    expect(localhostImage).toContain("http://127.0.0.1:8188/view?filename=test.png&amp;type=output");
+
+    const lanImage = renderContent("![x](http://192.168.1.10:8188/view?filename=test.png&type=output)", undefined, undefined, {
+      sanitizeMarkdown: true,
+      allowExternalLinks: false,
+      allowRemoteImages: false,
+      allowUnsafeUploads: false
+    });
+    expect(lanImage).toContain("<img");
+    expect(lanImage).toContain("http://192.168.1.10:8188/view?filename=test.png&amp;type=output");
+  });
 });

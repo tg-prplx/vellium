@@ -113,12 +113,28 @@ export const providerClient = {
   providerList: () => get<ProviderProfile[]>("/providers"),
   providerFetchModels: async (providerId: string) => {
     const [models, managedBackends, runtimeStates] = await Promise.all([
-      get<ProviderModel[]>(`/providers/${providerId}/models`, LONG_RUNNING_REQUEST_OPTIONS).catch(() => []),
+      get<ProviderModel[]>(`/providers/${providerId}/models`, LONG_RUNNING_REQUEST_OPTIONS),
       listManagedBackendsForProvider(providerId),
       listRuntimeStates()
     ]);
     return appendManagedBackendModels(models, managedBackends, runtimeStates);
   },
+  providerPreviewModels: (payload: {
+    baseUrl: string;
+    apiKey: string;
+    fullLocalOnly: boolean;
+    providerType: "openai" | "koboldcpp" | "custom";
+    adapterId?: string | null;
+    manualModels?: string[];
+  }) => post<ProviderModel[]>("/providers/preview/models", payload, LONG_RUNNING_REQUEST_OPTIONS),
+  providerPreviewTest: (payload: {
+    baseUrl: string;
+    apiKey: string;
+    fullLocalOnly: boolean;
+    providerType: "openai" | "koboldcpp" | "custom";
+    adapterId?: string | null;
+    manualModels?: string[];
+  }) => post<{ ok: boolean; error?: string }>("/providers/preview/test", payload, LONG_RUNNING_REQUEST_OPTIONS),
   providerSetActive: (providerId: string, modelId: string) =>
     post<AppSettings>("/providers/set-active", { providerId, modelId }),
   providerActivateModel: async (providerId: string, modelId: string) => {

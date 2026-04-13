@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, maskApiKey, isLocalhostUrl, DEFAULT_SETTINGS } from "../db.js";
-import { fetchCustomAdapterModels, testCustomAdapterConnection } from "../services/customProviderAdapters.js";
-import { fetchKoboldModels, normalizeProviderType, testKoboldConnection } from "../services/providerApi.js";
+import { fetchCustomAdapterModels } from "../services/customProviderAdapters.js";
+import { fetchKoboldModels, normalizeProviderType } from "../services/providerApi.js";
 import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 
 const router = Router();
@@ -16,6 +16,15 @@ interface ProviderRow {
   provider_type: string;
   adapter_id: string | null;
   manual_models: string | null;
+}
+
+interface ProviderPreviewInput {
+  baseUrl?: unknown;
+  apiKey?: unknown;
+  fullLocalOnly?: unknown;
+  providerType?: unknown;
+  adapterId?: unknown;
+  manualModels?: unknown;
 }
 
 function parseManualModels(raw: string | null | undefined): string[] {
@@ -52,6 +61,105 @@ function getSettings() {
     apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) }
   };
+}
+
+function normalizeOpenAiBaseUrl(raw: string): string {
+  const trimmed = String(raw || "").trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  if (/\/v1$/i.test(trimmed)) return trimmed;
+  return `${trimmed}/v1`;
+}
+
+async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string): Promise<Array<{ id: string }>> {
+  const baseUrl = normalizeOpenAiBaseUrl(baseUrlRaw);
+  if (!baseUrl) {
+    throw new Error("Base URL is required");
+  }
+
+  const apiKey = String(apiKeyRaw || "").trim();
+  const response = await fetch(`${baseUrl}/models`, {
+    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text || `Model endpoint returned HTTP ${response.status}`);
+  }
+
+  const body = await response.json() as {
+    data?: Array<{ id?: unknown }>;
+    models?: Array<{ id?: unknown }>;
+  };
+  const out: Array<{ id: string }> = [];
+
+  if (Array.isArray(body.data)) {
+    for (const item of body.data) {
+      const id = String(item?.id || "").trim();
+      if (id) out.push({ id });
+    }
+  }
+  if (Array.isArray(body.models)) {
+    for (const item of body.models) {
+      const id = String(item?.id || "").trim();
+      if (id) out.push({ id });
+    }
+  }
+
+  const uniq = new Map<string, { id: string }>();
+  for (const row of out) uniq.set(row.id, row);
+  return Array.from(uniq.values());
+}
+
+function assertProviderAllowed(baseUrl: string, fullLocalOnly: boolean) {
+  const settings = getSettings();
+  if (settings.fullLocalMode && !isLocalhostUrl(baseUrl)) {
+    throw new Error("Provider blocked by Full Local Mode");
+  }
+  if (fullLocalOnly && !isLocalhostUrl(baseUrl)) {
+    throw new Error("Provider is set to Local-only. Disable Local-only for external URLs.");
+  }
+}
+
+function toPreviewProvider(body: ProviderPreviewInput) {
+  const providerType = normalizeProviderType(body.providerType);
+  const manualModels = Array.isArray(body.manualModels)
+    ? [...new Set(body.manualModels.map((item) => String(item || "").trim()).filter(Boolean))]
+    : [];
+
+  return {
+    base_url: String(body.baseUrl || "").trim(),
+    api_key_cipher: String(body.apiKey || "").trim(),
+    full_local_only: body.fullLocalOnly === true || body.fullLocalOnly === 1 ? 1 : 0,
+    provider_type: providerType,
+    adapter_id: providerType === "custom" ? String(body.adapterId || "").trim() || null : null,
+    manual_models: JSON.stringify(manualModels)
+  } satisfies Pick<ProviderRow, "base_url" | "api_key_cipher" | "full_local_only" | "provider_type" | "adapter_id" | "manual_models">;
+}
+
+async function resolveProviderModels(row: Pick<ProviderRow, "base_url" | "api_key_cipher" | "full_local_only" | "provider_type" | "adapter_id" | "manual_models">) {
+  const manualModels = parseManualModels(row.manual_models).map((id) => ({ id }));
+  assertProviderAllowed(row.base_url, Boolean(row.full_local_only));
+
+  const providerType = normalizeProviderType(row.provider_type);
+  if (providerType === "koboldcpp") {
+    const koboldModels = await fetchKoboldModels(row);
+    const fetched = koboldModels.map((id) => ({ id }));
+    return fetched.length > 0
+      ? [...fetched, ...manualModels.filter((item) => !fetched.some((model) => model.id === item.id))]
+      : manualModels;
+  }
+
+  if (providerType === "custom") {
+    const customModels = await fetchCustomAdapterModels(row);
+    const fetched = customModels.map((id) => ({ id }));
+    return fetched.length > 0
+      ? [...fetched, ...manualModels.filter((item) => !fetched.some((model) => model.id === item.id))]
+      : manualModels;
+  }
+
+  const models = await fetchOpenAiCompatibleModels(row.base_url, row.api_key_cipher);
+  return models.length > 0
+    ? [...models, ...manualModels.filter((item) => !models.some((model) => model.id === item.id))]
+    : manualModels;
 }
 
 router.post("/", (req, res) => {
@@ -95,45 +203,36 @@ router.get("/", (_req, res) => {
   res.json(rows.map(rowToProfile));
 });
 
+router.post("/preview/models", async (req, res) => {
+  try {
+    const preview = toPreviewProvider((req.body ?? {}) as ProviderPreviewInput);
+    const models = await resolveProviderModels(preview);
+    res.json(models);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(400).json({ error: message || "Failed to load provider models" });
+  }
+});
+
+router.post("/preview/test", async (req, res) => {
+  try {
+    const preview = toPreviewProvider((req.body ?? {}) as ProviderPreviewInput);
+    await resolveProviderModels(preview);
+    res.json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(400).json({ ok: false, error: message || "Connection check failed" });
+  }
+});
+
 router.get("/:id/models", async (req, res) => {
   const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
   if (!row) { res.json([]); return; }
-  const manualModels = parseManualModels(row.manual_models).map((id) => ({ id }));
-
-  const settings = getSettings();
-  if (settings.fullLocalMode && !isLocalhostUrl(row.base_url)) {
-    res.status(403).json({ error: "Provider blocked by Full Local Mode" });
-    return;
-  }
-  if (row.full_local_only && !isLocalhostUrl(row.base_url)) {
-    res.status(403).json({ error: "Provider is set to Local-only. Disable Local-only for external URLs." });
-    return;
-  }
-
   try {
-    const providerType = normalizeProviderType(row.provider_type);
-    if (providerType === "koboldcpp") {
-      const koboldModels = await fetchKoboldModels(row);
-      const fetched = koboldModels.map((id) => ({ id }));
-      res.json(fetched.length > 0 ? [...fetched, ...manualModels.filter((item) => !fetched.some((model) => model.id === item.id))] : manualModels);
-      return;
-    }
-    if (providerType === "custom") {
-      const customModels = await fetchCustomAdapterModels(row);
-      const fetched = customModels.map((id) => ({ id }));
-      res.json(fetched.length > 0 ? [...fetched, ...manualModels.filter((item) => !fetched.some((model) => model.id === item.id))] : manualModels);
-      return;
-    }
-
-    const response = await fetch(`${row.base_url}/models`, {
-      headers: { Authorization: `Bearer ${row.api_key_cipher}` }
-    });
-    if (!response.ok) { res.json(manualModels); return; }
-    const body = await response.json() as { data?: { id: string }[] };
-    const models = (body.data ?? []).map((m) => ({ id: m.id }));
-    res.json(models.length > 0 ? [...models, ...manualModels.filter((item) => !models.some((model) => model.id === item.id))] : manualModels);
-  } catch {
-    res.json(manualModels);
+    res.json(await resolveProviderModels(row));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(400).json({ error: message || "Failed to load provider models" });
   }
 });
 
@@ -170,34 +269,12 @@ router.post("/:id/runtime-config", (req, res) => {
 router.post("/:id/test", async (req, res) => {
   const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
   if (!row) { res.json(false); return; }
-
-  const settings = getSettings();
-  if (settings.fullLocalMode && !isLocalhostUrl(row.base_url)) {
+  try {
+    await resolveProviderModels(row);
+    res.json(true);
+  } catch {
     res.json(false);
-    return;
   }
-  if (row.full_local_only && !isLocalhostUrl(row.base_url)) {
-    res.json(false);
-    return;
-  }
-
-  const providerType = normalizeProviderType(row.provider_type);
-  if (providerType === "koboldcpp") {
-    const ok = await testKoboldConnection(row);
-    res.json(ok);
-    return;
-  }
-  if (providerType === "custom") {
-    try {
-      const ok = await testCustomAdapterConnection(row);
-      res.json(ok);
-    } catch {
-      res.json(false);
-    }
-    return;
-  }
-
-  res.json(true);
 });
 
 export default router;

@@ -460,6 +460,7 @@ export interface McpServerConfig {
   name: string;
   command: string;
   args: string;
+  cwd?: string;
   env: string;
   enabled: boolean;
   timeoutMs: number;

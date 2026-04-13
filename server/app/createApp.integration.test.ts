@@ -133,6 +133,16 @@ process.stdin.on("data", (chunk) => {
     baseUrl = toBaseUrl(appServer);
 
     mockProviderServer = await listen(createServer(async (req, res) => {
+      if (req.method === "GET" && req.url === "/v1/models") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          data: [
+            { id: "mock-model" },
+            { id: "mock-secondary-model" }
+          ]
+        }));
+        return;
+      }
       if (req.method === "POST" && req.url === "/v1/chat/completions") {
         const body = await readJsonBody(req);
         const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -151,6 +161,47 @@ process.stdin.on("data", (chunk) => {
           .join("\n\n");
 
         if (toolDefinitions.length > 0 && body.stream !== true && toolMessages.length === 0) {
+          if (promptText.includes("no-tool-first-pass")) {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{ message: { content: "TOOLS WERE VISIBLE ON FIRST PASS" } }]
+            }));
+            return;
+          }
+          if (promptText.includes("tagged-tool-request")) {
+            const toolName = String((toolDefinitions[0] as {
+              function?: { name?: unknown };
+            })?.function?.name || "").replace(/[^a-zA-Z0-9]+/g, "_");
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: `[TOOL_REQUEST]\n${JSON.stringify({
+                    name: toolName,
+                    arguments: { query: "latest context" }
+                  })}\n[END_TOOL_REQUEST]`
+                }
+              }]
+            }));
+            return;
+          }
+          if (promptText.includes("fenced-tool-request")) {
+            const toolName = String((toolDefinitions[0] as {
+              function?: { name?: unknown };
+            })?.function?.name || "").replace(/[^a-zA-Z0-9]+/g, "_");
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: `I'll handle that visually.\n\n\`\`\`json\n${JSON.stringify({
+                    name: toolName,
+                    arguments: { query: "latest context" }
+                  })}\n\`\`\``
+                }
+              }]
+            }));
+            return;
+          }
           const toolName = String((toolDefinitions[0] as {
             function?: { name?: unknown };
           })?.function?.name || "");
@@ -477,6 +528,26 @@ process.stdin.on("data", (chunk) => {
     expect(docxBuffer.length).toBeGreaterThan(100);
   });
 
+  it("routes provider preview test and models requests to the preview handlers instead of :id routes", async () => {
+    const previewPayload = {
+      baseUrl: `${mockProviderBaseUrl}/v1`,
+      apiKey: "test-key",
+      fullLocalOnly: false,
+      providerType: "openai",
+      adapterId: null,
+      manualModels: []
+    };
+
+    const previewModels = await postJson("/api/providers/preview/models", previewPayload);
+    expect(previewModels).toEqual([
+      { id: "mock-model" },
+      { id: "mock-secondary-model" }
+    ]);
+
+    const previewTest = await postJson("/api/providers/preview/test", previewPayload);
+    expect(previewTest).toEqual({ ok: true });
+  });
+
   it("streams tool-calling turns through an MCP server and persists tool traces", async () => {
     await updateSettings({
       activeProviderId: "mock-openai",
@@ -522,6 +593,127 @@ process.stdin.on("data", (chunk) => {
       role: "tool"
     });
     expect(String(timeline[2]?.content || "")).toContain("\"kind\":\"tool_call\"");
+    expect(String(timeline[2]?.content || "")).toContain("mcp_mockserver__lookup");
+    expect(String(timeline[2]?.content || "")).toContain("Tool result for: latest context");
+  });
+
+  it("keeps the first tool-enabled assistant answer in pure chat when the model does not emit tool_calls", async () => {
+    await updateSettings({
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      toolCallingEnabled: true,
+      toolCallingPolicy: "aggressive",
+      maxToolCallsPerTurn: 2,
+      mcpServers: [{
+        id: "mockserver",
+        name: "Mock MCP",
+        command: process.execPath,
+        args: mockMcpScriptPath,
+        env: "",
+        enabled: true,
+        timeoutMs: 5000
+      }]
+    });
+
+    const created = await postJson("/api/chats", { title: "Pure Chat Tool Fallback" });
+    await postJson("/api/rp/scene-state", {
+      chatId: created.id,
+      chatMode: "pure_chat",
+      pureChatMode: true,
+      mood: "neutral",
+      pacing: "balanced",
+      intensity: 0.5,
+      variables: {}
+    });
+
+    const sendResponse = await requestJson(`/api/chats/${created.id}/send`, {
+      method: "POST",
+      body: { content: "no-tool-first-pass" }
+    });
+    expect(sendResponse.ok).toBe(true);
+    const sendBody = await sendResponse.text();
+    expect(sendBody).toContain("TOOLS WERE VISIBLE ON FIRST PASS");
+    expect(sendBody).not.toContain("MOCK STREAM RESPONSE");
+
+    const timeline = await parseJsonResponse(
+      `/api/chats/${created.id}/timeline`,
+      await fetch(`${baseUrl}/api/chats/${created.id}/timeline`)
+    );
+    expect(timeline[1]).toMatchObject({
+      role: "assistant",
+      content: "TOOLS WERE VISIBLE ON FIRST PASS"
+    });
+  });
+
+  it("parses tagged tool requests from plain assistant text and still executes the MCP tool", async () => {
+    await updateSettings({
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      toolCallingEnabled: true,
+      toolCallingPolicy: "aggressive",
+      maxToolCallsPerTurn: 2,
+      mcpServers: [{
+        id: "mockserver",
+        name: "Mock MCP",
+        command: process.execPath,
+        args: mockMcpScriptPath,
+        env: "",
+        enabled: true,
+        timeoutMs: 5000
+      }]
+    });
+
+    const created = await postJson("/api/chats", { title: "Tagged Tool Chat" });
+    const sendResponse = await requestJson(`/api/chats/${created.id}/send`, {
+      method: "POST",
+      body: { content: "tagged-tool-request" }
+    });
+    expect(sendResponse.ok).toBe(true);
+    const sendBody = await sendResponse.text();
+    expect(sendBody).toContain("\"type\":\"tool\"");
+    expect(sendBody).toContain("FINAL TOOL ANSWER");
+
+    const timeline = await parseJsonResponse(
+      `/api/chats/${created.id}/timeline`,
+      await fetch(`${baseUrl}/api/chats/${created.id}/timeline`)
+    );
+    expect(String(timeline[2]?.content || "")).toContain("mcp_mockserver__lookup");
+    expect(String(timeline[2]?.content || "")).toContain("Tool result for: latest context");
+  });
+
+  it("parses fenced json tool requests from plain assistant text and still executes the MCP tool", async () => {
+    await updateSettings({
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      toolCallingEnabled: true,
+      toolCallingPolicy: "aggressive",
+      maxToolCallsPerTurn: 2,
+      mcpServers: [{
+        id: "mockserver",
+        name: "Mock MCP",
+        command: process.execPath,
+        args: mockMcpScriptPath,
+        env: "",
+        enabled: true,
+        timeoutMs: 5000
+      }]
+    });
+
+    const created = await postJson("/api/chats", { title: "Fenced Tool Chat" });
+    const sendResponse = await requestJson(`/api/chats/${created.id}/send`, {
+      method: "POST",
+      body: { content: "fenced-tool-request" }
+    });
+    expect(sendResponse.ok).toBe(true);
+    const sendBody = await sendResponse.text();
+    expect(sendBody).toContain("\"type\":\"tool\"");
+    expect(sendBody).toContain("FINAL TOOL ANSWER");
+
+    const timeline = await parseJsonResponse(
+      `/api/chats/${created.id}/timeline`,
+      await fetch(`${baseUrl}/api/chats/${created.id}/timeline`)
+    );
+    expect(String(timeline[1]?.content || "")).not.toContain("```json");
     expect(String(timeline[2]?.content || "")).toContain("mcp_mockserver__lookup");
     expect(String(timeline[2]?.content || "")).toContain("Tool result for: latest context");
   });

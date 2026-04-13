@@ -22,8 +22,13 @@ function isNetworkError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return (
     err.name === "TypeError" ||
-    /failed to fetch|networkerror|network error|load failed/i.test(err.message)
+    /failed to fetch|fetch failed|networkerror|network error|load failed|terminated/i.test(err.message)
   );
+}
+
+function isStreamTerminationError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === "AbortError" || isNetworkError(err);
 }
 
 export async function request<T>(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<T> {
@@ -124,6 +129,69 @@ export type StreamCallbacks = {
   onDone?: () => void;
 };
 
+function isStandaloneSseDataLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("data:")) return false;
+  const payload = trimmed.slice(5).trimStart();
+  if (!payload) return false;
+  if (payload === "[DONE]") return true;
+  try {
+    JSON.parse(payload);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function consumeSseEventBlocks(buffer: string, flush = false): { events: string[]; rest: string } {
+  const normalized = buffer.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  const pending = flush ? [] : [lines.pop() ?? ""];
+  const completeLines = flush ? lines : lines;
+  const events: string[] = [];
+  let currentEvent: string[] = [];
+
+  const emitCurrentEvent = () => {
+    if (currentEvent.length === 0) return;
+    events.push(currentEvent.join("\n"));
+    currentEvent = [];
+  };
+
+  for (const line of completeLines) {
+    if (line.length === 0) {
+      emitCurrentEvent();
+      continue;
+    }
+
+    if (currentEvent.length === 0 && isStandaloneSseDataLine(line)) {
+      events.push(line);
+      continue;
+    }
+
+    currentEvent.push(line);
+  }
+
+  if (flush) {
+    emitCurrentEvent();
+    return { events, rest: "" };
+  }
+
+  return {
+    events,
+    rest: [...currentEvent, ...pending].join("\n")
+  };
+}
+
+function extractSseEventData(eventBlock: string): string {
+  return eventBlock
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n")
+    .trim();
+}
+
 export async function streamPost(path: string, body: unknown, callbacks: StreamCallbacks): Promise<void> {
   let res: Response | null = null;
   let lastErr: unknown = new Error("Request failed");
@@ -160,46 +228,62 @@ export async function streamPost(path: string, body: unknown, callbacks: StreamC
     const decoder = new TextDecoder();
     let buffer = "";
     let doneEmitted = false;
+    let sawEvent = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    const processEventBlock = (eventBlock: string) => {
+      const payload = extractSseEventData(eventBlock);
+      if (!payload) return;
+      try {
+        const parsed = JSON.parse(payload) as {
+          type: string;
+          delta?: string;
+          phase?: "start" | "delta" | "done";
+          callId?: string;
+          name?: string;
+          args?: string;
+          result?: string;
+        };
+        sawEvent = true;
+        if (parsed.type === "delta" && parsed.delta) {
+          callbacks.onDelta?.(parsed.delta);
+        } else if (parsed.type === "tool" && parsed.phase && parsed.callId && parsed.name) {
+          callbacks.onToolEvent?.({
+            phase: parsed.phase,
+            callId: parsed.callId,
+            name: parsed.name,
+            args: parsed.args,
+            result: parsed.result
+          });
+        } else if (parsed.type === "done") {
+          doneEmitted = true;
+          callbacks.onDone?.();
+        }
+      } catch {
+        // Ignore malformed SSE payloads.
+      }
+    };
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data: ")) continue;
-        try {
-          const parsed = JSON.parse(trimmed.slice(6)) as {
-            type: string;
-            delta?: string;
-            phase?: "start" | "delta" | "done";
-            callId?: string;
-            name?: string;
-            args?: string;
-            result?: string;
-          };
-          if (parsed.type === "delta" && parsed.delta) {
-            callbacks.onDelta?.(parsed.delta);
-          } else if (parsed.type === "tool" && parsed.phase && parsed.callId && parsed.name) {
-            callbacks.onToolEvent?.({
-              phase: parsed.phase,
-              callId: parsed.callId,
-              name: parsed.name,
-              args: parsed.args,
-              result: parsed.result
-            });
-          } else if (parsed.type === "done") {
-            doneEmitted = true;
-            callbacks.onDone?.();
-          }
-        } catch {
-          // Ignore malformed SSE payloads.
+        buffer += decoder.decode(value, { stream: true });
+        const consumed = consumeSseEventBlocks(buffer);
+        buffer = consumed.rest;
+        for (const eventBlock of consumed.events) {
+          processEventBlock(eventBlock);
         }
       }
+    } catch (err) {
+      if (!isStreamTerminationError(err) || (!doneEmitted && !sawEvent)) {
+        throw err;
+      }
+    }
+
+    const flushed = consumeSseEventBlocks(buffer, true);
+    for (const eventBlock of flushed.events) {
+      processEventBlock(eventBlock);
     }
 
     if (!doneEmitted) callbacks.onDone?.();

@@ -39,12 +39,47 @@ function sanitizeLinkUrl(raw: string | null | undefined, allowExternalLinks: boo
   return null;
 }
 
+function isPrivateIpv4Host(hostname: string): boolean {
+  const parts = hostname.split(".").map((segment) => Number(segment));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return false;
+  }
+
+  return parts[0] === 10
+    || parts[0] === 127
+    || parts[0] === 0
+    || (parts[0] === 192 && parts[1] === 168)
+    || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
+    || (parts[0] === 169 && parts[1] === 254);
+}
+
+function isPrivateIpv6Host(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === "::1"
+    || normalized.startsWith("fc")
+    || normalized.startsWith("fd")
+    || normalized.startsWith("fe80:");
+}
+
+function isTrustedLocalImageUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return hostname === "localhost"
+      || hostname.endsWith(".local")
+      || isPrivateIpv4Host(hostname)
+      || isPrivateIpv6Host(hostname);
+  } catch {
+    return false;
+  }
+}
+
 function sanitizeImageUrl(raw: string | null | undefined, allowRemoteImages: boolean): string | null {
   const src = String(raw || "").trim();
   if (!src) return null;
   if (/^(javascript|data|vbscript|file):/i.test(src)) return null;
   if (/^https?:/i.test(src)) {
-    return allowRemoteImages ? src : null;
+    return allowRemoteImages || isTrustedLocalImageUrl(src) ? src : null;
   }
   if (/^(\/|\.{1,2}\/)/.test(src)) {
     return src;
@@ -158,6 +193,24 @@ export interface ParsedToolCallContent {
   name: string;
   args: string;
   result: string;
+  resultSummary?: string;
+  media?: Array<{
+    type: "image";
+    url: string;
+    markdown?: string;
+    alt?: string;
+  }>;
+}
+
+export interface ParsedToolResultDisplay {
+  result: string;
+  resultSummary?: string;
+  media: Array<{
+    type: "image";
+    url: string;
+    markdown?: string;
+    alt?: string;
+  }>;
 }
 
 export interface ParsedInlineReasoning {
@@ -194,15 +247,68 @@ export function parseInlineReasoning(text: string): ParsedInlineReasoning {
   };
 }
 
+export function parseToolResultDisplay(rawResult: string): ParsedToolResultDisplay {
+  const source = String(rawResult || "").trim();
+  if (!source.startsWith("{")) {
+    return {
+      result: String(rawResult || ""),
+      resultSummary: undefined,
+      media: []
+    };
+  }
+  try {
+    const parsed = JSON.parse(source) as {
+      kind?: unknown;
+      summary?: unknown;
+      media?: Array<{ type?: unknown; url?: unknown; markdown?: unknown; alt?: unknown }>;
+    };
+    if (parsed.kind !== "vellium_media_result" || !Array.isArray(parsed.media)) {
+      return {
+        result: String(rawResult || ""),
+        resultSummary: undefined,
+        media: []
+      };
+    }
+    const media = parsed.media
+      .map((item) => {
+        const type = String(item?.type || "").trim();
+        const url = String(item?.url || "").trim();
+        if (type !== "image" || !url) return null;
+        return {
+          type: "image" as const,
+          url,
+          markdown: String(item?.markdown || "").trim() || undefined,
+          alt: String(item?.alt || "").trim() || undefined
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+    return {
+      result: String(rawResult || ""),
+      resultSummary: String(parsed.summary || "").trim() || "Image created and shown to the user.",
+      media
+    };
+  } catch {
+    return {
+      result: String(rawResult || ""),
+      resultSummary: undefined,
+      media: []
+    };
+  }
+}
+
 export function parseToolCallContent(content: string): ParsedToolCallContent {
+
   try {
     const parsed = JSON.parse(content) as Partial<ParsedToolCallContent> & { kind?: string };
     if (parsed && typeof parsed === "object" && parsed.kind === "tool_call") {
+      const resultDisplay = parseToolResultDisplay(String(parsed.result || ""));
       return {
         callId: String(parsed.callId || "").trim(),
         name: String(parsed.name || "tool").trim() || "tool",
         args: String(parsed.args || "{}"),
-        result: String(parsed.result || "")
+        result: resultDisplay.result,
+        resultSummary: resultDisplay.resultSummary,
+        media: resultDisplay.media
       };
     }
   } catch {
@@ -212,10 +318,13 @@ export function parseToolCallContent(content: string): ParsedToolCallContent {
   const lines = String(content || "").split("\n");
   const first = lines.find((line) => line.startsWith("Tool:")) || "";
   const name = first.replace(/^Tool:\s*/i, "").trim() || "tool";
+  const resultDisplay = parseToolResultDisplay(String(content || ""));
   return {
     callId: "",
     name,
     args: name === REASONING_CALL_NAME ? "" : "{}",
-    result: String(content || "")
+    result: resultDisplay.result,
+    resultSummary: resultDisplay.resultSummary,
+    media: resultDisplay.media
   };
 }

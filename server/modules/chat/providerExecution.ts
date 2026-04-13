@@ -14,6 +14,13 @@ import {
 import { consumeThinkChunk, createThinkStreamState, flushThinkState, splitThinkContent } from "./reasoning.js";
 import type { ProviderRow } from "./routeHelpers.js";
 import {
+  consumeSseEventBlocks,
+  extractOpenAiStreamErrorMessage,
+  extractOpenAiStreamTextDelta,
+  extractSseEventData,
+  extractSseEventType
+} from "./openAiStream.js";
+import {
   buildKoboldPromptFromMessages,
   extractOpenAIReasoningDelta,
   KOBOLD_TAGS,
@@ -64,6 +71,9 @@ async function sendSseText(res: Response, chatId: string, text: string, paceMs =
   const chunks = text.match(/[\s\S]{1,140}/g) ?? [];
   for (const chunk of chunks) {
     res.write(`data: ${JSON.stringify({ type: "delta", chatId, delta: chunk })}\n\n`);
+    if (typeof (res as Response & { flush?: () => void }).flush === "function") {
+      (res as Response & { flush?: () => void }).flush?.();
+    }
     if (paceMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, paceMs));
     }
@@ -281,6 +291,38 @@ export async function streamProviderCompletion(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  const processEventBlock = (eventBlock: string) => {
+    const eventType = extractSseEventType(eventBlock);
+    const payload = extractSseEventData(eventBlock);
+    if (!payload || payload === "[DONE]") return;
+
+    try {
+      const parsed = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
+      const streamError = extractOpenAiStreamErrorMessage(parsed);
+      if (eventType === "error" || streamError) {
+        throw new Error(streamError || "Provider stream returned an error event");
+      }
+      const reasoningDelta = extractOpenAIReasoningDelta(parsed);
+      if (reasoningDelta) appendReasoningDelta(reasoningDelta);
+      const delta = extractOpenAiStreamTextDelta(parsed);
+      if (delta) {
+        const split = consumeThinkChunk(thinkState, delta);
+        if (split.reasoning) appendReasoningDelta(split.reasoning);
+        if (split.content) {
+          fullContent += split.content;
+          params.res.write(`data: ${JSON.stringify({ type: "delta", chatId: params.chatId, delta: split.content })}\n\n`);
+          if (typeof (params.res as Response & { flush?: () => void }).flush === "function") {
+            (params.res as Response & { flush?: () => void }).flush?.();
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error("Malformed provider stream chunk");
+    }
+  };
 
   try {
     while (true) {
@@ -293,31 +335,10 @@ export async function streamProviderCompletion(
       }
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data: ")) continue;
-        const data = trimmed.slice(6);
-        if (data === "[DONE]") continue;
-
-        try {
-          const parsed = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
-          const reasoningDelta = extractOpenAIReasoningDelta(parsed);
-          if (reasoningDelta) appendReasoningDelta(reasoningDelta);
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) {
-            const split = consumeThinkChunk(thinkState, delta);
-            if (split.reasoning) appendReasoningDelta(split.reasoning);
-            if (split.content) {
-              fullContent += split.content;
-              params.res.write(`data: ${JSON.stringify({ type: "delta", chatId: params.chatId, delta: split.content })}\n\n`);
-            }
-          }
-        } catch {
-          // Ignore malformed stream chunks.
-        }
+      const consumed = consumeSseEventBlocks(buffer);
+      buffer = consumed.rest;
+      for (const eventBlock of consumed.events) {
+        processEventBlock(eventBlock);
       }
     }
   } catch (readErr) {
@@ -326,11 +347,19 @@ export async function streamProviderCompletion(
     }
   }
 
+  const flushedEvents = consumeSseEventBlocks(buffer, true);
+  for (const eventBlock of flushedEvents.events) {
+    processEventBlock(eventBlock);
+  }
+
   const flush = flushThinkState(thinkState);
   if (flush.reasoning) appendReasoningDelta(flush.reasoning);
   if (flush.content) {
     fullContent += flush.content;
     params.res.write(`data: ${JSON.stringify({ type: "delta", chatId: params.chatId, delta: flush.content })}\n\n`);
+    if (typeof (params.res as Response & { flush?: () => void }).flush === "function") {
+      (params.res as Response & { flush?: () => void }).flush?.();
+    }
   }
 
   return { content: fullContent, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta() };

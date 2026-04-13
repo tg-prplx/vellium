@@ -1,11 +1,13 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
-import { basename } from "path";
+import { accessSync, constants } from "fs";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "child_process";
+import { basename, delimiter, join } from "path";
 
 export interface McpServerConfig {
   id: string;
   name: string;
   command: string;
   args: string;
+  cwd?: string;
   env: string;
   enabled: boolean;
   timeoutMs: number;
@@ -54,6 +56,7 @@ interface PrepareOptions {
 const HEADER_DELIMITER = Buffer.from("\r\n\r\n");
 const HEADER_DELIMITER_LF = Buffer.from("\n\n");
 const MCP_PROTOCOL_VERSION = "2024-11-05";
+const COMMON_POSIX_PATHS = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
 const ALLOWED_MCP_COMMANDS = new Set([
   "npx",
   "node",
@@ -74,9 +77,130 @@ export function isAllowedMcpCommand(raw: unknown): boolean {
   return ALLOWED_MCP_COMMANDS.has(base);
 }
 
-function detectStdioWireFormat(config: McpServerConfig): "content-length" | "jsonl" {
+let cachedShellPath: string | null | undefined;
+
+function uniquePathEntries(entries: Array<string | undefined | null>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of entries) {
+    const parts = String(raw || "")
+      .split(delimiter)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    for (const part of parts) {
+      if (seen.has(part)) continue;
+      seen.add(part);
+      out.push(part);
+    }
+  }
+  return out;
+}
+
+function getWindowsPathCandidates(): string[] {
+  const out = [
+    process.env.ProgramFiles ? join(process.env.ProgramFiles, "nodejs") : "",
+    process.env["ProgramFiles(x86)"] ? join(process.env["ProgramFiles(x86)"], "nodejs") : "",
+    process.env.AppData ? join(process.env.AppData, "npm") : "",
+    process.env.LocalAppData ? join(process.env.LocalAppData, "Programs", "nodejs") : ""
+  ].filter(Boolean);
+  return out;
+}
+
+function getShellPathSnapshot(): string | null {
+  if (cachedShellPath !== undefined) return cachedShellPath;
+  if (process.platform === "win32") {
+    cachedShellPath = null;
+    return cachedShellPath;
+  }
+
+  const shells = [process.env.SHELL, "/bin/zsh", "/bin/bash", "/bin/sh"].filter((item): item is string => Boolean(item));
+  for (const shell of shells) {
+    const result = spawnSync(shell, ["-lc", "printf %s \"$PATH\""], {
+      env: process.env,
+      encoding: "utf8",
+      timeout: 1500
+    });
+    const value = String(result.stdout || "").trim();
+    if (result.status === 0 && value) {
+      cachedShellPath = value;
+      return cachedShellPath;
+    }
+  }
+
+  cachedShellPath = null;
+  return cachedShellPath;
+}
+
+function buildSpawnEnv(envPatch: Record<string, string>): NodeJS.ProcessEnv {
+  const merged: NodeJS.ProcessEnv = { ...process.env, ...envPatch };
+  const pathEntries = uniquePathEntries([
+    merged.PATH,
+    (merged as { Path?: string }).Path,
+    getShellPathSnapshot(),
+    ...(process.platform === "win32" ? getWindowsPathCandidates() : COMMON_POSIX_PATHS)
+  ]);
+  if (pathEntries.length > 0) {
+    const nextPath = pathEntries.join(delimiter);
+    merged.PATH = nextPath;
+    if ("Path" in merged) {
+      (merged as { Path?: string }).Path = nextPath;
+    }
+  }
+  return merged;
+}
+
+function commandHasPathSeparator(command: string): boolean {
+  return /[\\/]/.test(command);
+}
+
+function isExecutableFile(filePath: string): boolean {
+  try {
+    accessSync(filePath, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveCommandFromPath(command: string, env: NodeJS.ProcessEnv): string | null {
+  if (!command || commandHasPathSeparator(command)) return command || null;
+  const pathValue = String(env.PATH || (env as { Path?: string }).Path || "").trim();
+  if (!pathValue) return null;
+
+  const extensions = process.platform === "win32"
+    ? uniquePathEntries([String(env.PATHEXT || ".EXE;.CMD;.BAT;.COM")]).flatMap((entry) => entry.split(";").filter(Boolean))
+    : [""];
+
+  for (const dir of pathValue.split(delimiter).map((part) => part.trim()).filter(Boolean)) {
+    for (const ext of extensions) {
+      const candidate = join(dir, process.platform === "win32" && ext && !command.toLowerCase().endsWith(ext.toLowerCase()) ? `${command}${ext}` : command);
+      if (isExecutableFile(candidate)) return candidate;
+    }
+  }
+  return null;
+}
+
+function resolveSpawnCommand(command: string, env: NodeJS.ProcessEnv): string {
+  const trimmed = String(command || "").trim();
+  if (!trimmed) return trimmed;
+  if (commandHasPathSeparator(trimmed)) return trimmed;
+  return resolveCommandFromPath(trimmed, env) ?? trimmed;
+}
+
+type StdioWireFormat = "content-length" | "jsonl";
+
+function isLikelyJsonlServer(config: Pick<McpServerConfig, "command" | "args">): boolean {
+  const commandBase = basename(String(config.command || "").trim()).toLowerCase().replace(/\.exe$/i, "");
   const signature = `${String(config.command || "")} ${String(config.args || "")}`.toLowerCase();
-  if (/\bmcp-remote\b/.test(signature)) return "jsonl";
+  if (/\bmcp-remote\b/.test(signature)) return true;
+  if (["node", "npx", "bunx", "deno"].includes(commandBase) && /\.(?:c|m)?js\b|\.tsx?\b/.test(signature)) {
+    return true;
+  }
+  return false;
+}
+
+function detectStdioWireFormat(config: McpServerConfig): StdioWireFormat {
+  if (isLikelyJsonlServer(config)) return "jsonl";
   return "content-length";
 }
 
@@ -109,6 +233,19 @@ function parseEnv(raw: string): Record<string, string> {
     out[key] = value;
   }
   return out;
+}
+
+function normalizeTimeoutMs(config: Pick<McpServerConfig, "command" | "args" | "timeoutMs">, override?: number): number {
+  const raw = override ?? Number(config.timeoutMs);
+  const isRemoteBridge = /\bmcp-remote\b/i.test(`${config.command} ${config.args}`);
+  const fallback = isRemoteBridge ? 45000 : 15000;
+  if (!Number.isFinite(raw) || raw <= 0) return fallback;
+  const normalized = Math.max(1000, Math.min(120000, Math.floor(raw)));
+  return isRemoteBridge ? Math.max(45000, normalized) : normalized;
+}
+
+function isInitializeTimeoutError(error: unknown): boolean {
+  return error instanceof Error && /MCP timeout on initialize\b/.test(error.message);
 }
 
 function normalizeSchema(input: unknown): Record<string, unknown> {
@@ -166,9 +303,75 @@ function toToolText(result: unknown): string {
   return serialized;
 }
 
+interface ToolMediaItem {
+  type: "image";
+  url: string;
+  markdown?: string;
+  alt?: string;
+}
+
+function normalizeToolMediaItems(raw: unknown): ToolMediaItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as { type?: unknown; url?: unknown; markdown?: unknown; alt?: unknown; text?: unknown };
+      const type = String(row.type || "image").trim();
+      const url = String(row.url || "").trim();
+      if (type !== "image" || !url) return null;
+      return {
+        type: "image" as const,
+        url,
+        markdown: String(row.markdown || "").trim() || undefined,
+        alt: String(row.alt || row.text || "").trim() || undefined
+      };
+    })
+    .filter((item): item is ToolMediaItem => item !== null);
+}
+
+function extractSpecialToolExecutionResult(result: unknown): { modelText: string; traceText: string } | null {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+  const payload = result as { structuredContent?: unknown };
+  const structured = payload.structuredContent && typeof payload.structuredContent === "object" && !Array.isArray(payload.structuredContent)
+    ? payload.structuredContent as Record<string, unknown>
+    : null;
+  if (!structured) return null;
+
+  const vellium = structured.vellium && typeof structured.vellium === "object" && !Array.isArray(structured.vellium)
+    ? structured.vellium as Record<string, unknown>
+    : null;
+  const media = normalizeToolMediaItems(vellium?.media ?? structured.media ?? structured.images);
+  if (media.length === 0) return null;
+
+  const summary = String(
+    vellium?.summary
+    ?? structured.summary
+    ?? "Image created and shown to the user."
+  ).trim() || "Image created and shown to the user.";
+
+  return {
+    modelText: summary,
+    traceText: JSON.stringify({
+      kind: "vellium_media_result",
+      summary,
+      media
+    })
+  };
+}
+
+function normalizeToolExecutionResult(result: unknown): { modelText: string; traceText: string } {
+  const special = extractSpecialToolExecutionResult(result);
+  if (special) return special;
+  const text = toToolText(result).slice(0, 24000);
+  return {
+    modelText: text,
+    traceText: text
+  };
+}
+
 class McpStdioClient {
   private readonly proc: ChildProcessWithoutNullStreams;
-  private readonly wireFormat: "content-length" | "jsonl";
+  private readonly wireFormat: StdioWireFormat;
   private readonly pending = new Map<number, {
     resolve: (value: unknown) => void;
     reject: (reason?: unknown) => void;
@@ -179,16 +382,19 @@ class McpStdioClient {
   private closed = false;
   private stderrTail = "";
 
-  constructor(private readonly config: McpServerConfig) {
+  constructor(private readonly config: McpServerConfig, wireFormat?: StdioWireFormat) {
     if (!isAllowedMcpCommand(config.command)) {
       throw new Error(`MCP command is not allowed: ${config.command}`);
     }
-    this.wireFormat = detectStdioWireFormat(config);
+    this.wireFormat = wireFormat ?? detectStdioWireFormat(config);
     const args = parseArgs(config.args);
     const envPatch = parseEnv(config.env);
-    this.proc = spawn(config.command, args, {
+    const spawnEnv = buildSpawnEnv(envPatch);
+    const resolvedCommand = resolveSpawnCommand(config.command, spawnEnv);
+    this.proc = spawn(resolvedCommand, args, {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, ...envPatch }
+      cwd: String(config.cwd || "").trim() || undefined,
+      env: spawnEnv
     });
 
     this.proc.stdout.on("data", (chunk: Buffer) => this.handleStdout(chunk));
@@ -199,15 +405,21 @@ class McpStdioClient {
         this.stderrTail = `${this.stderrTail}${text}`.slice(-1200);
       }
     });
-    this.proc.on("error", (err) => this.rejectAll(err));
+    this.proc.on("error", (err) => {
+      if (err && typeof err === "object" && "message" in err && /ENOENT/.test(String((err as Error).message || ""))) {
+        this.rejectAll(new Error(`MCP command not found: ${config.command}. Install it or use an absolute executable path.`));
+        return;
+      }
+      this.rejectAll(err);
+    });
     this.proc.on("exit", () => {
       const suffix = this.stderrTail.trim() ? ` | stderr: ${this.stderrTail.trim()}` : "";
       this.rejectAll(new Error(`MCP server exited: ${this.config.name || this.config.id}${suffix}`));
     });
   }
 
-  async initialize(signal?: AbortSignal): Promise<void> {
-    const timeout = this.normalizeTimeout();
+  async initialize(signal?: AbortSignal, timeoutOverrideMs?: number): Promise<void> {
+    const timeout = this.normalizeTimeout(timeoutOverrideMs);
     await this.request("initialize", {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: {},
@@ -245,13 +457,8 @@ class McpStdioClient {
     }
   }
 
-  private normalizeTimeout(): number {
-    const raw = Number(this.config.timeoutMs);
-    const isRemoteBridge = /\bmcp-remote\b/i.test(`${this.config.command} ${this.config.args}`);
-    const fallback = isRemoteBridge ? 45000 : 15000;
-    if (!Number.isFinite(raw) || raw <= 0) return fallback;
-    const normalized = Math.max(1000, Math.min(120000, Math.floor(raw)));
-    return isRemoteBridge ? Math.max(45000, normalized) : normalized;
+  private normalizeTimeout(overrideMs?: number): number {
+    return normalizeTimeoutMs(this.config, overrideMs);
   }
 
   private notify(method: string, params: Record<string, unknown>) {
@@ -382,9 +589,61 @@ class McpStdioClient {
   }
 }
 
+async function tryConnectMcpClient(
+  server: McpServerConfig,
+  wireFormat: StdioWireFormat,
+  signal?: AbortSignal,
+  timeoutOverrideMs?: number
+): Promise<McpStdioClient> {
+  const client = new McpStdioClient(server, wireFormat);
+  try {
+    await client.initialize(signal, timeoutOverrideMs);
+    return client;
+  } catch (error) {
+    await client.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+async function connectMcpClient(server: McpServerConfig, signal?: AbortSignal): Promise<McpStdioClient> {
+  const preferred = detectStdioWireFormat(server);
+  const attempts: StdioWireFormat[] = preferred === "jsonl"
+    ? ["jsonl", "content-length"]
+    : ["content-length", "jsonl"];
+  const fullTimeout = normalizeTimeoutMs(server);
+  const probeTimeout = Math.max(1000, Math.min(1800, fullTimeout));
+  let lastError: unknown = null;
+
+  if (preferred === "content-length") {
+    for (const format of attempts) {
+      try {
+        return await tryConnectMcpClient(server, format, signal, probeTimeout);
+      } catch (error) {
+        lastError = error;
+        if (!isInitializeTimeoutError(error)) {
+          throw error instanceof Error ? error : new Error(String(error || "Failed to connect to MCP server"));
+        }
+      }
+    }
+  }
+
+  for (const format of attempts) {
+    try {
+      return await tryConnectMcpClient(server, format, signal, fullTimeout);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError || "Failed to connect to MCP server"));
+}
+
 export interface PreparedMcpTools {
   tools: OpenAIToolDefinition[];
-  executeToolCall: (callName: string, rawArgs: string | undefined, signal?: AbortSignal) => Promise<string>;
+  executeToolCall: (callName: string, rawArgs: string | undefined, signal?: AbortSignal) => Promise<{
+    modelText: string;
+    traceText: string;
+  }>;
   close: () => Promise<void>;
 }
 
@@ -397,9 +656,9 @@ export async function prepareMcpTools(servers: McpServerConfig[], options?: Prep
   for (const server of servers) {
     if (!server?.enabled) continue;
     if (!String(server.command || "").trim()) continue;
-    const client = new McpStdioClient(server);
+    let client: McpStdioClient | null = null;
     try {
-      await client.initialize(options?.signal);
+      client = await connectMcpClient(server, options?.signal);
       const listed = await client.listTools(options?.signal);
       clients.push(client);
       for (const item of listed) {
@@ -425,7 +684,9 @@ export async function prepareMcpTools(servers: McpServerConfig[], options?: Prep
         });
       }
     } catch {
-      await client.close();
+      if (client) {
+        await client.close();
+      }
     }
   }
 
@@ -434,7 +695,10 @@ export async function prepareMcpTools(servers: McpServerConfig[], options?: Prep
     executeToolCall: async (callName: string, rawArgs: string | undefined, signal?: AbortSignal) => {
       const selected = registry.get(callName);
       if (!selected) {
-        return `Tool not found: ${callName}`;
+        return {
+          modelText: `Tool not found: ${callName}`,
+          traceText: `Tool not found: ${callName}`
+        };
       }
       let parsedArgs: Record<string, unknown> = {};
       if (rawArgs && rawArgs.trim()) {
@@ -444,14 +708,21 @@ export async function prepareMcpTools(servers: McpServerConfig[], options?: Prep
             parsedArgs = decoded as Record<string, unknown>;
           }
         } catch {
-          return `Tool argument parsing error for ${callName}`;
+          return {
+            modelText: `Tool argument parsing error for ${callName}`,
+            traceText: `Tool argument parsing error for ${callName}`
+          };
         }
       }
       try {
         const result = await selected.client.callTool(selected.toolName, parsedArgs, selected.timeoutMs, signal);
-        return toToolText(result).slice(0, 24000);
+        return normalizeToolExecutionResult(result);
       } catch (err) {
-        return `Tool execution failed (${callName}): ${err instanceof Error ? err.message : "Unknown error"}`;
+        const message = `Tool execution failed (${callName}): ${err instanceof Error ? err.message : "Unknown error"}`;
+        return {
+          modelText: message,
+          traceText: message
+        };
       }
     },
     close: async () => {
@@ -470,9 +741,9 @@ export async function discoverMcpToolCatalog(
   for (const server of servers) {
     if (!server?.enabled) continue;
     if (!String(server.command || "").trim()) continue;
-    const client = new McpStdioClient(server);
+    let client: McpStdioClient | null = null;
     try {
-      await client.initialize(options?.signal);
+      client = await connectMcpClient(server, options?.signal);
       const listed = await client.listTools(options?.signal);
       for (const item of listed) {
         const toolName = String(item?.name || "").trim();
@@ -489,7 +760,9 @@ export async function discoverMcpToolCatalog(
     } catch {
       // Ignore failing servers to keep discovery best-effort.
     } finally {
-      await client.close();
+      if (client) {
+        await client.close();
+      }
     }
   }
 
@@ -505,9 +778,9 @@ export async function testMcpServerConnection(server: McpServerConfig, signal?: 
     return { ok: false, tools: [], error: "Command is required" };
   }
 
-  const client = new McpStdioClient(server);
+  let client: McpStdioClient | null = null;
   try {
-    await client.initialize(signal);
+    client = await connectMcpClient(server, signal);
     const list = await client.listTools(signal);
     const tools = list
       .map((item) => ({
@@ -523,6 +796,8 @@ export async function testMcpServerConnection(server: McpServerConfig, signal?: 
       error: err instanceof Error ? err.message : "Unknown MCP error"
     };
   } finally {
-    await client.close();
+    if (client) {
+      await client.close();
+    }
   }
 }

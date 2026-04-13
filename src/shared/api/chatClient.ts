@@ -3,6 +3,29 @@ import { del, get, patchReq, post, put, requestBlob, streamPost, type StreamCall
 
 type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
 const TRANSLATION_TIMEOUT_MS = 60_000;
+const STREAM_TIMELINE_TIMEOUT_MS = 15_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function loadTimelineAfterStream(chatId: string, branchId?: string): Promise<ChatMessage[]> {
+  let lastError: unknown = null;
+  for (const delayMs of [0, 120, 320, 700]) {
+    if (delayMs > 0) {
+      await sleep(delayMs);
+    }
+    try {
+      return await get<ChatMessage[]>(
+        `/chats/${chatId}/timeline${branchId ? `?branchId=${branchId}` : ""}`,
+        { timeoutMs: STREAM_TIMELINE_TIMEOUT_MS }
+      );
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Failed to load chat timeline after stream");
+}
 
 export const chatClient = {
   chatCreate: (title: string, characterId?: string, characterIds?: string[], lorebookIds?: string[]) =>
@@ -20,21 +43,21 @@ export const chatClient = {
   chatNextTurn: async (chatId: string, characterName: string, branchId?: string, callbacks?: StreamCallbacks, isAutoConvo?: boolean, userPersona?: UserPersonaPayload | null): Promise<ChatMessage[]> => {
     if (callbacks) {
       await streamPost(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userPersona }, callbacks);
-      return chatClient.chatTimeline(chatId, branchId);
+      return loadTimelineAfterStream(chatId, branchId);
     }
     return post<ChatMessage[]>(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userPersona });
   },
   chatSend: async (chatId: string, content: string, branchId?: string, callbacks?: StreamCallbacks, userPersona?: UserPersonaPayload | null, attachments?: FileAttachment[]): Promise<ChatMessage[]> => {
     if (callbacks) {
       await streamPost(`/chats/${chatId}/send`, { content, branchId, userPersona, attachments }, callbacks);
-      return chatClient.chatTimeline(chatId, branchId);
+      return loadTimelineAfterStream(chatId, branchId);
     }
     return post<ChatMessage[]>(`/chats/${chatId}/send`, { content, branchId, userPersona, attachments });
   },
   chatRegenerate: async (chatId: string, branchId?: string, callbacks?: StreamCallbacks): Promise<ChatMessage[]> => {
     if (callbacks) {
       await streamPost(`/chats/${chatId}/regenerate`, { branchId }, callbacks);
-      return chatClient.chatTimeline(chatId, branchId);
+      return loadTimelineAfterStream(chatId, branchId);
     }
     return post<ChatMessage[]>(`/chats/${chatId}/regenerate`, { branchId });
   },
