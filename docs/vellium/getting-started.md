@@ -1,45 +1,45 @@
-# Быстрый старт
+# Getting Started
 
-Этот раздел нужен для первого запуска Vellium и первой рабочей конфигурации, после которой можно безопасно перейти к чату, писательским сценариям и RAG.
+This section is for the first launch of Vellium and the first working setup that lets you safely move on to chat, writing, and RAG workflows.
 
-## Для кого этот раздел
+## Who This Section Is For
 
-- Для пользователя, который впервые открывает Vellium
-- Для разработчика, который запускает проект из репозитория
-- Для power-user, который хочет быстро поднять локальный backend и не утонуть в настройках
+- A user opening Vellium for the first time
+- A developer running the project from the repository
+- A power user who wants a local backend up quickly without drowning in settings
 
-## Варианты запуска
+## Launch Options
 
-### 1. Использование уже собранного desktop-приложения
+### 1. Use an already built desktop app
 
-Если у вас уже есть собранная версия Vellium, просто запустите приложение и переходите к разделу `Первый запуск и Welcome`.
+If you already have a packaged build of Vellium, launch the app and move straight to `First launch and the Welcome screen`.
 
-### 2. Локальный запуск из репозитория
+### 2. Run locally from the repository
 
-Минимальный dev-сценарий:
+Minimal development flow:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Это поднимает frontend и локальный API. По умолчанию frontend доступен на `http://localhost:1420`.
+This starts the frontend and the local API. By default the frontend is available at `http://localhost:1420`.
 
-Если нужно проверить именно desktop-shell Electron, используйте:
+If you specifically need the Electron desktop shell, use:
 
 ```bash
 npm run dev:electron
 ```
 
-### 3. Сборка desktop-версии
+### 3. Build a desktop package
 
-Для локальной упаковки:
+To package locally:
 
 ```bash
 npm run dist
 ```
 
-Платформенные варианты:
+Platform-specific variants:
 
 ```bash
 npm run dist:mac
@@ -47,102 +47,104 @@ npm run dist:linux
 npm run dist:win
 ```
 
-## Первый запуск и экран Welcome
+## First Launch and the Welcome Screen
 
-При первом запуске Vellium показывает onboarding-экран. На нем вы задаете базовое поведение приложения:
+On first launch Vellium shows an onboarding screen. This is where you define the app's baseline behavior:
 
-- `Interface Language` - язык самого интерфейса
-- `Response Language` - желаемый язык ответов моделей по умолчанию
-- `Theme` - базовая тема
-- `Censorship` - режим фильтрации
-- `Enable local-only mode` - разрешать только localhost/private LAN endpoint'ы
-- `Enable Simple Mode` - включить упрощенный современный режим интерфейса для `Chat` и `Writing`
-- `Quick Presets` - сразу создать provider profile из готового шаблона
+- `Interface Language` for labels and navigation
+- `Response Language` for model output defaults
+- `Theme`
+- `Censorship`
+- `Enable local-only mode`
+- `Enable Simple Mode` for the simplified `Chat` and `Writing` UI
+- `Quick Presets` for creating a provider profile immediately
 
-### Что лучше выбрать на первом запуске
+![Welcome / onboarding screen](./assets/welcome-onboarding.png)
 
-Если вы не уверены:
+### What to choose on day one
 
-- интерфейс: `ru` или `en`, что удобнее
-- response language: язык, на котором вы чаще пишете
-- theme: под ваш текущий рабочий режим
-- censorship: по вашей политике использования
-- local-only mode: включить, если вы работаете только с локальными моделями и self-hosted API
-- simple mode: обычно стоит оставить включенным
+If you are unsure:
 
-## Готовые пресеты провайдеров
+- interface language: `en` or whatever you navigate fastest in
+- response language: the language you actually write in most often
+- theme: whatever matches your daily workflow
+- censorship: your own usage policy
+- local-only mode: enable it if you only use local models or self-hosted endpoints
+- simple mode: usually keep it enabled first
 
-Vellium умеет быстро создать профиль провайдера из Welcome или позже из `Settings`.
+## Built-In Provider Presets
 
-| Пресет | Когда выбирать | Тип |
+Vellium can create a provider profile quickly from either `Welcome` or later in `Settings`.
+
+| Preset | When to choose it | Type |
 | --- | --- | --- |
-| `OpenAI` | Если используете официальный OpenAI API | OpenAI-compatible |
-| `LM Studio` | Если гоняете локальную модель через LM Studio | OpenAI-compatible, local |
-| `Ollama` | Если используете Ollama с OpenAI-compatible endpoint | OpenAI-compatible, local |
-| `KoboldCpp` | Если работаете в RP/LLM-local стеке через KoboldCpp | KoboldCpp |
-| `OpenRouter` | Если нужен единый каталог моделей через OpenRouter | OpenAI-compatible |
-| `Custom` | Для любого совместимого API, который не покрывается готовыми шаблонами | OpenAI-compatible |
+| `OpenAI` | You use the official OpenAI API | OpenAI-compatible |
+| `LM Studio` | You run a local model through LM Studio | OpenAI-compatible, local |
+| `Ollama` | You use Ollama's OpenAI-compatible endpoint | OpenAI-compatible, local |
+| `KoboldCpp` | You run an RP-heavy local stack with KoboldCpp | KoboldCpp |
+| `OpenRouter` | You want a unified model catalog through OpenRouter | OpenAI-compatible |
+| `Custom` | You use another compatible API that the presets do not cover | OpenAI-compatible |
 
-## Минимальная рабочая конфигурация
+## Minimal Working Setup
 
-Чтобы Vellium начал реально отвечать, недостаточно просто открыть приложение. Нужен рабочий provider profile и выбранная активная модель.
+Opening the app is not enough. Vellium needs a working provider profile and an active model before the main workflows become useful.
 
-Сделайте в таком порядке:
+Do this in order:
 
-1. Откройте `Settings`.
-2. Выберите быстрый пресет или заполните провайдера вручную.
-3. Сохраните provider profile.
-4. Загрузите список моделей.
-5. Выберите `active provider` и `active model`.
-6. Вернитесь в `Chat` и отправьте тестовое сообщение.
+1. Open `Settings`.
+2. Choose a preset or fill a provider manually.
+3. Save the provider profile.
+4. Load models.
+5. Choose the `active provider` and `active model`.
+6. Go back to `Chat` and send a test message.
 
-Если модель не выбрана, чат прямо подскажет, что активная модель не настроена.
+If the active model is missing, the chat UI will tell you directly.
 
-## Первый полезный сценарий
+## First Useful Smoke Test
 
-Если ваша цель просто убедиться, что все работает:
+If your goal is only to confirm that the app works:
 
-1. Запустите Vellium.
-2. В `Settings` выберите пресет `OpenAI`, `LM Studio`, `Ollama` или `KoboldCpp`.
-3. Назначьте активную модель.
-4. Откройте `Chat`.
-5. Создайте новый чат без персонажа.
-6. Отправьте короткий запрос.
-7. После этого уже добавляйте персонажей, лорбук или RAG.
+1. Start Vellium.
+2. In `Settings`, choose `OpenAI`, `LM Studio`, `Ollama`, or `KoboldCpp`.
+3. Assign an active model.
+4. Open `Chat`.
+5. Start a new chat without a character.
+6. Send a short prompt.
+7. Only after that add characters, LoreBooks, or RAG.
 
-## Когда стоит сразу включить local-only mode
+## When to enable local-only mode immediately
 
-`Local-only mode` полезен, если вы:
+`Local-only mode` is useful if you:
 
-- используете только LM Studio, Ollama, KoboldCpp или private LAN endpoint
-- хотите исключить случайную отправку запросов на внешний API
-- тестируете Vellium в полностью локальном окружении
+- only use LM Studio, Ollama, KoboldCpp, or private LAN endpoints
+- want to prevent accidental requests to public APIs
+- test Vellium in a fully local environment
 
-Не включайте его, если планируете использовать публичные endpoint'ы вроде OpenAI или OpenRouter.
+Do not enable it if you plan to use public endpoints such as OpenAI or OpenRouter.
 
-## Когда стоит сразу включить Simple Mode
+## When to enable Simple Mode immediately
 
-`Simple Mode` стоит включать, если:
+`Simple Mode` is worth enabling if:
 
-- вам нужен более чистый и современный UI для chat/writing
-- вы хотите сначала освоить базовые потоки без перегруза расширенными панелями
-- приложением будут пользоваться не только технические пользователи
+- you want a cleaner, more modern Chat and Writing UI
+- you want to learn the main flows before dealing with every advanced side panel
+- the app will be used by non-technical users as well
 
-Его можно позже менять в `Settings`.
+You can change it later in `Settings`.
 
-## Что проверить в первые 10 минут
+## What to verify in the first 10 minutes
 
-- Приложение открывается без ошибок
-- `Settings` сохраняет профиль провайдера
-- Список моделей загружается
-- `Chat` отвечает
-- Прикрепление файлов и базовый markdown-рендер работают
-- Если нужен RAG, создается хотя бы одна knowledge collection
-- Если нужен RP, импортируется хотя бы один персонаж
+- The app opens without startup errors
+- `Settings` saves a provider profile
+- The model list loads
+- `Chat` responds
+- File attachments and basic Markdown rendering work
+- If you need RAG, at least one knowledge collection can be created
+- If you need RP, at least one character can be imported
 
-## Что читать дальше
+## What to read next
 
-- Для чата: [chat-and-rp.md](./chat-and-rp.md)
-- Для персонажей и world info: [characters-and-lorebooks.md](./characters-and-lorebooks.md)
-- Для writer workflow: [writing.md](./writing.md)
-- Для провайдеров и advanced settings: [settings-and-providers.md](./settings-and-providers.md)
+- For chat and RP: [chat-and-rp.md](./chat-and-rp.md)
+- For characters and world info: [characters-and-lorebooks.md](./characters-and-lorebooks.md)
+- For writer workflows: [writing.md](./writing.md)
+- For providers and advanced settings: [settings-and-providers.md](./settings-and-providers.md)

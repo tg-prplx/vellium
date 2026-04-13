@@ -1,102 +1,104 @@
-# Knowledge и RAG
+# Knowledge and RAG
 
-`Knowledge` в Vellium отвечает за retrieval-слой: коллекции знаний, документы и дальнейшее использование этих данных в `Chat` и `Writing`.
+`Knowledge` is Vellium's retrieval layer: collections, documents, and the later use of those documents in `Chat` and `Writing`.
 
-## Когда нужен Knowledge
+![Knowledge workspace](./assets/knowledge-workspace.png)
 
-Используйте `Knowledge`, если вам нужно:
+## When Knowledge is the right tool
 
-- хранить справочный текст отдельно от диалога и рукописи
-- подключать retrieval по смыслу, а не по жестким ключам
-- давать модели доступ к исследовательским заметкам, канону, справке, документации или world notes
+Use `Knowledge` when you need to:
 
-Если вам нужны keyword-triggered вставки, это скорее задача `LoreBooks`, а не `Knowledge`.
+- store reference text outside the live chat or manuscript
+- use retrieval by meaning instead of strict trigger keys
+- give the model access to research notes, canon, documentation, or world notes
 
-## Главные сущности
+If you need keyword-triggered prompt injection, that is usually a `LoreBook` job instead.
 
-| Сущность | Что означает |
+## Main entities
+
+| Entity | Meaning |
 | --- | --- |
-| `Collection` | Контейнер знаний |
-| `Document` | Отдельный текст внутри коллекции |
-| `Scope` | Для какого сценария предназначена коллекция |
+| `Collection` | A knowledge container |
+| `Document` | One text item inside a collection |
+| `Scope` | Which workflow the collection is meant for |
 
-## Scope коллекций
+## Collection scope
 
-В Vellium у knowledge collection есть scope:
+Each collection in Vellium has a scope:
 
 - `global`
 - `chat`
 - `writer`
 
-### Как это использовать на практике
+### How to use that in practice
 
 `global`
 
-- общие знания, которые могут понадобиться в разных частях приложения
+- shared knowledge that may be needed across the app
 
 `chat`
 
-- коллекции, заточенные под диалог, RP, assistant use cases
+- collections optimized for dialogue, RP, and assistant-style flows
 
 `writer`
 
-- референсы, world notes, research и вспомогательные материалы для писательства
+- references, world notes, and research material for writing workflows
 
-## Базовый workflow
+## Basic workflow
 
-1. Перейдите в `Knowledge`.
-2. Создайте новую collection.
-3. Задайте имя, описание и scope.
-4. Введите `Document title`.
-5. Вставьте текст документа.
-6. Нажмите ingestion.
-7. Подключите collection в `Chat` или `Writing`.
+1. Open `Knowledge`.
+2. Create a new collection.
+3. Set its name, description, and scope.
+4. Enter the `Document title`.
+5. Paste the document text.
+6. Run ingestion.
+7. Attach the collection in `Chat` or `Writing`.
 
-## Как происходит ingestion
+## How ingestion works
 
-Текущий `Knowledge` UI ориентирован на ручной ввод текста:
+The current `Knowledge` UI is built around manual text input:
 
-- заголовок документа
-- основной текст
+- a document title
+- a main body of text
 
-Это значит, что коллекции удобно использовать для:
+That makes collections convenient for:
 
-- исследовательских заметок
+- research notes
 - canon sheets
-- сжатых reference docs
-- curated knowledge fragments
+- compact reference docs
+- curated fragments of useful knowledge
 
-## Подключение RAG в Chat
+## Connecting RAG in Chat
 
-В `Chat` можно:
+In `Chat` you can:
 
-- включить `Use RAG`
-- выбрать knowledge collections
-- управлять retrieval-параметрами, если они доступны в текущем режиме
+- enable `Use RAG`
+- choose the attached knowledge collections
+- tune retrieval behavior if the current mode exposes those controls
 
-RAG полезен в чате, когда модели надо:
+RAG is useful in chat when the model needs to:
 
-- вспомнить факты из внешнего текста
-- опираться на документацию
-- держать большую справочную базу без прямого копирования в prompt
+- recall facts from external text
+- answer using documentation
+- keep a large reference base outside the direct prompt
 
-## Подключение RAG в Writing
+## Connecting RAG in Writing
 
-В `Writing` RAG полезен, если книга или сценарий зависят от:
+In `Writing`, RAG is useful when the project depends on:
 
-- мира с большим количеством правил
-- исторических/технических референсов
-- базы канона
+- a world with many rules
+- historical or technical references
+- canon databases
 - research notes
 
-Преимущество writer-side RAG в том, что проектный текст и знания разделены.
+The big advantage is separation: the manuscript and the knowledge base remain distinct.
 
-## Что настраивается в Settings для RAG
+## What `Settings` controls for RAG
 
-`Settings` содержит отдельные блоки для RAG:
+`Settings` has dedicated RAG blocks for:
 
-- embedding model
-- optional reranker
+- the embedding model
+- an optional reranker
 - retrieval tuning
 - top-k
 - candidate pool size
@@ -107,33 +109,33 @@ RAG полезен в чате, когда модели надо:
 
 ## Reranker
 
-Vellium поддерживает optional cross-encoder reranking через OpenAI-compatible `/rerank` endpoint.
+Vellium supports optional cross-encoder reranking through an OpenAI-compatible `/rerank` endpoint.
 
-Используйте его, если:
+Use it when:
 
-- retrieval работает, но источники ранжируются слабо
-- нужна более точная сортировка кандидатов
-- размер базы знаний уже заметный
+- retrieval works, but candidate ordering is weak
+- you need more accurate ranking
+- the knowledge base is large enough that ranking quality matters
 
-## Когда выбирать LoreBook, а когда RAG
+## When to choose LoreBook vs RAG
 
-Выберите `LoreBook`, если:
+Choose `LoreBook` if:
 
-- нужна жесткая keyword-логика
-- контекст должен активироваться по понятным триггерам
-- вы строите RP/world info вокруг терминов и ключей
+- you need strict keyword logic
+- context must fire from explicit triggers
+- your RP or world info is organized around terms and keys
 
-Выберите `Knowledge/RAG`, если:
+Choose `Knowledge / RAG` if:
 
-- нужен смысловой retrieval
-- информация слишком велика для ручного keyword-управления
-- вы работаете с исследовательским или справочным корпусом
+- you need semantic retrieval
+- the knowledge set is too large for manual trigger management
+- you work with research or reference corpora
 
-Во многих сценариях оба механизма работают лучше вместе, но у каждого своя роль.
+In many workflows both mechanisms work well together, but they solve different problems.
 
-## Практические рекомендации
+## Practical Recommendations
 
-- Делите знания на тематические коллекции, а не складывайте все в одну.
-- Держите документы компактными и внятными.
-- Если retrieval кажется хаотичным, сначала уменьшайте шум коллекции, а не сразу крутите все параметры.
-- Для writer-проектов удобно разделять канон мира и референсные исследования в разные collection scope.
+- Split knowledge into thematic collections instead of one giant bucket.
+- Keep documents compact and explicit.
+- If retrieval feels noisy, reduce collection noise before turning every numerical knob.
+- For writing projects, it is often smart to keep canon and research in separate scopes or separate collections.

@@ -1,56 +1,54 @@
-# Plugins и безопасность
+# Plugins and Security
 
-Vellium поддерживает локальные плагины, plugin tabs, slot widgets, inline actions, plugin settings и темы. Это мощная часть системы, но она требует дисциплины в вопросах прав и доверия.
+Vellium supports local plugins, plugin tabs, slot widgets, inline actions, plugin settings, and themes. This is one of the most powerful parts of the app, but it also requires discipline around trust and permissions.
 
-![Пример plugin/UI workflow](https://github.com/user-attachments/assets/ec1b69b0-b8b0-4ca7-b3be-54a4c8f7ee03)
+## What plugins can do in Vellium
 
-## Что могут плагины в Vellium
+Plugins can add:
 
-Плагины могут добавлять:
+- separate tabs in the top navigation
+- widgets in supported slots
+- actions in the toolbar, composer, messages, or writing areas
+- their own settings
+- their own permissions
+- interface themes
 
-- отдельные вкладки в верхнюю навигацию
-- виджеты в поддерживаемые слоты
-- действия в toolbar, composer, message и writing-областях
-- собственные настройки
-- собственные permissions
-- темы интерфейса
+In other words, a plugin in Vellium is not just a button. It is a real local extension of the app.
 
-То есть плагин в Vellium - это не просто кнопка, а полноценное локальное расширение приложения.
+## Where plugin management lives
 
-## Где управлять плагинами
-
-Основная точка входа:
+Main entry point:
 
 - `Settings -> Plugins`
 
-Там можно:
+There you can:
 
-- увидеть каталог плагинов
-- установить `Pluginfile`
-- экспортировать существующий plugin
-- обновить каталог
-- узнать путь к plugins directory
-- открыть plugin settings
-- выдать или отозвать permissions
-- включить/выключить plugin
+- inspect the plugin catalog
+- install a `Pluginfile`
+- export an existing plugin
+- reload the catalog
+- view the plugins directory path
+- open plugin settings
+- grant or revoke permissions
+- enable or disable a plugin
 
 ## Pluginfile
 
-`Pluginfile` - это переносимый single-file формат для дистрибуции plugin'ов.
+`Pluginfile` is the portable single-file format for plugin distribution.
 
-Практически это значит:
+In practice that means:
 
-- plugin можно упаковать в один JSON-файл
-- установить прямо из интерфейса
-- экспортировать обратно без ручной сборки структуры папок
+- a plugin can be packed into one JSON file
+- installed directly from the UI
+- exported again without rebuilding a folder structure by hand
 
-Для конечного пользователя это самый удобный способ обмена локальными plugins.
+For end users, this is the easiest way to move local plugins around.
 
-## Права плагинов
+## Plugin permissions
 
-Vellium хранит запрошенные и выданные plugin permissions отдельно. Это критически важный механизм.
+Vellium stores requested permissions and granted permissions separately. That is a critical safety mechanism.
 
-По коду и UI видно, что среди разрешений есть как минимум:
+From both code and UI, the permissions include at least:
 
 - `api.read`
 - `api.write`
@@ -58,111 +56,111 @@ Vellium хранит запрошенные и выданные plugin permissio
 - `pluginSettings.write`
 - `host.resize`
 
-### Как мыслить о правах
+### How to think about permissions
 
 `api.read`
 
-- plugin читает данные Vellium
+- the plugin can read Vellium data
 
 `api.write`
 
-- plugin может изменять данные Vellium
+- the plugin can change Vellium data
 
-`pluginSettings.read/write`
+`pluginSettings.read / write`
 
-- plugin работает со своими собственными настройками
+- the plugin can read or update its own configuration
 
 `host.resize`
 
-- plugin может менять размер встроенного iframe
+- the plugin can resize its embedded iframe host
 
-## Когда плагину нельзя давать write-level права
+## When not to grant write-level access
 
-Не выдавайте write access, если:
+Do not grant write access if:
 
-- не понимаете, что делает plugin
-- plugin пришел из непроверенного источника
-- вам не нужен mutating-доступ
-- plugin используется только для визуализации или read-only сценариев
+- you do not understand what the plugin does
+- the plugin came from an untrusted source
+- you only need a read-only or visual workflow
+- the plugin is only rendering or displaying information
 
-Если plugin просит `api.write`, относитесь к нему как к локальному скрипту с правом менять ваши данные.
+If a plugin asks for `api.write`, treat it like a local script that can change your data.
 
-## Bundled и user plugins
+## Bundled vs user plugins
 
-Vellium различает:
+Vellium distinguishes between:
 
 - `bundled` plugins
 - `user` plugins
 
-Bundled plugins поставляются вместе с приложением. User plugins живут в пользовательской директории плагинов и обычно управляются вами вручную или через Pluginfile import.
+Bundled plugins ship with the app. User plugins live in the user plugin directory and are usually managed by you manually or through Pluginfile import.
 
 ## Plugin settings
 
-Если plugin регистрирует собственные settings fields, вы сможете:
+If a plugin registers its own settings fields, you can:
 
-- открыть отдельную форму настроек
-- сохранить значения в namespace этого plugin'а
-- управлять его конфигурацией без ручного редактирования файлов
+- open a dedicated settings form
+- save values under that plugin's namespace
+- configure the plugin without editing files manually
 
-Это важно для plugins, которые используют внешние endpoint'ы, собственные параметры UI или workflow-правила.
+This matters for plugins that use external endpoints, custom UI behavior, or workflow-specific rules.
 
-## Plugin tabs, slots и actions
+## Plugin tabs, slots, and actions
 
-Плагины могут встраиваться в разные места интерфейса:
+Plugins can appear in several places:
 
-- как вкладка в верхней навигации
-- как slot widget в chat/writing/settings
-- как action в toolbar, composer, message или editor
+- as a new top-level tab
+- as a slot widget inside chat, writing, or settings
+- as an action in the toolbar, composer, message UI, or editor
 
-Для пользователя это означает, что plugin может выглядеть как:
+For the user this means a plugin may look like:
 
-- новая полноценная рабочая область
-- компактный встроенный блок
-- контекстное действие в существующем UI
+- a whole extra workspace
+- a compact embedded panel
+- a context-sensitive action inside existing UI
 
 ## Themes
 
-Vellium поддерживает plugin-provided themes. Это значит, что plugin может добавлять свою тему в список доступных визуальных схем.
+Vellium supports plugin-provided themes. That means a plugin can add its own visual theme to the available theme list.
 
-Используйте это, если:
+Use this if:
 
-- нужен единый визуальный пакет для команды
-- вы ставите domain-specific UI plugin
-- вы хотите настроить интерфейс без ручного CSS-патчинга
+- you want a shared visual package for a team
+- you install a domain-specific UI plugin
+- you want interface customization without patching CSS manually
 
 ## Plugin Dev Auto-Refresh
 
-В Settings есть `Plugin Dev Auto-Refresh`. Он полезен в разработке, когда вы меняете локальные plugin files и хотите быстрее видеть обновления без перезапуска приложения.
+`Plugin Dev Auto-Refresh` exists in Settings for plugin development. It is useful when you edit local plugin files and want faster feedback without restarting the whole app.
 
-Для обычного пользователя этот переключатель чаще всего не обязателен.
+For normal end users this toggle is often optional.
 
-## Как безопасно использовать плагины
+## How to use plugins safely
 
-Рекомендуемый процесс:
+Recommended process:
 
-1. Установите plugin.
-2. Посмотрите его описание, версию и source type.
-3. Проверьте список requested permissions.
-4. Выдайте только минимально необходимые права.
-5. Включите plugin.
-6. Если plugin ведет себя неожиданно, сначала отзовите права, потом отключите его.
+1. Install the plugin.
+2. Read its description, version, and source type.
+3. Check its requested permissions.
+4. Grant only the minimum permissions needed.
+5. Enable the plugin.
+6. If the plugin behaves unexpectedly, revoke permissions first and disable it second.
 
-## Связь с security-настройками приложения
+## How this relates to the app's security settings
 
-Даже если плагин корректный, общая безопасность Vellium все равно зависит от:
+Even if the plugin itself is well-behaved, Vellium's overall safety still depends on:
 
-- markdown sanitization
-- external links policy
-- remote images policy
+- Markdown sanitization
+- external link policy
+- remote image policy
 - upload policy
-- local-only/runtime restrictions
+- local-only and runtime restrictions
 
-Плагин не должен рассматриваться как замена базовой security-модели.
+A plugin should never be treated as a replacement for the base security model.
 
-## Для авторов плагинов
+## For plugin authors
 
-Если вам нужна документация по структуре manifest, SDK, slot ids и примерному layout plugin'а, смотрите:
+If you need documentation about the manifest structure, SDK, slot IDs, or plugin layout, see:
 
 - [../plugins/README.md](../plugins/README.md)
 
-Этот раздел текущего гайда ориентирован именно на использование plugin'ов, а не на их разработку.
+This page in the Vellium guide is focused on using plugins safely, not on authoring them.

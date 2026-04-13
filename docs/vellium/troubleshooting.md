@@ -1,135 +1,135 @@
 # Troubleshooting
 
-Этот раздел помогает быстро диагностировать типовые проблемы при работе с Vellium.
+This section helps you diagnose the most common Vellium problems quickly.
 
-## Быстрый принцип поиска проблемы
+## Fast triage checklist
 
-Сначала проверьте:
+Check these first:
 
-1. Есть ли сохраненный provider profile
-2. Назначена ли активная модель
-3. Не мешает ли `local-only mode`
-4. Не включен ли неподдерживаемый для функции provider type
-5. Есть ли нужные collections/plugins/MCP servers
+1. Is there a saved provider profile?
+2. Is an active model assigned?
+3. Is `local-only mode` blocking the endpoint?
+4. Is the current provider type unsupported for the feature you want?
+5. Are the required collections, plugins, or MCP servers configured?
 
-## Частые проблемы
+## Common problems
 
-| Симптом | Частая причина | Что сделать |
+| Symptom | Common cause | What to do |
 | --- | --- | --- |
-| Чат пишет, что нет активной модели | Не выбран `active provider/model` | Откройте `Settings`, загрузите модели и назначьте active model |
-| Provider не сохраняется или не работает | Некорректный URL, local-only блокирует внешний endpoint, не тот provider type | Проверьте `base URL`, `provider type`, local-only ограничения |
-| Список моделей пустой | Endpoint не отдает `/models`, либо backend несовместим | Добавьте `manual fallback models` или проверьте совместимость API |
-| Tool calling не включается | Активен `KoboldCpp` | Используйте OpenAI-compatible provider для tool calling |
-| MCP сервер не отвечает | Неверная команда, args, env или timeout | Проверьте `Command`, `Arguments`, `Environment`, затем нажмите `Test MCP Server` |
-| Плагин не активируется | Не выданы permissions или plugin требует первичной конфигурации | Откройте `Settings -> Plugins -> Permissions`, выдайте минимально нужные права и сохраните |
-| Плагин установлен, но не видно изменений | Каталог не перезагружен, plugin disabled, нет поддерживаемых extension points | Нажмите `Reload`, проверьте toggle и тип расширения |
-| RAG ничего не возвращает | Нет collection, не включен RAG, неподходящий scope, пустой ingestion | Создайте collection, добавьте документы, включите RAG и перепроверьте scope |
-| LoreBook не влияет на сцену | Не подключен lorebook, ключи не триггерятся, entry выключена | Проверьте selection lorebook в Chat, `Keys`, `Enabled`, `Constant`, `Position` |
-| TTS не воспроизводится | Не настроен TTS provider/model/voice | Откройте TTS блок в Settings и задайте endpoint, model и voice |
+| Chat says no active model is configured | `active provider/model` is missing | Open `Settings`, load models, and assign an active model |
+| The provider saves but does not work | Wrong URL, local-only blocks the endpoint, wrong provider type | Check `base URL`, `provider type`, and local-only restrictions |
+| The model list is empty | The endpoint does not expose `/models`, or the backend is incompatible | Add `manual fallback models` or verify API compatibility |
+| Tool calling will not enable | `KoboldCpp` is active | Use an OpenAI-compatible provider for tool calling |
+| An MCP server does not answer | Wrong command, args, env, or timeout | Re-check `Command`, `Arguments`, `Environment`, then use `Test MCP Server` |
+| A plugin will not activate | Permissions were not granted, or first-time config is missing | Open `Settings -> Plugins -> Permissions`, grant only the required permissions, and save |
+| A plugin is installed but nothing changes | The catalog was not reloaded, the plugin is disabled, or it has no matching extension point | Use `Reload`, verify the toggle, and verify what kind of extension it actually is |
+| RAG returns nothing | No collection exists, RAG is disabled, scope is wrong, or ingestion is empty | Create a collection, add documents, enable RAG, and re-check scope |
+| A LoreBook does not affect the scene | The LoreBook is not attached, keys do not trigger, or the entry is disabled | Check the selected LoreBook in `Chat`, the `Keys`, `Enabled`, `Constant`, and `Position` |
+| TTS does not play | TTS provider / model / voice is not configured | Open the TTS block in `Settings` and assign endpoint, model, and voice |
 
-## Если Vellium не стартует из репозитория
+## If Vellium does not start from the repository
 
-Проверьте:
+Check:
 
-- выполнен ли `npm install`
-- совпадает ли версия Node с тем, под что собирался `better-sqlite3`
-- не сломался ли native module
+- whether `npm install` completed
+- whether the Node version matches the native `better-sqlite3` build
+- whether a native module ABI mismatch has happened
 
-Если подозрение на native ABI:
+If you suspect a native ABI problem:
 
 ```bash
 npm run rebuild:native
 ```
 
-Для Electron-сценария:
+For Electron development:
 
 ```bash
 npx electron-rebuild -f -w better-sqlite3 -v 40.4.1
 ```
 
-## Если desktop-shell ведет себя не так, как web-dev режим
+## If the desktop shell behaves differently from web dev mode
 
-Различайте два сценария:
+Keep these two flows separate:
 
-- `npm run dev` - frontend + API без Electron shell
-- `npm run dev:electron` - реальный desktop-shell
+- `npm run dev` for frontend + API without Electron
+- `npm run dev:electron` for the real desktop shell
 
-Если вы тестируете:
+If you are testing:
 
-- title bar
-- `file://` поведение
-- desktop-specific file save/open
-- plugin iframe и shell-интеграции
+- title bar behavior
+- `file://` behavior
+- desktop-specific file save / open flows
+- plugin iframe and shell integration
 
-то проверять нужно именно через `npm run dev:electron`.
+then you need `npm run dev:electron`, not just the web dev server.
 
-## Если пропал или испортился prompt behaviour
+## If prompt behavior becomes strange
 
-Проверьте:
+Check:
 
 - `Chat Mode`
 - `Prompt Stack`
 - `Default system prompt`
 - custom prompt templates
-- не включен ли `Pure Chat`
+- whether `Pure Chat` is enabled
 
-Если причина неясна, самый безопасный путь:
+If the root cause is unclear, the safest recovery path is:
 
-1. Вернуть default prompt stack
-2. Проверить default system prompt
-3. Протестировать на простом чате без персонажа и без RAG
+1. restore the default prompt stack
+2. verify the default system prompt
+3. test in a plain chat without a character and without RAG
 
-## Если retrieval слишком шумный
+## If retrieval is too noisy
 
-Не начинайте сразу крутить все численные параметры.
+Do not start by turning every numeric knob at once.
 
-Сначала:
+First:
 
-- проверьте качество самих документов
-- уменьшите шум коллекции
-- разделите слишком широкие collection'ы
-- убедитесь, что scope соответствует сценарию
+- inspect document quality
+- reduce collection noise
+- split collections that are too broad
+- verify that the scope matches the workflow
 
-Потом уже меняйте:
+Only after that should you tune:
 
 - top-k
 - similarity threshold
-- candidate pool
+- candidate pool size
 - reranker
 
-## Если RP разваливается на длинной истории
+## If RP falls apart in long histories
 
-Проверьте:
+Check:
 
-- context window
-- compress model и компрессию
-- не слишком ли раздут multi-character контекст
-- не перегружен ли prompt stack
-- не стоит ли вынести часть мира в LoreBook или Knowledge
+- context window size
+- the compression model and compression flow
+- whether multi-character context is too large
+- whether the prompt stack is overloaded
+- whether some world information should move into a LoreBook or knowledge collection
 
-## Если нужно все сбросить
+## If you need to reset everything
 
-В `Settings -> Danger Zone` есть полный сброс настроек.
+`Settings -> Danger Zone` contains a full settings reset.
 
-Используйте его только если:
+Use it only if:
 
-- вы готовы потерять текущую конфигурацию настроек
-- проблема не локализуется точечно
-- нужно вернуть приложение к чистому baseline
+- you are ready to lose the current settings configuration
+- the problem cannot be localized cleanly
+- you need to return the app to a known baseline
 
-Перед этим желательно:
+Before doing that, it is wise to:
 
-- экспортировать важные plugin'ы
-- экспортировать character cards
-- сохранить важные knowledge texts и notes
+- export important plugins
+- export character cards
+- save important knowledge text and notes
 
-## Рекомендуемый fallback-план
+## Recommended fallback plan
 
-Если Vellium ведет себя непредсказуемо:
+If Vellium behaves unpredictably:
 
-1. Отключите plugins.
-2. Отключите tool calling.
-3. Проверьте чат без персонажа, без RAG и без LoreBook.
-4. Потом добавляйте по одному слою: персонаж -> lorebook -> RAG -> plugins -> MCP.
+1. Disable plugins.
+2. Disable tool calling.
+3. Test chat without a character, without RAG, and without a LoreBook.
+4. Re-introduce layers one by one: character -> LoreBook -> RAG -> plugins -> MCP.
 
-Так вы быстрее поймете, где именно находится проблема.
+That isolates the real problem faster than changing everything at once.
