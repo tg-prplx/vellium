@@ -6,10 +6,15 @@ const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
 const npxBin = process.platform === "win32" ? "npx.cmd" : "npx";
 
 function run(command, args) {
-  const result = spawnSync(command, args, {
-    stdio: "inherit",
-    shell: false
-  });
+  const result = process.platform === "win32"
+    ? spawnSync([command, ...args].join(" "), {
+        stdio: "inherit",
+        shell: true
+      })
+    : spawnSync(command, args, {
+        stdio: "inherit",
+        shell: false
+      });
   if (result.error) throw result.error;
   return result.status ?? 0;
 }
