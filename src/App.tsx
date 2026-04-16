@@ -7,6 +7,7 @@ import { TaskManager } from "./components/TaskManager";
 import type { AppSettings, PluginCatalog, PluginDescriptor } from "./shared/types/contracts";
 
 const ChatScreen = lazy(() => import("./features/chat/ChatScreen").then((module) => ({ default: module.ChatScreen })));
+const AgentsScreen = lazy(() => import("./features/agents/AgentsScreen").then((module) => ({ default: module.AgentsScreen })));
 const WritingScreen = lazy(() => import("./features/writer/WritingScreen").then((module) => ({ default: module.WritingScreen })));
 const CharactersScreen = lazy(() => import("./features/characters/CharactersScreen").then((module) => ({ default: module.CharactersScreen })));
 const LorebooksScreen = lazy(() => import("./features/lorebooks/LorebooksScreen").then((module) => ({ default: module.LorebooksScreen })));
@@ -39,18 +40,41 @@ function ScreenFallback() {
   );
 }
 
-function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activeTab: string; setActiveTab: (tab: string) => void }) {
+function AppContent({
+  locale,
+  activeTab,
+  setActiveTab,
+  settings
+}: {
+  locale: Locale;
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
+  settings: Pick<AppSettings, "agentsEnabled">;
+}) {
   const { t } = useI18n();
   const { pluginTabs, catalogRevision } = usePlugins();
+  const [pendingAgentThreadId, setPendingAgentThreadId] = useState<string | null>(null);
+  const [pendingSettingsView, setPendingSettingsView] = useState<{ category?: string; sectionId?: string } | null>(null);
 
-  const coreTabs = useMemo<AppTab[]>(() => [
-    { id: "chat", label: t("tab.chat"), icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z", kind: "core" },
-    { id: "writing", label: t("tab.writing"), icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z", kind: "core" },
-    { id: "characters", label: t("tab.characters"), icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z", kind: "core" },
-    { id: "lorebooks", label: t("tab.lorebooks"), icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5A4.5 4.5 0 003 9.5v9A4.5 4.5 0 017.5 14c1.746 0 3.332.477 4.5 1.253m0-9c1.168-.776 2.754-1.253 4.5-1.253A4.5 4.5 0 0121 9.5v9a4.5 4.5 0 00-4.5-4.5c-1.746 0-3.332.477-4.5 1.253", kind: "core" },
-    { id: "knowledge", label: t("tab.knowledge"), icon: "M3 7a2 2 0 012-2h4.5a2 2 0 011.6.8l1.8 2.4H19a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V7z", kind: "core" },
-    { id: "settings", label: t("tab.settings"), icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z", kind: "core" }
-  ], [t]);
+  const coreTabs = useMemo<AppTab[]>(() => {
+    const tabs: AppTab[] = [
+      { id: "chat", label: t("tab.chat"), icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z", kind: "core" },
+      { id: "writing", label: t("tab.writing"), icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z", kind: "core" },
+      { id: "characters", label: t("tab.characters"), icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z", kind: "core" },
+      { id: "lorebooks", label: t("tab.lorebooks"), icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5A4.5 4.5 0 003 9.5v9A4.5 4.5 0 017.5 14c1.746 0 3.332.477 4.5 1.253m0-9c1.168-.776 2.754-1.253 4.5-1.253A4.5 4.5 0 0121 9.5v9a4.5 4.5 0 00-4.5-4.5c-1.746 0-3.332.477-4.5 1.253", kind: "core" },
+      { id: "knowledge", label: t("tab.knowledge"), icon: "M3 7a2 2 0 012-2h4.5a2 2 0 011.6.8l1.8 2.4H19a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V7z", kind: "core" },
+      { id: "settings", label: t("tab.settings"), icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z", kind: "core" }
+    ];
+    if (settings.agentsEnabled) {
+      tabs.splice(1, 0, {
+        id: "agents",
+        label: t("tab.agents"),
+        icon: "M4.5 6.75A2.25 2.25 0 016.75 4.5h4.5A2.25 2.25 0 0113.5 6.75v4.5a2.25 2.25 0 01-2.25 2.25h-4.5A2.25 2.25 0 014.5 11.25v-4.5zM10.5 16.5h6.75A2.25 2.25 0 0119.5 18.75v.75H8.25v-.75A2.25 2.25 0 0110.5 16.5zM15 4.875a1.125 1.125 0 011.125-1.125h2.25A1.125 1.125 0 0119.5 4.875v2.25A1.125 1.125 0 0118.375 8.25h-2.25A1.125 1.125 0 0115 7.125v-2.25z",
+        kind: "core"
+      });
+    }
+    return tabs;
+  }, [t, settings.agentsEnabled]);
 
   const tabs = useMemo<AppTab[]>(() => {
     const pluginTabDefs = pluginTabs.map(({ plugin, tab }) => ({
@@ -69,13 +93,57 @@ function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activ
     setActiveTab("chat");
   }, [tabs, activeTab]);
 
+  useEffect(() => {
+    const handler = (event: Event) => {
+      if (!settings.agentsEnabled) return;
+      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+      const threadId = typeof detail?.threadId === "string" && detail.threadId.trim()
+        ? detail.threadId.trim()
+        : "";
+      if (!threadId) return;
+      setPendingAgentThreadId(threadId);
+      setActiveTab("agents");
+    };
+    window.addEventListener("open-agents-thread", handler);
+    return () => window.removeEventListener("open-agents-thread", handler);
+  }, [setActiveTab, settings.agentsEnabled]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ category?: string; sectionId?: string }>).detail;
+      setPendingSettingsView({
+        category: typeof detail?.category === "string" ? detail.category : undefined,
+        sectionId: typeof detail?.sectionId === "string" ? detail.sectionId : undefined
+      });
+      setActiveTab("settings");
+    };
+    window.addEventListener("open-settings-view", handler);
+    return () => window.removeEventListener("open-settings-view", handler);
+  }, [setActiveTab]);
+
   const content = useMemo(() => {
     if (activeTab === "chat") return <ChatScreen />;
+    if (activeTab === "agents") {
+      return (
+        <AgentsScreen
+          initialThreadId={pendingAgentThreadId}
+          onInitialThreadHandled={() => setPendingAgentThreadId(null)}
+        />
+      );
+    }
     if (activeTab === "writing") return <WritingScreen />;
     if (activeTab === "characters") return <CharactersScreen />;
     if (activeTab === "lorebooks") return <LorebooksScreen />;
     if (activeTab === "knowledge") return <KnowledgeScreen />;
-    if (activeTab === "settings") return <SettingsScreen />;
+    if (activeTab === "settings") {
+      return (
+        <SettingsScreen
+          initialCategory={pendingSettingsView?.category}
+          initialSectionId={pendingSettingsView?.sectionId}
+          onInitialViewHandled={() => setPendingSettingsView(null)}
+        />
+      );
+    }
     const pluginTab = tabs.find((tab) => tab.id === activeTab && tab.kind === "plugin");
     if (!pluginTab?.plugin || !pluginTab.pluginUrl) return <SettingsScreen />;
     return (
@@ -89,7 +157,7 @@ function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activ
         className="plugin-tab-frame"
       />
     );
-  }, [activeTab, tabs, locale]);
+  }, [activeTab, tabs, locale, pendingAgentThreadId]);
 
   const isElectron = !!window.electronAPI;
 
@@ -178,11 +246,29 @@ function AppContent({ locale, activeTab, setActiveTab }: { locale: Locale; activ
   );
 }
 
-function AppWorkspace({ locale }: { locale: Locale }) {
+function AppWorkspace({ locale, settings }: { locale: Locale; settings: Pick<AppSettings, "agentsEnabled"> }) {
   const [activeTab, setActiveTab] = useState<string>("chat");
+  const [appSettings, setAppSettings] = useState<Pick<AppSettings, "agentsEnabled">>({
+    agentsEnabled: settings.agentsEnabled === true
+  });
+
+  useEffect(() => {
+    setAppSettings({ agentsEnabled: settings.agentsEnabled === true });
+  }, [settings]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<AppSettings>).detail;
+      if (!detail || typeof detail !== "object") return;
+      setAppSettings({ agentsEnabled: detail.agentsEnabled === true });
+    };
+    window.addEventListener("settings-change", handler);
+    return () => window.removeEventListener("settings-change", handler);
+  }, []);
+
   return (
     <PluginProvider locale={locale} activeTab={activeTab}>
-      <AppContent locale={locale} activeTab={activeTab} setActiveTab={setActiveTab} />
+      <AppContent locale={locale} activeTab={activeTab} setActiveTab={setActiveTab} settings={appSettings} />
       <PluginActionModalHost />
       <PluginActionToastHost />
     </PluginProvider>
@@ -300,15 +386,22 @@ export function App() {
         setLocale(next.interfaceLanguage);
       }
     };
+    const settingsChangeHandler = (e: Event) => {
+      const next = (e as CustomEvent<AppSettings>).detail;
+      if (!next || typeof next !== "object") return;
+      setInitialSettings(next);
+    };
     window.addEventListener("locale-change", handler);
     window.addEventListener("theme-change", themeHandler);
     window.addEventListener("display-settings-change", displayHandler);
     window.addEventListener("onboarding-reset", onboardingResetHandler);
+    window.addEventListener("settings-change", settingsChangeHandler);
     return () => {
       window.removeEventListener("locale-change", handler);
       window.removeEventListener("theme-change", themeHandler);
       window.removeEventListener("display-settings-change", displayHandler);
       window.removeEventListener("onboarding-reset", onboardingResetHandler);
+      window.removeEventListener("settings-change", settingsChangeHandler);
     };
   }, []);
 
@@ -358,7 +451,10 @@ export function App() {
           </main>
         </div>
       ) : (
-        <AppWorkspace locale={locale} />
+        <AppWorkspace
+          locale={locale}
+          settings={{ agentsEnabled: initialSettings?.agentsEnabled === true }}
+        />
       )}
     </I18nContext.Provider>
   );

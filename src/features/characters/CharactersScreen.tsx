@@ -4,7 +4,8 @@ import { useI18n } from "../../shared/i18n";
 import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../components/Panels";
-import type { CharacterDetail } from "../../shared/types/contracts";
+import { ToggleSwitch } from "../settings/components/FormControls";
+import type { AgentHeroProfile, AgentHeroSkill, AppSettings, CharacterDetail } from "../../shared/types/contracts";
 import {
   failBackgroundTask,
   finishBackgroundTask,
@@ -13,6 +14,106 @@ import {
 } from "../../shared/backgroundTasks";
 
 const ALT_GREETING_SEPARATOR = "\n\n---\n\n";
+const HERO_AGENT_EXTENSION_KEY = "vellium_agent";
+type CharacterEditorKind = "standard" | "agent";
+
+function buildEmptyHeroSkill(index = 0): AgentHeroSkill {
+  return {
+    id: `hero-skill-${Date.now()}-${index}`,
+    name: "",
+    description: "",
+    instructions: "",
+    enabled: true
+  };
+}
+
+function normalizeAgentMode(value: unknown): "ask" | "build" | "research" {
+  return value === "ask" || value === "research" || value === "build" ? value : "build";
+}
+
+function createEmptyAgentProfile(): AgentHeroProfile {
+  return {
+    enabled: false,
+    mode: "build",
+    customInstructions: "",
+    skills: []
+  };
+}
+
+function editorSectionsForKind(kind: CharacterEditorKind): Record<string, boolean> {
+  return kind === "agent"
+    ? {
+      identity: true,
+      content: false,
+      agent: true,
+      meta: false,
+      advanced: false
+    }
+    : {
+      identity: true,
+      content: true,
+      agent: false,
+      meta: false,
+      advanced: false
+    };
+}
+
+function normalizeAgentProfile(value: unknown): AgentHeroProfile {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return createEmptyAgentProfile();
+  }
+  const record = value as Record<string, unknown>;
+  const skills = Array.isArray(record.skills)
+    ? record.skills
+      .map((item, index) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+        const row = item as Record<string, unknown>;
+        return {
+          id: typeof row.id === "string" && row.id ? row.id : `hero-skill-${Date.now()}-${index}`,
+          name: typeof row.name === "string" ? row.name : "",
+          description: typeof row.description === "string" ? row.description : "",
+          instructions: typeof row.instructions === "string" ? row.instructions : "",
+          enabled: row.enabled !== false
+        } satisfies AgentHeroSkill;
+      })
+      .filter((item): item is AgentHeroSkill => item !== null)
+      .slice(0, 8)
+    : [];
+  return {
+    enabled: record.enabled === true,
+    mode: normalizeAgentMode(record.mode),
+    customInstructions: typeof record.customInstructions === "string" ? record.customInstructions : "",
+    skills
+  };
+}
+
+function splitAgentProfileExtension(extensions: Record<string, unknown>) {
+  const next = { ...toPlainObject(extensions) };
+  const profile = normalizeAgentProfile(next[HERO_AGENT_EXTENSION_KEY]);
+  delete next[HERO_AGENT_EXTENSION_KEY];
+  return { extensions: next, agentProfile: profile };
+}
+
+function mergeAgentProfileExtension(extensions: Record<string, unknown>, agentProfile: AgentHeroProfile) {
+  const next = { ...toPlainObject(extensions) };
+  if (agentProfile.enabled) {
+    next[HERO_AGENT_EXTENSION_KEY] = {
+      enabled: true,
+      mode: agentProfile.mode,
+      customInstructions: agentProfile.customInstructions.trim(),
+      skills: agentProfile.skills.map((skill) => ({
+        id: skill.id,
+        name: skill.name.trim(),
+        description: skill.description.trim(),
+        instructions: skill.instructions.trim(),
+        enabled: skill.enabled
+      })).filter((skill) => skill.name || skill.instructions)
+    };
+  } else {
+    delete next[HERO_AGENT_EXTENSION_KEY];
+  }
+  return next;
+}
 
 function parseAlternateGreetingsInput(raw: string): string[] {
   const input = String(raw || "").trim();
@@ -86,6 +187,7 @@ function formatObjectJson(value: unknown): string {
 export function CharactersScreen() {
   const { t } = useI18n();
   const backgroundTasks = useBackgroundTasks();
+  const [appSettings, setAppSettings] = useState<Pick<AppSettings, "agentsEnabled">>({ agentsEnabled: false });
   const [characters, setCharacters] = useState<CharacterDetail[]>([]);
   const [selected, setSelected] = useState<CharacterDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,6 +208,7 @@ export function CharactersScreen() {
   const [alternateGreetingsText, setAlternateGreetingsText] = useState("");
   const [creatorNotesMultilingualJson, setCreatorNotesMultilingualJson] = useState("{}");
   const [extensionsJson, setExtensionsJson] = useState("{}");
+  const [agentProfileDraft, setAgentProfileDraft] = useState<AgentHeroProfile>(createEmptyAgentProfile());
 
   // Raw JSON panel
   const [rawJson, setRawJson] = useState("{}");
@@ -120,6 +223,7 @@ export function CharactersScreen() {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarVersion, setAvatarVersion] = useState<Record<string, number>>({});
   const [translateCopyLoading, setTranslateCopyLoading] = useState(false);
+  const [creatingAgentThread, setCreatingAgentThread] = useState(false);
 
   // File import
   const jsonFileRef = useRef<HTMLInputElement>(null);
@@ -134,12 +238,17 @@ export function CharactersScreen() {
   const [editorSections, setEditorSections] = useState<Record<string, boolean>>({
     identity: true,
     content: true,
+    agent: true,
     meta: false,
     advanced: false
   });
+  const [createPickerOpen, setCreatePickerOpen] = useState(false);
   const translateCopyBusy = translateCopyLoading || backgroundTasks.some((task) => (
     task.scope === "characters" && task.type === "translate" && task.status === "running"
   ));
+  const editorKind: CharacterEditorKind = agentProfileDraft.enabled ? "agent" : "standard";
+  const contentSectionTitle = editorKind === "agent" ? t("chars.roleplayCard") : t("chars.content");
+  const contentSectionDescription = editorKind === "agent" ? t("chars.roleplayCardDesc") : t("chars.contentSectionDesc");
 
   function toggleEditorSection(key: string) {
     setEditorSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -160,6 +269,29 @@ export function CharactersScreen() {
     loadCharacters();
   }, [loadCharacters]);
 
+  useEffect(() => {
+    let cancelled = false;
+    api.settingsGet()
+      .then((settings) => {
+        if (cancelled) return;
+        setAppSettings({ agentsEnabled: settings.agentsEnabled === true });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<AppSettings>).detail;
+      if (!detail || typeof detail !== "object") return;
+      setAppSettings({ agentsEnabled: detail.agentsEnabled === true });
+    };
+    window.addEventListener("settings-change", handler);
+    return () => window.removeEventListener("settings-change", handler);
+  }, []);
+
   // When a character is selected, populate GUI fields
   useEffect(() => {
     if (!selected) {
@@ -178,9 +310,13 @@ export function CharactersScreen() {
       setAlternateGreetingsText("");
       setCreatorNotesMultilingualJson("{}");
       setExtensionsJson("{}");
+      setAgentProfileDraft(createEmptyAgentProfile());
       setRawJson("{}");
+      setEditorSections(editorSectionsForKind("standard"));
       return;
     }
+    const parsedAgentProfile = normalizeAgentProfile(selected.agentProfile);
+    const { extensions } = splitAgentProfileExtension(selected.extensions);
     setName(selected.name);
     setDescription(selected.description || "");
     setPersonality(selected.personality || "");
@@ -195,9 +331,11 @@ export function CharactersScreen() {
     setPostHistoryInstructions(selected.postHistoryInstructions || "");
     setAlternateGreetingsText(formatAlternateGreetings(selected.alternateGreetings));
     setCreatorNotesMultilingualJson(formatObjectJson(selected.creatorNotesMultilingual));
-    setExtensionsJson(formatObjectJson(selected.extensions));
+    setExtensionsJson(formatObjectJson(extensions));
+    setAgentProfileDraft(parsedAgentProfile);
     setRawJson(selected.cardJson || "{}");
     setJsonSyncDirection("gui");
+    setEditorSections(editorSectionsForKind(parsedAgentProfile.enabled ? "agent" : "standard"));
   }, [selected]);
 
   // Sync GUI → JSON
@@ -220,7 +358,10 @@ export function CharactersScreen() {
       data.post_history_instructions = postHistoryInstructions;
       data.alternate_greetings = parseAlternateGreetingsInput(alternateGreetingsText);
       data.creator_notes_multilingual = parseObjectJson(creatorNotesMultilingualJson, toPlainObject(data.creator_notes_multilingual));
-      data.extensions = parseObjectJson(extensionsJson, toPlainObject(data.extensions));
+      data.extensions = mergeAgentProfileExtension(
+        parseObjectJson(extensionsJson, splitAgentProfileExtension(toPlainObject(data.extensions)).extensions),
+        agentProfileDraft
+      );
       setRawJson(JSON.stringify({ spec: "chara_card_v2", spec_version: "2.0", data }, null, 2));
     } catch {
       // ignore sync error
@@ -241,6 +382,7 @@ export function CharactersScreen() {
     alternateGreetingsText,
     creatorNotesMultilingualJson,
     extensionsJson,
+    agentProfileDraft,
     jsonSyncDirection,
     selected
   ]);
@@ -265,21 +407,23 @@ export function CharactersScreen() {
       setPostHistoryInstructions(typeof data.post_history_instructions === "string" ? data.post_history_instructions : "");
       setAlternateGreetingsText(formatAlternateGreetings(data.alternate_greetings));
       setCreatorNotesMultilingualJson(formatObjectJson(data.creator_notes_multilingual));
-      setExtensionsJson(formatObjectJson(data.extensions));
+      const split = splitAgentProfileExtension(toPlainObject(data.extensions));
+      setExtensionsJson(formatObjectJson(split.extensions));
+      setAgentProfileDraft(split.agentProfile);
       setJsonSyncDirection("gui");
     } catch {
       // ignore
     }
   }
 
-  async function handleSave() {
-    if (!selected) return;
+  async function saveCharacter(): Promise<CharacterDetail | null> {
+    if (!selected) return null;
     setSaveStatus("");
     setSaveStatusType(null);
     try {
       const tagsArr = tags.split(",").map((t) => t.trim()).filter(Boolean);
       const creatorNotesMultilingual = parseObjectJsonStrict(creatorNotesMultilingualJson);
-      const extensions = parseObjectJsonStrict(extensionsJson);
+      const extensions = mergeAgentProfileExtension(parseObjectJsonStrict(extensionsJson), agentProfileDraft);
       const updated = await api.characterUpdate(selected.id, {
         name,
         description,
@@ -299,15 +443,48 @@ export function CharactersScreen() {
       });
       setSelected(updated);
       setCharacters((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-      setSaveStatus(t("chars.saved"));
-      setSaveStatusType("success");
-      setTimeout(() => {
-        setSaveStatus("");
-        setSaveStatusType(null);
-      }, 2000);
+      return updated;
     } catch (error) {
       setSaveStatus(`${t("chars.errorPrefix")}: ${String(error)}`);
       setSaveStatusType("error");
+      return null;
+    }
+  }
+
+  async function handleSave() {
+    const updated = await saveCharacter();
+    if (!updated) return;
+    setSaveStatus(t("chars.saved"));
+    setSaveStatusType("success");
+    setTimeout(() => {
+      setSaveStatus("");
+      setSaveStatusType(null);
+    }, 2000);
+  }
+
+  async function handleCreateAgentThread() {
+    if (!selected || !appSettings.agentsEnabled || creatingAgentThread) return;
+    setCreatingAgentThread(true);
+    setSaveStatus("");
+    setSaveStatusType(null);
+    try {
+      const persisted = await saveCharacter();
+      if (!persisted) return;
+      const created = await api.agentThreadCreate({
+        heroCharacterId: persisted.id,
+        mode: agentProfileDraft.mode,
+        title: persisted.name
+      });
+      window.dispatchEvent(new CustomEvent("open-agents-thread", {
+        detail: { threadId: created.id }
+      }));
+      setSaveStatus(t("chars.agentWorkspaceCreated"));
+      setSaveStatusType("success");
+    } catch (error) {
+      setSaveStatus(`${t("chars.errorPrefix")}: ${String(error)}`);
+      setSaveStatusType("error");
+    } finally {
+      setCreatingAgentThread(false);
     }
   }
 
@@ -398,35 +575,15 @@ export function CharactersScreen() {
     if (jsonFileRef.current) jsonFileRef.current.value = "";
   }
 
-  async function handleCreateBlank() {
+  async function handleCreateBlank(kind: CharacterEditorKind = "standard") {
     setImportError("");
     setImportSuccess("");
     try {
-      const blankCard = JSON.stringify({
-        spec: "chara_card_v2",
-        spec_version: "2.0",
-        data: {
-          name: t("chars.newCharacterName"),
-          description: "",
-          personality: "",
-          scenario: "",
-          first_mes: "",
-          tags: [],
-          system_prompt: "",
-          mes_example: "",
-          creator_notes: "",
-          alternate_greetings: [],
-          post_history_instructions: "",
-          creator: "",
-          character_version: "main",
-          creator_notes_multilingual: {},
-          extensions: {}
-        }
-      });
-      const result = await api.characterImportV2(blankCard);
+      const result = await api.characterImportV2(buildBlankCard(kind));
       setCharacters((prev) => [result, ...prev]);
       setSelected(result);
-      setImportSuccess(t("chars.blankCreated"));
+      setCreatePickerOpen(false);
+      setImportSuccess(kind === "agent" ? t("chars.agentBlankCreated") : t("chars.blankCreated"));
       setTimeout(() => setImportSuccess(""), 3000);
     } catch (error) {
       setImportError(String(error));
@@ -507,19 +664,144 @@ export function CharactersScreen() {
     return resolved.includes("?") ? `${resolved}&v=${version}` : `${resolved}?v=${version}`;
   }
 
+  function updateHeroSkill(skillId: string, patch: Partial<AgentHeroSkill>) {
+    setAgentProfileDraft((prev) => ({
+      ...prev,
+      skills: prev.skills.map((skill) => skill.id === skillId ? { ...skill, ...patch } : skill)
+    }));
+    setJsonSyncDirection("gui");
+  }
+
+  function addHeroSkill() {
+    setAgentProfileDraft((prev) => ({
+      ...prev,
+      skills: [...prev.skills, buildEmptyHeroSkill(prev.skills.length)]
+    }));
+    setJsonSyncDirection("gui");
+  }
+
+  function removeHeroSkill(skillId: string) {
+    setAgentProfileDraft((prev) => ({
+      ...prev,
+      skills: prev.skills.filter((skill) => skill.id !== skillId)
+    }));
+    setJsonSyncDirection("gui");
+  }
+
+  function setCharacterKind(kind: CharacterEditorKind) {
+    setAgentProfileDraft((prev) => ({
+      ...prev,
+      enabled: kind === "agent"
+    }));
+    setEditorSections(editorSectionsForKind(kind));
+    setJsonSyncDirection("gui");
+  }
+
+  function buildBlankCard(kind: CharacterEditorKind) {
+    const agentProfile = kind === "agent"
+      ? {
+        enabled: true,
+        mode: "build" as const,
+        customInstructions: "",
+        skills: []
+      }
+      : createEmptyAgentProfile();
+    return JSON.stringify({
+      spec: "chara_card_v2",
+      spec_version: "2.0",
+      data: {
+        name: kind === "agent" ? t("chars.newAgentName") : t("chars.newCharacterName"),
+        description: "",
+        personality: "",
+        scenario: "",
+        first_mes: "",
+        tags: [],
+        system_prompt: "",
+        mes_example: "",
+        creator_notes: "",
+        alternate_greetings: [],
+        post_history_instructions: "",
+        creator: "",
+        character_version: "main",
+        creator_notes_multilingual: {},
+        extensions: mergeAgentProfileExtension({}, agentProfile)
+      }
+    });
+  }
+
   return (
     <ThreePanelLayout
       left={
         <>
           <PanelTitle
-            action={
-              <span className="text-[11px] text-text-tertiary">
-                {characters.length} {t("chars.countSuffix")}
-              </span>
-            }
+            action={(
+              <button
+                onClick={() => setCreatePickerOpen((prev) => !prev)}
+                className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+                  createPickerOpen
+                    ? "border border-border bg-bg-primary text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                    : "bg-accent text-text-inverse hover:bg-accent-hover"
+                }`}
+              >
+                {createPickerOpen ? t("chat.cancel") : `+ ${t("chat.new")}`}
+              </button>
+            )}
           >
             {t("chars.characters")}
           </PanelTitle>
+
+          <div className="mb-3 flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
+            <span>{characters.length} {t("chars.countSuffix")}</span>
+            <span>{t("chars.createChooseHint")}</span>
+          </div>
+
+          {createPickerOpen ? (
+            <div className="mb-3 rounded-[22px] border border-accent-border/45 bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.16),transparent_55%),var(--color-bg-primary)] p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-tertiary">{t("chat.new")}</div>
+              <div className="mt-1 text-sm font-semibold text-text-primary">{t("chars.createChooseTitle")}</div>
+              <div className="mt-1 text-xs leading-5 text-text-tertiary">{t("chars.createChooseDesc")}</div>
+              <div className="mt-3 grid gap-2">
+                <button
+                  onClick={() => { void handleCreateBlank("standard"); }}
+                  className="group rounded-2xl border border-border-subtle bg-bg-secondary/80 px-3 py-3 text-left transition-colors hover:border-border hover:bg-bg-hover"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-text-primary">{t("chars.standardCharacter")}</div>
+                      <div className="mt-1 text-xs leading-5 text-text-tertiary">{t("chars.standardCharacterDesc")}</div>
+                    </div>
+                    <div className="rounded-xl border border-border-subtle bg-bg-primary p-2 text-text-secondary transition-colors group-hover:text-text-primary">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => { void handleCreateBlank("agent"); }}
+                  disabled={!appSettings.agentsEnabled}
+                  className="group rounded-2xl border border-border-subtle bg-bg-secondary/80 px-3 py-3 text-left transition-colors hover:border-border hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div className="text-sm font-semibold text-text-primary">{t("chars.agentCharacter")}</div>
+                        {appSettings.agentsEnabled ? <Badge variant="accent">{t("tab.agents")}</Badge> : null}
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-text-tertiary">
+                        {appSettings.agentsEnabled ? t("chars.agentCharacterDesc") : t("chars.agentCharacterDisabled")}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-border-subtle bg-bg-primary p-2 text-text-secondary transition-colors group-hover:text-text-primary">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 6.75A2.25 2.25 0 016.75 4.5h4.5A2.25 2.25 0 0113.5 6.75v4.5a2.25 2.25 0 01-2.25 2.25h-4.5A2.25 2.25 0 014.5 11.25v-4.5zM15 4.875a1.125 1.125 0 011.125-1.125h2.25A1.125 1.125 0 0119.5 4.875v2.25A1.125 1.125 0 0118.375 8.25h-2.25A1.125 1.125 0 0115 7.125v-2.25zM10.5 16.5h6.75A2.25 2.25 0 0119.5 18.75v.75H8.25v-.75A2.25 2.25 0 0110.5 16.5z" />
+                      </svg>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {/* Import section */}
           <div className="float-card mb-3 space-y-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
@@ -552,15 +834,6 @@ export function CharactersScreen() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
               </button>
-              <button
-                onClick={handleCreateBlank}
-                className="rounded-md border border-border px-2 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
-                title={t("chars.createBlank")}
-              >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
             </div>
             <input ref={jsonFileRef} type="file" accept=".json" onChange={handleFileImport} className="hidden" />
             {importError && (
@@ -581,7 +854,10 @@ export function CharactersScreen() {
               characters.map((char) => (
                 <button
                   key={char.id}
-                  onClick={() => setSelected(char)}
+                  onClick={() => {
+                    setCreatePickerOpen(false);
+                    setSelected(char);
+                  }}
                   className={`float-card flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${
                     selected?.id === char.id
                       ? "bg-accent-subtle text-text-primary"
@@ -596,8 +872,11 @@ export function CharactersScreen() {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{char.name}</div>
-                    {char.tags.length > 0 && (
+                    {(char.agentProfile?.enabled || char.tags.length > 0) && (
                       <div className="mt-0.5 flex flex-wrap gap-1">
+                        {char.agentProfile?.enabled ? (
+                          <Badge variant="accent">{t("chars.agentCharacter")}</Badge>
+                        ) : null}
                         {char.tags.slice(0, 3).map((tag) => (
                           <Badge key={tag}>{tag}</Badge>
                         ))}
@@ -632,7 +911,17 @@ export function CharactersScreen() {
                   <input ref={avatarFileRef} type="file" accept="image/*" onChange={handleAvatarUpload} className="hidden" disabled={avatarUploading} />
                 </label>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-base font-semibold text-text-primary">{name || t("chars.unnamed")}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="truncate text-base font-semibold text-text-primary">{name || t("chars.unnamed")}</div>
+                    <Badge variant={editorKind === "agent" ? "accent" : "default"}>
+                      {editorKind === "agent" ? t("chars.agentCharacter") : t("chars.standardCharacter")}
+                    </Badge>
+                    {editorKind === "agent" ? (
+                      <Badge variant={agentProfileDraft.mode === "research" ? "warning" : agentProfileDraft.mode === "build" ? "accent" : "default"}>
+                        {t(`agents.mode${agentProfileDraft.mode === "ask" ? "Ask" : agentProfileDraft.mode === "research" ? "Research" : "Build"}`)}
+                      </Badge>
+                    ) : null}
+                  </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-2">
                     {saveStatus ? (
                       <span className={`text-[11px] ${saveStatusType === "error" ? "text-danger" : "text-success"}`}>{saveStatus}</span>
@@ -649,8 +938,52 @@ export function CharactersScreen() {
                   </div>
                 </div>
               </div>
+              {appSettings.agentsEnabled ? (
+                <div className="rounded-2xl border border-border-subtle bg-bg-primary/70 px-3 py-3">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-tertiary">{t("chars.profileType")}</div>
+                      <div className="mt-1 text-xs leading-5 text-text-tertiary">
+                        {editorKind === "agent" ? t("chars.profileTypeAgentDesc") : t("chars.profileTypeCharacterDesc")}
+                      </div>
+                    </div>
+                    <div className="inline-flex rounded-2xl border border-border bg-bg-secondary p-1">
+                      <button
+                        onClick={() => setCharacterKind("standard")}
+                        className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
+                          editorKind === "standard"
+                            ? "bg-bg-primary text-text-primary shadow-[0_6px_20px_rgba(0,0,0,0.12)]"
+                            : "text-text-secondary hover:text-text-primary"
+                        }`}
+                      >
+                        {t("chars.standardCharacter")}
+                      </button>
+                      <button
+                        onClick={() => setCharacterKind("agent")}
+                        className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
+                          editorKind === "agent"
+                            ? "bg-accent text-text-inverse shadow-[0_10px_24px_rgba(168,85,247,0.28)]"
+                            : "text-text-secondary hover:text-text-primary"
+                        }`}
+                      >
+                        {t("chars.agentCharacter")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               <div className="char-editor-actions">
                 <button onClick={handleSave} className="char-editor-btn is-primary">{t("chat.save")}</button>
+                {appSettings.agentsEnabled && (
+                  <button
+                    onClick={handleCreateAgentThread}
+                    disabled={creatingAgentThread || !agentProfileDraft.enabled}
+                    className="char-editor-btn"
+                    title={!agentProfileDraft.enabled ? t("chars.enableAgentHeroFirst") : t("chars.createAgentWorkspace")}
+                  >
+                    {creatingAgentThread ? t("chars.creatingAgentWorkspace") : t("chars.createAgentWorkspace")}
+                  </button>
+                )}
                 <button
                   onClick={handleTranslateCopy}
                   disabled={translateCopyBusy}
@@ -694,16 +1027,34 @@ export function CharactersScreen() {
                       <textarea value={description} onChange={(e) => { setDescription(e.target.value); setJsonSyncDirection("gui"); }}
                         className="char-editor-textarea h-24" />
                     </div>
-                    <div>
-                      <label className="char-editor-label">{t("chars.personality")}</label>
-                      <textarea value={personality} onChange={(e) => { setPersonality(e.target.value); setJsonSyncDirection("gui"); }}
-                        className="char-editor-textarea h-16" />
-                    </div>
-                    <div>
-                      <label className="char-editor-label">{t("chars.scenario")}</label>
-                      <textarea value={scenario} onChange={(e) => { setScenario(e.target.value); setJsonSyncDirection("gui"); }}
-                        className="char-editor-textarea h-16" />
-                    </div>
+                    {editorKind === "agent" ? (
+                      <>
+                        <div>
+                          <label className="char-editor-label">{t("chars.tags")}</label>
+                          <input value={tags} onChange={(e) => { setTags(e.target.value); setJsonSyncDirection("gui"); }}
+                            className="char-editor-input"
+                            placeholder={t("chars.tagsPlaceholder")} />
+                        </div>
+                        <div className="rounded-2xl border border-border-subtle bg-bg-secondary px-3 py-3">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chars.agentEditorHintTitle")}</div>
+                          <div className="mt-1 text-sm font-medium text-text-primary">{t("chars.agentEditorHint")}</div>
+                          <div className="mt-2 text-xs leading-5 text-text-tertiary">{t("chars.agentEditorHintDesc")}</div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="char-editor-label">{t("chars.personality")}</label>
+                          <textarea value={personality} onChange={(e) => { setPersonality(e.target.value); setJsonSyncDirection("gui"); }}
+                            className="char-editor-textarea h-16" />
+                        </div>
+                        <div>
+                          <label className="char-editor-label">{t("chars.scenario")}</label>
+                          <textarea value={scenario} onChange={(e) => { setScenario(e.target.value); setJsonSyncDirection("gui"); }}
+                            className="char-editor-textarea h-16" />
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -711,13 +1062,16 @@ export function CharactersScreen() {
               {/* Section: Content */}
               <div className="char-editor-section">
                 <button onClick={() => toggleEditorSection("content")} className="char-editor-section-toggle">
-                  <span>{t("chars.content")}</span>
+                  <span>{contentSectionTitle}</span>
                   <svg className={`h-3.5 w-3.5 text-text-tertiary transition-transform ${editorSections.content ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 {editorSections.content && (
                   <div className="char-editor-section-body">
+                    <div className="rounded-2xl border border-border-subtle bg-bg-secondary px-3 py-3 text-xs leading-5 text-text-tertiary">
+                      {contentSectionDescription}
+                    </div>
                     <div>
                       <label className="char-editor-label">{t("chars.firstMessage")}</label>
                       <textarea value={greeting} onChange={(e) => { setGreeting(e.target.value); setJsonSyncDirection("gui"); }}
@@ -745,11 +1099,179 @@ export function CharactersScreen() {
                       <textarea value={postHistoryInstructions} onChange={(e) => { setPostHistoryInstructions(e.target.value); setJsonSyncDirection("gui"); }}
                         className="char-editor-textarea h-16" />
                     </div>
+                    {editorKind === "agent" ? (
+                      <>
+                        <div>
+                          <label className="char-editor-label">{t("chars.personality")}</label>
+                          <textarea value={personality} onChange={(e) => { setPersonality(e.target.value); setJsonSyncDirection("gui"); }}
+                            className="char-editor-textarea h-16" />
+                        </div>
+                        <div>
+                          <label className="char-editor-label">{t("chars.scenario")}</label>
+                          <textarea value={scenario} onChange={(e) => { setScenario(e.target.value); setJsonSyncDirection("gui"); }}
+                            className="char-editor-textarea h-16" />
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 )}
               </div>
 
               {/* Section: Metadata */}
+              {appSettings.agentsEnabled && (
+                <div className="char-editor-section">
+                  <button onClick={() => toggleEditorSection("agent")} className="char-editor-section-toggle">
+                    <span>{t("chars.agentHero")}</span>
+                    <svg className={`h-3.5 w-3.5 text-text-tertiary transition-transform ${editorSections.agent ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {editorSections.agent && (
+                    <div className="char-editor-section-body">
+                      {editorKind === "agent" ? (
+                        <>
+                          <div className="rounded-[22px] border border-accent-border/45 bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.16),transparent_60%),var(--color-bg-secondary)] px-4 py-4">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div>
+                                <div className="text-sm font-semibold text-text-primary">{t("chars.agentHeroTitle")}</div>
+                                <div className="mt-1 text-xs leading-5 text-text-tertiary">{t("chars.agentWorkspaceSummaryDesc")}</div>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Badge variant="accent">{t("chars.agentReadyOn")}</Badge>
+                                <Badge>{agentProfileDraft.skills.length} {t("chars.agentSkillsCount")}</Badge>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="char-editor-label">{t("chars.agentMode")}</label>
+                            <div className="grid gap-2 md:grid-cols-3">
+                              {(["ask", "build", "research"] as const).map((mode) => {
+                                const active = agentProfileDraft.mode === mode;
+                                return (
+                                  <button
+                                    key={mode}
+                                    onClick={() => {
+                                      setAgentProfileDraft((prev) => ({ ...prev, mode }));
+                                      setJsonSyncDirection("gui");
+                                    }}
+                                    className={`rounded-2xl border px-3 py-3 text-left transition-colors ${
+                                      active
+                                        ? "border-accent-border bg-accent-subtle text-text-primary"
+                                        : "border-border-subtle bg-bg-secondary text-text-secondary hover:border-border hover:bg-bg-hover hover:text-text-primary"
+                                    }`}
+                                  >
+                                    <div className="text-sm font-semibold">{t(mode === "ask" ? "agents.modeAsk" : mode === "research" ? "agents.modeResearch" : "agents.modeBuild")}</div>
+                                    <div className="mt-1 text-xs leading-5 opacity-80">{t(mode === "ask" ? "agents.modeAskDesc" : mode === "research" ? "agents.modeResearchDesc" : "agents.modeBuildDesc")}</div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="mb-2 flex items-center justify-between gap-3">
+                              <label className="char-editor-label !mb-0">{t("chars.agentInstructions")}</label>
+                              <ToggleSwitch
+                                checked={agentProfileDraft.enabled}
+                                onChange={(event) => {
+                                  setAgentProfileDraft((prev) => ({ ...prev, enabled: event.target.checked }));
+                                  setJsonSyncDirection("gui");
+                                }}
+                              />
+                            </div>
+                            <textarea
+                              value={agentProfileDraft.customInstructions}
+                              onChange={(event) => {
+                                setAgentProfileDraft((prev) => ({ ...prev, customInstructions: event.target.value }));
+                                setJsonSyncDirection("gui");
+                              }}
+                              className="char-editor-textarea h-28"
+                              placeholder={t("chars.agentInstructionsPlaceholder")}
+                            />
+                          </div>
+
+                          <div>
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <label className="char-editor-label !mb-0">{t("chars.agentSkills")}</label>
+                              <button
+                                onClick={addHeroSkill}
+                                className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                              >
+                                + {t("agents.addSkill")}
+                              </button>
+                            </div>
+                            {agentProfileDraft.skills.length === 0 ? (
+                              <div className="rounded-2xl border border-dashed border-border-subtle bg-bg-secondary px-3 py-4 text-xs leading-5 text-text-tertiary">
+                                {t("chars.agentSkillsEmpty")}
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                {agentProfileDraft.skills.map((skill) => (
+                                  <div key={skill.id} className="rounded-2xl border border-border-subtle bg-bg-secondary p-3">
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                      <input
+                                        value={skill.name}
+                                        onChange={(event) => updateHeroSkill(skill.id, { name: event.target.value })}
+                                        className="char-editor-input"
+                                        placeholder={t("agents.newSkillDefault")}
+                                      />
+                                      <label className="flex items-center gap-2 text-xs text-text-secondary">
+                                        <input
+                                          type="checkbox"
+                                          checked={skill.enabled}
+                                          onChange={(event) => updateHeroSkill(skill.id, { enabled: event.target.checked })}
+                                        />
+                                        {t("agents.enabled")}
+                                      </label>
+                                    </div>
+                                    <textarea
+                                      value={skill.description}
+                                      onChange={(event) => updateHeroSkill(skill.id, { description: event.target.value })}
+                                      className="char-editor-textarea h-16"
+                                      placeholder={t("agents.skillDescription")}
+                                    />
+                                    <textarea
+                                      value={skill.instructions}
+                                      onChange={(event) => updateHeroSkill(skill.id, { instructions: event.target.value })}
+                                      className="char-editor-textarea mt-2 h-20"
+                                      placeholder={t("agents.skillInstructions")}
+                                    />
+                                    <div className="mt-2 flex justify-end">
+                                      <button
+                                        onClick={() => removeHeroSkill(skill.id)}
+                                        className="rounded-lg border border-danger-border px-3 py-2 text-xs font-medium text-danger hover:bg-danger-subtle"
+                                      >
+                                        {t("chat.delete")}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="rounded-[22px] border border-border-subtle bg-bg-secondary px-4 py-4">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div>
+                              <div className="text-sm font-semibold text-text-primary">{t("chars.convertToAgent")}</div>
+                              <div className="mt-1 text-xs leading-5 text-text-tertiary">{t("chars.convertToAgentDesc")}</div>
+                            </div>
+                            <button
+                              onClick={() => setCharacterKind("agent")}
+                              className="rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover"
+                            >
+                              {t("chars.agentCharacter")}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="char-editor-section">
                 <button onClick={() => toggleEditorSection("meta")} className="char-editor-section-toggle">
                   <span>{t("chars.meta")}</span>
@@ -771,12 +1293,14 @@ export function CharactersScreen() {
                           className="char-editor-input" />
                       </div>
                     </div>
-                    <div>
-                      <label className="char-editor-label">{t("chars.tags")}</label>
-                      <input value={tags} onChange={(e) => { setTags(e.target.value); setJsonSyncDirection("gui"); }}
-                        className="char-editor-input"
-                        placeholder={t("chars.tagsPlaceholder")} />
-                    </div>
+                    {editorKind === "standard" ? (
+                      <div>
+                        <label className="char-editor-label">{t("chars.tags")}</label>
+                        <input value={tags} onChange={(e) => { setTags(e.target.value); setJsonSyncDirection("gui"); }}
+                          className="char-editor-input"
+                          placeholder={t("chars.tagsPlaceholder")} />
+                      </div>
+                    ) : null}
                     <div>
                       <label className="char-editor-label">{t("chars.creatorNotes")}</label>
                       <textarea value={creatorNotes} onChange={(e) => { setCreatorNotes(e.target.value); setJsonSyncDirection("gui"); }}

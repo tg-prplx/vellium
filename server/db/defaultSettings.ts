@@ -2,6 +2,12 @@ import { DEFAULT_PROMPT_BLOCKS } from "../domain/rpEngine.js";
 
 export const DEFAULT_SETTINGS = {
   onboardingCompleted: false,
+  agentsEnabled: false,
+  agentWorkspaceToolsEnabled: true,
+  agentCommandToolEnabled: true,
+  agentAutoCompactEnabled: true,
+  agentReplyReserveTokens: 1400,
+  agentToolContextChars: 2600,
   alternateSimpleMode: true,
   theme: "dark",
   pluginThemeId: null as string | null,

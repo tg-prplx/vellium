@@ -32,7 +32,12 @@ const MIGRATIONS = [
   "ALTER TABLE writer_chapters ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'",
   "ALTER TABLE providers ADD COLUMN provider_type TEXT NOT NULL DEFAULT 'openai'",
   "ALTER TABLE providers ADD COLUMN adapter_id TEXT",
-  "ALTER TABLE providers ADD COLUMN manual_models TEXT NOT NULL DEFAULT '[]'"
+  "ALTER TABLE providers ADD COLUMN manual_models TEXT NOT NULL DEFAULT '[]'",
+  "ALTER TABLE agent_threads ADD COLUMN mode TEXT NOT NULL DEFAULT 'build'",
+  "ALTER TABLE agent_threads ADD COLUMN hero_character_id TEXT",
+  "ALTER TABLE agent_threads ADD COLUMN workspace_root TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE agent_threads ADD COLUMN memory_summary TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE agent_threads ADD COLUMN memory_updated_at TEXT"
 ];
 
 export function applyMigrations(db: Database.Database) {

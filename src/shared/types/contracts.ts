@@ -690,6 +690,12 @@ export interface PluginHostContext {
 
 export interface AppSettings {
   onboardingCompleted: boolean;
+  agentsEnabled: boolean;
+  agentWorkspaceToolsEnabled: boolean;
+  agentCommandToolEnabled: boolean;
+  agentAutoCompactEnabled: boolean;
+  agentReplyReserveTokens: number;
+  agentToolContextChars: number;
   alternateSimpleMode: boolean;
   theme: "dark" | "light" | "custom";
   pluginThemeId?: string | null;
@@ -801,6 +807,7 @@ export interface CharacterDetail extends CharacterListItem {
   characterVersion: string;
   creatorNotesMultilingual: Record<string, unknown>;
   extensions: Record<string, unknown>;
+  agentProfile?: AgentHeroProfile | null;
   cardJson: string;
 }
 
@@ -826,4 +833,128 @@ export interface LoreBook {
   sourceCharacterId?: Id | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type AgentThreadStatus = "idle" | "running" | "error";
+export type AgentRunStatus = "running" | "done" | "error" | "aborted";
+export type AgentMessageRole = "system" | "user" | "assistant";
+export type AgentMode = "ask" | "build" | "research";
+export type AgentEventType =
+  | "status"
+  | "plan"
+  | "skill"
+  | "memory"
+  | "tool_call"
+  | "tool_result"
+  | "subagent_start"
+  | "subagent_done"
+  | "warning"
+  | "error";
+
+export interface AgentHeroSkill {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  enabled: boolean;
+}
+
+export interface AgentHeroProfile {
+  enabled: boolean;
+  mode: AgentMode;
+  customInstructions: string;
+  skills: AgentHeroSkill[];
+}
+
+export interface AgentThread {
+  id: Id;
+  title: string;
+  description: string;
+  systemPrompt: string;
+  status: AgentThreadStatus;
+  mode: AgentMode;
+  heroCharacterId?: Id | null;
+  heroCharacterName?: string | null;
+  workspaceRoot: string;
+  memorySummary: string;
+  memoryUpdatedAt?: string | null;
+  providerId?: Id | null;
+  modelId?: string | null;
+  toolMode: "enabled" | "disabled";
+  maxIterations: number;
+  maxSubagents: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentSkill {
+  id: Id;
+  threadId: Id;
+  name: string;
+  description: string;
+  instructions: string;
+  enabled: boolean;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentMessage {
+  id: Id;
+  threadId: Id;
+  runId?: Id | null;
+  role: AgentMessageRole;
+  content: string;
+  attachments?: FileAttachment[];
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface AgentRun {
+  id: Id;
+  threadId: Id;
+  parentRunId?: Id | null;
+  title: string;
+  status: AgentRunStatus;
+  depth: number;
+  summary: string;
+  startedAt: string;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentEvent {
+  id: Id;
+  threadId: Id;
+  runId: Id;
+  parentEventId?: Id | null;
+  type: AgentEventType;
+  title: string;
+  content: string;
+  payload: Record<string, unknown>;
+  order: number;
+  createdAt: string;
+}
+
+export interface AgentThreadState {
+  thread: AgentThread;
+  skills: AgentSkill[];
+  messages: AgentMessage[];
+  runs: AgentRun[];
+  events: AgentEvent[];
+}
+
+export interface AgentWorkspaceDirectoryEntry {
+  name: string;
+  path: string;
+  relativePath: string;
+}
+
+export interface AgentWorkspaceDirectoryState {
+  projectRoot: string;
+  currentPath: string;
+  currentRelativePath: string;
+  parentPath?: string | null;
+  entries: AgentWorkspaceDirectoryEntry[];
 }

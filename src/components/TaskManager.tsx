@@ -13,7 +13,8 @@ const TASK_SCOPE_TABS: Record<BackgroundTaskScope, string> = {
   writing: "writing",
   characters: "characters",
   lorebooks: "lorebooks",
-  knowledge: "knowledge"
+  knowledge: "knowledge",
+  agents: "agents"
 };
 
 function formatTaskDuration(startedAt: number, now: number, finishedAt?: number) {
@@ -41,6 +42,8 @@ function taskScopeLabel(t: TaskTranslator, scope: BackgroundTaskScope) {
       return t("taskManager.scope.lorebooks");
     case "knowledge":
       return t("taskManager.scope.knowledge");
+    case "agents":
+      return t("taskManager.scope.agents");
     default:
       return scope;
   }

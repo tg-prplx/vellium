@@ -73,6 +73,45 @@ function parseRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function normalizeAgentMode(value: unknown): "ask" | "build" | "research" {
+  return value === "ask" || value === "research" || value === "build" ? value : "build";
+}
+
+function parseAgentProfile(value: unknown) {
+  const record = parseRecord(value);
+  if (record.enabled !== true) return null;
+  const skills = Array.isArray(record.skills)
+    ? record.skills
+      .map((item, index) => {
+        const row = parseRecord(item);
+        const name = parseString(row.name).trim();
+        const instructions = parseString(row.instructions).trim();
+        if (!name && !instructions) return null;
+        return {
+          id: parseString(row.id) || `hero-skill-${index + 1}`,
+          name: name || `Skill ${index + 1}`,
+          description: parseString(row.description),
+          instructions,
+          enabled: row.enabled !== false
+        };
+      })
+      .filter((item): item is {
+        id: string;
+        name: string;
+        description: string;
+        instructions: string;
+        enabled: boolean;
+      } => item !== null)
+      .slice(0, 8)
+    : [];
+  return {
+    enabled: true,
+    mode: normalizeAgentMode(record.mode),
+    customInstructions: parseString(record.customInstructions),
+    skills
+  };
+}
+
 function normalizeOpenAiBaseUrl(raw: string): string {
   const trimmed = String(raw || "").trim().replace(/\/+$/, "");
   if (!trimmed) return "";
@@ -293,6 +332,7 @@ async function translateCharacterField(params: {
 
 function characterToJson(row: CharacterRow) {
   const cardData = parseCardData(row.card_json);
+  const extensions = parseRecord(cardData.extensions);
   return {
     id: row.id,
     name: row.name,
@@ -311,7 +351,8 @@ function characterToJson(row: CharacterRow) {
     creator: parseString(cardData.creator),
     characterVersion: parseString(cardData.character_version),
     creatorNotesMultilingual: parseRecord(cardData.creator_notes_multilingual),
-    extensions: parseRecord(cardData.extensions),
+    extensions,
+    agentProfile: parseAgentProfile(extensions.vellium_agent),
     cardJson: row.card_json,
     createdAt: row.created_at
   };

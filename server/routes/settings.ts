@@ -128,6 +128,16 @@ function getSettings() {
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
+    agentsEnabled: stored.agentsEnabled === true,
+    agentWorkspaceToolsEnabled: stored.agentWorkspaceToolsEnabled !== false,
+    agentCommandToolEnabled: stored.agentCommandToolEnabled !== false,
+    agentAutoCompactEnabled: stored.agentAutoCompactEnabled !== false,
+    agentReplyReserveTokens: Number.isFinite(Number(stored.agentReplyReserveTokens))
+      ? Math.max(256, Math.min(12000, Math.floor(Number(stored.agentReplyReserveTokens))))
+      : DEFAULT_SETTINGS.agentReplyReserveTokens,
+    agentToolContextChars: Number.isFinite(Number(stored.agentToolContextChars))
+      ? Math.max(400, Math.min(12000, Math.floor(Number(stored.agentToolContextChars))))
+      : DEFAULT_SETTINGS.agentToolContextChars,
     samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
     apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) },
@@ -351,6 +361,22 @@ router.patch("/", (req, res) => {
   const updated = {
     ...current,
     ...patchData,
+    agentsEnabled: patchData.agentsEnabled === undefined ? current.agentsEnabled : patchData.agentsEnabled === true,
+    agentWorkspaceToolsEnabled: patchData.agentWorkspaceToolsEnabled === undefined
+      ? current.agentWorkspaceToolsEnabled
+      : patchData.agentWorkspaceToolsEnabled !== false,
+    agentCommandToolEnabled: patchData.agentCommandToolEnabled === undefined
+      ? current.agentCommandToolEnabled
+      : patchData.agentCommandToolEnabled !== false,
+    agentAutoCompactEnabled: patchData.agentAutoCompactEnabled === undefined
+      ? current.agentAutoCompactEnabled
+      : patchData.agentAutoCompactEnabled !== false,
+    agentReplyReserveTokens: patchData.agentReplyReserveTokens === undefined
+      ? current.agentReplyReserveTokens
+      : Math.max(256, Math.min(12000, Math.floor(Number(patchData.agentReplyReserveTokens) || current.agentReplyReserveTokens))),
+    agentToolContextChars: patchData.agentToolContextChars === undefined
+      ? current.agentToolContextChars
+      : Math.max(400, Math.min(12000, Math.floor(Number(patchData.agentToolContextChars) || current.agentToolContextChars))),
     samplerConfig: { ...current.samplerConfig, ...(patchData.samplerConfig ?? {}) },
     apiParamPolicy: normalizeApiParamPolicy({
       ...(current.apiParamPolicy ?? {}),

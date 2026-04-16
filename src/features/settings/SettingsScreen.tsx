@@ -69,7 +69,26 @@ function clampDecimal(raw: string, fallback: number, min: number, max: number, p
   return Number(Math.max(min, Math.min(max, parsed)).toFixed(precision));
 }
 
-export function SettingsScreen() {
+const SETTINGS_CATEGORIES: SettingsCategory[] = [
+  "connection",
+  "backends",
+  "interface",
+  "generation",
+  "context",
+  "prompts",
+  "tools",
+  "agents"
+];
+
+export function SettingsScreen({
+  initialCategory,
+  initialSectionId,
+  onInitialViewHandled
+}: {
+  initialCategory?: string;
+  initialSectionId?: string;
+  onInitialViewHandled?: () => void;
+} = {}) {
   const { t } = useI18n();
   const { catalog: pluginCatalog, plugins, loading: pluginsLoading, error: pluginError, setPluginEnabled, refresh: refreshPlugins, pendingPluginStates } = usePlugins();
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -217,6 +236,29 @@ export function SettingsScreen() {
     if (!managedBackendLogsFor || !window.electronAPI?.getManagedBackendLogs) return;
     void window.electronAPI.getManagedBackendLogs(managedBackendLogsFor.id).then(setManagedBackendLogs).catch(() => {});
   }, [managedBackendStates, managedBackendLogsFor]);
+
+  useEffect(() => {
+    const nextCategory = SETTINGS_CATEGORIES.includes(initialCategory as SettingsCategory)
+      ? initialCategory as SettingsCategory
+      : null;
+    if (!nextCategory && !initialSectionId) return;
+    if (nextCategory && activeCategory !== nextCategory) {
+      setActiveCategory(nextCategory);
+    }
+
+    let timer: number | null = null;
+    const frame = window.requestAnimationFrame(() => {
+      if (!initialSectionId) return;
+      timer = window.setTimeout(() => {
+        scrollToSettingsSection(initialSectionId);
+      }, 60);
+    });
+    onInitialViewHandled?.();
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [activeCategory, initialCategory, initialSectionId, onInitialViewHandled]);
 
   useEffect(() => {
     return () => {
@@ -377,6 +419,7 @@ export function SettingsScreen() {
     try {
       const updated = await api.settingsUpdate(next);
       setSettings(updated);
+      window.dispatchEvent(new CustomEvent("settings-change", { detail: updated }));
       if (next.theme !== undefined || next.pluginThemeId !== undefined) {
         window.dispatchEvent(new CustomEvent("theme-change", { detail: updated }));
       }
@@ -429,6 +472,7 @@ export function SettingsScreen() {
     try {
       const updated = await api.settingsUpdate({ managedBackends: nextBackends });
       setSettings(updated);
+      window.dispatchEvent(new CustomEvent("settings-change", { detail: updated }));
       managedBackendsDraftRef.current = normalizeManagedBackends(updated.managedBackends);
       setSettingsSaveState("saved");
       if (settingsSaveTimerRef.current) {
@@ -567,6 +611,7 @@ export function SettingsScreen() {
     }
     const defaults = await api.settingsReset();
     setSettings(defaults);
+    window.dispatchEvent(new CustomEvent("settings-change", { detail: defaults }));
     window.dispatchEvent(new CustomEvent("onboarding-reset", { detail: defaults }));
     showResult(t("settings.settingsResetDone"), "success");
   }
@@ -2801,6 +2846,87 @@ export function SettingsScreen() {
               </div>
 
               <PluginSlotMount slotId="settings.bottom" />
+            </div>
+          )}
+
+          {/* ===== AGENTS ===== */}
+          {activeCategory === "agents" && (
+            <div className="space-y-4">
+              <div id="settings-agents-core" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.agents")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.agentsDesc")}</p>
+                <div className="space-y-3">
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsEnable")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsEnableDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.agentsEnabled === true} onChange={(e) => patch({ agentsEnabled: e.target.checked })} />
+                  </div>
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsWorkspaceTools")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsWorkspaceToolsDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.agentWorkspaceToolsEnabled !== false} onChange={(e) => patch({ agentWorkspaceToolsEnabled: e.target.checked })} />
+                  </div>
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsCommandTool")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsCommandToolDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.agentCommandToolEnabled !== false} onChange={(e) => patch({ agentCommandToolEnabled: e.target.checked })} />
+                  </div>
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
+                    {settings.agentsEnabled ? t("settings.agentsEnabledHint") : t("settings.agentsDisabledHint")}
+                  </div>
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
+                    {settings.agentWorkspaceToolsEnabled !== false ? t("settings.agentsWorkspaceToolsEnabledHint") : t("settings.agentsWorkspaceToolsDisabledHint")}
+                  </div>
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
+                    {settings.agentCommandToolEnabled !== false ? t("settings.agentsCommandToolEnabledHint") : t("settings.agentsCommandToolDisabledHint")}
+                  </div>
+                </div>
+              </div>
+
+              <div id="settings-agents-runtime" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.agentsRuntime")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.agentsRuntimeDesc")}</p>
+                <div className="space-y-3">
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsAutoCompact")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsAutoCompactDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.agentAutoCompactEnabled !== false} onChange={(e) => patch({ agentAutoCompactEnabled: e.target.checked })} />
+                  </div>
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
+                    {settings.agentAutoCompactEnabled !== false ? t("settings.agentsAutoCompactEnabledHint") : t("settings.agentsAutoCompactDisabledHint")}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <FieldLabel>{t("settings.agentsReplyReserveTokens")}</FieldLabel>
+                      <div className="mb-1 text-[10px] leading-5 text-text-tertiary">{t("settings.agentsReplyReserveTokensDesc")}</div>
+                      <InputField
+                        type="number"
+                        value={String(settings.agentReplyReserveTokens)}
+                        onChange={(v) => patch({ agentReplyReserveTokens: clampInteger(v, settings.agentReplyReserveTokens, 256, 12000) })}
+                        {...autosaveProps}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel>{t("settings.agentsToolContextChars")}</FieldLabel>
+                      <div className="mb-1 text-[10px] leading-5 text-text-tertiary">{t("settings.agentsToolContextCharsDesc")}</div>
+                      <InputField
+                        type="number"
+                        value={String(settings.agentToolContextChars)}
+                        onChange={(v) => patch({ agentToolContextChars: clampInteger(v, settings.agentToolContextChars, 400, 12000) })}
+                        {...autosaveProps}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
