@@ -152,6 +152,16 @@ export function getSettings() {
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
+    agentsEnabled: stored.agentsEnabled === true,
+    agentWorkspaceToolsEnabled: stored.agentWorkspaceToolsEnabled !== false,
+    agentCommandToolEnabled: stored.agentCommandToolEnabled !== false,
+    agentAutoCompactEnabled: stored.agentAutoCompactEnabled !== false,
+    agentReplyReserveTokens: Number.isFinite(Number(stored.agentReplyReserveTokens))
+      ? Math.max(256, Math.min(12000, Math.floor(Number(stored.agentReplyReserveTokens))))
+      : DEFAULT_SETTINGS.agentReplyReserveTokens,
+    agentToolContextChars: Number.isFinite(Number(stored.agentToolContextChars))
+      ? Math.max(400, Math.min(12000, Math.floor(Number(stored.agentToolContextChars))))
+      : DEFAULT_SETTINGS.agentToolContextChars,
     samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
     apiParamPolicy,
     promptStack,

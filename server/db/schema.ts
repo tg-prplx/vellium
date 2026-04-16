@@ -255,6 +255,83 @@ const SCHEMA_SQL = `
     updated_at TEXT NOT NULL,
     FOREIGN KEY (project_id) REFERENCES writer_projects(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS agent_threads (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'idle',
+    mode TEXT NOT NULL DEFAULT 'build',
+    hero_character_id TEXT,
+    workspace_root TEXT NOT NULL DEFAULT '',
+    memory_summary TEXT NOT NULL DEFAULT '',
+    memory_updated_at TEXT,
+    provider_id TEXT,
+    model_id TEXT,
+    tool_mode TEXT NOT NULL DEFAULT 'enabled',
+    max_iterations INTEGER NOT NULL DEFAULT 6,
+    max_subagents INTEGER NOT NULL DEFAULT 2,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_skills (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    ordering INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES agent_threads(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_messages (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    run_id TEXT,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES agent_threads(id) ON DELETE CASCADE,
+    FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE SET NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    parent_run_id TEXT,
+    title TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'running',
+    depth INTEGER NOT NULL DEFAULT 0,
+    summary TEXT NOT NULL DEFAULT '',
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES agent_threads(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_events (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    parent_event_id TEXT,
+    event_type TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    ordering INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (thread_id) REFERENCES agent_threads(id) ON DELETE CASCADE,
+    FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_event_id) REFERENCES agent_events(id) ON DELETE SET NULL
+  );
 `;
 
 export function applySchema(db: Database.Database) {
@@ -267,6 +344,11 @@ export function applySchemaIndexes(db: Database.Database) {
     db.exec("CREATE INDEX IF NOT EXISTS idx_rag_chunks_collection ON rag_chunks(collection_id)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_rag_chunks_document ON rag_chunks(document_id)");
     db.exec("CREATE INDEX IF NOT EXISTS idx_rag_vectors_model ON rag_vectors(model_key)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_agent_threads_updated ON agent_threads(updated_at)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_agent_skills_thread ON agent_skills(thread_id, ordering)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_agent_messages_thread ON agent_messages(thread_id, created_at)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_agent_runs_thread ON agent_runs(thread_id, created_at)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_agent_events_thread ON agent_events(thread_id, created_at)");
     db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunk_fts USING fts5(chunk_id UNINDEXED, content, tokenize='unicode61')");
   } catch {
     // Keep startup resilient if a platform SQLite build lacks FTS5.

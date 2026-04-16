@@ -8,6 +8,7 @@ import { dirname, extname, join } from "path";
 import { fileURLToPath } from "url";
 import { DATA_DIR, DEFAULT_SETTINGS, UPLOADS_DIR, db, newId } from "../db.js";
 import accountRoutes from "../routes/account.js";
+import agentRoutes from "../routes/agents.js";
 import characterRoutes from "../routes/characters.js";
 import chatRoutes from "../routes/chats.js";
 import lorebookRoutes from "../routes/lorebooks.js";
@@ -285,6 +286,7 @@ function registerUploadRoute(app: express.Express) {
 }
 
 function registerRoutes(app: express.Express) {
+  app.use("/api/agents", agentRoutes);
   app.use("/api/account", accountRoutes);
   app.use("/api/settings", settingsRoutes);
   app.use("/api/plugins", pluginRoutes);

@@ -5,19 +5,25 @@ export function ThreePanelLayout({
   center,
   right,
   layout = "three",
+  hideRight = false,
   className = "",
   leftClassName = "",
   centerClassName = "",
-  rightClassName = ""
+  rightClassName = "",
+  threeColumnLayoutClassName = "xl:grid-cols-[272px_minmax(480px,1fr)_320px]",
+  twoColumnLayoutClassName = "xl:grid-cols-[272px_minmax(480px,1fr)]"
 }: {
   left: ReactNode;
   center: ReactNode;
   right: ReactNode;
   layout?: "three" | "center";
+  hideRight?: boolean;
   className?: string;
   leftClassName?: string;
   centerClassName?: string;
   rightClassName?: string;
+  threeColumnLayoutClassName?: string;
+  twoColumnLayoutClassName?: string;
 }) {
   const rootClass = `three-panel-layout grid h-full min-w-0 ${className}`.trim();
   if (layout === "center") {
@@ -28,8 +34,17 @@ export function ThreePanelLayout({
     );
   }
 
+  if (hideRight) {
+    return (
+      <div className={`${rootClass} grid-cols-1 gap-4 ${twoColumnLayoutClassName}`.trim()}>
+        <aside className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${leftClassName}`.trim()}>{left}</aside>
+        <section className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${centerClassName}`.trim()}>{center}</section>
+      </div>
+    );
+  }
+
   return (
-    <div className={`${rootClass} grid-cols-1 gap-4 xl:grid-cols-[272px_minmax(480px,1fr)_320px]`}>
+    <div className={`${rootClass} grid-cols-1 gap-4 ${threeColumnLayoutClassName}`.trim()}>
       <aside className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${leftClassName}`.trim()}>{left}</aside>
       <section className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${centerClassName}`.trim()}>{center}</section>
       <aside className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${rightClassName}`.trim()}>{right}</aside>

@@ -46,11 +46,18 @@ interface PreparedTool {
   toolName: string;
   serverId: string;
   timeoutMs: number;
-  client: McpStdioClient;
 }
 
 interface PrepareOptions {
   signal?: AbortSignal;
+}
+
+interface PreparedServerRuntime {
+  serverId: string;
+  serverName: string;
+  config: McpServerConfig;
+  client: McpStdioClient;
+  reconnects: number;
 }
 
 const HEADER_DELIMITER = Buffer.from("\r\n\r\n");
@@ -649,6 +656,7 @@ async function connectMcpClient(server: McpServerConfig, signal?: AbortSignal): 
 
 export interface PreparedMcpTools {
   tools: OpenAIToolDefinition[];
+  diagnostics: PreparedMcpServerDiagnostic[];
   executeToolCall: (callName: string, rawArgs: string | undefined, signal?: AbortSignal) => Promise<{
     modelText: string;
     traceText: string;
@@ -656,32 +664,88 @@ export interface PreparedMcpTools {
   close: () => Promise<void>;
 }
 
+export interface PreparedMcpServerDiagnostic {
+  serverId: string;
+  serverName: string;
+  status: "ready" | "failed";
+  toolCount: number;
+  error?: string;
+}
+
+function isRecoverableToolError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /MCP timeout|MCP server exited|MCP client already closed|MCP client closed|MCP command not found/i.test(error.message);
+}
+
 export async function prepareMcpTools(servers: McpServerConfig[], options?: PrepareOptions): Promise<PreparedMcpTools> {
-  const clients: McpStdioClient[] = [];
+  const clients = new Set<McpStdioClient>();
   const registry = new Map<string, PreparedTool>();
+  const serverRuntimes = new Map<string, PreparedServerRuntime>();
+  const diagnostics: PreparedMcpServerDiagnostic[] = [];
   const tools: OpenAIToolDefinition[] = [];
   const usedNames = new Set<string>();
+
+  async function replaceServerClient(serverId: string, signal?: AbortSignal) {
+    const runtime = serverRuntimes.get(serverId);
+    if (!runtime) {
+      throw new Error(`MCP server is not registered: ${serverId}`);
+    }
+    const nextClient = await connectMcpClient(runtime.config, signal);
+    try {
+      const listed = await nextClient.listTools(signal);
+      const availableToolNames = new Set(
+        listed
+          .map((item) => String(item?.name || "").trim())
+          .filter(Boolean)
+      );
+      const missingTool = [...registry.values()].find((item) => item.serverId === serverId && !availableToolNames.has(item.toolName));
+      if (missingTool) {
+        throw new Error(`Tool ${missingTool.toolName} is no longer exposed by ${runtime.serverName}`);
+      }
+      clients.add(nextClient);
+      const previousClient = runtime.client;
+      runtime.client = nextClient;
+      runtime.reconnects += 1;
+      clients.delete(previousClient);
+      await previousClient.close().catch(() => undefined);
+      return runtime;
+    } catch (error) {
+      clients.delete(nextClient);
+      await nextClient.close().catch(() => undefined);
+      throw error;
+    }
+  }
 
   for (const server of servers) {
     if (!server?.enabled) continue;
     if (!String(server.command || "").trim()) continue;
+    const serverId = String(server.id || server.name || "server").trim() || "server";
+    const serverName = String(server.name || server.id || "MCP Server").trim() || "MCP Server";
     let client: McpStdioClient | null = null;
     try {
       client = await connectMcpClient(server, options?.signal);
       const listed = await client.listTools(options?.signal);
-      clients.push(client);
+      clients.add(client);
+      serverRuntimes.set(serverId, {
+        serverId,
+        serverName,
+        config: server,
+        client,
+        reconnects: 0
+      });
+      let toolCount = 0;
       for (const item of listed) {
         const toolName = String(item?.name || "").trim();
         if (!toolName) continue;
+        toolCount += 1;
         const callName = buildCallName(server.id || server.name || "server", toolName, usedNames);
         const description = String(item?.description || `${server.name || server.id}: ${toolName}`);
         const timeoutMs = Number(server.timeoutMs) > 0 ? Number(server.timeoutMs) : 15000;
         registry.set(callName, {
           callName,
           toolName,
-          serverId: server.id,
-          timeoutMs,
-          client
+          serverId,
+          timeoutMs
         });
         tools.push({
           type: "function",
@@ -692,7 +756,20 @@ export async function prepareMcpTools(servers: McpServerConfig[], options?: Prep
           }
         });
       }
-    } catch {
+      diagnostics.push({
+        serverId,
+        serverName,
+        status: "ready",
+        toolCount
+      });
+    } catch (error) {
+      diagnostics.push({
+        serverId,
+        serverName,
+        status: "failed",
+        toolCount: 0,
+        error: error instanceof Error ? error.message : String(error || "Failed to connect to MCP server")
+      });
       if (client) {
         await client.close();
       }
@@ -701,6 +778,7 @@ export async function prepareMcpTools(servers: McpServerConfig[], options?: Prep
 
   return {
     tools,
+    diagnostics,
     executeToolCall: async (callName: string, rawArgs: string | undefined, signal?: AbortSignal) => {
       const selected = registry.get(callName);
       if (!selected) {
@@ -724,9 +802,30 @@ export async function prepareMcpTools(servers: McpServerConfig[], options?: Prep
         }
       }
       try {
-        const result = await selected.client.callTool(selected.toolName, parsedArgs, selected.timeoutMs, signal);
+        const runtime = serverRuntimes.get(selected.serverId);
+        if (!runtime) {
+          throw new Error(`MCP server is unavailable for ${callName}`);
+        }
+        const result = await runtime.client.callTool(selected.toolName, parsedArgs, selected.timeoutMs, signal);
         return normalizeToolExecutionResult(result);
       } catch (err) {
+        if (!signal?.aborted && isRecoverableToolError(err)) {
+          try {
+            const refreshedRuntime = await replaceServerClient(selected.serverId, signal);
+            const retriedResult = await refreshedRuntime.client.callTool(selected.toolName, parsedArgs, selected.timeoutMs, signal);
+            const normalized = normalizeToolExecutionResult(retriedResult);
+            return {
+              modelText: normalized.modelText,
+              traceText: `Recovered after reconnecting MCP server ${refreshedRuntime.serverName}.\n${normalized.traceText}`.slice(0, 24000)
+            };
+          } catch (retryError) {
+            const message = `Tool execution failed (${callName}) after MCP reconnect attempt: ${retryError instanceof Error ? retryError.message : "Unknown error"}`;
+            return {
+              modelText: message,
+              traceText: message
+            };
+          }
+        }
         const message = `Tool execution failed (${callName}): ${err instanceof Error ? err.message : "Unknown error"}`;
         return {
           modelText: message,
@@ -735,7 +834,7 @@ export async function prepareMcpTools(servers: McpServerConfig[], options?: Prep
       }
     },
     close: async () => {
-      await Promise.all(clients.map((client) => client.close()));
+      await Promise.all([...clients].map((client) => client.close()));
     }
   };
 }

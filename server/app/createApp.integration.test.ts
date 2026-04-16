@@ -17,6 +17,7 @@ describe.sequential("createApp integration", () => {
   let mockProviderServer: HttpServer;
   let mockProviderBaseUrl = "";
   let mockMcpScriptPath = "";
+  let lastCompactionPromptText = "";
   let createApp: typeof import("./createApp.js").createApp;
   let db: typeof import("../db.js").db;
   let newId: typeof import("../db.js").newId;
@@ -34,7 +35,9 @@ describe.sequential("createApp integration", () => {
     newId = dbModule.newId;
     mockMcpScriptPath = join(dataDir, "mock-mcp-server.cjs");
     writeFileSync(mockMcpScriptPath, `
+const { existsSync, writeFileSync } = require("fs");
 const HEADER_DELIMITER = Buffer.from("\\r\\n\\r\\n");
+const retryMarkerPath = ${JSON.stringify(join(dataDir, "mock-mcp-retry.marker"))};
 let buffer = Buffer.alloc(0);
 
 function sendFrame(payload) {
@@ -84,6 +87,11 @@ function handleMessage(message) {
   if (message.method === "tools/call") {
     const args = message.params && typeof message.params === "object" ? message.params.arguments : {};
     const query = args && typeof args === "object" && typeof args.query === "string" ? args.query : "";
+    if (query === "retry context" && !existsSync(retryMarkerPath)) {
+      writeFileSync(retryMarkerPath, "1");
+      process.exit(1);
+      return;
+    }
     sendFrame({
       jsonrpc: "2.0",
       id: message.id,
@@ -160,7 +168,115 @@ process.stdin.on("data", (chunk) => {
           })
           .join("\n\n");
 
+        if (promptText.includes("compact-history-agent-task")) {
+          lastCompactionPromptText = promptText;
+        }
+
         if (toolDefinitions.length > 0 && body.stream !== true && toolMessages.length === 0) {
+          if (promptText.includes("chain-workspace-agent-task")) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const listTool = toolNames.find((name) => name === "workspace_list_files") || toolNames[0] || "";
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: "",
+                  tool_calls: [{
+                    id: "tool-call-1",
+                    type: "function",
+                    function: {
+                      name: listTool,
+                      arguments: JSON.stringify({ path: ".", depth: 1, limit: 20 })
+                    }
+                  }]
+                }
+              }]
+            }));
+            return;
+          }
+          if (promptText.includes("workspace-root-agent-task")) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const searchTool = toolNames.find((name) => name === "workspace_search_text") || toolNames[0] || "";
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: "",
+                  tool_calls: [{
+                    id: "tool-call-root-1",
+                    type: "function",
+                    function: {
+                      name: searchTool,
+                      arguments: JSON.stringify({ query: "agentsEnabled", path: "db", limit: 5 })
+                    }
+                  }]
+                }
+              }]
+            }));
+            return;
+          }
+          if (promptText.includes("workspace-tool-agent-task")) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const searchTool = toolNames.find((name) => name === "workspace_search_text") || toolNames[0] || "";
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: "",
+                  tool_calls: [{
+                    id: "tool-call-workspace-1",
+                    type: "function",
+                    function: {
+                      name: searchTool,
+                      arguments: JSON.stringify({
+                        query: "agentsEnabled",
+                        path: "server/db",
+                        limit: 5
+                      })
+                    }
+                  }]
+                }
+              }]
+            }));
+            return;
+          }
+          if (promptText.includes("command-tool-agent-task")) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const commandTool = toolNames.find((name) => name === "workspace_run_command") || toolNames[0] || "";
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: "",
+                  tool_calls: [{
+                    id: "tool-call-command-1",
+                    type: "function",
+                    function: {
+                      name: commandTool,
+                      arguments: JSON.stringify({
+                        command: "node",
+                        args: [
+                          "-p",
+                          "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).name"
+                        ],
+                        cwd: ".",
+                        timeoutMs: 10000
+                      })
+                    }
+                  }]
+                }
+              }]
+            }));
+            return;
+          }
           if (promptText.includes("no-tool-first-pass")) {
             res.setHeader("Content-Type", "application/json");
             res.end(JSON.stringify({
@@ -225,6 +341,57 @@ process.stdin.on("data", (chunk) => {
         }
 
         if (toolDefinitions.length > 0 && body.stream !== true && toolMessages.length > 0) {
+          if (promptText.includes("chain-workspace-agent-task")) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const searchTool = toolNames.find((name) => name === "workspace_search_text") || toolNames[0] || "";
+            if (toolMessages.length === 1) {
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({
+                choices: [{
+                  message: {
+                    content: "",
+                    tool_calls: [{
+                      id: "tool-call-2",
+                      type: "function",
+                      function: {
+                        name: searchTool,
+                        arguments: JSON.stringify({ query: "agentsEnabled", path: "server/db", limit: 5 })
+                      }
+                    }]
+                  }
+                }]
+              }));
+              return;
+            }
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{ message: { content: "I inspected the workspace in two passes and verified where the agentsEnabled setting lives." } }]
+            }));
+            return;
+          }
+          if (promptText.includes("workspace-root-agent-task")) {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{ message: { content: "I searched inside the selected workspace root and found the agentsEnabled setting there." } }]
+            }));
+            return;
+          }
+          if (promptText.includes("workspace-tool-agent-task")) {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{ message: { content: "I checked the workspace directly and found the setting in the codebase." } }]
+            }));
+            return;
+          }
+          if (promptText.includes("command-tool-agent-task")) {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{ message: { content: "I ran a workspace command and confirmed the project identity from package.json." } }]
+            }));
+            return;
+          }
           res.setHeader("Content-Type", "application/json");
           res.end(JSON.stringify({
             choices: [{ message: { content: "Tool context prepared." } }]
@@ -239,7 +406,74 @@ process.stdin.on("data", (chunk) => {
               return;
             }
           }
+          if (promptText.includes("compact-history-agent-task")) {
+            res.setHeader("Content-Type", "text/event-stream");
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "History compacted cleanly." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("simple-capability-agent-task")) {
+            res.setHeader("Content-Type", "text/event-stream");
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "I can answer questions, inspect the workspace when tools are enabled, run bounded task flows, and help with implementation, review, and research." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
           res.setHeader("Content-Type", "text/event-stream");
+          if (promptText.includes("chain-workspace-agent-task") && toolMessages.length === 1) {
+            res.write(`data: ${JSON.stringify({
+              choices: [{
+                delta: {
+                  tool_calls: [{
+                    index: 0,
+                    id: "tool-call-2",
+                    type: "function",
+                    function: {
+                      name: "workspace_search_text",
+                      arguments: JSON.stringify({ query: "agentsEnabled", path: "server/db", limit: 5 })
+                    }
+                  }]
+                }
+              }]
+            })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("chain-workspace-agent-task") && toolMessages.length > 1) {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "I inspected the workspace in two passes and verified where the agentsEnabled setting lives." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("workspace-root-agent-task") && toolMessages.length > 0) {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "I searched inside the selected workspace root and found the agentsEnabled setting there." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("workspace-tool-agent-task") && toolMessages.length > 0) {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "I checked the workspace directly and found the setting in the codebase." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("command-tool-agent-task") && toolMessages.length > 0) {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "I ran a workspace command and confirmed the project identity from package.json." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("Write the final user-facing assistant reply for this Vellium agent thread.")) {
+            const streamedSynthesis = promptText.includes("Tool result for: latest context")
+              ? "FINAL AGENT TOOL ANSWER"
+              : "FINAL AGENT ANSWER";
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: streamedSynthesis } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
           if (toolMessages.length > 0) {
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "FINAL TOOL ANSWER" } }] })}\n\n`);
             res.write("data: [DONE]\n\n");
@@ -253,7 +487,308 @@ process.stdin.on("data", (chunk) => {
           return;
         }
 
-        const content = promptText.includes("Required JSON keys:")
+        const content = promptText.includes("Write the final user-facing assistant reply for this Vellium agent thread.")
+          ? (promptText.includes("Tool result for: latest context")
+            ? "FINAL AGENT TOOL ANSWER"
+            : "FINAL AGENT ANSWER")
+          : promptText.includes("Update the durable memory for this Vellium agent thread.")
+            ? (promptText.includes("Tool result for: latest context")
+              ? "Keep latest context findings, note that tool-backed verification was already completed, and continue from the validated result."
+              : "Keep the current user goal, active constraints, and the latest completed result ready for follow-up runs.")
+          : promptText.includes("You are the Vellium Agent runtime.")
+            ? (() => {
+              if (promptText.includes("slow-agent-run")) {
+                if (promptText.includes("Resume the previous run")) {
+                  return JSON.stringify({
+                    summary: "Resumed from the prior aborted run",
+                    assistantMessage: "I resumed the previous run and completed the task.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["Resume context applied"]
+                  });
+                }
+                return JSON.stringify({
+                  summary: "Still working",
+                  assistantMessage: "Long-running agent response",
+                  status: "done",
+                  skillIds: [],
+                  toolCalls: [],
+                  subagents: [],
+                  updates: ["Running slowly for concurrency test"]
+                });
+              }
+              if (promptText.includes("retry-agent-run")) {
+                if (promptText.includes("Retry the previous run")) {
+                  return JSON.stringify({
+                    summary: "Retry completed with a stronger plan",
+                    assistantMessage: "Second attempt answer after retry.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["Retry context applied"]
+                  });
+                }
+                return JSON.stringify({
+                  summary: "Initial attempt completed",
+                  assistantMessage: "First attempt answer.",
+                  status: "done",
+                  skillIds: [],
+                  toolCalls: [],
+                  subagents: [],
+                  updates: ["Initial attempt completed"]
+                });
+              }
+              if (promptText.includes("malformed-json-agent-task")) {
+                return "{\"summary\":\"Recovered malformed planner output\",\"assistantMessage\":\"Recovered malformed planner output with markdown:\\n\\n- first point\\n- second point\",\"status\":\"done\"";
+              }
+              if (promptText.includes("simple-capability-agent-task")) {
+                return JSON.stringify({
+                  summary: "Capability question answered",
+                  assistantMessage: "I can answer questions, inspect the workspace when tools are enabled, run bounded task flows, and help with implementation, review, and research.",
+                  status: "done",
+                  skillIds: [],
+                  toolCalls: [],
+                  subagents: [],
+                  updates: []
+                });
+              }
+              if (promptText.includes("premature-stop-agent-task")) {
+                if (promptText.includes("Workspace directory: .")) {
+                  return JSON.stringify({
+                    summary: "Workspace inspected after progress note",
+                    assistantMessage: "I inspected the workspace and continued the run instead of stopping after the intermediate note.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["Inspection completed after continuation recovery"]
+                  });
+                }
+                if (promptText.includes("Runtime note: previous assistant draft looked like an intermediate progress update")) {
+                  const listToolMatch = promptText.match(/- (workspace_list_files):/i);
+                  return JSON.stringify({
+                    summary: "Need actual inspection after the progress note",
+                    assistantMessage: "",
+                    status: "continue",
+                    skillIds: [],
+                    toolCalls: [{
+                      tool: listToolMatch?.[1] || "workspace_list_files",
+                      arguments: {
+                        path: ".",
+                        depth: 1,
+                        limit: 6
+                      },
+                      reason: "Inspect the workspace before making changes."
+                    }],
+                    subagents: [],
+                    updates: ["Turn the progress note into a real inspection step"]
+                  });
+                }
+                return "{\"summary\":\"Planning inspection\",\"assistantMessage\":\"Сначала быстро посмотрю текущие index.html и styles.css, затем внесу конкретные правки для более насыщенного лендинга.\",\"status\":\"done\"";
+              }
+              if (promptText.includes("tool-driven agent task")) {
+                if (promptText.includes("Tool result for: latest context")) {
+                  return JSON.stringify({
+                    summary: "Tool result reviewed",
+                    assistantMessage: "I used the tool and captured the latest context.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["Tool output incorporated"]
+                  });
+                }
+                const toolNameMatch = promptText.match(/- (mcp_[a-z0-9_]+__lookup):/i);
+                return JSON.stringify({
+                  summary: "Need fresh context before answering",
+                  assistantMessage: "",
+                  status: "continue",
+                  skillIds: [],
+                  toolCalls: [{
+                    tool: toolNameMatch?.[1] || "mcp_mockserver__lookup",
+                    arguments: { query: "latest context" },
+                    reason: "Fetch the latest context."
+                  }],
+                  subagents: [],
+                  updates: ["Call the lookup tool"]
+                });
+              }
+              if (promptText.includes("retrying-tool-agent-task")) {
+                if (promptText.includes("Tool result for: retry context")) {
+                  return JSON.stringify({
+                    summary: "Recovered tool result reviewed",
+                    assistantMessage: "I recovered from the MCP disconnect and still got the context.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["Recovered after MCP reconnect"]
+                  });
+                }
+                const toolNameMatch = promptText.match(/- (mcp_[a-z0-9_]+__lookup):/i);
+                return JSON.stringify({
+                  summary: "Need retried tool context before answering",
+                  assistantMessage: "",
+                  status: "continue",
+                  skillIds: [],
+                  toolCalls: [{
+                    tool: toolNameMatch?.[1] || "mcp_mockserver__lookup",
+                    arguments: { query: "retry context" },
+                    reason: "Fetch context even if the MCP server needs a reconnect."
+                  }],
+                  subagents: [],
+                  updates: ["Call the lookup tool with reconnect recovery"]
+                });
+              }
+              if (promptText.includes("workspace-tool-agent-task")) {
+                if (promptText.includes("Query: agentsEnabled")) {
+                  return JSON.stringify({
+                    summary: "Workspace search result reviewed",
+                    assistantMessage: "I checked the workspace directly and found the setting in the codebase.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["Workspace search results incorporated"]
+                  });
+                }
+                const workspaceToolMatch = promptText.match(/- (workspace_search_text):/i);
+                if (!workspaceToolMatch) {
+                  return JSON.stringify({
+                    summary: "Workspace tools unavailable",
+                    assistantMessage: "Workspace tools are unavailable right now.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["No first-party workspace tools were attached"]
+                  });
+                }
+                return JSON.stringify({
+                  summary: "Need to inspect the workspace setting directly",
+                  assistantMessage: "",
+                  status: "continue",
+                  skillIds: [],
+                  toolCalls: [{
+                    tool: workspaceToolMatch[1],
+                    arguments: {
+                      query: "agentsEnabled",
+                      path: "server/db",
+                      limit: 5
+                    },
+                    reason: "Search the workspace for the settings definition."
+                  }],
+                  subagents: [],
+                  updates: ["Use the first-party workspace search tool"]
+                });
+              }
+              if (promptText.includes("command-tool-agent-task")) {
+                if (promptText.includes("Command: node -p JSON.parse(require('fs').readFileSync('package.json', 'utf8')).name")) {
+                  return JSON.stringify({
+                    summary: "Command output reviewed",
+                    assistantMessage: "I ran a workspace command and confirmed the project identity from package.json.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["Command output incorporated"]
+                  });
+                }
+                const commandToolMatch = promptText.match(/- (workspace_run_command):/i);
+                if (!commandToolMatch) {
+                  return JSON.stringify({
+                    summary: "Command tool unavailable",
+                    assistantMessage: "The workspace command tool is unavailable right now.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["No first-party command tool was attached"]
+                  });
+                }
+                return JSON.stringify({
+                  summary: "Need to run a workspace command",
+                  assistantMessage: "",
+                  status: "continue",
+                  skillIds: [],
+                  toolCalls: [{
+                    tool: commandToolMatch[1],
+                    arguments: {
+                      command: "node",
+                      args: [
+                        "-p",
+                        "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).name"
+                      ],
+                      cwd: ".",
+                      timeoutMs: 10000
+                    },
+                    reason: "Run a direct workspace command to inspect package.json."
+                  }],
+                  subagents: [],
+                  updates: ["Use the first-party command tool"]
+                });
+              }
+              if (promptText.includes("nested-subagent-task")) {
+                if (promptText.includes("Subagent title: Second Layer Scout")) {
+                  return JSON.stringify({
+                    summary: "Deep nested subagent completed",
+                    assistantMessage: "Second layer finished the deep check.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["Deep side task completed"]
+                  });
+                }
+                if (promptText.includes("Subagent title: First Layer Scout")) {
+                  return JSON.stringify({
+                    summary: "Need one more nested review",
+                    assistantMessage: "",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [{
+                      title: "Second Layer Scout",
+                      goal: "Check the final nested edge case",
+                      role: "research",
+                      instructions: "Return a concise nested finding."
+                    }],
+                    updates: ["Delegate a nested check"]
+                  });
+                }
+                return JSON.stringify({
+                  summary: "Delegate the first side task",
+                  assistantMessage: "",
+                  status: "done",
+                  skillIds: [],
+                  toolCalls: [],
+                  subagents: [{
+                    title: "First Layer Scout",
+                    goal: "Investigate the first side question",
+                    role: "reviewer",
+                    instructions: "Be strict and concise."
+                  }],
+                  updates: ["Delegate the first layer subagent"]
+                });
+              }
+              return JSON.stringify({
+                summary: "Ready to answer directly",
+                assistantMessage: "AGENT MOCK RESPONSE",
+                status: "done",
+                skillIds: [],
+                toolCalls: [],
+                subagents: [],
+                updates: ["No extra work needed"]
+              });
+            })()
+          : promptText.includes("compact-history-agent-task")
+            ? "History compacted cleanly."
+          : promptText.includes("simple-capability-agent-task")
+            ? "I can answer questions, inspect the workspace when tools are enabled, run bounded task flows, and help with implementation, review, and research."
+          : promptText.includes("Required JSON keys:")
           ? JSON.stringify({
             name: "Mock Character",
             description: "Generated description",
@@ -272,6 +807,9 @@ process.stdin.on("data", (chunk) => {
             : "MOCK RESPONSE";
 
         res.setHeader("Content-Type", "application/json");
+        if (promptText.includes("slow-agent-run")) {
+          await sleep(250);
+        }
         res.end(JSON.stringify({
           choices: [{ message: { content } }]
         }));
@@ -484,6 +1022,857 @@ process.stdin.on("data", (chunk) => {
     expect(timelineAfterRegenerate[1]).toMatchObject({
       role: "assistant",
       content: "MOCK STREAM RESPONSE"
+    });
+  });
+
+  it("keeps agent routes disabled until the feature flag is enabled", async () => {
+    await updateSettings({
+      agentsEnabled: false
+    });
+
+    const response = await fetch(`${baseUrl}/api/agents/threads`);
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "Agents feature is disabled in Settings"
+    });
+  });
+
+  it("creates agent threads and streams tool-backed agent runs with event traces", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: [{
+        id: "mockserver",
+        name: "Mock MCP",
+        command: process.execPath,
+        args: mockMcpScriptPath,
+        env: "",
+        enabled: true,
+        timeoutMs: 5000
+      }]
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Agent Workspace",
+      description: "Integration test thread"
+    });
+    expect(thread.id).toEqual(expect.any(String));
+
+    const initialState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(initialState.thread.title).toBe("Agent Workspace");
+    expect(initialState.skills.length).toBeGreaterThanOrEqual(3);
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "tool-driven agent task" }
+    });
+    expect(runResponse.ok).toBe(true);
+    expect(runResponse.headers.get("content-type")).toContain("text/event-stream");
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("\"type\":\"agent_event\"");
+    expect(runBody).toContain("\"type\":\"tool_call\"");
+    expect(runBody).toContain("\"type\":\"tool_result\"");
+    expect(runBody).toContain("I used the tool and captured the latest context.");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.messages[0]).toMatchObject({
+      role: "user",
+      content: "tool-driven agent task",
+      runId: expect.any(String)
+    });
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I used the tool and captured the latest context."
+    });
+    expect(finalState.thread.memorySummary).toBe("");
+    expect(finalState.events.some((event: { type: string }) => event.type === "tool_call")).toBe(true);
+    expect(finalState.events.some((event: { type: string }) => event.type === "tool_result")).toBe(true);
+    expect(finalState.events.some((event: { type: string }) => event.type === "memory")).toBe(false);
+  });
+
+  it("repairs malformed planner JSON instead of storing raw structured output in the chat", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      agentWorkspaceToolsEnabled: false,
+      agentCommandToolEnabled: false,
+      mcpServers: []
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Malformed Planner Output"
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "malformed-json-agent-task" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "Recovered malformed planner output with markdown:\n\n- first point\n- second point"
+    });
+    expect(String(finalState.messages.at(-1)?.content || "")).not.toContain("\"summary\"");
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "warning" && event.title === "Planner output repaired"
+    ))).toBe(true);
+  });
+
+  it("keeps simple ask-mode replies as a single clean answer without plan or memory trace noise", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Simple Ask",
+      mode: "ask"
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "simple-capability-agent-task" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("\"type\":\"delta\"");
+    expect(runBody).not.toContain("\"title\":\"Step 1\"");
+    expect(runBody).not.toContain("\"type\":\"plan\"");
+    expect(runBody).not.toContain("\"type\":\"memory\"");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I can answer questions, inspect the workspace when tools are enabled, run bounded task flows, and help with implementation, review, and research."
+    });
+    expect(finalState.events).toHaveLength(0);
+    expect(finalState.thread.memorySummary).toBe("");
+  });
+
+  it("auto-compacts older agent history when the prompt budget gets tight", async () => {
+    lastCompactionPromptText = "";
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: [],
+      contextWindowSize: 1024,
+      agentAutoCompactEnabled: true,
+      agentReplyReserveTokens: 900
+    });
+    try {
+      const thread = await postJson("/api/agents/threads", {
+        title: "Compacted Ask",
+        mode: "ask"
+      });
+
+      const historyTurns = [
+        `simple-capability-agent-task oldest-marker ${"OLDEST ".repeat(90)} UNIQUE_END_OLDEST`,
+        `simple-capability-agent-task second-marker ${"SECOND ".repeat(90)} UNIQUE_END_SECOND`,
+        `simple-capability-agent-task third-marker ${"THIRD ".repeat(90)} UNIQUE_END_THIRD`,
+        `simple-capability-agent-task fourth-marker ${"FOURTH ".repeat(90)} UNIQUE_END_FOURTH`
+      ];
+
+      for (const content of historyTurns) {
+        const historyRun = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+          method: "POST",
+          body: { content }
+        });
+        expect(historyRun.ok).toBe(true);
+        await historyRun.text();
+      }
+
+      const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+        method: "POST",
+        body: { content: `simple-capability-agent-task compact-history-agent-task latest-marker ${"LATEST ".repeat(60)} UNIQUE_END_LATEST` }
+      });
+      expect(runResponse.ok).toBe(true);
+      await runResponse.text();
+
+      expect(lastCompactionPromptText).toContain("Compacted earlier thread context:");
+      expect(lastCompactionPromptText).toContain("latest-marker");
+      expect(lastCompactionPromptText).not.toContain("UNIQUE_END_OLDEST");
+      expect(lastCompactionPromptText).not.toContain("UNIQUE_END_SECOND");
+
+      const finalState = await parseJsonResponse(
+        `/api/agents/threads/${thread.id}/state`,
+        await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+      );
+      expect(finalState.messages.at(-1)).toMatchObject({
+        role: "assistant"
+      });
+      expect(String(finalState.messages.at(-1)?.content || "").length).toBeGreaterThan(0);
+    } finally {
+      await updateSettings({
+        contextWindowSize: 8192,
+        agentReplyReserveTokens: 1400
+      });
+    }
+  });
+
+  it("chains multiple workspace tool calls in one direct agent run", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Chain Tool Loop",
+      mode: "build"
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "chain-workspace-agent-task" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect((runBody.match(/"type":"tool_call"/g) || []).length).toBeGreaterThanOrEqual(2);
+    expect(runBody).toContain("I inspected the workspace in two passes and verified where the agentsEnabled setting lives.");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.events.filter((event: { type: string }) => event.type === "tool_call")).toHaveLength(2);
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I inspected the workspace in two passes and verified where the agentsEnabled setting lives."
+    });
+  });
+
+  it("respects the selected workspace root for first-party workspace tools", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Scoped Workspace Root",
+      mode: "build",
+      workspaceRoot: join(process.cwd(), "server")
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "workspace-root-agent-task" }
+    });
+    expect(runResponse.ok).toBe(true);
+    await runResponse.text();
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.thread.workspaceRoot).toBe(join(process.cwd(), "server"));
+    expect(finalState.events.some((event: { type: string; content: string }) => (
+      event.type === "tool_result"
+      && String(event.content || "").includes("db/defaultSettings.ts")
+    ))).toBe(true);
+    expect(finalState.events.some((event: { type: string; content: string }) => (
+      event.type === "tool_result"
+      && String(event.content || "").includes("server/db/defaultSettings.ts")
+    ))).toBe(false);
+  });
+
+  it("uses first-party workspace tools when enabled and removes them when disabled", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const enabledThread = await postJson("/api/agents/threads", {
+      title: "Workspace Tools On"
+    });
+    const enabledRun = await requestJson(`/api/agents/threads/${enabledThread.id}/respond`, {
+      method: "POST",
+      body: { content: "workspace-tool-agent-task" }
+    });
+    expect(enabledRun.ok).toBe(true);
+    const enabledBody = await enabledRun.text();
+    expect(enabledBody).toContain("\"type\":\"tool_call\"");
+    expect(enabledBody).toContain("workspace_search_text");
+    expect(enabledBody).toContain("I checked the workspace directly and found the setting in the codebase.");
+
+    const enabledState = await parseJsonResponse(
+      `/api/agents/threads/${enabledThread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${enabledThread.id}/state`)
+    );
+    expect(enabledState.events.some((event: { type: string; title: string }) => (
+      event.type === "tool_call" && event.title === "workspace_search_text"
+    ))).toBe(true);
+    expect(enabledState.events.some((event: { type: string; content: string }) => (
+      event.type === "tool_result"
+      && String(event.content || "").includes("server/db/defaultSettings.ts")
+      && String(event.content || "").includes("agentsEnabled")
+    ))).toBe(true);
+
+    await updateSettings({
+      agentWorkspaceToolsEnabled: false
+    });
+
+    const disabledThread = await postJson("/api/agents/threads", {
+      title: "Workspace Tools Off"
+    });
+    const disabledRun = await requestJson(`/api/agents/threads/${disabledThread.id}/respond`, {
+      method: "POST",
+      body: { content: "workspace-tool-agent-task" }
+    });
+    expect(disabledRun.ok).toBe(true);
+    const disabledBody = await disabledRun.text();
+    expect(disabledBody).not.toContain("workspace_search_text");
+    expect(disabledBody).toContain("Workspace tools are unavailable right now.");
+
+    const disabledState = await parseJsonResponse(
+      `/api/agents/threads/${disabledThread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${disabledThread.id}/state`)
+    );
+    expect(disabledState.events.some((event: { type: string; title: string }) => (
+      event.type === "tool_call" && event.title === "workspace_search_text"
+    ))).toBe(false);
+  });
+
+  it("stores attachments, lets the user edit a message, and forks a new agent branch from a message", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: false,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Editable Attachment Thread",
+      mode: "ask"
+    });
+
+    const attachment = {
+      id: "attachment-note-1",
+      filename: "note.md",
+      type: "text",
+      url: "/mock-upload/note.md",
+      mimeType: "text/markdown",
+      content: "# Context\nNeed a concise answer."
+    };
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: {
+        content: "simple-capability-agent-task",
+        attachments: [attachment]
+      }
+    });
+    expect(runResponse.ok).toBe(true);
+    await runResponse.text();
+
+    const initialState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    const userMessage = initialState.messages.find((message: { role: string }) => message.role === "user");
+    const assistantMessage = initialState.messages.find((message: { role: string }) => message.role === "assistant");
+    expect(userMessage).toMatchObject({
+      content: "simple-capability-agent-task"
+    });
+    expect(userMessage.attachments).toMatchObject([{
+      filename: "note.md",
+      type: "text",
+      content: "# Context\nNeed a concise answer."
+    }]);
+    expect(assistantMessage).toMatchObject({
+      content: "I can answer questions, inspect the workspace when tools are enabled, run bounded task flows, and help with implementation, review, and research."
+    });
+
+    const forkedThread = await postJson(`/api/agents/messages/${assistantMessage.id}/fork`, {
+      name: "Forked Attachment Thread"
+    });
+    expect(forkedThread).toMatchObject({
+      title: "Forked Attachment Thread"
+    });
+
+    const forkedState = await parseJsonResponse(
+      `/api/agents/threads/${forkedThread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${forkedThread.id}/state`)
+    );
+    expect(forkedState.messages).toHaveLength(2);
+    expect(forkedState.runs).toHaveLength(0);
+    expect(forkedState.messages[0].attachments).toMatchObject([{
+      filename: "note.md"
+    }]);
+
+    const editResponse = await requestJson(`/api/agents/messages/${userMessage.id}`, {
+      method: "PATCH",
+      body: {
+        content: "simple-capability-agent-task edited"
+      }
+    });
+    expect(editResponse.ok).toBe(true);
+    const editedPayload = await editResponse.json();
+    expect(editedPayload.state.messages).toHaveLength(1);
+    expect(editedPayload.state.runs).toHaveLength(0);
+    expect(editedPayload.state.thread.memorySummary).toBe("");
+    expect(editedPayload.state.messages[0]).toMatchObject({
+      role: "user",
+      content: "simple-capability-agent-task edited"
+    });
+    expect(editedPayload.state.messages[0].attachments).toMatchObject([{
+      filename: "note.md"
+    }]);
+  });
+
+  it("continues the run when the planner emits a progress note instead of a completed result", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Continuation Recovery",
+      mode: "build"
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "premature-stop-agent-task сделай правки" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("\"title\":\"Planner continuation inferred\"");
+    expect(runBody).toContain("\"type\":\"tool_call\"");
+    expect(runBody).toContain("I inspected the workspace and continued the run instead of stopping after the intermediate note.");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I inspected the workspace and continued the run instead of stopping after the intermediate note."
+    });
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "warning" && event.title === "Planner continuation inferred"
+    ))).toBe(true);
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "tool_call" && event.title === "workspace_list_files"
+    ))).toBe(true);
+  });
+
+  it("uses the first-party command tool when enabled and removes it when disabled", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: false,
+      agentCommandToolEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const enabledThread = await postJson("/api/agents/threads", {
+      title: "Command Tool On"
+    });
+    const enabledRun = await requestJson(`/api/agents/threads/${enabledThread.id}/respond`, {
+      method: "POST",
+      body: { content: "command-tool-agent-task" }
+    });
+    expect(enabledRun.ok).toBe(true);
+    const enabledBody = await enabledRun.text();
+    expect(enabledBody).toContain("\"type\":\"tool_call\"");
+    expect(enabledBody).toContain("workspace_run_command");
+    expect(enabledBody).toContain("I ran a workspace command and confirmed the project identity from package.json.");
+
+    const enabledState = await parseJsonResponse(
+      `/api/agents/threads/${enabledThread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${enabledThread.id}/state`)
+    );
+    expect(enabledState.events.some((event: { type: string; title: string }) => (
+      event.type === "tool_call" && event.title === "workspace_run_command"
+    ))).toBe(true);
+    expect(enabledState.events.some((event: { type: string; content: string }) => (
+      event.type === "tool_result"
+      && String(event.content || "").includes("Command: node -p")
+      && String(event.content || "").includes("vellium")
+    ))).toBe(true);
+
+    await updateSettings({
+      agentCommandToolEnabled: false
+    });
+
+    const disabledThread = await postJson("/api/agents/threads", {
+      title: "Command Tool Off"
+    });
+    const disabledRun = await requestJson(`/api/agents/threads/${disabledThread.id}/respond`, {
+      method: "POST",
+      body: { content: "command-tool-agent-task" }
+    });
+    expect(disabledRun.ok).toBe(true);
+    const disabledBody = await disabledRun.text();
+    expect(disabledBody).not.toContain("\"type\":\"tool_call\"");
+    expect(disabledBody).toContain("The workspace command tool is unavailable right now.");
+
+    const disabledState = await parseJsonResponse(
+      `/api/agents/threads/${disabledThread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${disabledThread.id}/state`)
+    );
+    expect(disabledState.events.some((event: { type: string; title: string }) => event.title === "workspace_run_command")).toBe(false);
+  });
+
+  it("creates agent workspaces from hero profiles with custom instructions and skills", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model"
+    });
+
+    const hero = await postJson("/api/characters/import", {
+      rawJson: JSON.stringify({
+        spec: "chara_card_v2",
+        spec_version: "2.0",
+        data: {
+          name: "Systems Hero",
+          description: "A pragmatic operator who ships carefully.",
+          personality: "Calm, technical, skeptical",
+          scenario: "Working inside the Vellium agents workspace",
+          system_prompt: "Prefer explicit tradeoffs.",
+          tags: ["ops"],
+          extensions: {
+            vellium_agent: {
+              enabled: true,
+              mode: "research",
+              customInstructions: "Always compare two strong approaches before deciding.",
+              skills: [
+                {
+                  id: "hero-skill-1",
+                  name: "Tradeoff Mapper",
+                  description: "Compare execution paths.",
+                  instructions: "List the upside, downside, and unknowns for each viable path.",
+                  enabled: true
+                }
+              ]
+            }
+          }
+        }
+      })
+    });
+
+    expect(hero.agentProfile).toMatchObject({
+      enabled: true,
+      mode: "research",
+      customInstructions: "Always compare two strong approaches before deciding."
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      heroCharacterId: hero.id,
+      title: "Hero Research Workspace"
+    });
+
+    expect(thread).toMatchObject({
+      title: "Hero Research Workspace",
+      mode: "research",
+      heroCharacterId: hero.id,
+      heroCharacterName: "Systems Hero"
+    });
+    expect(thread.systemPrompt).toContain("Always compare two strong approaches before deciding.");
+    expect(thread.systemPrompt).toContain("Systems Hero");
+
+    const threadState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(threadState.thread.mode).toBe("research");
+    expect(threadState.thread.heroCharacterName).toBe("Systems Hero");
+    expect(threadState.skills.some((skill: { name: string }) => skill.name === "Tradeoff Mapper")).toBe(true);
+  });
+
+  it("rejects parallel agent runs and prevents deleting threads while a run is active", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model"
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Concurrency Guard"
+    });
+
+    const activeRun = requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "slow-agent-run" }
+    });
+
+    await sleep(40);
+
+    const parallelResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "second-run-should-fail" }
+    });
+    expect(parallelResponse.status).toBe(409);
+    expect(await parallelResponse.json()).toEqual({
+      error: "Agent thread is already running"
+    });
+
+    const deleteResponse = await requestJson(`/api/agents/threads/${thread.id}`, {
+      method: "DELETE"
+    });
+    expect(deleteResponse.status).toBe(409);
+    expect(await deleteResponse.json()).toEqual({
+      error: "Cannot delete a running agent thread"
+    });
+
+    const abortResult = await postJson(`/api/agents/threads/${thread.id}/abort`, {});
+    expect(abortResult).toMatchObject({ ok: true, interrupted: true });
+
+    const activeRunResponse = await activeRun;
+    expect(activeRunResponse.ok).toBe(true);
+    const activeRunBody = await activeRunResponse.text();
+    expect(activeRunBody).toContain("\"type\":\"done\"");
+  });
+
+  it("retries a completed run with the prior branch context", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model"
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Retry Flow"
+    });
+    const firstRunResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "retry-agent-run" }
+    });
+    expect(firstRunResponse.ok).toBe(true);
+    const firstRunBody = await firstRunResponse.text();
+    expect(firstRunBody).toContain("First attempt answer.");
+
+    const firstState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    const sourceRunId = String(firstState.runs[0]?.id || "");
+    expect(sourceRunId).toBeTruthy();
+
+    const retryResponse = await requestJson(`/api/agents/threads/${thread.id}/runs/${sourceRunId}/retry`, {
+      method: "POST",
+      body: {}
+    });
+    expect(retryResponse.ok).toBe(true);
+    const retryBody = await retryResponse.text();
+    expect(retryBody).toContain("Second attempt answer after retry.");
+    expect(retryBody).toContain("Retrying prior run");
+
+    const retryState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(retryState.runs).toHaveLength(2);
+    expect(retryState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "Second attempt answer after retry."
+    });
+    expect(retryState.events.some((event: { title: string; payload: { launchMode?: string; sourceRunId?: string } }) => (
+      event.title === "Retrying prior run"
+      && event.payload?.launchMode === "retry"
+      && event.payload?.sourceRunId === sourceRunId
+    ))).toBe(true);
+  });
+
+  it("resumes an aborted run with the prior branch context", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model"
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Resume Flow"
+    });
+
+    const activeRun = requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "slow-agent-run" }
+    });
+
+    await sleep(40);
+    const abortResult = await postJson(`/api/agents/threads/${thread.id}/abort`, {});
+    expect(abortResult).toMatchObject({ ok: true, interrupted: true });
+
+    const abortedResponse = await activeRun;
+    expect(abortedResponse.ok).toBe(true);
+    await abortedResponse.text();
+
+    const abortedState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    const sourceRunId = String(abortedState.runs[0]?.id || "");
+    expect(abortedState.runs[0]?.status).toBe("aborted");
+
+    const resumeResponse = await requestJson(`/api/agents/threads/${thread.id}/runs/${sourceRunId}/resume`, {
+      method: "POST",
+      body: {}
+    });
+    expect(resumeResponse.ok).toBe(true);
+    const resumeBody = await resumeResponse.text();
+    expect(resumeBody).toContain("I resumed the previous run and completed the task.");
+    expect(resumeBody).toContain("Resuming prior run");
+
+    const resumedState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(resumedState.runs).toHaveLength(2);
+    expect(resumedState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I resumed the previous run and completed the task."
+    });
+    expect(resumedState.events.some((event: { title: string; payload: { launchMode?: string; sourceRunId?: string } }) => (
+      event.title === "Resuming prior run"
+      && event.payload?.launchMode === "resume"
+      && event.payload?.sourceRunId === sourceRunId
+    ))).toBe(true);
+  });
+
+  it("enforces the configured subagent budget and allows nested delegation within that limit", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model"
+    });
+
+    const limitedThread = await postJson("/api/agents/threads", {
+      title: "Limited Delegation",
+      maxSubagents: 1
+    });
+    const limitedRun = await requestJson(`/api/agents/threads/${limitedThread.id}/respond`, {
+      method: "POST",
+      body: { content: "nested-subagent-task" }
+    });
+    expect(limitedRun.ok).toBe(true);
+    const limitedBody = await limitedRun.text();
+    expect(limitedBody).toContain("\"type\":\"subagent_start\"");
+
+    const limitedState = await parseJsonResponse(
+      `/api/agents/threads/${limitedThread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${limitedThread.id}/state`)
+    );
+    expect(limitedState.runs).toHaveLength(2);
+    expect(limitedState.events.some((event: { type: string; content: string }) => (
+      event.type === "warning" && String(event.content || "").includes("Subagent budget exhausted")
+    ))).toBe(true);
+
+    const nestedThread = await postJson("/api/agents/threads", {
+      title: "Nested Delegation",
+      maxSubagents: 2
+    });
+    const nestedRun = await requestJson(`/api/agents/threads/${nestedThread.id}/respond`, {
+      method: "POST",
+      body: { content: "nested-subagent-task" }
+    });
+    expect(nestedRun.ok).toBe(true);
+    const nestedBody = await nestedRun.text();
+    expect(nestedBody).toContain("\"type\":\"subagent_done\"");
+
+    const nestedState = await parseJsonResponse(
+      `/api/agents/threads/${nestedThread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${nestedThread.id}/state`)
+    );
+    expect(nestedState.runs).toHaveLength(3);
+    expect(nestedState.runs.some((run: { depth: number; title: string }) => run.depth === 2 && run.title === "Second Layer Scout")).toBe(true);
+    expect(nestedState.events.some((event: { type: string; payload: { role?: string } }) => (
+      event.type === "subagent_start" && event.payload?.role === "reviewer"
+    ))).toBe(true);
+    expect(nestedState.events.some((event: { type: string; payload: { role?: string } }) => (
+      event.type === "subagent_start" && event.payload?.role === "research"
+    ))).toBe(true);
+  });
+
+  it("surfaces degraded MCP availability and recovers tool calls after a reconnect", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: [{
+        id: "mockserver",
+        name: "Mock MCP",
+        command: process.execPath,
+        args: mockMcpScriptPath,
+        env: "",
+        enabled: true,
+        timeoutMs: 5000
+      }, {
+        id: "broken-mcp",
+        name: "Broken MCP",
+        command: "bad-command",
+        args: "",
+        env: "",
+        enabled: true,
+        timeoutMs: 5000
+      }]
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Recovered MCP Workspace"
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "retrying-tool-agent-task" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("Recovered after reconnecting MCP server");
+    expect(runBody).toContain("\"type\":\"warning\"");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.events.some((event: { type: string; title: string; content: string }) => (
+      event.type === "warning"
+      && event.title === "MCP partially available"
+      && String(event.content || "").includes("Broken MCP")
+    ))).toBe(true);
+    expect(finalState.events.some((event: { type: string; content: string }) => (
+      event.type === "tool_result" && String(event.content || "").includes("Recovered after reconnecting MCP server Mock MCP")
+    ))).toBe(true);
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I recovered from the MCP disconnect and still got the context."
     });
   });
 

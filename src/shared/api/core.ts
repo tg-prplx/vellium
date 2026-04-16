@@ -166,6 +166,7 @@ export type StreamCallbacks = {
     args?: string;
     result?: string;
   }) => void;
+  onEvent?: (event: Record<string, unknown>) => void;
   onDone?: () => void;
 };
 
@@ -296,6 +297,8 @@ export async function streamPost(path: string, body: unknown, callbacks: StreamC
         } else if (parsed.type === "done") {
           doneEmitted = true;
           callbacks.onDone?.();
+        } else {
+          callbacks.onEvent?.(parsed as Record<string, unknown>);
         }
       } catch {
         // Ignore malformed SSE payloads.
