@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { createServer, type Server as HttpServer } from "http";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -18,9 +18,32 @@ describe.sequential("createApp integration", () => {
   let mockProviderBaseUrl = "";
   let mockMcpScriptPath = "";
   let lastCompactionPromptText = "";
+  let lastAgentPromptStackText = "";
+  let lastBuildDirectToolChoice = "";
+  let lastPlannerResponseFormat: unknown = null;
   let createApp: typeof import("./createApp.js").createApp;
   let db: typeof import("../db.js").db;
   let newId: typeof import("../db.js").newId;
+
+  function collectSseDeltas(body: string) {
+    return String(body || "")
+      .split(/\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim())
+      .filter((payload) => payload && payload !== "[DONE]")
+      .map((payload) => {
+        try {
+          return JSON.parse(payload) as { type?: string; delta?: unknown };
+        } catch {
+          return null;
+        }
+      })
+      .filter((payload): payload is { type?: string; delta?: unknown } => Boolean(payload))
+      .filter((payload) => payload.type === "delta")
+      .map((payload) => String(payload.delta || ""))
+      .join("");
+  }
 
   beforeAll(async () => {
     dataDir = mkdtempSync(join(tmpdir(), "slv-integration-"));
@@ -171,6 +194,31 @@ process.stdin.on("data", (chunk) => {
         if (promptText.includes("compact-history-agent-task")) {
           lastCompactionPromptText = promptText;
         }
+        if (promptText.includes("prompt-stack-agent-task")) {
+          lastAgentPromptStackText = promptText;
+        }
+        if (promptText.includes("Decide the next best action for this agent thread")) {
+          lastPlannerResponseFormat = body.response_format ?? null;
+        }
+        if (promptText.includes("Classify the latest user message in an autonomous agent thread.")) {
+          const latestMessage = promptText.match(/Latest user message:\n([\s\S]*)$/)?.[1]?.trim() || "";
+          const startsFreshTask = latestMessage.includes("новый") || latestMessage.includes("new ");
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  intent: startsFreshTask ? "new_task" : "continuation",
+                  confidence: 0.86,
+                  reason: startsFreshTask
+                    ? "The latest message introduces a fresh goal."
+                    : "The latest message depends on the previous agent task context."
+                })
+              }
+            }]
+          }));
+          return;
+        }
 
         if (toolDefinitions.length > 0 && body.stream !== true && toolMessages.length === 0) {
           if (promptText.includes("chain-workspace-agent-task")) {
@@ -269,6 +317,116 @@ process.stdin.on("data", (chunk) => {
                         ],
                         cwd: ".",
                         timeoutMs: 10000
+                      })
+                    }
+                  }]
+                }
+              }]
+            }));
+            return;
+          }
+          if (promptText.includes("dangerous-command-agent-task")) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const commandTool = toolNames.find((name) => name === "workspace_run_command") || toolNames[0] || "";
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: "",
+                  tool_calls: [{
+                    id: "tool-call-dangerous-command-1",
+                    type: "function",
+                    function: {
+                      name: commandTool,
+                      arguments: JSON.stringify({
+                        command: "mkdir",
+                        args: ["danger-dir"],
+                        cwd: ".",
+                        timeoutMs: 4000
+                      })
+                    }
+                  }]
+                }
+              }]
+            }));
+            return;
+          }
+          if (promptText.includes("dangerous-delete-agent-task")) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const deleteTool = toolNames.find((name) => name === "workspace_delete_path") || toolNames[0] || "";
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: "",
+                  tool_calls: [{
+                    id: "tool-call-dangerous-delete-1",
+                    type: "function",
+                    function: {
+                      name: deleteTool,
+                      arguments: JSON.stringify({
+                        path: "trash.txt"
+                      })
+                    }
+                  }]
+                }
+              }]
+            }));
+            return;
+          }
+          if (promptText.includes("edit-tools-agent-task")) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const multiEditTool = toolNames.find((name) => name === "workspace_multi_edit") || toolNames[0] || "";
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: "",
+                  tool_calls: [{
+                    id: "tool-call-edit-1",
+                    type: "function",
+                    function: {
+                      name: multiEditTool,
+                      arguments: JSON.stringify({
+                        path: "note.md",
+                        edits: [
+                          { search: "Old headline", replace: "New headline" },
+                          { search: "Needs polish.", replace: "Sharper copy added." }
+                        ]
+                      })
+                    }
+                  }]
+                }
+              }]
+            }));
+            return;
+          }
+          if (promptText.includes("steer-agent-task")) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const commandTool = toolNames.find((name) => name === "workspace_run_command") || toolNames[0] || "";
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: "",
+                  tool_calls: [{
+                    id: "tool-call-steer-1",
+                    type: "function",
+                    function: {
+                      name: commandTool,
+                      arguments: JSON.stringify({
+                        command: "node",
+                        args: ["-e", "setTimeout(() => { console.log('scan done'); }, 180)"],
+                        cwd: ".",
+                        timeoutMs: 4000
                       })
                     }
                   }]
@@ -392,6 +550,55 @@ process.stdin.on("data", (chunk) => {
             }));
             return;
           }
+          if (promptText.includes("dangerous-command-agent-task")) {
+            const blocked = promptText.includes("blocked by agent security policy") || promptText.includes("explicitly enabled for Agents");
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: blocked
+                    ? "The dangerous workspace command was blocked by policy."
+                    : "The dangerous workspace command ran after the policy was enabled."
+                }
+              }]
+            }));
+            return;
+          }
+          if (promptText.includes("dangerous-delete-agent-task")) {
+            const blocked = promptText.includes("blocked by agent security policy") || promptText.includes("explicitly enabled for Agents");
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: blocked
+                    ? "The delete request was blocked by policy."
+                    : "The delete request ran after the policy was enabled."
+                }
+              }]
+            }));
+            return;
+          }
+          if (promptText.includes("edit-tools-agent-task") && toolMessages.length > 1) {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{ message: { content: "I updated the file with grouped edits and an inserted summary line." } }]
+            }));
+            return;
+          }
+          if (promptText.includes("steer-agent-task")) {
+            const corrected = promptText.includes("Use tighter copy and mention the corrected direction.");
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              choices: [{
+                message: {
+                  content: corrected
+                    ? "I applied the correction and continued in the updated direction."
+                    : "I continued without any mid-run correction."
+                }
+              }]
+            }));
+            return;
+          }
           res.setHeader("Content-Type", "application/json");
           res.end(JSON.stringify({
             choices: [{ message: { content: "Tool context prepared." } }]
@@ -405,6 +612,13 @@ process.stdin.on("data", (chunk) => {
             if (res.destroyed || res.writableEnded) {
               return;
             }
+          }
+          if (promptText.includes("partial-error-agent-task")) {
+            res.setHeader("Content-Type", "text/event-stream");
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "Partial answer that should survive." } }] })}\n\n`);
+            res.write(`event: error\ndata: ${JSON.stringify({ message: "Model failed after partial output." })}\n\n`);
+            res.end();
+            return;
           }
           if (promptText.includes("compact-history-agent-task")) {
             res.setHeader("Content-Type", "text/event-stream");
@@ -420,7 +634,163 @@ process.stdin.on("data", (chunk) => {
             res.end();
             return;
           }
+          if (promptText.includes("build-no-tool-stream-task")) {
+            res.setHeader("Content-Type", "text/event-stream");
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "No-tool " } }] })}\n\n`);
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "agent " } }] })}\n\n`);
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "stream works." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
           res.setHeader("Content-Type", "text/event-stream");
+          const streamToolCall = (id: string, name: string, args: Record<string, unknown>) => {
+            res.write(`data: ${JSON.stringify({
+              choices: [{
+                delta: {
+                  tool_calls: [{
+                    index: 0,
+                    id,
+                    type: "function",
+                    function: {
+                      name,
+                      arguments: JSON.stringify(args)
+                    }
+                  }]
+                }
+              }]
+            })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+          };
+          if (promptText.includes("no-tool-first-pass")) {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "TOOLS WERE VISIBLE ON FIRST PASS" } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("tagged-tool-request") && toolMessages.length === 0) {
+            const toolName = String((toolDefinitions[0] as {
+              function?: { name?: unknown };
+            })?.function?.name || "").replace(/[^a-zA-Z0-9]+/g, "_");
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: `[TOOL_REQUEST]\n${JSON.stringify({
+              name: toolName,
+              arguments: { query: "latest context" }
+            })}\n[END_TOOL_REQUEST]` } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("fenced-tool-request") && toolMessages.length === 0) {
+            const toolName = String((toolDefinitions[0] as {
+              function?: { name?: unknown };
+            })?.function?.name || "").replace(/[^a-zA-Z0-9]+/g, "_");
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: `I'll handle that visually.\n\n\`\`\`json\n${JSON.stringify({
+              name: toolName,
+              arguments: { query: "latest context" }
+            })}\n\`\`\`` } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("chain-workspace-agent-task") && toolMessages.length === 0) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const listTool = toolNames.find((name) => name === "workspace_list_files") || toolNames[0] || "";
+            streamToolCall("tool-call-1", listTool, { path: ".", depth: 1, limit: 20 });
+            return;
+          }
+          if (promptText.includes("workspace-root-agent-task") && toolMessages.length === 0) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const searchTool = toolNames.find((name) => name === "workspace_search_text") || toolNames[0] || "";
+            streamToolCall("tool-call-root-1", searchTool, { query: "agentsEnabled", path: "db", limit: 5 });
+            return;
+          }
+          if (promptText.includes("workspace-tool-agent-task") && toolMessages.length === 0) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const searchTool = toolNames.find((name) => name === "workspace_search_text") || toolNames[0] || "";
+            streamToolCall("tool-call-workspace-1", searchTool, { query: "agentsEnabled", path: "server/db", limit: 5 });
+            return;
+          }
+          if (promptText.includes("command-tool-agent-task") && toolMessages.length === 0) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const commandTool = toolNames.find((name) => name === "workspace_run_command") || toolNames[0] || "";
+            streamToolCall("tool-call-command-1", commandTool, {
+              command: "node",
+              args: ["-p", "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).name"],
+              cwd: ".",
+              timeoutMs: 10000
+            });
+            return;
+          }
+          if (promptText.includes("dangerous-command-agent-task") && toolMessages.length === 0) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const commandTool = toolNames.find((name) => name === "workspace_run_command") || toolNames[0] || "";
+            streamToolCall("tool-call-dangerous-command-1", commandTool, {
+              command: "mkdir",
+              args: ["danger-dir"],
+              cwd: ".",
+              timeoutMs: 4000
+            });
+            return;
+          }
+          if (promptText.includes("dangerous-delete-agent-task") && toolMessages.length === 0) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const deleteTool = toolNames.find((name) => name === "workspace_delete_path") || toolNames[0] || "";
+            streamToolCall("tool-call-dangerous-delete-1", deleteTool, { path: "trash.txt" });
+            return;
+          }
+          if (promptText.includes("edit-tools-agent-task") && toolMessages.length === 0) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const multiEditTool = toolNames.find((name) => name === "workspace_multi_edit") || toolNames[0] || "";
+            streamToolCall("tool-call-edit-1", multiEditTool, {
+              path: "note.md",
+              edits: [
+                { search: "Old headline", replace: "New headline" },
+                { search: "Needs polish.", replace: "Sharper copy added." }
+              ]
+            });
+            return;
+          }
+          if (promptText.includes("steer-agent-task") && toolMessages.length === 0) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const commandTool = toolNames.find((name) => name === "workspace_run_command") || toolNames[0] || "";
+            streamToolCall("tool-call-steer-1", commandTool, {
+              command: "node",
+              args: ["-e", "setTimeout(() => { console.log('scan done'); }, 180)"],
+              cwd: ".",
+              timeoutMs: 4000
+            });
+            return;
+          }
+          if (promptText.includes("build-direct-tool-agent-task") && toolMessages.length === 0) {
+            lastBuildDirectToolChoice = String(body.tool_choice || "");
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const writeTool = toolNames.find((name) => name === "workspace_write_file") || toolNames[0] || "";
+            streamToolCall("tool-call-build-direct-1", writeTool, {
+              path: "src/App.tsx",
+              mode: "overwrite",
+              content: "export default function App() { return <main>Built</main>; }\n"
+            });
+            return;
+          }
           if (promptText.includes("chain-workspace-agent-task") && toolMessages.length === 1) {
             res.write(`data: ${JSON.stringify({
               choices: [{
@@ -465,10 +835,134 @@ process.stdin.on("data", (chunk) => {
             res.end();
             return;
           }
+          if (promptText.includes("dangerous-command-agent-task") && toolMessages.length > 0) {
+            const blocked = promptText.includes("blocked by agent security policy") || promptText.includes("explicitly enabled for Agents");
+            res.write(`data: ${JSON.stringify({
+              choices: [{
+                delta: {
+                  content: blocked
+                    ? "The dangerous workspace command was blocked by policy."
+                    : "The dangerous workspace command ran after the policy was enabled."
+                }
+              }]
+            })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("dangerous-delete-agent-task") && toolMessages.length > 0) {
+            const blocked = promptText.includes("blocked by agent security policy") || promptText.includes("explicitly enabled for Agents");
+            res.write(`data: ${JSON.stringify({
+              choices: [{
+                delta: {
+                  content: blocked
+                    ? "The delete request was blocked by policy."
+                    : "The delete request ran after the policy was enabled."
+                }
+              }]
+            })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("edit-tools-agent-task") && toolMessages.length === 1) {
+            res.write(`data: ${JSON.stringify({
+              choices: [{
+                delta: {
+                  tool_calls: [{
+                    index: 0,
+                    id: "tool-call-edit-2",
+                    type: "function",
+                    function: {
+                      name: "workspace_insert_text",
+                      arguments: JSON.stringify({
+                        path: "note.md",
+                        after: "# Landing Draft\n",
+                        text: "Summary line inserted by the agent.\n"
+                      })
+                    }
+                  }]
+                }
+              }]
+            })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("read-stall-agent-task")) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            if (promptText.includes("Updated index.html")) {
+              res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "I updated index.html instead of continuing to read the same file." } }] })}\n\n`);
+              res.write("data: [DONE]\n\n");
+              res.end();
+              return;
+            }
+            if (promptText.includes("Runtime anti-stall note")) {
+              const replaceTool = toolNames.find((name) => name === "workspace_replace_text") || toolNames[0] || "";
+              streamToolCall("tool-call-read-stall-edit", replaceTool, {
+                path: "index.html",
+                search: "Old heading",
+                replace: "New heading"
+              });
+              return;
+            }
+            const readTool = toolNames.find((name) => name === "workspace_read_file") || toolNames[0] || "";
+            streamToolCall("tool-call-read-stall-read", readTool, { path: "index.html", startLine: 1, endLine: 80 });
+            return;
+          }
+          if (promptText.includes("edit-tools-agent-task") && toolMessages.length > 1) {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "I updated the file with grouped edits and an inserted summary line." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("steer-agent-task") && toolMessages.length > 0) {
+            const corrected = promptText.includes("Use tighter copy and mention the corrected direction.");
+            res.write(`data: ${JSON.stringify({
+              choices: [{
+                delta: {
+                  content: corrected
+                    ? "I applied the correction and continued in the updated direction."
+                    : "I continued without any mid-run correction."
+                }
+              }]
+            })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("build-direct-tool-agent-task") && toolMessages.length > 0) {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "I created the project files through the direct tool loop." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("continuation-cue-agent-task")
+            && promptText.includes("The latest user message is a continuation cue")
+            && toolMessages.length === 0) {
+            const toolNames = toolDefinitions
+              .map((tool) => String((tool as { function?: { name?: unknown } })?.function?.name || ""))
+              .filter(Boolean);
+            const listTool = toolNames.find((name) => name === "workspace_list_files") || toolNames[0] || "";
+            streamToolCall("tool-call-continuation-cue-1", listTool, { path: ".", depth: 1, limit: 6 });
+            return;
+          }
+          if (promptText.includes("continuation-cue-agent-task")
+            && promptText.includes("The latest user message is a continuation cue")
+            && toolMessages.length > 0) {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "I continued the original task instead of treating the continuation cue as a brand-new request." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
           if (promptText.includes("Write the final user-facing assistant reply for this Vellium agent thread.")) {
-            const streamedSynthesis = promptText.includes("Tool result for: latest context")
-              ? "FINAL AGENT TOOL ANSWER"
-              : "FINAL AGENT ANSWER";
+            const streamedSynthesis = promptText.includes("repair-loop-agent-task")
+              ? "I updated the requested files and stopped the malformed planner loop instead of spinning."
+              : promptText.includes("Tool result for: latest context")
+                ? "FINAL AGENT TOOL ANSWER"
+                : "FINAL AGENT ANSWER";
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: streamedSynthesis } }] })}\n\n`);
             res.write("data: [DONE]\n\n");
             res.end();
@@ -480,17 +974,26 @@ process.stdin.on("data", (chunk) => {
             res.end();
             return;
           }
+          if (toolDefinitions.length > 0 && toolMessages.length === 0) {
+            const toolName = String((toolDefinitions[0] as {
+              function?: { name?: unknown };
+            })?.function?.name || "");
+            streamToolCall("tool-call-1", toolName, { query: "latest context" });
+            return;
+          }
           res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "MOCK " } }] })}\n\n`);
           res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "STREAM RESPONSE" } }] })}\n\n`);
           res.write("data: [DONE]\n\n");
           res.end();
           return;
-        }
+          }
 
-        const content = promptText.includes("Write the final user-facing assistant reply for this Vellium agent thread.")
-          ? (promptText.includes("Tool result for: latest context")
-            ? "FINAL AGENT TOOL ANSWER"
-            : "FINAL AGENT ANSWER")
+          const content = promptText.includes("Write the final user-facing assistant reply for this Vellium agent thread.")
+          ? (promptText.includes("repair-loop-agent-task")
+            ? "I updated the requested files and stopped the malformed planner loop instead of spinning."
+            : promptText.includes("Tool result for: latest context")
+              ? "FINAL AGENT TOOL ANSWER"
+              : "FINAL AGENT ANSWER")
           : promptText.includes("Update the durable memory for this Vellium agent thread.")
             ? (promptText.includes("Tool result for: latest context")
               ? "Keep latest context findings, note that tool-backed verification was already completed, and continue from the validated result."
@@ -555,6 +1058,28 @@ process.stdin.on("data", (chunk) => {
                   updates: []
                 });
               }
+              if (promptText.includes("build-no-tool-stream-task")) {
+                return JSON.stringify({
+                  summary: "Build no-tool answer",
+                  assistantMessage: "No-tool agent stream works with multiple chunks even when no workspace tool is needed for the final answer.",
+                  status: "done",
+                  skillIds: [],
+                  toolCalls: [],
+                  subagents: [],
+                  updates: []
+                });
+              }
+              if (promptText.includes("prompt-stack-agent-task")) {
+                return JSON.stringify({
+                  summary: "Prompt stack processed",
+                  assistantMessage: "Prompt stack was processed.",
+                  status: "done",
+                  skillIds: [],
+                  toolCalls: [],
+                  subagents: [],
+                  updates: []
+                });
+              }
               if (promptText.includes("premature-stop-agent-task")) {
                 if (promptText.includes("Workspace directory: .")) {
                   return JSON.stringify({
@@ -588,6 +1113,157 @@ process.stdin.on("data", (chunk) => {
                   });
                 }
                 return "{\"summary\":\"Planning inspection\",\"assistantMessage\":\"Сначала быстро посмотрю текущие index.html и styles.css, затем внесу конкретные правки для более насыщенного лендинга.\",\"status\":\"done\"";
+              }
+              if (promptText.includes("repair-loop-agent-task")) {
+                if (promptText.includes("Wrote 11 characters to index.html using overwrite mode.") && promptText.includes("Wrote 16 characters to styles.css using overwrite mode.")) {
+                  return "{\"summary\":\"Repair loop after edits\",\"assistantMessage\":\"Нужно продолжить: я уже почти закончил и сейчас еще раз проверю результат.\",\"status\":\"continue\"";
+                }
+                return JSON.stringify({
+                  summary: "Create the requested MVP files",
+                  assistantMessage: "",
+                  status: "continue",
+                  skillIds: [],
+                  toolCalls: [
+                    {
+                      tool: "workspace_write_file",
+                      arguments: {
+                        path: "index.html",
+                        mode: "overwrite",
+                        content: "hello world"
+                      },
+                      reason: "Create the initial UI entry file."
+                    },
+                    {
+                      tool: "workspace_write_file",
+                      arguments: {
+                        path: "styles.css",
+                        mode: "overwrite",
+                        content: "body{color:#fff}"
+                      },
+                      reason: "Create the initial stylesheet."
+                    }
+                  ],
+                  subagents: [],
+                  updates: ["Write the first version of the requested files"]
+                });
+              }
+              if (promptText.includes("continuation-cue-agent-task")) {
+                if (promptText.includes("The latest user message is a continuation cue")) {
+                  if (promptText.includes("Workspace directory: .")) {
+                    return JSON.stringify({
+                      summary: "Continued the prior task from the latest checkpoint",
+                      assistantMessage: "I continued the original task instead of treating the continuation cue as a brand-new request.",
+                      status: "done",
+                      skillIds: [],
+                      toolCalls: [],
+                      subagents: [],
+                      updates: ["Continuation cue was resolved into concrete execution"]
+                    });
+                  }
+                  const listToolMatch = promptText.match(/- (workspace_list_files):/i);
+                  return JSON.stringify({
+                    summary: "Continue the earlier task from the existing checkpoint",
+                    assistantMessage: "",
+                    status: "continue",
+                    skillIds: [],
+                    toolCalls: [{
+                      tool: listToolMatch?.[1] || "workspace_list_files",
+                      arguments: {
+                        path: ".",
+                        depth: 1,
+                        limit: 6
+                      },
+                      reason: "Resume from the last checkpoint and inspect the current workspace state before continuing."
+                    }],
+                    subagents: [],
+                    updates: ["Turn the continuation cue into concrete execution"]
+                  });
+                }
+                if (promptText.includes("продолжай")) {
+                  return JSON.stringify({
+                    summary: "Misread continuation cue",
+                    assistantMessage: "Привет! Я ещё не успел реально продолжить работу и пока только могу описать следующий шаг.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: []
+                  });
+                }
+                return JSON.stringify({
+                  summary: "Recorded the initial task checkpoint",
+                  assistantMessage: "Initial checkpoint saved for the continuation-cue task.",
+                  status: "done",
+                  skillIds: [],
+                  toolCalls: [],
+                  subagents: [],
+                  updates: ["Initial task stored"]
+                });
+              }
+              if (promptText.includes("malformed-continue-agent-task")) {
+                if (promptText.includes("Workspace directory: .")) {
+                  return JSON.stringify({
+                    summary: "Workspace inspected after malformed continue recovery",
+                    assistantMessage: "I kept going after the malformed continue step, inspected the workspace, and only then finished the run.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["Malformed continue status was recovered and executed"]
+                  });
+                }
+                if (promptText.includes("Continue after malformed continue status")) {
+                  const listToolMatch = promptText.match(/- (workspace_list_files):/i);
+                  return JSON.stringify({
+                    summary: "Inspect workspace after malformed continue recovery",
+                    assistantMessage: "",
+                    status: "continue",
+                    skillIds: [],
+                    toolCalls: [{
+                      tool: listToolMatch?.[1] || "workspace_list_files",
+                      arguments: {
+                        path: ".",
+                        depth: 1,
+                        limit: 6
+                      },
+                      reason: "Inspect the workspace before creating files."
+                    }],
+                    subagents: [],
+                    updates: ["Recovered the malformed continue step and executed the inspection"]
+                  });
+                }
+                return "{\"summary\":\"Continue after malformed continue status\",\"assistantMessage\":\"Нужно начать выполнение: осмотреть workspace и затем создать UI-only структуру проекта.\",\"status\":\"continue\"";
+              }
+              if (promptText.includes("planner loop task")) {
+                if (promptText.includes("Duplicate workspace_read_file skipped")) {
+                  return JSON.stringify({
+                    summary: "Stopped duplicate context gathering",
+                    assistantMessage: "I reused the first read result instead of reading the same file again.",
+                    status: "done",
+                    skillIds: [],
+                    toolCalls: [],
+                    subagents: [],
+                    updates: ["Duplicate read was skipped"]
+                  });
+                }
+                const readToolMatch = promptText.match(/- (workspace_read_file):/i);
+                return JSON.stringify({
+                  summary: "Need to inspect the same file",
+                  assistantMessage: "",
+                  status: "continue",
+                  skillIds: [],
+                  toolCalls: [{
+                    tool: readToolMatch?.[1] || "workspace_read_file",
+                    arguments: {
+                      path: "note.md",
+                      startLine: 1,
+                      endLine: 40
+                    },
+                    reason: "Inspect the file context."
+                  }],
+                  subagents: [],
+                  updates: ["Read the file context"]
+                });
               }
               if (promptText.includes("tool-driven agent task")) {
                 if (promptText.includes("Tool result for: latest context")) {
@@ -1076,7 +1752,7 @@ process.stdin.on("data", (chunk) => {
     expect(runBody).toContain("\"type\":\"agent_event\"");
     expect(runBody).toContain("\"type\":\"tool_call\"");
     expect(runBody).toContain("\"type\":\"tool_result\"");
-    expect(runBody).toContain("I used the tool and captured the latest context.");
+    expect(collectSseDeltas(runBody)).toContain("I used the tool and captured the latest context.");
 
     const finalState = await parseJsonResponse(
       `/api/agents/threads/${thread.id}/state`,
@@ -1110,6 +1786,7 @@ process.stdin.on("data", (chunk) => {
     const thread = await postJson("/api/agents/threads", {
       title: "Malformed Planner Output"
     });
+    lastPlannerResponseFormat = null;
 
     const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
       method: "POST",
@@ -1125,6 +1802,13 @@ process.stdin.on("data", (chunk) => {
     expect(finalState.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: "Recovered malformed planner output with markdown:\n\n- first point\n- second point"
+    });
+    expect(lastPlannerResponseFormat).toMatchObject({
+      type: "json_schema",
+      json_schema: {
+        name: "agent_step",
+        strict: true
+      }
     });
     expect(String(finalState.messages.at(-1)?.content || "")).not.toContain("\"summary\"");
     expect(finalState.events.some((event: { type: string; title: string }) => (
@@ -1166,6 +1850,114 @@ process.stdin.on("data", (chunk) => {
     });
     expect(finalState.events).toHaveLength(0);
     expect(finalState.thread.memorySummary).toBe("");
+  });
+
+  it("streams build-mode agent replies even when the model does not call a tool", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      mcpServers: []
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Build No Tool Stream",
+      mode: "build"
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "build-no-tool-stream-task answer without tools" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect((runBody.match(/"type":"delta"/g) || []).length).toBeGreaterThanOrEqual(3);
+    expect(runBody).not.toContain("\"type\":\"tool_call\"");
+    expect(collectSseDeltas(runBody)).toContain("No-tool agent stream works with multiple chunks");
+    expect(collectSseDeltas(runBody)).toContain("workspace tool is needed");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "No-tool agent stream works with multiple chunks even when no workspace tool is needed for the final answer."
+    });
+    expect(finalState.events.some((event: { type: string }) => event.type === "tool_call")).toBe(false);
+  });
+
+  it("persists partial streamed agent replies when the provider errors mid-response", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Partial Error Thread",
+      mode: "build"
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "partial-error-agent-task fix code in the workspace" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("\"type\":\"agent_message\"");
+    expect(runBody).toContain("Partial answer that should survive.");
+    expect(runBody).toContain("\"type\":\"error\"");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.thread.status).toBe("error");
+    expect(finalState.messages.some((message: { role: string; content: string; metadata?: Record<string, unknown> }) => (
+      message.role === "assistant"
+      && message.content === "Partial answer that should survive."
+      && message.metadata?.interrupted === true
+    ))).toBe(true);
+  });
+
+  it("builds a codex-like prompt stack with developer guidance, AGENTS instructions, and environment context", async () => {
+    lastAgentPromptStackText = "";
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      agentWorkspaceToolsEnabled: false,
+      agentCommandToolEnabled: false,
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-prompt-stack-"));
+    writeFileSync(join(workspaceDir, "AGENTS.md"), "Use concise repo-aware answers and prefer targeted edits.\n", "utf8");
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Prompt Stack Thread",
+      workspaceRoot: workspaceDir,
+      developerPrompt: "DEVELOPER_MARKER: honor the workspace operating rules."
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "prompt-stack-agent-task" }
+    });
+    expect(runResponse.ok).toBe(true);
+    await runResponse.text();
+
+    expect(lastAgentPromptStackText).toContain("DEVELOPER_MARKER: honor the workspace operating rules.");
+    expect(lastAgentPromptStackText).toContain("Project instructions collected from scoped AGENTS files.");
+    expect(lastAgentPromptStackText).toContain("Use concise repo-aware answers and prefer targeted edits.");
+    expect(lastAgentPromptStackText).toContain("<environment_context>");
+    expect(lastAgentPromptStackText).toContain(`<cwd>${workspaceDir}</cwd>`);
   });
 
   it("auto-compacts older agent history when the prompt budget gets tight", async () => {
@@ -1350,7 +2142,7 @@ process.stdin.on("data", (chunk) => {
     expect(disabledRun.ok).toBe(true);
     const disabledBody = await disabledRun.text();
     expect(disabledBody).not.toContain("workspace_search_text");
-    expect(disabledBody).toContain("Workspace tools are unavailable right now.");
+    expect(collectSseDeltas(disabledBody)).toContain("Workspace tools are unavailable right now.");
 
     const disabledState = await parseJsonResponse(
       `/api/agents/threads/${disabledThread.id}/state`,
@@ -1359,6 +2151,151 @@ process.stdin.on("data", (chunk) => {
     expect(disabledState.events.some((event: { type: string; title: string }) => (
       event.type === "tool_call" && event.title === "workspace_search_text"
     ))).toBe(false);
+  });
+
+  it("applies richer workspace edit tools for grouped file changes", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-edit-tools-"));
+    writeFileSync(join(workspaceDir, "note.md"), "# Landing Draft\nOld headline\nNeeds polish.\n", "utf8");
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Edit Tool Thread",
+      workspaceRoot: workspaceDir
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "edit-tools-agent-task update the workspace file" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("workspace_multi_edit");
+    expect(runBody).toContain("workspace_insert_text");
+    expect(runBody).toContain("I updated the file with grouped edits and an inserted summary line.");
+
+    const fileContent = readFileSync(join(workspaceDir, "note.md"), "utf8");
+    expect(fileContent).toContain("# Landing Draft\nSummary line inserted by the agent.\n");
+    expect(fileContent).toContain("New headline");
+    expect(fileContent).toContain("Sharper copy added.");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "tool_call" && event.title === "workspace_multi_edit"
+    ))).toBe(true);
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "tool_call" && event.title === "workspace_insert_text"
+    ))).toBe(true);
+  });
+
+  it("nudges coding agents out of repeated read-only loops and into workspace edits", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-read-stall-"));
+    writeFileSync(join(workspaceDir, "index.html"), "<h1>Old heading</h1>\n", "utf8");
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Read Stall Guard Thread",
+      mode: "build",
+      workspaceRoot: workspaceDir
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "read-stall-agent-task fix the page heading in the workspace file" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("Duplicate read skipped");
+    expect(runBody).toContain("Read-only loop guard");
+    expect(runBody).toContain("workspace_replace_text");
+    expect(runBody).toContain("I updated index.html instead of continuing to read the same file.");
+
+    const fileContent = readFileSync(join(workspaceDir, "index.html"), "utf8");
+    expect(fileContent).toContain("<h1>New heading</h1>");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "warning" && event.title === "Read-only loop guard"
+    ))).toBe(true);
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "tool_call" && event.title === "workspace_replace_text"
+    ))).toBe(true);
+  });
+
+  it("accepts steering updates while the agent run is still active", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: true,
+      agentShellCommandsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-steer-"));
+    writeFileSync(join(workspaceDir, "notes.txt"), "Initial direction\n", "utf8");
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Steerable Thread",
+      workspaceRoot: workspaceDir
+    });
+
+    const activeRun = requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "steer-agent-task inspect the workspace and keep going" }
+    });
+    await sleep(40);
+
+    const steerResponse = await requestJson(`/api/agents/threads/${thread.id}/steer`, {
+      method: "POST",
+      body: { content: "Use tighter copy and mention the corrected direction." }
+    });
+    expect(steerResponse.ok).toBe(true);
+    const steerPayload = await steerResponse.json();
+    expect(steerPayload.ok).toBe(true);
+
+    const runResponse = await activeRun;
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("I applied the correction and continued in the updated direction.");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.messages.some((message: { metadata?: { steering?: boolean }; content: string }) => (
+      message.metadata?.steering === true
+      && message.content === "Use tighter copy and mention the corrected direction."
+    ))).toBe(true);
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "status" && event.title === "User correction received"
+    ))).toBe(true);
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I applied the correction and continued in the updated direction."
+    });
   });
 
   it("stores attachments, lets the user edit a message, and forks a new agent branch from a message", async () => {
@@ -1473,7 +2410,7 @@ process.stdin.on("data", (chunk) => {
     const runBody = await runResponse.text();
     expect(runBody).toContain("\"title\":\"Planner continuation inferred\"");
     expect(runBody).toContain("\"type\":\"tool_call\"");
-    expect(runBody).toContain("I inspected the workspace and continued the run instead of stopping after the intermediate note.");
+    expect(collectSseDeltas(runBody)).toContain("I inspected the workspace and continued the run instead of stopping after the intermediate note.");
 
     const finalState = await parseJsonResponse(
       `/api/agents/threads/${thread.id}/state`,
@@ -1489,6 +2426,317 @@ process.stdin.on("data", (chunk) => {
     expect(finalState.events.some((event: { type: string; title: string }) => (
       event.type === "tool_call" && event.title === "workspace_list_files"
     ))).toBe(true);
+  });
+
+  it("continues the run when malformed planner JSON declares continue status", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Malformed Continue Recovery",
+      mode: "build"
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "malformed-continue-agent-task сделай правки" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("\"title\":\"Planner output repaired\"");
+    expect(runBody).toContain("\"type\":\"tool_call\"");
+    expect(collectSseDeltas(runBody)).toContain("I kept going after the malformed continue step, inspected the workspace, and only then finished the run.");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I kept going after the malformed continue step, inspected the workspace, and only then finished the run."
+    });
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "warning" && event.title === "Planner output repaired"
+    ))).toBe(true);
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "tool_call" && event.title === "workspace_list_files"
+    ))).toBe(true);
+  });
+
+  it("stops repaired planner continue-loops after completed file edits and synthesizes a final answer", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-repair-loop-"));
+    const thread = await postJson("/api/agents/threads", {
+      title: "Repair Loop Guard",
+      mode: "build",
+      workspaceRoot: workspaceDir
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "repair-loop-agent-task сделай mvp telegram web" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("\"title\":\"Planner output repaired\"");
+    expect(runBody).toContain("\"title\":\"Planner continuation stalled\"");
+    expect(collectSseDeltas(runBody)).toContain("I updated the requested files and stopped the malformed planner loop instead of spinning.");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I updated the requested files and stopped the malformed planner loop instead of spinning."
+    });
+    expect(finalState.events.some((event: { type: string; title: string }) => (
+      event.type === "warning" && event.title === "Planner continuation stalled"
+    ))).toBe(true);
+  });
+
+  it("runs build tasks through direct OpenAI tool calls instead of planner repair loops", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+    lastBuildDirectToolChoice = "";
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-direct-build-"));
+    const thread = await postJson("/api/agents/threads", {
+      title: "Direct Build Tool Loop",
+      mode: "build",
+      workspaceRoot: workspaceDir
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "build-direct-tool-agent-task сделай проект" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("\"type\":\"tool_call\"");
+    expect(runBody).toContain("workspace_write_file");
+    expect(runBody).not.toContain("Planner output repaired");
+    expect(collectSseDeltas(runBody)).toContain("I created the project files through the direct tool loop.");
+    expect(lastBuildDirectToolChoice).toBe("required");
+    expect(existsSync(join(workspaceDir, "src/App.tsx"))).toBe(true);
+  });
+
+  it("skips duplicate read-only planner calls instead of repeating the same context fetch", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-planner-repeat-read-"));
+    writeFileSync(join(workspaceDir, "note.md"), "# Note\nsame context\n", "utf8");
+    const thread = await postJson("/api/agents/threads", {
+      title: "Planner Duplicate Read",
+      mode: "build",
+      workspaceRoot: workspaceDir
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "planner loop task" }
+    });
+    expect(runResponse.ok).toBe(true);
+    const runBody = await runResponse.text();
+    expect(runBody).toContain("\"title\":\"workspace_read_file\"");
+    expect(runBody).toContain("\"title\":\"Duplicate read skipped\"");
+    expect((runBody.match(/"type":"tool_call"/g) || []).length).toBe(1);
+    expect(collectSseDeltas(runBody)).toContain("I reused the first read result instead of reading the same file again.");
+  });
+
+  it("treats terse do-only prompts as continuation cues and keeps using direct tools", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-do-only-continuation-"));
+    const thread = await postJson("/api/agents/threads", {
+      title: "Do Only Continuation",
+      mode: "build",
+      workspaceRoot: workspaceDir
+    });
+
+    const initialRun = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "build-direct-tool-agent-task сделай проект" }
+    });
+    expect(initialRun.ok).toBe(true);
+    await initialRun.text();
+
+    lastBuildDirectToolChoice = "";
+    const continueRun = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "ничего не пиши просто делай" }
+    });
+    expect(continueRun.ok).toBe(true);
+    const runBody = await continueRun.text();
+    expect(runBody).toContain("\"type\":\"tool_call\"");
+    expect(runBody).toContain("workspace_write_file");
+    expect(runBody).not.toContain("Planner output repaired");
+    expect(lastBuildDirectToolChoice).toBe("required");
+  });
+
+  it("does not treat a short fresh task as continuation just because it follows another run", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-fresh-short-task-"));
+    const thread = await postJson("/api/agents/threads", {
+      title: "Fresh Short Task",
+      mode: "build",
+      workspaceRoot: workspaceDir
+    });
+
+    const initialRun = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "build-direct-tool-agent-task сделай проект" }
+    });
+    expect(initialRun.ok).toBe(true);
+    await initialRun.text();
+
+    const freshRun = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "новый лендинг" }
+    });
+    expect(freshRun.ok).toBe(true);
+    await freshRun.text();
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    const freshUserMessage = [...finalState.messages]
+      .reverse()
+      .find((message: { role: string; content: string; metadata?: Record<string, unknown> }) => message.role === "user" && message.content === "новый лендинг");
+    expect(freshUserMessage?.metadata?.followupIntent).toBe("new_task");
+  });
+
+  it("treats a short continue prompt as continuation of the prior task instead of a brand-new request", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-continuation-cue-"));
+    const thread = await postJson("/api/agents/threads", {
+      title: "Continuation Cue",
+      mode: "build",
+      workspaceRoot: workspaceDir
+    });
+
+    const initialRun = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "continuation-cue-agent-task создай telegram web mvp" }
+    });
+    expect(initialRun.ok).toBe(true);
+    await initialRun.text();
+
+    const continueRun = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "делай" }
+    });
+    expect(continueRun.ok).toBe(true);
+    const continueBody = await continueRun.text();
+    expect(continueBody).toContain("\"type\":\"tool_call\"");
+    expect(collectSseDeltas(continueBody)).toContain("I continued the original task instead of treating the continuation cue as a brand-new request.");
+    expect(collectSseDeltas(continueBody)).not.toContain("Я ещё не успел реально продолжить работу");
+
+    const finalState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(finalState.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I continued the original task instead of treating the continuation cue as a brand-new request."
+    });
+  });
+
+  it("deletes assistant messages and prunes later agent run state", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      agentWorkspaceToolsEnabled: false,
+      agentCommandToolEnabled: false,
+      mcpServers: []
+    });
+
+    const thread = await postJson("/api/agents/threads", {
+      title: "Delete Assistant Message",
+      mode: "ask"
+    });
+
+    const runResponse = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "simple-capability-agent-task" }
+    });
+    expect(runResponse.ok).toBe(true);
+    await runResponse.text();
+
+    const initialState = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    const assistantMessage = initialState.messages.find((message: { role: string }) => message.role === "assistant");
+    expect(assistantMessage).toBeTruthy();
+    if (!assistantMessage) {
+      throw new Error("Expected an assistant message to exist before deletion");
+    }
+
+    const deleteResponse = await requestJson(`/api/agents/messages/${assistantMessage.id}`, {
+      method: "DELETE"
+    });
+    expect(deleteResponse.ok).toBe(true);
+    const deletedPayload = await deleteResponse.json();
+    expect(deletedPayload.state.messages).toHaveLength(1);
+    expect(deletedPayload.state.messages[0]).toMatchObject({
+      role: "user",
+      content: "simple-capability-agent-task"
+    });
+    expect(deletedPayload.state.runs).toHaveLength(0);
+    expect(deletedPayload.state.thread.memorySummary).toBe("");
   });
 
   it("uses the first-party command tool when enabled and removes it when disabled", async () => {
@@ -1541,13 +2789,105 @@ process.stdin.on("data", (chunk) => {
     expect(disabledRun.ok).toBe(true);
     const disabledBody = await disabledRun.text();
     expect(disabledBody).not.toContain("\"type\":\"tool_call\"");
-    expect(disabledBody).toContain("The workspace command tool is unavailable right now.");
+    expect(collectSseDeltas(disabledBody)).toContain("The workspace command tool is unavailable right now.");
 
     const disabledState = await parseJsonResponse(
       `/api/agents/threads/${disabledThread.id}/state`,
       await fetch(`${baseUrl}/api/agents/threads/${disabledThread.id}/state`)
     );
     expect(disabledState.events.some((event: { type: string; title: string }) => event.title === "workspace_run_command")).toBe(false);
+  });
+
+  it("blocks dangerous command mutations by default and allows them when explicitly enabled", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: false,
+      agentCommandToolEnabled: true,
+      agentDangerousFileOpsEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-dangerous-command-"));
+    const blockedThread = await postJson("/api/agents/threads", {
+      title: "Dangerous Command Blocked",
+      workspaceRoot: workspaceDir
+    });
+    const blockedRun = await requestJson(`/api/agents/threads/${blockedThread.id}/respond`, {
+      method: "POST",
+      body: { content: "dangerous-command-agent-task run mkdir danger-dir inside the workspace" }
+    });
+    expect(blockedRun.ok).toBe(true);
+    const blockedBody = await blockedRun.text();
+    expect(blockedBody).toContain("The dangerous workspace command was blocked by policy.");
+    expect(blockedBody).toContain("explicitly enabled for Agents");
+    expect(existsSync(join(workspaceDir, "danger-dir"))).toBe(false);
+
+    await updateSettings({
+      agentDangerousFileOpsEnabled: true
+    });
+
+    const enabledThread = await postJson("/api/agents/threads", {
+      title: "Dangerous Command Enabled",
+      workspaceRoot: workspaceDir
+    });
+    const enabledRun = await requestJson(`/api/agents/threads/${enabledThread.id}/respond`, {
+      method: "POST",
+      body: { content: "dangerous-command-agent-task run mkdir danger-dir inside the workspace" }
+    });
+    expect(enabledRun.ok).toBe(true);
+    const enabledBody = await enabledRun.text();
+    expect(enabledBody).toContain("The dangerous workspace command ran after the policy was enabled.");
+    expect(existsSync(join(workspaceDir, "danger-dir"))).toBe(true);
+  });
+
+  it("blocks destructive file tools by default and allows them when explicitly enabled", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      agentWorkspaceToolsEnabled: true,
+      agentCommandToolEnabled: false,
+      agentDangerousFileOpsEnabled: false,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+
+    const workspaceDir = mkdtempSync(join(dataDir, "agent-dangerous-delete-"));
+    const blockedPath = join(workspaceDir, "trash.txt");
+    writeFileSync(blockedPath, "delete me", "utf8");
+
+    const blockedThread = await postJson("/api/agents/threads", {
+      title: "Delete Tool Blocked",
+      workspaceRoot: workspaceDir
+    });
+    const blockedRun = await requestJson(`/api/agents/threads/${blockedThread.id}/respond`, {
+      method: "POST",
+      body: { content: "dangerous-delete-agent-task delete the file trash.txt from the workspace" }
+    });
+    expect(blockedRun.ok).toBe(true);
+    const blockedBody = await blockedRun.text();
+    expect(blockedBody).toContain("The delete request was blocked by policy.");
+    expect(blockedBody).toContain("workspace_delete_path is blocked by agent security policy");
+    expect(existsSync(blockedPath)).toBe(true);
+
+    await updateSettings({
+      agentDangerousFileOpsEnabled: true
+    });
+    writeFileSync(blockedPath, "delete me again", "utf8");
+
+    const enabledThread = await postJson("/api/agents/threads", {
+      title: "Delete Tool Enabled",
+      workspaceRoot: workspaceDir
+    });
+    const enabledRun = await requestJson(`/api/agents/threads/${enabledThread.id}/respond`, {
+      method: "POST",
+      body: { content: "dangerous-delete-agent-task delete the file trash.txt from the workspace" }
+    });
+    expect(enabledRun.ok).toBe(true);
+    const enabledBody = await enabledRun.text();
+    expect(enabledBody).toContain("The delete request ran after the policy was enabled.");
+    expect(existsSync(blockedPath)).toBe(false);
   });
 
   it("creates agent workspaces from hero profiles with custom instructions and skills", async () => {
@@ -1748,7 +3088,7 @@ process.stdin.on("data", (chunk) => {
     });
     expect(resumeResponse.ok).toBe(true);
     const resumeBody = await resumeResponse.text();
-    expect(resumeBody).toContain("I resumed the previous run and completed the task.");
+    expect(collectSseDeltas(resumeBody)).toContain("I resumed the previous run and completed the task.");
     expect(resumeBody).toContain("Resuming prior run");
 
     const resumedState = await parseJsonResponse(

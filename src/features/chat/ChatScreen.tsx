@@ -35,6 +35,7 @@ import {
 import {
   guessMimeType,
   imageSourceFromAttachment,
+  normalizeReasoningDisplayText,
   normalizePromptStack,
   parseInlineReasoning,
   parseToolCallContent,
@@ -2565,6 +2566,7 @@ export function ChatScreen() {
                   .concat(relatedReasoningMessages.map((item) => String(item.payload.result || "").trim()))
                   .filter(Boolean)
                   .join("\n\n");
+                const displayReasoningText = normalizeReasoningDisplayText(reasoningText);
                 const msgChar = msg.role === "assistant" ? getCharacterForMessage(msg) : null;
                 const renderCharName = msgChar?.name || activeChatCharacter?.name;
                 return (
@@ -2618,7 +2620,7 @@ export function ChatScreen() {
                       </div>
                     ) : (
                       <>
-                        {!zenMode && reasoningText && (
+                        {!zenMode && displayReasoningText && (
                           <div className="mb-2 rounded-md border border-border-subtle bg-bg-tertiary/80">
                             <button
                               onClick={() => {
@@ -2633,7 +2635,7 @@ export function ChatScreen() {
                             </button>
                             {reasoningPanelOpen && (
                               <div className="border-t border-border-subtle px-2 py-2">
-                                <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">{reasoningText}</div>
+                                <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">{displayReasoningText}</div>
                               </div>
                             )}
                           </div>

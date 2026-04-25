@@ -2889,6 +2889,53 @@ export function SettingsScreen({
                 </div>
               </div>
 
+              <div id="settings-agents-security" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.agentsSecurity")}</div>
+                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.agentsSecurityDesc")}</p>
+                <div className="space-y-3">
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsDangerousFileOps")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsDangerousFileOpsDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.agentDangerousFileOpsEnabled === true} onChange={(e) => patch({ agentDangerousFileOpsEnabled: e.target.checked })} />
+                  </div>
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsNetworkCommands")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsNetworkCommandsDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.agentNetworkCommandsEnabled === true} onChange={(e) => patch({ agentNetworkCommandsEnabled: e.target.checked })} />
+                  </div>
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsShellCommands")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsShellCommandsDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.agentShellCommandsEnabled === true} onChange={(e) => patch({ agentShellCommandsEnabled: e.target.checked })} />
+                  </div>
+                  <div className="settings-toggle-row">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsGitWriteCommands")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsGitWriteCommandsDesc")}</div>
+                    </div>
+                    <ToggleSwitch checked={settings.agentGitWriteCommandsEnabled === true} onChange={(e) => patch({ agentGitWriteCommandsEnabled: e.target.checked })} />
+                  </div>
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
+                    {settings.agentDangerousFileOpsEnabled === true ? t("agents.globalToggleOn") : t("settings.agentsDangerousFileOpsDisabledHint")}
+                  </div>
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
+                    {settings.agentNetworkCommandsEnabled === true ? t("agents.globalToggleOn") : t("settings.agentsNetworkCommandsDisabledHint")}
+                  </div>
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
+                    {settings.agentShellCommandsEnabled === true ? t("agents.globalToggleOn") : t("settings.agentsShellCommandsDisabledHint")}
+                  </div>
+                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
+                    {settings.agentGitWriteCommandsEnabled === true ? t("agents.globalToggleOn") : t("settings.agentsGitWriteCommandsDisabledHint")}
+                  </div>
+                </div>
+              </div>
+
               <div id="settings-agents-runtime" className="settings-section scroll-mt-24">
                 <div className="settings-section-title">{t("settings.agentsRuntime")}</div>
                 <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.agentsRuntimeDesc")}</p>

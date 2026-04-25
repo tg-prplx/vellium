@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Response } from "express";
 import { readdirSync, statSync } from "fs";
 import { isAbsolute, relative, resolve } from "path";
-import { activeAgentAbortControllers, streamAgentTurn } from "../modules/agents/runtime.js";
+import { activeAgentAbortControllers, classifyAgentFollowupIntent, enqueueAgentSteeringNote, isPotentialAgentFollowupCueText, streamAgentTurn } from "../modules/agents/runtime.js";
 import { sanitizeAttachments } from "../modules/chat/attachments.js";
 import { getSettings } from "../modules/chat/routeHelpers.js";
 import {
@@ -91,6 +91,12 @@ function ensureThreadReady(threadId: string, res: Response) {
   return state;
 }
 
+function getActiveTopLevelRun(state: NonNullable<ReturnType<typeof getAgentThreadState>>) {
+  return [...state.runs]
+    .filter((run) => run.status === "running")
+    .sort((a, b) => a.depth - b.depth || b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0] || null;
+}
+
 function collectRunBranchIds(runs: Array<{ id: string; parentRunId?: string | null }>, runId: string) {
   const descendants = new Set<string>();
   const stack = [runId];
@@ -142,6 +148,95 @@ function buildFollowupContext(state: NonNullable<ReturnType<typeof getAgentThrea
     run,
     extraContext
   };
+}
+
+function buildContinuationCueContext(
+  state: NonNullable<ReturnType<typeof getAgentThreadState>>,
+  cueText: string,
+  reason?: string
+) {
+  const previousUserGoal = [...state.messages]
+    .reverse()
+    .find((message) => message.role === "user"
+      && message.metadata?.steering !== true
+      && message.metadata?.followupIntent !== "continuation"
+      && sanitizeText(message.content, 4000));
+  const recentTopLevelRun = [...state.runs]
+    .filter((run) => run.depth === 0)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0] || null;
+  const latestAssistantCheckpoint = [...state.messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && sanitizeText(message.content, 4000));
+  if (!previousUserGoal && !recentTopLevelRun && !latestAssistantCheckpoint) {
+    return null;
+  }
+  const branchRunIds = recentTopLevelRun ? collectRunBranchIds(state.runs, recentTopLevelRun.id) : new Set<string>();
+  const branchSummaries = recentTopLevelRun
+    ? state.runs
+      .filter((run) => branchRunIds.has(run.id))
+      .map((run) => `- ${run.title || "Run"} (${run.status})${run.summary ? `: ${sanitizeText(run.summary, 240)}` : ""}`)
+      .slice(0, 8)
+    : [];
+  const branchEvents = recentTopLevelRun
+    ? state.events
+      .filter((event) => branchRunIds.has(event.runId))
+      .slice(-12)
+      .map((event) => {
+        const content = sanitizeText(event.content, 300);
+        return content ? `- [${event.type}] ${event.title}: ${content}` : `- [${event.type}] ${event.title}`;
+      })
+    : [];
+
+  const extraContext = [
+    `The latest user message is a continuation cue ("${sanitizeText(cueText, 120)}"), not a brand-new task.`,
+    reason ? `Intent classifier reason: ${sanitizeText(reason, 400)}` : "",
+    "Continue the existing task already in progress for this thread instead of answering with a meta explanation or restating what has not been done yet.",
+    "This is still an execution request. If workspace tools are available, take the next concrete tool action now instead of replying with a plan, checkpoint, or status-only message.",
+    previousUserGoal?.content ? `Original user goal to keep in mind:\n${sanitizeText(previousUserGoal.content, 4000)}` : "",
+    recentTopLevelRun ? `Most recent top-level run: "${recentTopLevelRun.title || "Run"}" (${recentTopLevelRun.status})${recentTopLevelRun.summary ? `.\nSummary: ${sanitizeText(recentTopLevelRun.summary, 600)}` : ""}` : "",
+    branchSummaries.length > 0 ? `Relevant recent run branch:\n${branchSummaries.join("\n")}` : "",
+    branchEvents.length > 0 ? `Relevant recent trace:\n${branchEvents.join("\n")}` : "",
+    latestAssistantCheckpoint?.content ? `Latest assistant checkpoint:\n${sanitizeText(latestAssistantCheckpoint.content, 3000)}` : "",
+    "Pick up from the latest credible checkpoint. Reuse completed work, avoid generic restarts, and take the next concrete action."
+  ].filter(Boolean);
+
+  if (extraContext.length <= 3 && !previousUserGoal && !recentTopLevelRun && !latestAssistantCheckpoint) {
+    return null;
+  }
+  return {
+    extraContext
+  };
+}
+
+function buildFollowupClassificationContext(state: NonNullable<ReturnType<typeof getAgentThreadState>>) {
+  const previousUserGoal = [...state.messages]
+    .reverse()
+    .find((message) => message.role === "user"
+      && message.metadata?.steering !== true
+      && message.metadata?.followupIntent !== "continuation"
+      && sanitizeText(message.content, 4000));
+  const recentTopLevelRun = [...state.runs]
+    .filter((run) => run.depth === 0)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0] || null;
+  const latestAssistantCheckpoint = [...state.messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && sanitizeText(message.content, 3000));
+  return {
+    threadMode: state.thread.mode,
+    previousUserGoal: sanitizeText(previousUserGoal?.content, 4000),
+    latestAssistantCheckpoint: sanitizeText(latestAssistantCheckpoint?.content, 3000),
+    recentRunStatus: recentTopLevelRun?.status || "",
+    recentRunSummary: sanitizeText(recentTopLevelRun?.summary, 1200)
+  };
+}
+
+function hasFollowupClassificationContext(context: ReturnType<typeof buildFollowupClassificationContext>) {
+  return Boolean(
+    context.previousUserGoal
+    || context.latestAssistantCheckpoint
+    || context.recentRunStatus
+    || context.recentRunSummary
+  );
 }
 
 router.use((req, res, next) => {
@@ -256,24 +351,95 @@ router.post("/threads/:id/abort", (req, res) => {
   res.json({ ok: true, interrupted: false });
 });
 
+router.post("/threads/:id/steer", (req, res) => {
+  const state = getAgentThreadState(req.params.id);
+  if (!state) {
+    res.status(404).json({ error: "Agent thread not found" });
+    return;
+  }
+  if (!activeAgentAbortControllers.has(req.params.id)) {
+    res.status(409).json({ error: "Agent thread is not currently running" });
+    return;
+  }
+  const activeRun = getActiveTopLevelRun(state);
+  if (!activeRun) {
+    res.status(409).json({ error: "No active agent run found for this thread" });
+    return;
+  }
+  const content = String(req.body?.content || "").trim();
+  const attachments = sanitizeAttachments(req.body?.attachments);
+  if (!content && attachments.length === 0) {
+    res.status(400).json({ error: "Steering update requires content or attachments" });
+    return;
+  }
+  const message = insertAgentMessage({
+    threadId: req.params.id,
+    runId: activeRun.id,
+    role: "user",
+    content,
+    metadata: {
+      steering: true,
+      steeringForRunId: activeRun.id
+    },
+    attachments
+  });
+  if (!message) {
+    res.status(500).json({ error: "Failed to record steering update" });
+    return;
+  }
+  enqueueAgentSteeringNote({
+    threadId: req.params.id,
+    messageId: message.id,
+    runId: activeRun.id,
+    content,
+    attachments,
+    createdAt: message.createdAt
+  });
+  res.json({
+    ok: true,
+    message,
+    state: getAgentThreadState(req.params.id)
+  });
+});
+
 router.post("/threads/:id/respond", async (req, res: Response) => {
   const state = ensureThreadReady(req.params.id, res);
   if (!state) return;
   const content = String(req.body?.content || "").trim();
   const attachments = sanitizeAttachments(req.body?.attachments);
+  const followupClassificationContext = buildFollowupClassificationContext(state);
+  const followupIntent = content
+    && attachments.length === 0
+    && state.thread.mode !== "ask"
+    && isPotentialAgentFollowupCueText(content)
+    && hasFollowupClassificationContext(followupClassificationContext)
+    ? await classifyAgentFollowupIntent({
+      threadId: req.params.id,
+      latestUserMessage: content,
+      context: followupClassificationContext
+    })
+    : null;
+  const continuationContext = followupIntent?.intent === "continuation" && followupIntent.confidence >= 0.55
+    ? buildContinuationCueContext(state, content, followupIntent.reason)
+    : null;
   const pendingUserMessage = (content || attachments.length > 0)
     ? insertAgentMessage({
       threadId: req.params.id,
       role: "user",
       content,
-      metadata: {},
+      metadata: {
+        followupIntent: followupIntent?.intent,
+        followupConfidence: followupIntent?.confidence,
+        followupReason: followupIntent?.reason
+      },
       attachments
     })
     : null;
   await streamAgentTurn({
     threadId: req.params.id,
     pendingUserMessageId: pendingUserMessage?.id || null,
-    res
+    res,
+    extraContext: continuationContext?.extraContext
   });
 });
 

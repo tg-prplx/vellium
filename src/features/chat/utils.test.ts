@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FileAttachment } from "../../shared/types/contracts";
-import { imageSourceFromAttachment, parseToolCallContent, parseToolResultDisplay } from "./utils";
+import { imageSourceFromAttachment, normalizeReasoningDisplayText, parseToolCallContent, parseToolResultDisplay } from "./utils";
 
 const originalWindow = globalThis.window;
 
@@ -12,6 +12,19 @@ afterEach(() => {
   Object.defineProperty(globalThis, "window", {
     value: originalWindow,
     configurable: true
+  });
+});
+
+describe("reasoning display normalization", () => {
+  it("collapses token-stream reasoning that was stored one fragment per line", () => {
+    expect(normalizeReasoningDisplayText("User\n\n asks\n\n what\n\n's\n\n in\n\n the\n\n directory\n\n.")).toBe(
+      "User asks what's in the directory."
+    );
+  });
+
+  it("keeps structured reasoning blocks intact", () => {
+    const structured = "- inspect files\n- run tests\n- summarize result";
+    expect(normalizeReasoningDisplayText(structured)).toBe(structured);
   });
 });
 

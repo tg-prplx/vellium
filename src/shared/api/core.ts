@@ -159,6 +159,7 @@ export async function requestBlob(method: string, path: string, body?: unknown, 
 
 export type StreamCallbacks = {
   onDelta?: (delta: string) => void;
+  onReasoningDelta?: (delta: string) => void;
   onToolEvent?: (event: {
     phase: "start" | "delta" | "done";
     callId: string;
@@ -286,6 +287,8 @@ export async function streamPost(path: string, body: unknown, callbacks: StreamC
         sawEvent = true;
         if (parsed.type === "delta" && parsed.delta) {
           callbacks.onDelta?.(parsed.delta);
+        } else if (parsed.type === "reasoning_delta" && parsed.delta) {
+          callbacks.onReasoningDelta?.(parsed.delta);
         } else if (parsed.type === "tool" && parsed.phase && parsed.callId && parsed.name) {
           callbacks.onToolEvent?.({
             phase: parsed.phase,

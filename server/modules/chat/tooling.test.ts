@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as mcpService from "../../services/mcp.js";
 import {
   appendMissingToolImageMarkdown,
+  extractOpenAIReasoningDelta,
   extractOpenAiStreamToolCallDeltas,
   extractTextToolCalls,
+  REASONING_CALL_NAME,
   runToolCallingCompletion,
   type ToolCallTrace
 } from "./tooling.js";
@@ -162,6 +164,34 @@ describe("extractOpenAiStreamToolCallDeltas", () => {
   });
 });
 
+describe("extractOpenAIReasoningDelta", () => {
+  it("extracts provider thinking fields from streamed deltas", () => {
+    expect(extractOpenAIReasoningDelta({
+      choices: [{
+        delta: {
+          thinking_content: [{
+            type: "thinking_text",
+            text: "Need to compare two approaches."
+          }]
+        }
+      }]
+    })).toBe("Need to compare two approaches.");
+  });
+
+  it("extracts thinking parts embedded in content arrays", () => {
+    expect(extractOpenAIReasoningDelta({
+      choices: [{
+        delta: {
+          content: [{
+            type: "thinking",
+            text: "Reason through the change first."
+          }]
+        }
+      }]
+    })).toBe("Reason through the change first.");
+  });
+});
+
 describe("runToolCallingCompletion", () => {
   it("streams the final assistant answer after a tool call instead of buffering it", async () => {
     vi.spyOn(mcpService, "prepareMcpTools").mockResolvedValue({
@@ -208,6 +238,26 @@ describe("runToolCallingCompletion", () => {
         stream?: boolean;
       };
       const toolMessages = (body.messages || []).filter((item) => item.role === "tool");
+      if (toolMessages.length === 0 && body.stream === true) {
+        return makeSseResponse([
+          `data: ${JSON.stringify({
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: "tool-call-1",
+                  type: "function",
+                  function: {
+                    name: "mcp_mockserver__lookup",
+                    arguments: "{\"query\":\"latest context\"}"
+                  }
+                }]
+              }
+            }]
+          })}\n\n`,
+          "data: [DONE]\n\n"
+        ]);
+      }
       if (toolMessages.length > 0) {
         return makeSseResponse([
           `data: ${JSON.stringify({ choices: [{ delta: { content: "FINAL " } }] })}\n\n`,
@@ -215,7 +265,6 @@ describe("runToolCallingCompletion", () => {
           "data: [DONE]\n\n"
         ]);
       }
-      expect(body.stream).not.toBe(true);
       return Response.json({
         choices: [{
           message: {
@@ -268,6 +317,198 @@ describe("runToolCallingCompletion", () => {
     });
     expect(result?.streamMessages).toBeUndefined();
     expect(streamedAssistantDeltas).toEqual(["FINAL ", "TOOL ANSWER"]);
+  });
+
+  it("streams reasoning while tool calling is enabled even when no tool is used", async () => {
+    vi.spyOn(mcpService, "prepareMcpTools").mockResolvedValue({
+      tools: [{
+        type: "function",
+        function: {
+          name: "mcp_mockserver__lookup",
+          description: "Lookup mock context",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string" }
+            }
+          }
+        }
+      }],
+      executeToolCall: async () => ({
+        modelText: "unused",
+        traceText: "unused"
+      }),
+      close: async () => {}
+    });
+
+    const encoder = new TextEncoder();
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      const body = JSON.parse(String(init?.body || "{}")) as { stream?: boolean };
+      expect(body.stream).toBe(true);
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Need " } }] })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "no tool. " } }] })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "Direct " } }] })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "answer " } }] })}\n\n`));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "streams" } }] })}\n\n`));
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          }
+        }),
+        {
+          headers: {
+            "Content-Type": "text/event-stream"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    const streamedAssistantDeltas: string[] = [];
+    const toolEvents: Array<{ phase: string; name: string; result?: string }> = [];
+    const result = await runToolCallingCompletion({
+      provider: {
+        id: "provider",
+        base_url: "http://mock.local/v1",
+        api_key_cipher: "test-key",
+        provider_type: "openai"
+      } as never,
+      modelId: "test-model",
+      samplerConfig: {},
+      apiMessages: [{
+        role: "user",
+        content: "Answer directly."
+      }],
+      settings: {
+        mcpServers: [{
+          id: "mockserver",
+          name: "Mock Server",
+          command: "node",
+          enabled: true
+        }],
+        toolCallingPolicy: "balanced"
+      },
+      signal: new AbortController().signal,
+      onAssistantDelta: (delta) => {
+        streamedAssistantDeltas.push(delta);
+      },
+      onToolEvent: (event) => {
+        toolEvents.push(event);
+      }
+    });
+
+    expect(result).toMatchObject({
+      content: "Direct answer streams",
+      assistantWasStreamed: true
+    });
+    expect(streamedAssistantDeltas).toEqual(["Direct ", "answer ", "streams"]);
+    expect(result?.toolCalls.some((trace) => trace.name === REASONING_CALL_NAME && trace.result.includes("Need no tool."))).toBe(true);
+    expect(toolEvents.filter((event) => event.name === REASONING_CALL_NAME && event.phase === "delta").map((event) => event.result)).toEqual(["Need ", "no tool. "]);
+  });
+
+  it("does not leak streamed text tool requests into assistant deltas", async () => {
+    vi.spyOn(mcpService, "prepareMcpTools").mockResolvedValue({
+      tools: [{
+        type: "function",
+        function: {
+          name: "mcp_mockserver__lookup",
+          description: "Lookup mock context",
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string" }
+            }
+          }
+        }
+      }],
+      executeToolCall: async () => ({
+        modelText: "mock tool context",
+        traceText: "mock tool context"
+      }),
+      close: async () => {}
+    });
+
+    const encoder = new TextEncoder();
+    const makeSseResponse = (events: string[]) => new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const event of events) {
+            controller.enqueue(encoder.encode(event));
+          }
+          controller.close();
+        }
+      }),
+      {
+        headers: {
+          "Content-Type": "text/event-stream"
+        }
+      }
+    );
+
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      const body = JSON.parse(String(init?.body || "{}")) as {
+        messages?: Array<{ role?: string }>;
+        stream?: boolean;
+      };
+      const toolMessages = (body.messages || []).filter((item) => item.role === "tool");
+      if (toolMessages.length === 0 && body.stream === true) {
+        return makeSseResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "[TOOL_" } }] })}\n\n`,
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "REQUEST]\n" } }] })}\n\n`,
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "{\"name\":\"mcp_mockserver__lookup\",\"arguments\":{\"query\":\"latest context\"}}" } }] })}\n\n`,
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "\n[END_TOOL_REQUEST]" } }] })}\n\n`,
+          "data: [DONE]\n\n"
+        ]);
+      }
+      if (toolMessages.length > 0 && body.stream === true) {
+        return makeSseResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "Tool " } }] })}\n\n`,
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "answer" } }] })}\n\n`,
+          "data: [DONE]\n\n"
+        ]);
+      }
+      return Response.json({
+        choices: [{ message: { content: "fallback" } }]
+      });
+    }) as typeof fetch;
+
+    const streamedAssistantDeltas: string[] = [];
+    const result = await runToolCallingCompletion({
+      provider: {
+        id: "provider",
+        base_url: "http://mock.local/v1",
+        api_key_cipher: "test-key",
+        provider_type: "openai"
+      } as never,
+      modelId: "test-model",
+      samplerConfig: {},
+      apiMessages: [{
+        role: "user",
+        content: "Use text tool syntax."
+      }],
+      settings: {
+        mcpServers: [{
+          id: "mockserver",
+          name: "Mock Server",
+          command: "node",
+          enabled: true
+        }],
+        toolCallingPolicy: "balanced"
+      },
+      signal: new AbortController().signal,
+      onAssistantDelta: (delta) => {
+        streamedAssistantDeltas.push(delta);
+      }
+    });
+
+    expect(result).toMatchObject({
+      content: "Tool answer",
+      assistantWasStreamed: true
+    });
+    expect(streamedAssistantDeltas.join("")).toBe("Tool answer");
+    expect(streamedAssistantDeltas.join("")).not.toContain("[TOOL_REQUEST]");
+    expect(streamedAssistantDeltas.join("")).not.toContain("mcp_mockserver__lookup");
   });
 
   it("falls back to a non-stream final assistant answer after tool use when streaming is unsupported", async () => {

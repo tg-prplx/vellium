@@ -131,6 +131,10 @@ function getSettings() {
     agentsEnabled: stored.agentsEnabled === true,
     agentWorkspaceToolsEnabled: stored.agentWorkspaceToolsEnabled !== false,
     agentCommandToolEnabled: stored.agentCommandToolEnabled !== false,
+    agentDangerousFileOpsEnabled: stored.agentDangerousFileOpsEnabled === true,
+    agentNetworkCommandsEnabled: stored.agentNetworkCommandsEnabled === true,
+    agentShellCommandsEnabled: stored.agentShellCommandsEnabled === true,
+    agentGitWriteCommandsEnabled: stored.agentGitWriteCommandsEnabled === true,
     agentAutoCompactEnabled: stored.agentAutoCompactEnabled !== false,
     agentReplyReserveTokens: Number.isFinite(Number(stored.agentReplyReserveTokens))
       ? Math.max(256, Math.min(12000, Math.floor(Number(stored.agentReplyReserveTokens))))
@@ -368,6 +372,18 @@ router.patch("/", (req, res) => {
     agentCommandToolEnabled: patchData.agentCommandToolEnabled === undefined
       ? current.agentCommandToolEnabled
       : patchData.agentCommandToolEnabled !== false,
+    agentDangerousFileOpsEnabled: patchData.agentDangerousFileOpsEnabled === undefined
+      ? current.agentDangerousFileOpsEnabled
+      : patchData.agentDangerousFileOpsEnabled === true,
+    agentNetworkCommandsEnabled: patchData.agentNetworkCommandsEnabled === undefined
+      ? current.agentNetworkCommandsEnabled
+      : patchData.agentNetworkCommandsEnabled === true,
+    agentShellCommandsEnabled: patchData.agentShellCommandsEnabled === undefined
+      ? current.agentShellCommandsEnabled
+      : patchData.agentShellCommandsEnabled === true,
+    agentGitWriteCommandsEnabled: patchData.agentGitWriteCommandsEnabled === undefined
+      ? current.agentGitWriteCommandsEnabled
+      : patchData.agentGitWriteCommandsEnabled === true,
     agentAutoCompactEnabled: patchData.agentAutoCompactEnabled === undefined
       ? current.agentAutoCompactEnabled
       : patchData.agentAutoCompactEnabled !== false,

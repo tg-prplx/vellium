@@ -3,18 +3,18 @@ import { ThreePanelLayout, Badge, EmptyState } from "../../components/Panels";
 import { api } from "../../shared/api";
 import { resolveApiAssetUrl, type StreamCallbacks } from "../../shared/api/core";
 import { useI18n } from "../../shared/i18n";
-import type { AgentEvent, AgentMode, AgentSkill, AgentThread, AgentThreadState, AgentWorkspaceDirectoryState, AppSettings, FileAttachment, ProviderModel, ProviderProfile } from "../../shared/types/contracts";
+import type { AgentEvent, AgentMessage, AgentMode, AgentSkill, AgentThread, AgentThreadState, AgentWorkspaceDirectoryState, AppSettings, FileAttachment, ProviderModel, ProviderProfile } from "../../shared/types/contracts";
 import {
   failBackgroundTask,
   finishBackgroundTask,
   startBackgroundTask
 } from "../../shared/backgroundTasks";
-import { guessMimeType, imageSourceFromAttachment, renderMarkdown } from "../chat/utils";
+import { guessMimeType, imageSourceFromAttachment, normalizeReasoningDisplayText, parseInlineReasoning, renderMarkdown } from "../chat/utils";
 import { AttachmentCard } from "../chat/components/AttachmentCard";
 import { AttachmentPreviewModal, type AttachmentViewerState } from "../chat/components/AttachmentPreviewModal";
 
 type TimelineItem =
-  | { kind: "message"; id: string; createdAt: string; role: "system" | "user" | "assistant"; content: string; attachments: FileAttachment[]; runId?: string | null }
+  | { kind: "message"; id: string; createdAt: string; role: "system" | "user" | "assistant"; content: string; attachments: FileAttachment[]; runId?: string | null; metadata?: Record<string, unknown> }
   | { kind: "event"; id: string; createdAt: string; type: string; title: string; content: string; order: number; depth: number; runId: string; payload: Record<string, unknown> };
 
 type RunTreeNode = AgentThreadState["runs"][number] & { children: RunTreeNode[] };
@@ -29,6 +29,27 @@ function compactPathLabel(rawPath: string) {
   return `${parts.slice(-2).join("/")}`;
 }
 
+function buildWorkspaceTrail(state: AgentWorkspaceDirectoryState | null) {
+  if (!state) return [];
+  const rootPath = state.projectRoot;
+  const currentPath = state.currentPath;
+  const rootParts = rootPath.replace(/\\/g, "/").split("/").filter(Boolean);
+  const currentParts = currentPath.replace(/\\/g, "/").split("/").filter(Boolean);
+  const trail: Array<{ label: string; path: string }> = [{
+    label: rootParts[rootParts.length - 1] || "/",
+    path: rootPath
+  }];
+  for (let index = rootParts.length; index < currentParts.length; index += 1) {
+    const slice = currentParts.slice(0, index + 1).join("/");
+    const absolutePath = `${currentPath.startsWith("/") ? "/" : ""}${slice}`;
+    trail.push({
+      label: currentParts[index] || ".",
+      path: absolutePath
+    });
+  }
+  return trail;
+}
+
 function eventTone(type: string) {
   if (type === "error") return "danger";
   if (type === "warning") return "warning";
@@ -40,6 +61,14 @@ function eventTone(type: string) {
 
 function isCompactEvent(type: string) {
   return type === "status" || type === "plan" || type === "memory";
+}
+
+function shouldShowEventInMainTimeline(item: Extract<TimelineItem, { kind: "event" }>) {
+  return item.type === "tool_call"
+    || item.type === "tool_result"
+    || item.type === "subagent_start"
+    || item.type === "subagent_done"
+    || item.type === "error";
 }
 
 function sortTimeline(a: TimelineItem, b: TimelineItem) {
@@ -218,6 +247,14 @@ function getCollapsedToolPreview(text: string) {
   return text;
 }
 
+function getOneLineToolPreview(raw: unknown) {
+  const normalized = stringifyToolData(raw)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return "";
+  return normalized.length > 160 ? `${normalized.slice(0, 157).trimEnd()}...` : normalized;
+}
+
 export function AgentsScreen({
   initialThreadId,
   onInitialThreadHandled
@@ -227,7 +264,7 @@ export function AgentsScreen({
 }) {
   const { t } = useI18n();
   const [threads, setThreads] = useState<AgentThread[]>([]);
-  const [appSettings, setAppSettings] = useState<Pick<AppSettings, "agentWorkspaceToolsEnabled" | "agentCommandToolEnabled" | "agentAutoCompactEnabled" | "agentReplyReserveTokens" | "agentToolContextChars" | "mcpServers"> | null>(null);
+  const [appSettings, setAppSettings] = useState<Pick<AppSettings, "agentWorkspaceToolsEnabled" | "agentCommandToolEnabled" | "agentDangerousFileOpsEnabled" | "agentNetworkCommandsEnabled" | "agentShellCommandsEnabled" | "agentGitWriteCommandsEnabled" | "agentAutoCompactEnabled" | "agentReplyReserveTokens" | "agentToolContextChars" | "mcpServers"> | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [threadState, setThreadState] = useState<AgentThreadState | null>(null);
   const [loadingThreads, setLoadingThreads] = useState(true);
@@ -238,6 +275,9 @@ export function AgentsScreen({
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [streamPreview, setStreamPreview] = useState("");
+  const [streamReasoningPreview, setStreamReasoningPreview] = useState("");
+  const [streamReasoningExpanded, setStreamReasoningExpanded] = useState(true);
+  const [sendingSteering, setSendingSteering] = useState(false);
   const [threadQuery, setThreadQuery] = useState("");
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [models, setModels] = useState<ProviderModel[]>([]);
@@ -263,6 +303,7 @@ export function AgentsScreen({
     title: string;
     description: string;
     systemPrompt: string;
+    developerPrompt: string;
     mode: AgentMode;
     heroCharacterId: string;
     heroCharacterName: string;
@@ -281,9 +322,15 @@ export function AgentsScreen({
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [workspaceDirectories, setWorkspaceDirectories] = useState<AgentWorkspaceDirectoryState | null>(null);
   const [loadingWorkspaceDirectories, setLoadingWorkspaceDirectories] = useState(false);
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [workspacePickerQuery, setWorkspacePickerQuery] = useState("");
   const [expandedToolBlocks, setExpandedToolBlocks] = useState<Record<string, boolean>>({});
+  const [expandedToolEvents, setExpandedToolEvents] = useState<Record<string, boolean>>({});
+  const [reasoningPanelsExpanded, setReasoningPanelsExpanded] = useState<Record<string, boolean>>({});
   const timelineViewportRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const streamPreviewRef = useRef("");
+  const streamReasoningPreviewRef = useRef("");
 
   const selectedThread = threadState?.thread ?? null;
   const sidebarCollapsed = !sidebarOpen;
@@ -308,7 +355,8 @@ export function AgentsScreen({
         role: message.role,
         content: message.content,
         attachments: Array.isArray(message.attachments) ? message.attachments : [],
-        runId: message.runId
+        runId: message.runId,
+        metadata: message.metadata || {}
       }));
     const events = threadState.events.map((event) => ({
       kind: "event" as const,
@@ -331,6 +379,12 @@ export function AgentsScreen({
     [selectedTraceRunId, threadState?.runs]
   );
   const actionRun = selectedRun ?? threadState?.runs[0] ?? null;
+  const activeRun = useMemo(
+    () => [...(threadState?.runs || [])]
+      .filter((run) => run.status === "running")
+      .sort((a, b) => a.depth - b.depth || b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0] ?? null,
+    [threadState?.runs]
+  );
   const enabledSkillCount = useMemo(
     () => skillDrafts.filter((skill) => skill.enabled).length,
     [skillDrafts]
@@ -339,7 +393,23 @@ export function AgentsScreen({
     () => compactPathLabel(threadDraft?.workspaceRoot || selectedThread?.workspaceRoot || ""),
     [threadDraft?.workspaceRoot, selectedThread?.workspaceRoot]
   );
+  const workspaceTrail = useMemo(
+    () => buildWorkspaceTrail(workspaceDirectories),
+    [workspaceDirectories]
+  );
+  const filteredWorkspaceEntries = useMemo(() => {
+    const entries = workspaceDirectories?.entries || [];
+    const query = workspacePickerQuery.trim().toLowerCase();
+    if (!query) return entries;
+    return entries.filter((entry) => (
+      entry.name.toLowerCase().includes(query) || entry.relativePath.toLowerCase().includes(query)
+    ));
+  }, [workspaceDirectories?.entries, workspacePickerQuery]);
   const hasDraftPayload = composer.trim().length > 0 || attachments.length > 0;
+  const composerPlaceholder = running ? t("agents.composerCorrectionPlaceholder") : t("agents.composerPlaceholder");
+  const composerStatusLabel = running
+    ? t("agents.runningCorrectionHint")
+    : status || t("agents.workspaceReady");
   const showInspector = Boolean(workspaceOpen && selectedThread && threadDraft);
   const agentLayoutClassName = `agents-layout chat-simple-layout is-thread ${showInspector ? "is-inspector-open" : "is-inspector-closed"} ${sidebarOpen ? "is-sidebar-open" : "is-sidebar-closed"}`;
   const enabledMcpServers = useMemo(
@@ -362,7 +432,11 @@ export function AgentsScreen({
   }, [runTree, selectedTraceRunId]);
 
   const filteredTimeline = useMemo(() => {
-    if (!traceRunIds) return timeline;
+    if (!traceRunIds) {
+      return timeline.filter((item) => (
+        item.kind === "message" || shouldShowEventInMainTimeline(item)
+      ));
+    }
     return timeline.filter((item) => (
       item.kind === "message" ? (() => {
         const runId = item.runId || "";
@@ -393,6 +467,10 @@ export function AgentsScreen({
         setAppSettings({
           agentWorkspaceToolsEnabled: settings.agentWorkspaceToolsEnabled !== false,
           agentCommandToolEnabled: settings.agentCommandToolEnabled !== false,
+          agentDangerousFileOpsEnabled: settings.agentDangerousFileOpsEnabled === true,
+          agentNetworkCommandsEnabled: settings.agentNetworkCommandsEnabled === true,
+          agentShellCommandsEnabled: settings.agentShellCommandsEnabled === true,
+          agentGitWriteCommandsEnabled: settings.agentGitWriteCommandsEnabled === true,
           agentAutoCompactEnabled: settings.agentAutoCompactEnabled !== false,
           agentReplyReserveTokens: settings.agentReplyReserveTokens,
           agentToolContextChars: settings.agentToolContextChars,
@@ -418,6 +496,10 @@ export function AgentsScreen({
       setAppSettings({
         agentWorkspaceToolsEnabled: detail.agentWorkspaceToolsEnabled !== false,
         agentCommandToolEnabled: detail.agentCommandToolEnabled !== false,
+        agentDangerousFileOpsEnabled: detail.agentDangerousFileOpsEnabled === true,
+        agentNetworkCommandsEnabled: detail.agentNetworkCommandsEnabled === true,
+        agentShellCommandsEnabled: detail.agentShellCommandsEnabled === true,
+        agentGitWriteCommandsEnabled: detail.agentGitWriteCommandsEnabled === true,
         agentAutoCompactEnabled: detail.agentAutoCompactEnabled !== false,
         agentReplyReserveTokens: detail.agentReplyReserveTokens,
         agentToolContextChars: detail.agentToolContextChars,
@@ -457,6 +539,10 @@ export function AgentsScreen({
 
   useEffect(() => {
     setExpandedToolBlocks({});
+    setExpandedToolEvents({});
+    setReasoningPanelsExpanded({});
+    setStreamReasoningPreview("");
+    setStreamReasoningExpanded(true);
   }, [selectedThreadId]);
 
   useEffect(() => {
@@ -464,6 +550,8 @@ export function AgentsScreen({
     setUploading(false);
     cancelEditMessage();
     setAttachmentViewer(null);
+    setWorkspacePickerOpen(false);
+    setWorkspacePickerQuery("");
   }, [selectedThreadId]);
 
   useEffect(() => {
@@ -482,6 +570,7 @@ export function AgentsScreen({
       title: threadState.thread.title,
       description: threadState.thread.description,
       systemPrompt: threadState.thread.systemPrompt,
+      developerPrompt: threadState.thread.developerPrompt || "",
       mode: threadState.thread.mode,
       heroCharacterId: threadState.thread.heroCharacterId || "",
       heroCharacterName: threadState.thread.heroCharacterName || "",
@@ -544,11 +633,11 @@ export function AgentsScreen({
     const frame = window.requestAnimationFrame(() => {
       viewport.scrollTo({
         top: viewport.scrollHeight,
-        behavior: streamPreview ? "smooth" : "auto"
+        behavior: (streamPreview || streamReasoningPreview) ? "smooth" : "auto"
       });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [selectedThreadId, filteredTimeline.length, streamPreview]);
+  }, [selectedThreadId, filteredTimeline.length, streamPreview, streamReasoningPreview]);
 
   async function refreshThreads(nextSelectedId?: string | null) {
     const threadList = await api.agentThreadList();
@@ -599,6 +688,7 @@ export function AgentsScreen({
         title: threadDraft.title.trim() || t("agents.newThreadDefault"),
         description: threadDraft.description,
         systemPrompt: threadDraft.systemPrompt,
+        developerPrompt: threadDraft.developerPrompt,
         mode: threadDraft.mode,
         heroCharacterId: threadDraft.heroCharacterId || null,
         workspaceRoot: threadDraft.workspaceRoot,
@@ -712,6 +802,10 @@ export function AgentsScreen({
     }
     setRunning(true);
     setStreamPreview("");
+    setStreamReasoningPreview("");
+    streamPreviewRef.current = "";
+    streamReasoningPreviewRef.current = "";
+    setStreamReasoningExpanded(true);
     const taskId = startBackgroundTask({
       scope: "agents",
       type: "agent",
@@ -725,9 +819,16 @@ export function AgentsScreen({
     try {
       const callbacks: StreamCallbacks & {
         onAgentEvent?: (event: AgentEvent) => void;
+        onAgentMessage?: (message: AgentMessage) => void;
       } = {
         onDelta: (delta: string) => {
+          streamPreviewRef.current += delta;
           setStreamPreview((prev) => prev + delta);
+        },
+        onReasoningDelta: (delta: string) => {
+          streamReasoningPreviewRef.current += delta;
+          setStreamReasoningPreview((prev) => prev + delta);
+          setStreamReasoningExpanded(true);
         },
         onAgentEvent: (event: AgentEvent) => {
           setThreadState((prev) => {
@@ -744,6 +845,22 @@ export function AgentsScreen({
               events: nextEvents
             };
           });
+        },
+        onAgentMessage: (message: AgentMessage) => {
+          setThreadState((prev) => {
+            if (!prev) return prev;
+            const nextMessages = [...prev.messages.filter((item) => item.id !== message.id), message].sort((a, b) => (
+              a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
+            ));
+            return {
+              ...prev,
+              messages: nextMessages
+            };
+          });
+          setStreamPreview("");
+          setStreamReasoningPreview("");
+          streamPreviewRef.current = "";
+          streamReasoningPreviewRef.current = "";
         }
       };
       const nextState = params.mode === "resume"
@@ -763,11 +880,36 @@ export function AgentsScreen({
       );
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
+      const partialContent = streamPreviewRef.current.trim();
+      const partialReasoning = streamReasoningPreviewRef.current.trim();
+      if (partialContent || partialReasoning) {
+        const interruptedId = `draft-agent-interrupted-${Date.now()}`;
+        setThreadState((prev) => prev ? {
+          ...prev,
+          messages: [...prev.messages, {
+            id: interruptedId,
+            threadId: selectedThreadId,
+            runId: activeRun?.id || null,
+            role: "assistant",
+            content: partialContent || t("agents.partialResponseInterrupted"),
+            attachments: [],
+            metadata: {
+              interrupted: true,
+              interruptedReason: text,
+              reasoning: partialReasoning || undefined
+            },
+            createdAt: new Date().toISOString()
+          }]
+        } : prev);
+      }
       setStatus(text);
       failBackgroundTask(taskId, text);
     } finally {
       setRunning(false);
       setStreamPreview("");
+      setStreamReasoningPreview("");
+      streamPreviewRef.current = "";
+      streamReasoningPreviewRef.current = "";
     }
   }
 
@@ -779,11 +921,59 @@ export function AgentsScreen({
     });
   }
 
+  async function sendSteering() {
+    if (!selectedThreadId || !running || (!composer.trim() && attachments.length === 0)) return;
+    const content = composer.trim();
+    const pendingAttachments = [...attachments];
+    const optimisticId = `draft-steer-${Date.now()}`;
+    setSendingSteering(true);
+    setComposer("");
+    setAttachments([]);
+    setThreadState((prev) => prev ? {
+      ...prev,
+      messages: [...prev.messages, {
+        id: optimisticId,
+        threadId: selectedThreadId,
+        runId: activeRun?.id || null,
+        role: "user",
+        content,
+        attachments: pendingAttachments,
+        metadata: {
+          attachments: pendingAttachments,
+          steering: true,
+          steeringPending: true
+        },
+        createdAt: new Date().toISOString()
+      }]
+    } : prev);
+    try {
+      const result = await api.agentSteer(selectedThreadId, content, pendingAttachments);
+      setThreadState(result.state);
+      setStatus(t("agents.correctionQueued"));
+    } catch (error) {
+      setThreadState((prev) => prev ? {
+        ...prev,
+        messages: prev.messages.filter((message) => message.id !== optimisticId)
+      } : prev);
+      setComposer(content);
+      setAttachments(pendingAttachments);
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSendingSteering(false);
+    }
+  }
+
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== "Enter" || event.shiftKey) return;
     if (event.nativeEvent.isComposing) return;
     event.preventDefault();
-    if (running || (!composer.trim() && attachments.length === 0)) return;
+    if (!composer.trim() && attachments.length === 0) return;
+    if (running) {
+      if (!sendingSteering) {
+        void sendSteering();
+      }
+      return;
+    }
     void sendPrompt();
   }
 
@@ -950,6 +1140,19 @@ export function AgentsScreen({
     }
   }
 
+  async function regenerateMessage(item: Extract<TimelineItem, { kind: "message" }>) {
+    if (item.runId) {
+      await retryRun(item.runId);
+      return;
+    }
+    if (item.role !== "user") return;
+    await executeThreadRun({
+      mode: "prompt",
+      content: item.content,
+      attachments: item.attachments
+    });
+  }
+
   async function retryRun(runId: string) {
     await executeThreadRun({
       mode: "retry",
@@ -1032,30 +1235,49 @@ export function AgentsScreen({
     const reasonText = item.type === "tool_call" ? String(item.content || "").trim() : "";
     const inputText = item.type === "tool_call" ? item.payload.arguments : "";
     const outputText = item.type === "tool_result" ? item.content : "";
+    const expanded = expandedToolEvents[item.id] === true;
+    const preview = getOneLineToolPreview(item.type === "tool_call" ? (inputText || reasonText) : outputText);
 
     return (
       <div
         key={item.id}
-        className="agents-simple-event agents-simple-event-tool"
+        className={`agents-simple-event agents-simple-event-tool ${expanded ? "is-expanded" : "is-collapsed"}`}
         style={{ marginLeft: `${item.depth * 14}px` }}
       >
-        <div className="flex items-center gap-2">
-          <Badge variant={eventTone(item.type) as "default" | "accent" | "warning" | "danger" | "success"}>
-            {item.type}
-          </Badge>
-          <div className="text-xs font-semibold text-text-primary">{item.title}</div>
-        </div>
-        {reasonText ? (
-          <div className="mt-2">
-            <div className="agents-tool-block-label">{t("agents.toolReason")}</div>
-            <MarkdownContent
-              content={reasonText}
-              className="prose-chat mt-1 break-words text-[12px] leading-5 text-text-secondary"
-            />
+        <button
+          type="button"
+          onClick={() => setExpandedToolEvents((prev) => ({ ...prev, [item.id]: !expanded }))}
+          className="agents-tool-event-head"
+        >
+          <div className="agents-tool-event-main">
+            <Badge variant={eventTone(item.type) as "default" | "accent" | "warning" | "danger" | "success"}>
+              {item.type}
+            </Badge>
+            <span className="agents-tool-event-title">{item.title}</span>
+            {preview ? <span className="agents-tool-event-preview">{preview}</span> : null}
+          </div>
+          <span className="agents-tool-event-toggle">
+            {expanded ? t("agents.showLess") : t("agents.showMore")}
+            <svg className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </span>
+        </button>
+        {expanded ? (
+          <div className="agents-tool-event-details">
+            {reasonText ? (
+              <div>
+                <div className="agents-tool-block-label">{t("agents.toolReason")}</div>
+                <MarkdownContent
+                  content={reasonText}
+                  className="prose-chat mt-1 break-words text-[12px] leading-5 text-text-secondary"
+                />
+              </div>
+            ) : null}
+            {item.type === "tool_call" ? renderToolBlock(`${item.id}:input`, t("agents.toolInput"), inputText) : null}
+            {item.type === "tool_result" ? renderToolBlock(`${item.id}:output`, t("agents.toolOutput"), outputText) : null}
           </div>
         ) : null}
-        {item.type === "tool_call" ? renderToolBlock(`${item.id}:input`, t("agents.toolInput"), inputText) : null}
-        {item.type === "tool_result" ? renderToolBlock(`${item.id}:output`, t("agents.toolOutput"), outputText) : null}
       </div>
     );
   }
@@ -1101,6 +1323,7 @@ export function AgentsScreen({
 
   function renderMessageActions(item: Extract<TimelineItem, { kind: "message" }>) {
     if (item.role === "system") return null;
+    const canRegenerate = Boolean(item.runId) || item.role === "user";
     return (
       <div className={`message-actions ${item.role === "user" ? "justify-end" : ""}`}>
         <button
@@ -1110,6 +1333,16 @@ export function AgentsScreen({
         >
           {t("chat.branch")}
         </button>
+        {canRegenerate ? (
+          <button
+            type="button"
+            disabled={running}
+            onClick={() => { void regenerateMessage(item); }}
+            className="rounded-md text-text-tertiary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
+          >
+            {t("chat.regenerate")}
+          </button>
+        ) : null}
         {item.role === "user" ? (
           <button
             type="button"
@@ -1119,19 +1352,17 @@ export function AgentsScreen({
             {t("chat.edit")}
           </button>
         ) : null}
-        {item.role === "user" ? (
-          <button
-            type="button"
-            disabled={deletingMessageId === item.id}
-            onClick={() => {
-              if (!window.confirm(`${t("chat.delete")}?`)) return;
-              void removeMessage(item.id);
-            }}
-            className="rounded-md text-text-tertiary hover:bg-bg-hover hover:text-danger disabled:opacity-50"
-          >
-            {t("chat.delete")}
-          </button>
-        ) : null}
+        <button
+          type="button"
+          disabled={deletingMessageId === item.id || running}
+          onClick={() => {
+            if (!window.confirm(`${t("chat.delete")}?`)) return;
+            void removeMessage(item.id);
+          }}
+          className="rounded-md text-text-tertiary hover:bg-bg-hover hover:text-danger disabled:opacity-50"
+        >
+          {t("chat.delete")}
+        </button>
       </div>
     );
   }
@@ -1456,67 +1687,130 @@ export function AgentsScreen({
                 </div>
               ) : (
                 filteredTimeline.map((item) => (
-                  item.kind === "message" ? (
-                    <div
-                      key={item.id}
-                      className={`agents-simple-message-wrap group ${item.role === "user" ? "is-user" : "is-assistant"}`}
-                    >
-                      <div className={`agents-simple-message ${item.role === "user" ? "is-user" : "is-assistant"}`}>
-                        <div className="agents-simple-message-head">
-                          <div className="text-[9px] font-semibold uppercase tracking-[0.08em] opacity-80">
-                            {item.role === "user" ? t("agents.user") : t("agents.agent")}
-                          </div>
-                          <div className={`agents-simple-message-time ${item.role === "user" ? "is-user" : ""}`}>
-                            {new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </div>
-                        </div>
-                        {editingMessageId === item.id ? (
-                          <div className="agents-simple-message-edit">
-                            <textarea
-                              value={editingMessageValue}
-                              onChange={(e) => setEditingMessageValue(e.target.value)}
-                              className="w-full resize-none rounded-xl border border-border bg-bg-primary px-3 py-2 text-[13px] leading-6 text-text-primary outline-none"
-                              rows={Math.min(10, Math.max(3, editingMessageValue.split(/\r?\n/).length))}
-                            />
-                            {renderMessageAttachments(item, true)}
-                            <div className="mt-2 flex items-center justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={cancelEditMessage}
-                                className="rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                              >
-                                {t("chat.cancel")}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { void saveEditedMessage(item.id); }}
-                                className="rounded-lg bg-accent px-3 py-1.5 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover"
-                              >
-                                {t("chat.save")}
-                              </button>
+                  item.kind === "message" ? (() => {
+                    const inlineReasoning = item.role === "assistant"
+                      ? parseInlineReasoning(item.content)
+                      : { content: item.content, reasoning: "" };
+                    const metadataReasoning = item.role === "assistant"
+                      ? String(item.metadata?.reasoning || "").trim()
+                      : "";
+                    const reasoningText = [inlineReasoning.reasoning, metadataReasoning]
+                      .filter(Boolean)
+                      .join("\n\n")
+                      .trim();
+                    const displayReasoningText = normalizeReasoningDisplayText(reasoningText);
+                    const reasoningPanelOpen = reasoningPanelsExpanded[item.id] === true;
+                    return (
+                      <div
+                        key={item.id}
+                        className={`agents-simple-message-wrap group ${item.role === "user" ? "is-user" : "is-assistant"}`}
+                      >
+                        <div className={`agents-simple-message ${item.role === "user" ? "is-user" : "is-assistant"}`}>
+                          <div className="agents-simple-message-head">
+                            <div className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.08em] opacity-80">
+                              <span>{item.role === "user" ? t("agents.user") : t("agents.agent")}</span>
+                              {item.role === "user" && item.metadata?.steering ? (
+                                <span className="rounded-full border border-current/20 px-1.5 py-0.5 text-[8px] tracking-[0.04em] opacity-90">
+                                  {t("agents.correction")}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className={`agents-simple-message-time ${item.role === "user" ? "is-user" : ""}`}>
+                              {new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                             </div>
                           </div>
-                        ) : item.role === "user" ? (
-                          <div className="whitespace-pre-wrap break-words text-[13px] leading-6">{item.content}</div>
-                        ) : (
-                          <MarkdownContent
-                            content={item.content}
-                            className="prose-chat break-words text-[13px] leading-6 text-text-primary"
-                          />
-                        )}
-                        {editingMessageId !== item.id ? renderMessageAttachments(item, true) : null}
+                          {editingMessageId === item.id ? (
+                            <div className="agents-simple-message-edit">
+                              <textarea
+                                value={editingMessageValue}
+                                onChange={(e) => setEditingMessageValue(e.target.value)}
+                                className="w-full resize-none rounded-xl border border-border bg-bg-primary px-3 py-2 text-[13px] leading-6 text-text-primary outline-none"
+                                rows={Math.min(10, Math.max(3, editingMessageValue.split(/\r?\n/).length))}
+                              />
+                              {renderMessageAttachments(item, true)}
+                              <div className="mt-2 flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={cancelEditMessage}
+                                  className="rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                                >
+                                  {t("chat.cancel")}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { void saveEditedMessage(item.id); }}
+                                  className="rounded-lg bg-accent px-3 py-1.5 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover"
+                                >
+                                  {t("chat.save")}
+                                </button>
+                              </div>
+                            </div>
+                          ) : item.role === "user" ? (
+                            <div className="whitespace-pre-wrap break-words text-[13px] leading-6">{item.content}</div>
+                          ) : (
+                            <>
+                              {displayReasoningText ? (
+                                <div className="mb-2 rounded-xl border border-border-subtle bg-bg-secondary/70">
+                                  <button
+                                    onClick={() => {
+                                      setReasoningPanelsExpanded((prev) => ({ ...prev, [item.id]: !reasoningPanelOpen }));
+                                    }}
+                                    className="flex w-full items-center justify-between px-2.5 py-2 text-left"
+                                  >
+                                    <span className="text-[11px] font-semibold text-text-secondary">{t("chat.reasoning")}</span>
+                                    <svg className={`h-3.5 w-3.5 text-text-tertiary transition-transform ${reasoningPanelOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  </button>
+                                  {reasoningPanelOpen ? (
+                                    <div className="border-t border-border-subtle px-2.5 py-2">
+                                      <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">{displayReasoningText}</div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              <MarkdownContent
+                                content={inlineReasoning.content}
+                                className="prose-chat break-words text-[13px] leading-6 text-text-primary"
+                              />
+                            </>
+                          )}
+                          {editingMessageId !== item.id ? renderMessageAttachments(item, true) : null}
+                        </div>
+                        {editingMessageId !== item.id ? renderMessageActions(item) : null}
                       </div>
-                      {editingMessageId !== item.id ? renderMessageActions(item) : null}
-                    </div>
-                  ) : renderEventCard(item)
+                    );
+                  })() : renderEventCard(item)
                 ))
               )}
 
-              {running && streamPreview ? (
+              {running && (streamPreview || streamReasoningPreview) ? (
                 <div className="agents-simple-streaming">
                   <div className="mb-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-accent">
                     {t("agents.agent")} · {t("chat.streaming")}
                   </div>
+                  {streamReasoningPreview ? (
+                    <div className="mb-2 rounded-md border border-border-subtle bg-bg-tertiary/70">
+                      <button
+                        type="button"
+                        onClick={() => setStreamReasoningExpanded((prev) => !prev)}
+                        className="flex w-full items-center justify-between px-2 py-1.5 text-left"
+                      >
+                        <span className="flex items-center gap-1 text-[11px] font-semibold text-text-secondary">
+                          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                          {t("chat.reasoning")}
+                        </span>
+                        <svg className={`h-3.5 w-3.5 text-text-tertiary transition-transform ${streamReasoningExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      {streamReasoningExpanded ? (
+                        <div className="border-t border-border-subtle px-2 py-2">
+                          <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">{streamReasoningPreview}</div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <MarkdownContent
                     content={streamPreview}
                     className="prose-chat break-words text-[13px] leading-6 text-text-primary"
@@ -1550,7 +1844,7 @@ export function AgentsScreen({
                     onChange={(e) => setComposer(e.target.value)}
                     onKeyDown={handleComposerKeyDown}
                     onPaste={handleComposerPaste}
-                    placeholder={t("agents.composerPlaceholder")}
+                    placeholder={composerPlaceholder}
                     className="chat-simple-textarea agents-simple-textarea"
                   />
                   <div className="chat-simple-composer-bar">
@@ -1573,7 +1867,7 @@ export function AgentsScreen({
                       )}
                     </button>
                     <span className="chat-simple-bar-mode agents-simple-composer-status">
-                      {status || t("agents.workspaceReady")}
+                      {composerStatusLabel}
                     </span>
                     <span className="chat-simple-bar-model" title={selectedThread.workspaceRoot}>
                       {workspaceRootLabel}
@@ -1583,12 +1877,26 @@ export function AgentsScreen({
                     </span>
                     <div className="flex-1" />
                     <button
-                      onClick={() => { void sendPrompt(); }}
-                      disabled={running || !hasDraftPayload}
-                      className={`chat-simple-send-btn ${running ? "is-stop" : ""}`}
-                      title={running ? t("agents.running") : t("agents.runAgent")}
+                      onClick={() => {
+                        if (running) {
+                          if (hasDraftPayload) {
+                            void sendSteering();
+                            return;
+                          }
+                          void abortRun();
+                          return;
+                        }
+                        void sendPrompt();
+                      }}
+                      disabled={running ? sendingSteering : !hasDraftPayload}
+                      className={`chat-simple-send-btn ${running && !hasDraftPayload ? "is-stop" : ""}`}
+                      title={
+                        running
+                          ? (hasDraftPayload ? t("agents.sendCorrection") : t("agents.abortRun"))
+                          : t("agents.runAgent")
+                      }
                     >
-                      {running ? (
+                      {running && !hasDraftPayload ? (
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <rect x="6" y="6" width="12" height="12" rx="1" />
                         </svg>
@@ -1713,57 +2021,133 @@ export function AgentsScreen({
                       className="h-24 w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary"
                     />
                   </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("agents.developerPrompt")}</label>
+                    <div className="mb-1.5 text-[11px] leading-5 text-text-tertiary">{t("agents.developerPromptDesc")}</div>
+                    <textarea
+                      value={threadDraft.developerPrompt}
+                      onChange={(e) => setThreadDraft((prev) => prev ? { ...prev, developerPrompt: e.target.value } : prev)}
+                      className="h-20 w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary"
+                    />
+                  </div>
 
                   <div>
                     <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("agents.workspaceRoot")}</label>
                     <div className="mb-2 text-[11px] leading-5 text-text-tertiary">{t("agents.workspaceRootDesc")}</div>
-                    <input
-                      value={threadDraft.workspaceRoot}
-                      onChange={(e) => setThreadDraft((prev) => prev ? { ...prev, workspaceRoot: e.target.value } : prev)}
-                      className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary"
-                    />
-                    <div className="mt-2 rounded-[18px] border border-border-subtle bg-bg-primary px-3 py-2.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          onClick={() => setThreadDraft((prev) => prev ? { ...prev, workspaceRoot: workspaceDirectories?.projectRoot || prev.workspaceRoot } : prev)}
-                          className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                        >
-                          {t("agents.useProjectRoot")}
-                        </button>
-                        {workspaceDirectories?.parentPath ? (
+                    <div className="space-y-2">
+                      <div className="rounded-[18px] border border-border-subtle bg-bg-primary px-3 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("agents.selectedFolder")}</div>
+                            <div className="mt-1 break-all text-sm font-medium text-text-primary">
+                              {threadDraft.workspaceRoot || workspaceDirectories?.currentPath || "."}
+                            </div>
+                            <div className="mt-1 text-[11px] leading-5 text-text-tertiary">
+                              {loadingWorkspaceDirectories
+                                ? t("agents.loadingWorkspaceDirectories")
+                                : workspaceDirectories?.currentRelativePath
+                                  ? `${t("agents.currentWorkspaceDirectory")} ${workspaceDirectories.currentRelativePath}`
+                                  : t("agents.workspaceDirectoryHelp")}
+                            </div>
+                          </div>
                           <button
-                            onClick={() => setThreadDraft((prev) => prev ? { ...prev, workspaceRoot: workspaceDirectories.parentPath || prev.workspaceRoot } : prev)}
-                            className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                            onClick={() => {
+                              setWorkspacePickerOpen((prev) => !prev);
+                              if (workspacePickerOpen) {
+                                setWorkspacePickerQuery("");
+                              }
+                            }}
+                            className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
                           >
-                            {t("agents.goUpDirectory")}
+                            {workspacePickerOpen ? t("agents.hideFolderPicker") : t("agents.browseFolders")}
                           </button>
+                        </div>
+
+                        {workspaceTrail.length > 0 ? (
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            {workspaceTrail.map((segment) => (
+                              <button
+                                key={segment.path}
+                                onClick={() => {
+                                  setThreadDraft((prev) => prev ? { ...prev, workspaceRoot: segment.path } : prev);
+                                  setWorkspacePickerQuery("");
+                                }}
+                                className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                                  threadDraft.workspaceRoot === segment.path
+                                    ? "border-accent/40 bg-accent-subtle text-text-primary"
+                                    : "border-border-subtle text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                                }`}
+                              >
+                                {segment.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {workspacePickerOpen ? (
+                          <div className="mt-3 space-y-2.5 border-t border-border-subtle pt-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                onClick={() => {
+                                  setThreadDraft((prev) => prev ? { ...prev, workspaceRoot: workspaceDirectories?.projectRoot || prev.workspaceRoot } : prev);
+                                  setWorkspacePickerQuery("");
+                                }}
+                                className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                              >
+                                {t("agents.useProjectRoot")}
+                              </button>
+                              {workspaceDirectories?.parentPath ? (
+                                <button
+                                  onClick={() => {
+                                    setThreadDraft((prev) => prev ? { ...prev, workspaceRoot: workspaceDirectories.parentPath || prev.workspaceRoot } : prev);
+                                    setWorkspacePickerQuery("");
+                                  }}
+                                  className="rounded-lg border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                                >
+                                  {t("agents.goUpDirectory")}
+                                </button>
+                              ) : null}
+                            </div>
+                            <input
+                              value={workspacePickerQuery}
+                              onChange={(e) => setWorkspacePickerQuery(e.target.value)}
+                              placeholder={t("agents.folderSearchPlaceholder")}
+                              className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary"
+                            />
+                            <div className="max-h-44 space-y-1 overflow-y-auto rounded-[16px] border border-border-subtle bg-bg-secondary/80 p-1.5">
+                              {filteredWorkspaceEntries.length > 0 ? filteredWorkspaceEntries.map((entry) => (
+                                <button
+                                  key={entry.path}
+                                  onClick={() => {
+                                    setThreadDraft((prev) => prev ? { ...prev, workspaceRoot: entry.path } : prev);
+                                    setWorkspacePickerQuery("");
+                                  }}
+                                  className={`flex w-full items-center justify-between gap-3 rounded-xl px-2.5 py-2 text-left text-[11px] transition-colors ${
+                                    threadDraft.workspaceRoot === entry.path
+                                      ? "bg-accent-subtle text-text-primary"
+                                      : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                                  }`}
+                                >
+                                  <span className="truncate font-medium">{entry.name}</span>
+                                  <span className="truncate text-[10px] text-text-tertiary">{entry.relativePath}</span>
+                                </button>
+                              )) : (
+                                <div className="px-2.5 py-2 text-[11px] leading-5 text-text-tertiary">
+                                  {t("agents.workspaceDirectoryHelp")}
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         ) : null}
                       </div>
-                      <div className="mt-2 text-[11px] leading-5 text-text-tertiary">
-                        {loadingWorkspaceDirectories
-                          ? t("agents.loadingWorkspaceDirectories")
-                          : workspaceDirectories?.currentRelativePath
-                            ? `${t("agents.currentWorkspaceDirectory")} ${workspaceDirectories.currentRelativePath}`
-                            : t("agents.workspaceDirectoryHelp")}
+                      <div>
+                        <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("agents.manualPath")}</label>
+                        <input
+                          value={threadDraft.workspaceRoot}
+                          onChange={(e) => setThreadDraft((prev) => prev ? { ...prev, workspaceRoot: e.target.value } : prev)}
+                          className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary"
+                        />
                       </div>
-                      {workspaceDirectories?.entries.length ? (
-                        <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-                          {workspaceDirectories.entries.map((entry) => (
-                            <button
-                              key={entry.path}
-                              onClick={() => setThreadDraft((prev) => prev ? { ...prev, workspaceRoot: entry.path } : prev)}
-                              className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-colors ${
-                                threadDraft.workspaceRoot === entry.path
-                                  ? "bg-accent-subtle text-text-primary"
-                                  : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                              }`}
-                            >
-                              <span className="truncate">{entry.name}</span>
-                              <span className="ml-3 truncate text-[10px] text-text-tertiary">{entry.relativePath}</span>
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
                     </div>
                   </div>
 
@@ -2032,6 +2416,24 @@ export function AgentsScreen({
                         Command · {appSettings?.agentCommandToolEnabled !== false ? t("agents.globalToggleOn") : t("agents.globalToggleOff")}
                       </Badge>
                     </div>
+                  </div>
+                  <div className="agents-simple-metric-card">
+                    <div className="agents-simple-metric-label">{t("agents.integrationSecurity")}</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Badge variant={appSettings?.agentDangerousFileOpsEnabled === true ? "warning" : "success"}>
+                        {t("agents.securityDangerFiles")} · {appSettings?.agentDangerousFileOpsEnabled === true ? t("agents.globalToggleOn") : t("agents.globalToggleOff")}
+                      </Badge>
+                      <Badge variant={appSettings?.agentNetworkCommandsEnabled === true ? "warning" : "success"}>
+                        {t("agents.securityNetwork")} · {appSettings?.agentNetworkCommandsEnabled === true ? t("agents.globalToggleOn") : t("agents.globalToggleOff")}
+                      </Badge>
+                      <Badge variant={appSettings?.agentShellCommandsEnabled === true ? "warning" : "success"}>
+                        {t("agents.securityShell")} · {appSettings?.agentShellCommandsEnabled === true ? t("agents.globalToggleOn") : t("agents.globalToggleOff")}
+                      </Badge>
+                      <Badge variant={appSettings?.agentGitWriteCommandsEnabled === true ? "warning" : "success"}>
+                        {t("agents.securityGitWrite")} · {appSettings?.agentGitWriteCommandsEnabled === true ? t("agents.globalToggleOn") : t("agents.globalToggleOff")}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 text-[11px] leading-5 text-text-tertiary">{t("settings.agentsSecurityDesc")}</div>
                   </div>
                   <div className="agents-simple-metric-card">
                     <div className="agents-simple-metric-label">{t("agents.integrationThreadTools")}</div>

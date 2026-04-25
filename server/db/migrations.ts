@@ -37,7 +37,8 @@ const MIGRATIONS = [
   "ALTER TABLE agent_threads ADD COLUMN hero_character_id TEXT",
   "ALTER TABLE agent_threads ADD COLUMN workspace_root TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE agent_threads ADD COLUMN memory_summary TEXT NOT NULL DEFAULT ''",
-  "ALTER TABLE agent_threads ADD COLUMN memory_updated_at TEXT"
+  "ALTER TABLE agent_threads ADD COLUMN memory_updated_at TEXT",
+  "ALTER TABLE agent_threads ADD COLUMN developer_prompt TEXT NOT NULL DEFAULT ''"
 ];
 
 export function applyMigrations(db: Database.Database) {

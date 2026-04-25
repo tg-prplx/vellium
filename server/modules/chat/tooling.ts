@@ -8,6 +8,7 @@ import {
   extractSseEventData,
   extractSseEventType
 } from "./openAiStream.js";
+import { consumeThinkChunk, createThinkStreamState, flushThinkState } from "./reasoning.js";
 
 export interface OpenAICompletionMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -251,7 +252,17 @@ function flattenReasoningValue(value: unknown): string {
   if (typeof row.text === "string") return row.text;
   if (typeof row.content === "string") return row.content;
   if (typeof row.summary === "string") return row.summary;
-  const nested = [row.reasoning, row.reasoning_content, row.output_text];
+  const nested = [
+    row.reasoning,
+    row.reasoning_content,
+    row.reasoning_text,
+    row.reasoningText,
+    row.thinking,
+    row.thinking_content,
+    row.thinking_text,
+    row.thinkingText,
+    row.output_text
+  ];
   return nested
     .map((item) => flattenReasoningValue(item))
     .filter(Boolean)
@@ -269,7 +280,11 @@ export function extractOpenAIReasoningDelta(parsed: unknown): string {
     delta.reasoning,
     delta.reasoning_content,
     delta.reasoning_text,
-    delta.reasoningText
+    delta.reasoningText,
+    delta.thinking,
+    delta.thinking_content,
+    delta.thinking_text,
+    delta.thinkingText
   ]
     .map((item) => flattenReasoningValue(item))
     .find((item) => Boolean(item));
@@ -281,7 +296,7 @@ export function extractOpenAIReasoningDelta(parsed: unknown): string {
         if (!part || typeof part !== "object") return "";
         const row = part as Record<string, unknown>;
         const type = String(row.type || "");
-        if (!/reason/i.test(type)) return "";
+        if (!/(reason|think)/i.test(type)) return "";
         return flattenReasoningValue(row);
       })
       .filter(Boolean)
@@ -651,12 +666,18 @@ async function requestChatCompletionStream(
   body: Record<string, unknown>,
   signal: AbortSignal,
   onToolEvent?: (event: ToolCallStreamEvent) => void,
-  onAssistantDelta?: (delta: string) => void
+  onAssistantDelta?: (delta: string) => void,
+  onReasoningDelta?: (delta: string) => void,
+  options?: {
+    bufferAssistantDeltas?: boolean;
+  }
 ): Promise<{
+  assistantWasStreamed?: boolean;
   choices?: Array<{
     message?: {
       content?: unknown;
       tool_calls?: OpenAIToolCall[];
+      reasoning?: unknown;
     };
   }>;
 }> {
@@ -682,9 +703,145 @@ async function requestChatCompletionStream(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const assistantTextParts: string[] = [];
+  const reasoningParts: string[] = [];
   const streamedToolCalls = new Map<number, OpenAIToolCall>();
   const startedCallIds = new Set<string>();
+  const thinkState = createThinkStreamState();
   let buffer = "";
+  let guardedAssistantBuffer = "";
+  let guardedAssistantHeldForToolSyntax = false;
+  let assistantWasStreamed = false;
+  const guardedMode = options?.bufferAssistantDeltas === true;
+
+  const toolNames = Array.isArray(body.tools)
+    ? body.tools
+      .map((tool) => {
+        if (!tool || typeof tool !== "object") return "";
+        return String((tool as { function?: { name?: unknown } }).function?.name || "").trim();
+      })
+      .filter(Boolean)
+    : [];
+
+  const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const textToolNameMarkers = [...new Set(toolNames
+    .flatMap((name) => [name, normalizeToolCallAlias(name)])
+    .map((name) => String(name || "").trim())
+    .filter(Boolean))]
+    .sort((a, b) => b.length - a.length);
+
+  const findTextToolSyntaxStart = (text: string) => {
+    const source = String(text || "");
+    if (!source) return -1;
+    const matches: number[] = [];
+    const taggedIndex = source.toLowerCase().indexOf("[tool_request]");
+    if (taggedIndex >= 0) matches.push(taggedIndex);
+    const fencedMatch = /```(?:json|tool|tool_call|tools)?\s*[\[{]/i.exec(source);
+    if (fencedMatch) matches.push(fencedMatch.index);
+    const jsonMatch = /(^|[\s\n])\{\s*"(?:name|tool|tool_name|function|arguments|args|input)"\s*:/i.exec(source);
+    if (jsonMatch) matches.push(jsonMatch.index + String(jsonMatch[1] || "").length);
+    for (const marker of textToolNameMarkers) {
+      const callPattern = new RegExp(`(^|[^A-Za-z0-9_.:-])${escapeRegExp(marker)}\\s*\\(\\s*\\{`, "i");
+      const callMatch = callPattern.exec(source);
+      if (callMatch) matches.push(callMatch.index + String(callMatch[1] || "").length);
+    }
+    return matches.length ? Math.min(...matches) : -1;
+  };
+
+  const possibleToolSyntaxSuffixLength = (text: string) => {
+    const source = String(text || "");
+    if (!source) return 0;
+    const lower = source.toLowerCase();
+    const markers = [
+      "[tool_request]",
+      "```json",
+      "```tool_call",
+      "```tools",
+      "```tool",
+      "```"
+    ];
+    let unsafeLength = 0;
+    for (const marker of markers) {
+      const max = Math.min(marker.length - 1, lower.length);
+      for (let length = 1; length <= max; length += 1) {
+        if (lower.endsWith(marker.slice(0, length))) {
+          unsafeLength = Math.max(unsafeLength, length);
+        }
+      }
+    }
+
+    const toolKeys = ["name", "tool", "tool_name", "function", "arguments", "args", "input"];
+    const jsonLookback = Math.min(source.length, 48);
+    for (let start = source.length - jsonLookback; start < source.length; start += 1) {
+      const tail = source.slice(start);
+      const keyPrefix = /^\{\s*"?(?<key>[a-z_]*)$/i.exec(tail)?.groups?.key;
+      if (typeof keyPrefix === "string" && toolKeys.some((key) => key.startsWith(keyPrefix.toLowerCase()))) {
+        unsafeLength = Math.max(unsafeLength, source.length - start);
+      }
+    }
+
+    for (const marker of textToolNameMarkers) {
+      const invocation = `${marker}(`.toLowerCase();
+      const max = Math.min(invocation.length - 1, lower.length);
+      for (let length = 1; length <= max; length += 1) {
+        if (lower.endsWith(invocation.slice(0, length))) {
+          unsafeLength = Math.max(unsafeLength, length);
+        }
+      }
+    }
+    return unsafeLength;
+  };
+
+  const emitAssistantDelta = (delta: string) => {
+    if (!delta) return;
+    if (!onAssistantDelta) return;
+    assistantWasStreamed = true;
+    onAssistantDelta(delta);
+  };
+
+  const flushGuardedAssistantBuffer = (force = false) => {
+    if (!guardedAssistantBuffer) return;
+    if (force) {
+      const safeDelta = guardedAssistantBuffer;
+      guardedAssistantBuffer = "";
+      guardedAssistantHeldForToolSyntax = false;
+      emitAssistantDelta(safeDelta);
+      return;
+    }
+    if (guardedAssistantHeldForToolSyntax) return;
+    const syntaxStart = findTextToolSyntaxStart(guardedAssistantBuffer);
+    if (syntaxStart >= 0) {
+      const visiblePrefix = guardedAssistantBuffer.slice(0, syntaxStart);
+      if (visiblePrefix) emitAssistantDelta(visiblePrefix);
+      guardedAssistantBuffer = guardedAssistantBuffer.slice(syntaxStart);
+      guardedAssistantHeldForToolSyntax = true;
+      return;
+    }
+    const safeLength = Math.max(0, guardedAssistantBuffer.length - possibleToolSyntaxSuffixLength(guardedAssistantBuffer));
+    if (safeLength <= 0) return;
+    const safeDelta = guardedAssistantBuffer.slice(0, safeLength);
+    guardedAssistantBuffer = guardedAssistantBuffer.slice(safeLength);
+    emitAssistantDelta(safeDelta);
+  };
+
+  const appendReasoningDelta = (delta: string) => {
+    if (!delta) return;
+    reasoningParts.push(delta);
+    onReasoningDelta?.(delta);
+  };
+
+  const appendAssistantDelta = (delta: string) => {
+    if (!delta) return;
+    const split = consumeThinkChunk(thinkState, delta);
+    if (split.reasoning) appendReasoningDelta(split.reasoning);
+    if (!split.content) return;
+    assistantTextParts.push(split.content);
+    if (guardedMode) {
+      guardedAssistantBuffer += split.content;
+      flushGuardedAssistantBuffer(false);
+    } else {
+      emitAssistantDelta(split.content);
+    }
+  };
 
   const emitToolDelta = (call: OpenAIToolCall) => {
     const callId = String(call.id || "");
@@ -719,10 +876,13 @@ async function requestChatCompletionStream(
       if (eventType === "error" || streamError) {
         throw new Error(streamError || "Provider stream returned an error event");
       }
+      const reasoningDelta = extractOpenAIReasoningDelta(parsed);
+      if (reasoningDelta) {
+        appendReasoningDelta(reasoningDelta);
+      }
       const textDelta = extractOpenAiStreamTextDelta(parsed);
       if (textDelta) {
-        assistantTextParts.push(textDelta);
-        onAssistantDelta?.(textDelta);
+        appendAssistantDelta(textDelta);
       }
       const toolCallDeltas = extractOpenAiStreamToolCallDeltas(parsed);
       for (const delta of toolCallDeltas) {
@@ -770,19 +930,53 @@ async function requestChatCompletionStream(
   for (const eventBlock of flushed.events) {
     processEventBlock(eventBlock);
   }
+  const tail = flushThinkState(thinkState);
+  if (tail.reasoning) appendReasoningDelta(tail.reasoning);
+  if (tail.content) {
+    assistantTextParts.push(tail.content);
+    if (guardedMode) {
+      guardedAssistantBuffer += tail.content;
+      flushGuardedAssistantBuffer(false);
+    } else {
+      emitAssistantDelta(tail.content);
+    }
+  }
 
-  const toolCalls = [...streamedToolCalls.entries()]
+  const nativeToolCalls = [...streamedToolCalls.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([, call]) => call);
+  const fullAssistantContent = assistantTextParts.join("");
+  const extractedTextToolCalls = nativeToolCalls.length === 0
+    ? extractTextToolCalls(fullAssistantContent, toolNames)
+    : { toolCalls: [], visibleContent: fullAssistantContent };
+  const toolCalls = nativeToolCalls.length > 0 ? nativeToolCalls : extractedTextToolCalls.toolCalls;
+  const visibleAssistantContent = nativeToolCalls.length > 0
+    ? fullAssistantContent
+    : (extractedTextToolCalls.visibleContent || fullAssistantContent);
+
+  if (guardedMode && toolCalls.length === 0) {
+    flushGuardedAssistantBuffer(true);
+  }
 
   return {
+    assistantWasStreamed,
     choices: [{
       message: {
-        content: assistantTextParts.join(""),
+        content: visibleAssistantContent,
+        reasoning: reasoningParts.join("").trim(),
         tool_calls: toolCalls
       }
     }]
   };
+}
+
+function emitAssistantTextDeltas(text: string, onAssistantDelta?: (delta: string) => void) {
+  if (!onAssistantDelta) return false;
+  const chunks = String(text || "").match(/[\s\S]{1,140}/g) ?? [];
+  for (const chunk of chunks) {
+    onAssistantDelta(chunk);
+  }
+  return chunks.length > 0;
 }
 
 export async function runToolCallingCompletion(params: {
@@ -840,11 +1034,55 @@ export async function runToolCallingCompletion(params: {
       }
     });
     const toolTraces: ToolCallTrace[] = [];
+    const reasoningTrace: ToolCallTrace = {
+      callId: `reasoning_${Date.now()}`,
+      name: REASONING_CALL_NAME,
+      args: "{}",
+      result: ""
+    };
+    let reasoningStarted = false;
+    const appendReasoningDelta = (delta: string) => {
+      if (!delta) return;
+      if (!reasoningStarted) {
+        reasoningStarted = true;
+        params.onToolEvent?.({
+          phase: "start",
+          callId: reasoningTrace.callId,
+          name: REASONING_CALL_NAME,
+          args: "{}"
+        });
+      }
+      reasoningTrace.result += delta;
+      params.onToolEvent?.({
+        phase: "delta",
+        callId: reasoningTrace.callId,
+        name: REASONING_CALL_NAME,
+        args: "{}",
+        result: delta
+      });
+    };
+    const finalizeReasoningTrace = () => {
+      if (!reasoningStarted) return [];
+      params.onToolEvent?.({
+        phase: "done",
+        callId: reasoningTrace.callId,
+        name: REASONING_CALL_NAME,
+        args: "{}",
+        result: reasoningTrace.result.slice(0, 12000)
+      });
+      return reasoningTrace.result.trim()
+        ? [{
+            ...reasoningTrace,
+            result: reasoningTrace.result.slice(0, 12000)
+          }]
+        : [];
+    };
     let executedTools = 0;
 
     while (executedTools < maxToolCalls) {
       let body: Awaited<ReturnType<typeof requestChatCompletion>>;
       let assistantPassWasStreamed = false;
+      let assistantDeltasBuffered = false;
       const completionRequest = {
         messages: workingMessages,
         ...openAiSampling,
@@ -852,27 +1090,27 @@ export async function runToolCallingCompletion(params: {
         ...(policy === "aggressive" ? { tool_choice: "auto" } : {})
       };
 
-      if (executedTools === 0) {
-        body = await requestChatCompletion(params.provider, params.modelId, completionRequest, params.signal);
-      } else {
-        try {
-          body = await requestChatCompletionStream(
-            params.provider,
-            params.modelId,
-            completionRequest,
-            params.signal,
-            params.onToolEvent,
-            params.onAssistantDelta
-          );
-          assistantPassWasStreamed = true;
-        } catch (streamErr) {
-          const streamMessage = streamErr instanceof Error ? streamErr.message : "";
-          if (!/stream|sse|event-stream/i.test(streamMessage)) throw streamErr;
-          body = await requestChatCompletion(params.provider, params.modelId, {
-            ...completionRequest,
-            stream: false
-          }, params.signal);
-        }
+      try {
+        assistantDeltasBuffered = executedTools === 0;
+        body = await requestChatCompletionStream(
+          params.provider,
+          params.modelId,
+          completionRequest,
+          params.signal,
+          params.onToolEvent,
+          params.onAssistantDelta,
+          appendReasoningDelta,
+          { bufferAssistantDeltas: assistantDeltasBuffered }
+        );
+        assistantPassWasStreamed = body.assistantWasStreamed === true;
+      } catch (streamErr) {
+        const streamMessage = streamErr instanceof Error ? streamErr.message : "";
+        if (!/stream|sse|event-stream/i.test(streamMessage)) throw streamErr;
+        body = await requestChatCompletion(params.provider, params.modelId, {
+          ...completionRequest,
+          stream: false
+        }, params.signal);
+        assistantDeltasBuffered = false;
       }
 
       const assistant = body.choices?.[0]?.message;
@@ -889,13 +1127,21 @@ export async function runToolCallingCompletion(params: {
       }
 
       if (toolCalls.length === 0) {
+        if (assistantDeltasBuffered && !assistantPassWasStreamed) {
+          assistantPassWasStreamed = emitAssistantTextDeltas(visibleAssistantContent, params.onAssistantDelta);
+        }
+        const reasoningTraces = finalizeReasoningTrace();
         // Keep the original assistant answer instead of re-running without tools.
         if (executedTools === 0) {
-          return { content: visibleAssistantContent, toolCalls: [] };
+          return {
+            content: visibleAssistantContent,
+            toolCalls: reasoningTraces,
+            assistantWasStreamed: assistantPassWasStreamed
+          };
         }
         return {
           content: visibleAssistantContent,
-          toolCalls: toolTraces,
+          toolCalls: [...toolTraces, ...reasoningTraces],
           assistantWasStreamed: assistantPassWasStreamed
         };
       }
@@ -942,7 +1188,7 @@ export async function runToolCallingCompletion(params: {
     }
 
     // Tool-call budget reached: perform final streamed assistant pass in caller.
-    return { content: "", toolCalls: toolTraces, streamMessages: workingMessages };
+    return { content: "", toolCalls: [...toolTraces, ...finalizeReasoningTrace()], streamMessages: workingMessages };
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
     // If provider doesn't support tools/function calling, fallback to regular streaming flow.
