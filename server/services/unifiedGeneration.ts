@@ -33,6 +33,17 @@ function normalizeOpenAiBaseUrl(raw: string): string {
   return `${trimmed}/v1`;
 }
 
+function providerSupportsDeveloperRole(provider: UnifiedProviderRow) {
+  return /(^https?:\/\/)?([a-z0-9-]+\.)*openai\.com(\/|$)/i.test(String(provider.base_url || "").trim());
+}
+
+function normalizeOpenAiMessageRole(role: string, provider: UnifiedProviderRow) {
+  if (role === "developer" && !providerSupportsDeveloperRole(provider)) {
+    return "system";
+  }
+  return role;
+}
+
 function flattenContentToText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return String(content ?? "");
@@ -77,7 +88,17 @@ function flattenReasoningValue(value: unknown): string {
   if (typeof row.text === "string") return row.text;
   if (typeof row.content === "string") return row.content;
   if (typeof row.summary === "string") return row.summary;
-  return [row.reasoning, row.reasoning_content, row.output_text]
+  return [
+    row.reasoning,
+    row.reasoning_content,
+    row.reasoning_text,
+    row.reasoningText,
+    row.thinking,
+    row.thinking_content,
+    row.thinking_text,
+    row.thinkingText,
+    row.output_text
+  ]
     .map((item) => flattenReasoningValue(item))
     .filter(Boolean)
     .join("\n")
@@ -94,7 +115,7 @@ function buildKoboldPromptFromMessages(
     const role = String(msg.role || "user");
     const text = flattenContentToText(msg.content).trim();
     if (!text) continue;
-    if (role === "system") {
+    if (role === "system" || role === "developer") {
       systemParts.push(text);
       continue;
     }
@@ -191,7 +212,10 @@ export async function unifiedGenerateText(params: {
     },
     body: JSON.stringify({
       model: params.modelId,
-      messages: params.messages,
+      messages: params.messages.map((message) => ({
+        ...message,
+        role: normalizeOpenAiMessageRole(String(message.role || "user"), params.provider)
+      })),
       ...openAiSampling
     }),
     signal: params.signal
@@ -215,8 +239,20 @@ export async function unifiedGenerateText(params: {
   const directReasoning = [
     body.reasoning,
     body.reasoning_content,
+    body.reasoning_text,
+    body.reasoningText,
+    body.thinking,
+    body.thinking_content,
+    body.thinking_text,
+    body.thinkingText,
     message?.reasoning,
-    message?.reasoning_content
+    message?.reasoning_content,
+    message?.reasoning_text,
+    message?.reasoningText,
+    message?.thinking,
+    message?.thinking_content,
+    message?.thinking_text,
+    message?.thinkingText
   ]
     .map((value) => flattenReasoningValue(value))
     .filter(Boolean)

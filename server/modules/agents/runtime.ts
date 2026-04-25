@@ -1,4 +1,6 @@
 import type { Response } from "express";
+import { existsSync, readFileSync, statSync } from "fs";
+import { dirname, relative, resolve } from "path";
 import { db, isLocalhostUrl, roughTokenCount } from "../../db.js";
 import { buildOpenAiSamplingPayload } from "../../services/apiParamPolicy.js";
 import { unifiedGenerateText, type UnifiedGenerateMessage } from "../../services/unifiedGeneration.js";
@@ -12,8 +14,9 @@ import {
   extractSseEventData,
   extractSseEventType
 } from "../chat/openAiStream.js";
+import { consumeThinkChunk, createThinkStreamState, flushThinkState, splitThinkContent } from "../chat/reasoning.js";
 import { getSettings, type ProviderRow } from "../chat/routeHelpers.js";
-import { extractOpenAiStreamToolCallDeltas, extractTextToolCalls } from "../chat/tooling.js";
+import { extractOpenAIReasoningDelta, extractOpenAiStreamToolCallDeltas, extractTextToolCalls } from "../chat/tooling.js";
 import {
   assignAgentMessageRunId,
   completeAgentRun,
@@ -36,8 +39,35 @@ const MAX_MEMORY_PROMPT_CHARS = 1_800;
 const MAX_SKILL_PROMPT_CHARS = 1_600;
 const MAX_COMPACTED_HISTORY_ITEMS = 8;
 const MAX_COMPACTED_HISTORY_ITEM_CHARS = 220;
+const MAX_PROJECT_INSTRUCTIONS_CHARS = 32 * 1024;
+const AGENT_PROJECT_DOC_FILENAMES = ["AGENTS.override.md", "AGENTS.md"];
+const READ_ONLY_STALL_THRESHOLD = 2;
+const WORKSPACE_READ_ONLY_TOOL_NAMES = new Set([
+  "workspace_list_files",
+  "workspace_stat_path",
+  "workspace_read_file",
+  "workspace_search_text",
+  "workspace_git_status",
+  "workspace_git_diff"
+]);
+const WORKSPACE_EDIT_TOOL_NAMES = new Set([
+  "workspace_write_file",
+  "workspace_multi_edit",
+  "workspace_insert_text",
+  "workspace_replace_text",
+  "workspace_make_directory",
+  "workspace_move_path",
+  "workspace_delete_path"
+]);
 
 export const activeAgentAbortControllers = new Map<string, AbortController>();
+export const activeAgentSteeringNotes = new Map<string, Array<{
+  messageId: string;
+  runId: string;
+  content: string;
+  attachments: unknown[];
+  createdAt: string;
+}>>();
 
 type AgentSubagentRole = "general" | "research" | "builder" | "reviewer";
 
@@ -107,8 +137,14 @@ const AGENT_RUNTIME_TOOL_DEFINITIONS: AgentTool[] = [
 
 type RuntimeEventWriter = {
   emitEvent: (event: ReturnType<typeof insertAgentEvent>) => void;
+  emitMessage: (message: ReturnType<typeof insertAgentMessage>) => void;
   emitDelta: (delta: string) => void;
+  emitReasoningDelta: (delta: string) => void;
+  getDraft: () => { content: string; reasoning: string };
+  clearDraft: () => void;
 };
+
+const activeAgentRuntimeWriters = new Map<string, RuntimeEventWriter>();
 
 type AgentLaunchIntent = {
   mode: "resume" | "retry";
@@ -129,6 +165,7 @@ type AgentRunExecution = {
 type AgentRunOutcome = {
   runId: string;
   finalMessage: string;
+  reasoning: string;
   summary: string;
   status: "done" | "error" | "aborted";
   streamedResponse: boolean;
@@ -144,10 +181,122 @@ type OpenAIToolCall = {
   };
 };
 
+const AGENT_STEP_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    summary: {
+      type: "string",
+      description: "Compact internal summary of this planning step."
+    },
+    assistantMessage: {
+      type: "string",
+      description: "Concise user-facing message, or an empty string when tool work is needed first."
+    },
+    status: {
+      type: "string",
+      enum: ["continue", "needs_user", "done"],
+      description: "Use continue when requesting tool/subagent work, needs_user when blocked, done when complete."
+    },
+    skillIds: {
+      type: "array",
+      items: { type: "string" },
+      description: "Enabled custom skill ids to activate next, if any."
+    },
+    toolCalls: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          tool: {
+            type: "string",
+            description: "Exact tool name from the tool catalog."
+          },
+          argumentsJson: {
+            type: "string",
+            description: "A JSON object string containing the arguments for the selected tool."
+          },
+          reason: {
+            type: "string",
+            description: "Why this tool call is the next best action."
+          }
+        },
+        required: ["tool", "argumentsJson", "reason"],
+        additionalProperties: false
+      },
+      description: "Tool calls the runtime should execute before finalizing."
+    },
+    subagents: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          goal: { type: "string" },
+          instructions: { type: "string" },
+          role: {
+            type: "string",
+            enum: ["general", "research", "builder", "reviewer"]
+          }
+        },
+        required: ["title", "goal", "instructions", "role"],
+        additionalProperties: false
+      },
+      description: "Bounded side tasks to delegate, if any."
+    },
+    updates: {
+      type: "array",
+      items: { type: "string" },
+      description: "Short trace updates worth showing or remembering."
+    }
+  },
+  required: ["summary", "assistantMessage", "status", "skillIds", "toolCalls", "subagents", "updates"],
+  additionalProperties: false
+} as const;
+
+const FOLLOWUP_INTENT_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    intent: {
+      type: "string",
+      enum: ["continuation", "new_task", "unclear"],
+      description: "Whether the latest user message continues the prior task, starts a new task, or is unclear."
+    },
+    confidence: {
+      type: "number",
+      description: "Classifier confidence from 0 to 1."
+    },
+    reason: {
+      type: "string",
+      description: "Short reason for the classification."
+    }
+  },
+  required: ["intent", "confidence", "reason"],
+  additionalProperties: false
+} as const;
+
 type AgentPromptHistorySelection = {
   history: UnifiedGenerateMessage[];
   compactedNote: string;
 };
+
+export function enqueueAgentSteeringNote(input: {
+  threadId: string;
+  messageId: string;
+  runId: string;
+  content: string;
+  attachments?: unknown[];
+  createdAt?: string;
+}) {
+  const queue = activeAgentSteeringNotes.get(input.threadId) || [];
+  queue.push({
+    messageId: input.messageId,
+    runId: input.runId,
+    content: sanitizeText(input.content, 12000),
+    attachments: Array.isArray(input.attachments) ? input.attachments.slice(0, 12) : [],
+    createdAt: sanitizeText(input.createdAt, 80) || new Date().toISOString()
+  });
+  activeAgentSteeringNotes.set(input.threadId, queue);
+}
 
 function flushSse(res: Response) {
   if (typeof (res as Response & { flush?: () => void }).flush === "function") {
@@ -195,6 +344,17 @@ function normalizeOpenAiBaseUrl(raw: string) {
   return `${trimmed}/v1`;
 }
 
+function providerSupportsDeveloperRole(provider: ProviderRow) {
+  return /(^https?:\/\/)?([a-z0-9-]+\.)*openai\.com(\/|$)/i.test(String(provider.base_url || "").trim());
+}
+
+function normalizeChatCompletionRole(role: string, provider: ProviderRow) {
+  if (role === "developer" && !providerSupportsDeveloperRole(provider)) {
+    return "system";
+  }
+  return role;
+}
+
 function normalizeAssistantContent(content: unknown): string {
   if (typeof content === "string") return content.trim();
   if (Array.isArray(content)) {
@@ -210,6 +370,87 @@ function normalizeAssistantContent(content: unknown): string {
   }
   if (content === null || content === undefined) return "";
   return String(content).trim();
+}
+
+function flattenReasoningValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => flattenReasoningValue(item))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  if (!value || typeof value !== "object") return "";
+  const row = value as Record<string, unknown>;
+  if (typeof row.text === "string") return row.text;
+  if (typeof row.content === "string") return row.content;
+  if (typeof row.summary === "string") return row.summary;
+  return [
+    row.reasoning,
+    row.reasoning_content,
+    row.reasoning_text,
+    row.reasoningText,
+    row.thinking,
+    row.thinking_content,
+    row.thinking_text,
+    row.thinkingText,
+    row.output_text
+  ]
+    .map((item) => flattenReasoningValue(item))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function extractOpenAiCompletionReasoning(body: {
+  reasoning?: unknown;
+  reasoning_content?: unknown;
+  reasoning_text?: unknown;
+  reasoningText?: unknown;
+  thinking?: unknown;
+  thinking_content?: unknown;
+  thinking_text?: unknown;
+  thinkingText?: unknown;
+  choices?: Array<{
+    message?: {
+      content?: unknown;
+      reasoning?: unknown;
+      reasoning_content?: unknown;
+      reasoning_text?: unknown;
+      reasoningText?: unknown;
+      thinking?: unknown;
+      thinking_content?: unknown;
+      thinking_text?: unknown;
+      thinkingText?: unknown;
+    };
+  }>;
+}): string {
+  const message = body.choices?.[0]?.message;
+  const directReasoning = [
+    body.reasoning,
+    body.reasoning_content,
+    body.reasoning_text,
+    body.reasoningText,
+    body.thinking,
+    body.thinking_content,
+    body.thinking_text,
+    body.thinkingText,
+    message?.reasoning,
+    message?.reasoning_content,
+    message?.reasoning_text,
+    message?.reasoningText,
+    message?.thinking,
+    message?.thinking_content,
+    message?.thinking_text,
+    message?.thinkingText
+  ]
+    .map((item) => flattenReasoningValue(item))
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+  const split = splitThinkContent(normalizeAssistantContent(message?.content));
+  return [directReasoning, split.reasoning].filter(Boolean).join("\n\n").trim();
 }
 
 function normalizeBoundedInteger(raw: unknown, fallback: number, min: number, max: number) {
@@ -282,10 +523,10 @@ function buildAttachmentParts(attachments: Array<Record<string, unknown>> | unde
   return parts;
 }
 
-function buildAgentMessagePromptContent(message: ReturnType<typeof listAgentMessages>[number]): UnifiedGenerateMessage["content"] {
-  const baseText = trimPromptText(message.content, MAX_PROMPT_MESSAGE_CHARS);
+function buildPromptContentWithAttachments(content: unknown, attachments: Array<Record<string, unknown>> | undefined): UnifiedGenerateMessage["content"] {
+  const baseText = trimPromptText(content, MAX_PROMPT_MESSAGE_CHARS);
   const attachmentParts = buildAttachmentParts(
-    Array.isArray(message.attachments) ? message.attachments as Array<Record<string, unknown>> : undefined
+    Array.isArray(attachments) ? attachments : undefined
   );
   if (attachmentParts.length === 0) {
     return baseText;
@@ -297,6 +538,51 @@ function buildAgentMessagePromptContent(message: ReturnType<typeof listAgentMess
     },
     ...attachmentParts
   ];
+}
+
+function buildAgentMessagePromptContent(message: ReturnType<typeof listAgentMessages>[number]): UnifiedGenerateMessage["content"] {
+  return buildPromptContentWithAttachments(
+    message.content,
+    Array.isArray(message.attachments) ? message.attachments as Array<Record<string, unknown>> : undefined
+  );
+}
+
+function buildSteeringNoteSummary(note: {
+  content: string;
+  attachments: unknown[];
+  createdAt: string;
+}) {
+  const lines = ["User correction received during the active run."];
+  const content = sanitizeText(note.content, 4000);
+  if (content) {
+    lines.push(content);
+  }
+  const attachments = Array.isArray(note.attachments)
+    ? note.attachments.filter((item) => item && typeof item === "object").slice(0, 6) as Array<Record<string, unknown>>
+    : [];
+  if (attachments.length > 0) {
+    const attachmentSummary = attachments
+      .map((attachment) => {
+        const filename = sanitizeText(attachment.filename, 160) || "attachment";
+        if (attachment.type === "text" && typeof attachment.content === "string") {
+          return `${filename}: ${sanitizeText(attachment.content, 400)}`;
+        }
+        if (attachment.type === "image") {
+          return `${filename}: [Image attachment]`;
+        }
+        return filename;
+      })
+      .filter(Boolean)
+      .join("\n");
+    if (attachmentSummary) {
+      lines.push(`Attachments:\n${attachmentSummary}`);
+    }
+  }
+  const createdAt = sanitizeText(note.createdAt, 80);
+  if (createdAt) {
+    lines.push(`Received at: ${createdAt}`);
+  }
+  return lines.join("\n\n");
 }
 
 function flattenPromptContent(content: UnifiedGenerateMessage["content"]) {
@@ -312,13 +598,25 @@ function flattenPromptContent(content: UnifiedGenerateMessage["content"]) {
   return parts.join("\n").trim();
 }
 
+function shouldIncludeAgentMessageInPromptHistory(message: ReturnType<typeof listAgentMessages>[number]) {
+  if (message.role === "system" && message.metadata?.hidden) return false;
+  if (message.role === "assistant" && message.metadata?.intermediate === true) return false;
+  if (message.role === "assistant" && message.metadata?.interrupted === true) return false;
+  if (message.role === "user" && message.metadata?.followupIntent === "continuation") return false;
+  if (message.role === "user" && message.metadata?.steering === true) {
+    const content = compactWhitespace(message.content);
+    return content.length > 0 && content.length > 24;
+  }
+  return true;
+}
+
 function buildPromptHistory(params: {
   threadId: string;
   settings: ReturnType<typeof getSettings>;
   fixedContent: string[];
 }): AgentPromptHistorySelection {
   const history = listAgentMessages(params.threadId, MAX_HISTORY_MESSAGES)
-    .filter((message) => message.role !== "system" || !message.metadata?.hidden)
+    .filter(shouldIncludeAgentMessageInPromptHistory)
     .map((message) => ({
       role: message.role,
       originalContent: buildAgentMessagePromptContent(message),
@@ -386,6 +684,47 @@ function latestUserMessageText(threadId: string) {
   return [...messages].reverse().find((message) => message.role === "user")?.content.trim() || "";
 }
 
+function drainSteeringNotes(threadId: string, runId: string) {
+  const queue = activeAgentSteeringNotes.get(threadId) || [];
+  if (queue.length === 0) return [];
+  const matching = queue.filter((note) => note.runId === runId);
+  const remaining = queue.filter((note) => note.runId !== runId);
+  if (remaining.length > 0) {
+    activeAgentSteeringNotes.set(threadId, remaining);
+  } else {
+    activeAgentSteeringNotes.delete(threadId);
+  }
+  return matching;
+}
+
+function applySteeringNotes(params: {
+  threadId: string;
+  runId: string;
+  writeEvent?: (type: string, title: string, content?: string, payload?: Record<string, unknown>) => void;
+  scratchpad?: string[];
+  toolLoopMessages?: Array<Record<string, unknown>>;
+}) {
+  const notes = drainSteeringNotes(params.threadId, params.runId);
+  if (notes.length === 0) return 0;
+  notes.forEach((note, index) => {
+    const summary = buildSteeringNoteSummary(note);
+    params.writeEvent?.("status", "User correction received", summary, {
+      messageId: note.messageId,
+      steering: true,
+      sequence: index + 1
+    });
+    params.scratchpad?.push("[User correction]\nA new user correction arrived after the run started. Re-read the latest user message and incorporate it before continuing.");
+    params.toolLoopMessages?.push({
+      role: "user",
+      content: buildPromptContentWithAttachments(
+        note.content || "[Correction message]",
+        Array.isArray(note.attachments) ? note.attachments as Array<Record<string, unknown>> : undefined
+      )
+    });
+  });
+  return notes.length;
+}
+
 function parseJsonObject(raw: string): Record<string, unknown> | null {
   const trimmed = String(raw || "").trim();
   if (!trimmed) return null;
@@ -410,6 +749,53 @@ function parseJsonObject(raw: string): Record<string, unknown> | null {
     }
   }
   return null;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function toolCallCacheKey(toolName: string, rawArgs: string) {
+  const parsedArgs = parseJsonObject(rawArgs);
+  const normalizedArgs = parsedArgs ? stableStringify(parsedArgs) : sanitizeText(compactWhitespace(rawArgs), 3000);
+  return `${toolName}\n${normalizedArgs}`;
+}
+
+function insertAndEmitAssistantMessage(params: {
+  threadId: string;
+  runId: string;
+  content: string;
+  reasoning?: string;
+  metadata?: Record<string, unknown>;
+  writer?: RuntimeEventWriter;
+}) {
+  const content = sanitizeText(params.content, 12000);
+  const reasoning = sanitizeText(params.reasoning, 12000);
+  if (!content && !reasoning) return null;
+  const message = insertAgentMessage({
+    threadId: params.threadId,
+    runId: params.runId,
+    role: "assistant",
+    content,
+    metadata: {
+      ...(params.metadata || {}),
+      reasoning: reasoning || undefined
+    }
+  });
+  if (message) {
+    params.writer?.emitMessage(message);
+    params.writer?.clearDraft();
+  }
+  return message;
 }
 
 function extractJsonStringField(raw: string, fieldNames: string[], maxLength: number) {
@@ -438,7 +824,8 @@ function salvageAgentStep(raw: string): AgentStepResult | null {
   const summary = extractJsonStringField(raw, ["summary"], 600);
   const assistantMessage = extractJsonStringField(raw, ["assistantMessage", "assistant_message", "message"], 8000);
   const statusMatch = String(raw || "").match(/"status"\s*:\s*"(continue|needs_user|done)"/i);
-  const status = statusMatch?.[1]?.toLowerCase() === "needs_user" ? "needs_user" : "done";
+  const rawStatus = statusMatch?.[1]?.toLowerCase();
+  const status = rawStatus === "continue" || rawStatus === "needs_user" ? rawStatus : "done";
   if (!summary && !assistantMessage) return null;
   return {
     summary,
@@ -468,10 +855,17 @@ function normalizeToolCalls(raw: unknown): Array<{ tool: string; arguments: Reco
       const row = item as Record<string, unknown>;
       const tool = sanitizeText(row.tool ?? row.name, 200);
       const reason = sanitizeText(row.reason ?? row.why, 400);
-      const argsRaw = row.arguments;
-      const args = argsRaw && typeof argsRaw === "object" && !Array.isArray(argsRaw)
-        ? argsRaw as Record<string, unknown>
-        : {};
+      const args = [row.arguments, row.args, row.argumentsJson, row.arguments_json]
+        .reduce<Record<string, unknown> | null>((current, candidate) => {
+          if (current) return current;
+          if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+            return candidate as Record<string, unknown>;
+          }
+          if (typeof candidate === "string") {
+            return parseJsonObject(candidate);
+          }
+          return null;
+        }, null) || {};
       if (!tool) return null;
       return { tool, arguments: args, reason };
     })
@@ -518,10 +912,25 @@ function normalizeAgentStep(raw: Record<string, unknown>): AgentStepResult {
 function messageLooksLikeIntermediateProgress(message: string) {
   const normalized = compactWhitespace(String(message || "")).toLowerCase();
   if (!normalized) return false;
-  const startsLikeProgress = /^(first|first,|next|next,|i(?:'|’)ll|i will|let me|starting by|going to|сначала|сперва|для начала|сейчас|сначала быстро|я сначала|я посмотрю|я проверю)/i.test(normalized);
-  const hasProgressVerb = /(inspect|check|look|review|search|read|open|edit|change|update|fix|implement|run|compare|analy[sz]e|посмотр|провер|изучу|откро|внес|исправ|обнов|запущ|сравн|проанализ)/i.test(normalized);
+  const startsLikeProgress = /^(first|first,|next|next,|i(?:'|’)ll|i will|let me|starting by|going to|ok|okay|got it|understood|working on it|need to start|need to begin|i need to|i should|сначала|сперва|для начала|сейчас|сначала быстро|я сначала|я посмотрю|я проверю|понял|поняла|ок|хорошо|приступаю|начну|начинаю|начинаем|продолжаю|нужно начать|надо начать|нужно сначала|надо сначала|нужно продолжить|надо продолжить|сейчас посмотрю|сейчас проверю|посмотрю|проверю|осмотрю)/i.test(normalized);
+  const hasProgressVerb = /(inspect|check|look|review|search|read|open|edit|change|update|fix|implement|run|compare|start|begin|analy[sz]e|create|write|build|посмотр|провер|изучу|откро|внес|исправ|обнов|запущ|сравн|проанализ|начн|приступ|сделаю|осмотр|созда|напиш|собер|подготов|выполн)/i.test(normalized);
   const soundsFinal = /(done|completed|finished|implemented|fixed|updated|here('| i)?s|result|готово|сделал|заверш|исправил|обновил|итог|результат|наш[её]л|подготовил)/i.test(normalized);
   return startsLikeProgress && hasProgressVerb && !soundsFinal;
+}
+
+export function isPotentialAgentFollowupCueText(rawInput: unknown) {
+  const source = String(rawInput || "").replace(/\r\n?/g, "\n").trim();
+  const normalized = compactWhitespace(source).toLowerCase();
+  if (!normalized || normalized.length > 180) return false;
+  if (source.includes("\n") || /[?？]/.test(source)) return false;
+  if (/[-_]/.test(source)) return false;
+  if (/```|https?:\/\/|www\.|[{}[\]();=<>]/i.test(source)) return false;
+  if (/(?:^|[\s/\\])[\w.-]+\.(?:ts|tsx|js|jsx|json|md|css|html|py|go|rs|java|kt|swift|c|cpp|h|hpp|toml|yaml|yml)(?:\b|$)/i.test(source)) return false;
+
+  const tokens = normalized.match(/[\p{L}\p{N}][\p{L}\p{N}'_-]*/gu) || [];
+  if (tokens.length === 0 || tokens.length > 8) return false;
+  if (tokens.some((token) => token.length > 36)) return false;
+  return true;
 }
 
 function userAskedForAPlan(rawInput: string) {
@@ -536,6 +945,36 @@ function userAskedForExecution(rawInput: string) {
   return /(fix|implement|change|update|edit|review|inspect|search|find|run|build|test|refactor|open|look at|workspace|project|repo|code|landing|page|style|css|html|исправ|сделай|реализ|обнов|измени|проверь|посмотр|найди|запусти|проект|код|лендинг|страниц|css|html)/i.test(normalized);
 }
 
+function userAskedForWorkspaceMutation(rawInput: string) {
+  const normalized = compactWhitespace(String(rawInput || "")).toLowerCase();
+  if (!normalized) return false;
+  if (/(do not edit|don't edit|without editing|no file changes|only explain|только объясни|не редактируй|без изменений|не меняй файлы|в чат)/i.test(normalized)) {
+    return false;
+  }
+  return /(fix|implement|change|update|edit|write|create|add|remove|delete|refactor|modify|patch|make|style|css|html|landing|page|component|исправ|сделай|реализ|обнов|измени|добав|удал|созд|напиши|поправ|редач|отрефактор|сверст|верстк|стил|лендинг|страниц|компонент|код)/i.test(normalized);
+}
+
+function messageLooksLikeCodeInsteadOfWorkspaceEdit(message: string) {
+  const source = String(message || "").trim();
+  if (!source) return false;
+  const hasCodeFence = /```/.test(source);
+  const hasCodeShape = /(<[a-z][\s\S]*>|(?:^|\n)\s*(?:const|let|var|function|class|interface|type|import|export)\s|(?:^|\n)\s*[.#]?[A-Za-z0-9_-]+\s*\{)/.test(source);
+  const suggestsManualApply = /(paste|replace|put this|use this code|copy this|встав|замени|скопируй|используй этот код|код ниже)/i.test(source);
+  return hasCodeFence || (hasCodeShape && suggestsManualApply);
+}
+
+function hasWorkspaceEditTools(toolbox: PreparedAgentToolbox | null | undefined) {
+  return Boolean(toolbox?.tools.some((tool) => WORKSPACE_EDIT_TOOL_NAMES.has(sanitizeText(tool.function.name, 200))));
+}
+
+function isReadOnlyWorkspaceTool(toolName: string) {
+  return WORKSPACE_READ_ONLY_TOOL_NAMES.has(toolName);
+}
+
+function isWorkspaceEditTool(toolName: string) {
+  return WORKSPACE_EDIT_TOOL_NAMES.has(toolName);
+}
+
 function shouldContinueAfterIntermediateReply(params: {
   threadId: string;
   stepResult: AgentStepResult;
@@ -548,6 +987,24 @@ function shouldContinueAfterIntermediateReply(params: {
   if (params.stepResult.status !== "done") return false;
   if (params.stepResult.toolCalls.length > 0 || params.stepResult.subagents.length > 0) return false;
   if (!messageLooksLikeIntermediateProgress(params.stepResult.assistantMessage)) return false;
+  const thread = getAgentThread(params.threadId);
+  if (thread?.mode === "ask") return false;
+  const latestInput = latestUserMessageText(params.threadId);
+  if (!userAskedForExecution(latestInput)) return false;
+  if (userAskedForAPlan(latestInput)) return false;
+  return true;
+}
+
+function shouldContinueDirectToolLoopAfterIntermediateReply(params: {
+  threadId: string;
+  message: string;
+  toolbox: PreparedAgentToolbox | null;
+  assistantPasses: number;
+  maxAssistantPasses: number;
+}) {
+  if (params.assistantPasses >= params.maxAssistantPasses) return false;
+  if (!params.toolbox?.tools.length) return false;
+  if (!messageLooksLikeIntermediateProgress(params.message)) return false;
   const thread = getAgentThread(params.threadId);
   if (thread?.mode === "ask") return false;
   const latestInput = latestUserMessageText(params.threadId);
@@ -618,7 +1075,13 @@ async function prepareToolbox(threadId: string): Promise<PreparedAgentToolbox | 
   if (includeFileTools || includeCommandTool) {
     const workspaceTools = prepareWorkspaceTools(thread.workspaceRoot || process.cwd(), {
       includeFileTools,
-      includeCommandTool
+      includeCommandTool,
+      securityPolicy: {
+        allowDangerousFileOps: settings.agentDangerousFileOpsEnabled === true,
+        allowNetworkCommands: settings.agentNetworkCommandsEnabled === true,
+        allowShellCommands: settings.agentShellCommandsEnabled === true,
+        allowGitWriteCommands: settings.agentGitWriteCommandsEnabled === true
+      }
     });
     toolboxes.push({
       tools: workspaceTools.tools as AgentTool[],
@@ -747,15 +1210,104 @@ function buildMemoryNote(threadId: string) {
   ].join("\n");
 }
 
-function buildWorkspaceContextNote(threadId: string) {
+function findInstructionRoot(startDir: string) {
+  let current = resolve(startDir || process.cwd());
+  while (true) {
+    if (existsSync(resolve(current, ".git"))) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return current;
+    }
+    current = parent;
+  }
+}
+
+function buildProjectInstructionsNote(threadId: string) {
   const thread = getAgentThread(threadId);
-  const workspaceRoot = sanitizeText(thread?.workspaceRoot, 1200);
-  if (!workspaceRoot) return "";
+  const workspaceRoot = sanitizeText(thread?.workspaceRoot, 1200) || process.cwd();
+  const instructionRoot = findInstructionRoot(workspaceRoot);
+  const directories: string[] = [];
+  let cursor = resolve(workspaceRoot);
+  while (true) {
+    directories.push(cursor);
+    if (cursor === instructionRoot) break;
+    const parent = dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
+  }
+  directories.reverse();
+
+  const sections: string[] = [];
+  let consumedChars = 0;
+  for (const directory of directories) {
+    for (const filename of AGENT_PROJECT_DOC_FILENAMES) {
+      const filePath = resolve(directory, filename);
+      try {
+        if (!statSync(filePath).isFile()) continue;
+        const raw = readFileSync(filePath, "utf8").replace(/\r\n?/g, "\n").trim();
+        if (!raw) continue;
+        const relativePath = relative(instructionRoot, filePath).split("\\").join("/") || filename;
+        const availableChars = MAX_PROJECT_INSTRUCTIONS_CHARS - consumedChars;
+        if (availableChars <= 0) break;
+        const content = raw.length > availableChars
+          ? `${raw.slice(0, Math.max(0, availableChars - 18))}\n\n[Instructions truncated]`
+          : raw;
+        const section = `[${relativePath}]\n${content}`;
+        sections.push(section);
+        consumedChars += section.length + 2;
+      } catch {
+        // Ignore unreadable instruction files.
+      }
+    }
+    if (consumedChars >= MAX_PROJECT_INSTRUCTIONS_CHARS) break;
+  }
+
+  if (sections.length === 0) return "";
   return [
-    `Agent workspace root: ${workspaceRoot}`,
-    "Treat this as the default working folder for file tools and workspace commands.",
-    "Prefer relative paths inside this root unless the user explicitly changes the workspace."
+    "Project instructions collected from scoped AGENTS files. More specific files appear later and take precedence when they conflict.",
+    ...sections
+  ].join("\n\n");
+}
+
+function buildEnvironmentContextNote(threadId: string) {
+  const thread = getAgentThread(threadId);
+  const workspaceRoot = sanitizeText(thread?.workspaceRoot, 1200) || process.cwd();
+  const shell = sanitizeText(process.env.SHELL, 120) || "sh";
+  return [
+    "<environment_context>",
+    `  <cwd>${workspaceRoot}</cwd>`,
+    `  <shell>${shell}</shell>`,
+    "</environment_context>",
+    "This selected workspace root is the default working folder for file tools and workspace commands."
   ].join("\n");
+}
+
+function buildDeveloperMessage(threadId: string, extraRules: string[]) {
+  const thread = getAgentThread(threadId);
+  const settings = getSettings();
+  const securityRules = [
+    settings.agentDangerousFileOpsEnabled === true
+      ? "Dangerous file operations are enabled for this agent runtime."
+      : "Dangerous file operations are blocked unless the user explicitly enables them in Settings.",
+    settings.agentNetworkCommandsEnabled === true
+      ? "Network-reaching workspace commands are enabled for this agent runtime."
+      : "Network-reaching workspace commands are blocked unless the user explicitly enables them in Settings.",
+    settings.agentShellCommandsEnabled === true
+      ? "Shell-style and inline-script commands are enabled for this agent runtime."
+      : "Shell-style and inline-script commands are blocked unless the user explicitly enables them in Settings.",
+    settings.agentGitWriteCommandsEnabled === true
+      ? "Git write commands are enabled for this agent runtime."
+      : "Git write commands are blocked unless the user explicitly enables them in Settings."
+  ];
+  return [
+    thread?.mode ? `Current mode: ${thread.mode}.` : "",
+    buildModePolicy(thread?.mode),
+    sanitizeText(thread?.developerPrompt, 8000),
+    ...securityRules,
+    ...extraRules
+  ].filter(Boolean).join("\n");
 }
 
 function buildModePolicy(mode: unknown) {
@@ -776,6 +1328,8 @@ function buildModePolicy(mode: unknown) {
   return [
     "- Prefer concrete progress, implementation steps, and verification over analysis-only replies.",
     "- Use tools when they unlock execution or validation.",
+    "- For code/file changes, modify files in the selected workspace with edit tools instead of pasting replacement code into chat.",
+    "- Adapt the workflow to the task: inspect first when the area is unfamiliar, prefer targeted edits, and verify the result when the change is risky, broad, or explicitly requested.",
     "- Use subagents for bounded side tasks that unblock the main goal."
   ].join("\n");
 }
@@ -812,37 +1366,52 @@ function buildDirectReplyMessages(params: {
 }): UnifiedGenerateMessage[] {
   const thread = getAgentThread(params.threadId);
   const memoryNote = buildMemoryNote(params.threadId);
-  const workspaceNote = buildWorkspaceContextNote(params.threadId);
+  const projectInstructionsNote = buildProjectInstructionsNote(params.threadId);
+  const environmentContextNote = buildEnvironmentContextNote(params.threadId);
   const enabledSkillInstructions = buildEnabledSkillInstructions(params.threadId);
   const baseSystemPrompt = [
     "You are Vellium Agent.",
-    thread?.systemPrompt || "",
-    thread?.mode ? `Current mode: ${thread.mode}.` : "",
-    buildModePolicy(thread?.mode),
+    thread?.systemPrompt || ""
+  ].filter(Boolean).join("\n");
+  const developerMessage = buildDeveloperMessage(params.threadId, [
     "Answer directly when the user request is simple.",
     "Do not mention internal planning, orchestration, skills, or tool policy unless the user explicitly asks."
-  ].filter(Boolean).join("\n");
+  ]);
   const historySelection = buildPromptHistory({
     threadId: params.threadId,
     settings: params.settings,
-    fixedContent: [baseSystemPrompt, workspaceNote, memoryNote, enabledSkillInstructions, ...(params.extraContext || [])]
+    fixedContent: [
+      baseSystemPrompt,
+      developerMessage,
+      projectInstructionsNote,
+      environmentContextNote,
+      memoryNote,
+      enabledSkillInstructions,
+      ...(params.extraContext || [])
+    ]
   });
   const messages: UnifiedGenerateMessage[] = [{
     role: "system",
     content: baseSystemPrompt
   }];
-  if (workspaceNote) {
-    messages.push({ role: "system", content: workspaceNote });
+  if (developerMessage) {
+    messages.push({ role: "developer", content: developerMessage });
+  }
+  if (projectInstructionsNote) {
+    messages.push({ role: "user", content: projectInstructionsNote });
+  }
+  if (environmentContextNote) {
+    messages.push({ role: "user", content: environmentContextNote });
   }
   if (memoryNote) {
-    messages.push({ role: "system", content: memoryNote });
+    messages.push({ role: "developer", content: memoryNote });
   }
   if (enabledSkillInstructions) {
-    messages.push({ role: "system", content: `Enabled skills:\n${enabledSkillInstructions}` });
+    messages.push({ role: "developer", content: `Enabled skills:\n${enabledSkillInstructions}` });
   }
   for (const note of params.extraContext || []) {
     if (!note) continue;
-    messages.push({ role: "system", content: note });
+    messages.push({ role: "developer", content: note });
   }
   if (historySelection.compactedNote) {
     messages.push({ role: "system", content: historySelection.compactedNote });
@@ -854,41 +1423,70 @@ function buildDirectReplyMessages(params: {
 function buildDirectToolLoopMessages(params: {
   threadId: string;
   settings: ReturnType<typeof getSettings>;
+  tools?: AgentTool[];
   extraContext?: string[];
 }): Array<Record<string, unknown>> {
   const thread = getAgentThread(params.threadId);
   const memoryNote = buildMemoryNote(params.threadId);
-  const workspaceNote = buildWorkspaceContextNote(params.threadId);
+  const projectInstructionsNote = buildProjectInstructionsNote(params.threadId);
+  const environmentContextNote = buildEnvironmentContextNote(params.threadId);
   const enabledSkillInstructions = buildEnabledSkillInstructions(params.threadId);
+  const toolCatalog = buildToolCatalog(params.tools || []);
   const baseSystemPrompt = [
     "You are Vellium Agent operating inside a selectable workspace.",
-    thread?.systemPrompt || "",
-    thread?.mode ? `Current mode: ${thread.mode}.` : "",
-    buildModePolicy(thread?.mode),
-    "Work like a coding agent: inspect first, use tools when they materially help, and chain multiple tool calls when the task requires it.",
-    "Keep user-facing text compact. Prefer action over meta-commentary."
+    thread?.systemPrompt || ""
   ].filter(Boolean).join("\n");
+  const developerMessage = buildDeveloperMessage(params.threadId, [
+    "Work like a coding agent: inspect first, use tools when they materially help, and chain multiple tool calls when the task requires it.",
+    "When the user asks to create, fix, update, refactor, style, or otherwise change project files, apply the change with workspace_write_file, workspace_multi_edit, workspace_replace_text, or workspace_insert_text. Do not dump code into chat as a substitute for editing files.",
+    "Prefer targeted edit tools such as multi-edit, replace-text, and insert-text over full rewrites when the change is local.",
+    "Avoid repeated read-only calls. If you already inspected the relevant file/range, move to an edit tool or explain what blocks the edit.",
+    "After editing, summarize changed files and verification. Only include large code blocks when the user explicitly asks for code in chat.",
+    "Use an adaptive workflow instead of forcing the same sequence on every task.",
+    "If the change is small and obvious, keep the loop short. If the change is risky or broad, inspect the result and verify before finalizing.",
+    "Keep user-facing text compact. Prefer action over meta-commentary.",
+    "When native function calling is unavailable or unreliable, request tools in plain text using exactly this format and no extra prose:",
+    "[TOOL_REQUEST]",
+    "{\"name\":\"exact_tool_name\",\"arguments\":{}}",
+    "[END_TOOL_REQUEST]",
+    "Available tools:",
+    toolCatalog
+  ]);
   const historySelection = buildPromptHistory({
     threadId: params.threadId,
     settings: params.settings,
-    fixedContent: [baseSystemPrompt, workspaceNote, memoryNote, enabledSkillInstructions, ...(params.extraContext || [])]
+    fixedContent: [
+      baseSystemPrompt,
+      developerMessage,
+      projectInstructionsNote,
+      environmentContextNote,
+      memoryNote,
+      enabledSkillInstructions,
+      ...(params.extraContext || [])
+    ]
   });
   const messages: Array<Record<string, unknown>> = [{
     role: "system",
     content: baseSystemPrompt
   }];
-  if (workspaceNote) {
-    messages.push({ role: "system", content: workspaceNote });
+  if (developerMessage) {
+    messages.push({ role: "developer", content: developerMessage });
+  }
+  if (projectInstructionsNote) {
+    messages.push({ role: "user", content: projectInstructionsNote });
+  }
+  if (environmentContextNote) {
+    messages.push({ role: "user", content: environmentContextNote });
   }
   if (memoryNote) {
-    messages.push({ role: "system", content: memoryNote });
+    messages.push({ role: "developer", content: memoryNote });
   }
   if (enabledSkillInstructions) {
-    messages.push({ role: "system", content: `Enabled skills:\n${enabledSkillInstructions}` });
+    messages.push({ role: "developer", content: `Enabled skills:\n${enabledSkillInstructions}` });
   }
   for (const note of params.extraContext || []) {
     if (!note) continue;
-    messages.push({ role: "system", content: note });
+    messages.push({ role: "developer", content: note });
   }
   if (historySelection.compactedNote) {
     messages.push({ role: "system", content: historySelection.compactedNote });
@@ -924,14 +1522,15 @@ function shouldUseDirectToolLoop(params: {
   launchIntent?: AgentLaunchIntent;
   extraContext?: string[];
 }) {
-  if (!params.toolbox?.tools.length || params.launchIntent || (params.extraContext?.length || 0) > 0) return false;
+  if (!params.toolbox?.tools.length) return false;
   const thread = getAgentThread(params.threadId);
   const { provider } = resolveProviderForThread(params.threadId);
-  if (!provider || String(provider.provider_type || "openai") !== "openai") return false;
+  if (!provider) return false;
   const latestInput = latestUserMessageText(params.threadId);
   if (!latestInput && thread?.mode !== "build") return false;
   if (shouldUseDirectReplyPath(params)) return false;
   if (latestInput.length > 2400) return false;
+  const hasContinuationContext = !params.launchIntent && (params.extraContext?.length || 0) > 0;
   const toolNames = new Set(params.toolbox.tools.map((tool) => sanitizeText(tool.function.name, 200)).filter(Boolean));
   const hasCommandTool = toolNames.has("workspace_run_command");
   const hasFileTools = [
@@ -945,10 +1544,14 @@ function shouldUseDirectToolLoop(params: {
   const fileCue = /(file|workspace|directory|folder|code|bug|fix|implement|change|search|read|edit|repo|project|grep|inspect|analy[sz]e|проект|файл|директор|папк|исправ|реализ|проверь|найди|прочитай|поиск|код)/i;
   const wantsCommandPath = commandCue.test(latestInput);
   const wantsFilePath = fileCue.test(latestInput);
-  if (thread?.mode === "research") {
-    return (hasCommandTool || hasFileTools) && (latestInput.split(/\s+/).length > 4 || wantsCommandPath || wantsFilePath);
+  const wantsMutationPath = userAskedForWorkspaceMutation(latestInput);
+  if (hasContinuationContext && thread?.mode !== "ask") {
+    return hasCommandTool || hasFileTools;
   }
-  if (thread?.mode === "build" && (wantsCommandPath || wantsFilePath)) {
+  if (thread?.mode === "research") {
+    return (hasCommandTool || hasFileTools) && (latestInput.split(/\s+/).length > 4 || wantsCommandPath || wantsFilePath || wantsMutationPath);
+  }
+  if (thread?.mode === "build" && (wantsCommandPath || wantsFilePath || wantsMutationPath)) {
     return (wantsCommandPath && hasCommandTool) || (wantsFilePath && hasFileTools) || (hasCommandTool && hasFileTools);
   }
   if (wantsCommandPath && hasCommandTool) return true;
@@ -973,13 +1576,12 @@ function buildPlannerMessages(params: {
   const activeSkillInstructions = buildActiveSkillInstructions(skills, params.activeSkillIds);
   const modePolicy = buildModePolicy(thread?.mode);
   const memoryNote = buildMemoryNote(params.threadId);
-  const workspaceNote = buildWorkspaceContextNote(params.threadId);
+  const projectInstructionsNote = buildProjectInstructionsNote(params.threadId);
+  const environmentContextNote = buildEnvironmentContextNote(params.threadId);
 
   const runtimePrompt = [
     "You are the Vellium Agent runtime.",
     thread?.systemPrompt || "",
-    thread?.mode ? `Current mode: ${thread.mode}.` : "",
-    workspaceNote,
     "",
     "Available skills:",
     skillCatalog,
@@ -993,6 +1595,10 @@ function buildPlannerMessages(params: {
     `- Remaining subagent budget for this run tree: ${Math.max(0, params.remainingSubagents)}.`,
     "- Return JSON only. No markdown, no prose outside JSON.",
     "- Use exact tool names from the catalog when requesting tool calls.",
+    "- Put tool arguments in toolCalls[].argumentsJson as a serialized JSON object string.",
+    "- For code/file modification requests, request workspace edit tools. Do not put replacement code in assistantMessage instead of changing files.",
+    "- Prefer targeted file edits over full rewrites when the requested change is local.",
+    "- Avoid repeated read-only calls to the same file or query; once enough context is available, edit or ask a focused blocking question.",
     "- agent_log_plan is optional. Use it only when a plan/checkpoint is worth showing in the trace.",
     "- agent_refresh_memory is optional. Use it only when this run materially changes the durable memory.",
     "- Use subagents only for bounded side tasks that can be delegated without blocking the main task.",
@@ -1003,28 +1609,53 @@ function buildPlannerMessages(params: {
     "- Keep assistantMessage concise and directly useful to the user.",
     "",
     "Required JSON shape:",
-    "{\"summary\":\"...\",\"assistantMessage\":\"...\",\"status\":\"continue|needs_user|done\",\"skillIds\":[\"...\"],\"toolCalls\":[{\"tool\":\"exact_name\",\"arguments\":{},\"reason\":\"...\"}],\"subagents\":[{\"title\":\"...\",\"goal\":\"...\",\"role\":\"general|research|builder|reviewer\",\"instructions\":\"...\"}],\"updates\":[\"...\"]}"
+    "{\"summary\":\"...\",\"assistantMessage\":\"...\",\"status\":\"continue|needs_user|done\",\"skillIds\":[\"...\"],\"toolCalls\":[{\"tool\":\"exact_name\",\"argumentsJson\":\"{}\",\"reason\":\"...\"}],\"subagents\":[{\"title\":\"...\",\"goal\":\"...\",\"role\":\"general|research|builder|reviewer\",\"instructions\":\"...\"}],\"updates\":[\"...\"]}"
   ].filter(Boolean).join("\n");
+  const developerMessage = buildDeveloperMessage(params.threadId, [
+    "- You are deciding the next best action for an agent turn.",
+    "- Use the available tool catalog instead of inventing capabilities.",
+    "- Put planner tool arguments in toolCalls[].argumentsJson as a JSON object string.",
+    "- For code/file modification requests, choose workspace edit tools instead of writing patch/code text in assistantMessage.",
+    "- Prefer targeted file edits over full rewrites when the requested change is local."
+  ]);
   const scratchpadNote = params.scratchpad.length > 0 ? `Run scratchpad:\n${buildScratchpadText(params.scratchpad)}` : "";
   const historySelection = buildPromptHistory({
     threadId: params.threadId,
     settings: params.settings,
-    fixedContent: [runtimePrompt, memoryNote, activeSkillInstructions, scratchpadNote, ...(params.extraContext || [])]
+    fixedContent: [
+      runtimePrompt,
+      developerMessage,
+      projectInstructionsNote,
+      environmentContextNote,
+      memoryNote,
+      activeSkillInstructions,
+      scratchpadNote,
+      ...(params.extraContext || [])
+    ]
   });
 
   const messages: UnifiedGenerateMessage[] = [{ role: "system", content: runtimePrompt }];
+  if (developerMessage) {
+    messages.push({ role: "developer", content: developerMessage });
+  }
+  if (projectInstructionsNote) {
+    messages.push({ role: "user", content: projectInstructionsNote });
+  }
+  if (environmentContextNote) {
+    messages.push({ role: "user", content: environmentContextNote });
+  }
   if (memoryNote) {
-    messages.push({ role: "system", content: memoryNote });
+    messages.push({ role: "developer", content: memoryNote });
   }
   if (activeSkillInstructions) {
-    messages.push({ role: "system", content: `Active skill instructions:\n${activeSkillInstructions}` });
+    messages.push({ role: "developer", content: `Active skill instructions:\n${activeSkillInstructions}` });
   }
   if (scratchpadNote) {
-    messages.push({ role: "system", content: scratchpadNote });
+    messages.push({ role: "developer", content: scratchpadNote });
   }
   for (const note of params.extraContext || []) {
     if (!note) continue;
-    messages.push({ role: "system", content: note });
+    messages.push({ role: "developer", content: note });
   }
   if (historySelection.compactedNote) {
     messages.push({ role: "system", content: historySelection.compactedNote });
@@ -1049,34 +1680,55 @@ function buildSynthesisMessages(params: {
   const activeSkillInstructions = buildActiveSkillInstructions(skills, params.activeSkillIds);
   const modePolicy = buildModePolicy(thread?.mode);
   const memoryNote = buildMemoryNote(params.threadId);
-  const workspaceNote = buildWorkspaceContextNote(params.threadId);
+  const projectInstructionsNote = buildProjectInstructionsNote(params.threadId);
+  const environmentContextNote = buildEnvironmentContextNote(params.threadId);
   const baseSystemPrompt = [
     "Write the final user-facing assistant reply for this Vellium agent thread.",
     thread?.systemPrompt || "",
-    thread?.mode ? `Current mode: ${thread.mode}.` : "",
-    workspaceNote,
     modePolicy,
     "Use the gathered scratchpad and keep the answer concise, concrete, and helpful."
   ].filter(Boolean).join("\n");
+  const developerMessage = buildDeveloperMessage(params.threadId, [
+    "Turn the gathered results into a concise final answer.",
+    "Do not expose internal planning or tool policy unless the user explicitly asks."
+  ]);
   const scratchpadNote = `Run scratchpad:\n${buildScratchpadText(params.scratchpad)}`;
   const historySelection = buildPromptHistory({
     threadId: params.threadId,
     settings: params.settings,
-    fixedContent: [baseSystemPrompt, memoryNote, activeSkillInstructions, scratchpadNote, ...(params.extraContext || [])]
+    fixedContent: [
+      baseSystemPrompt,
+      developerMessage,
+      projectInstructionsNote,
+      environmentContextNote,
+      memoryNote,
+      activeSkillInstructions,
+      scratchpadNote,
+      ...(params.extraContext || [])
+    ]
   });
   const messages: UnifiedGenerateMessage[] = [{
     role: "system",
     content: baseSystemPrompt
   }];
+  if (developerMessage) {
+    messages.push({ role: "developer", content: developerMessage });
+  }
+  if (projectInstructionsNote) {
+    messages.push({ role: "user", content: projectInstructionsNote });
+  }
+  if (environmentContextNote) {
+    messages.push({ role: "user", content: environmentContextNote });
+  }
   if (memoryNote) {
-    messages.push({ role: "system", content: memoryNote });
+    messages.push({ role: "developer", content: memoryNote });
   }
   if (activeSkillInstructions) {
-    messages.push({ role: "system", content: `Active skill instructions:\n${activeSkillInstructions}` });
+    messages.push({ role: "developer", content: `Active skill instructions:\n${activeSkillInstructions}` });
   }
   for (const note of params.extraContext || []) {
     if (!note) continue;
-    messages.push({ role: "system", content: note });
+    messages.push({ role: "developer", content: note });
   }
   if (historySelection.compactedNote) {
     messages.push({ role: "system", content: historySelection.compactedNote });
@@ -1101,29 +1753,38 @@ function buildMemoryMessages(params: {
 }): UnifiedGenerateMessage[] {
   const thread = getAgentThread(params.threadId);
   const currentMemory = buildMemoryNote(params.threadId);
-  const workspaceNote = buildWorkspaceContextNote(params.threadId);
+  const environmentContextNote = buildEnvironmentContextNote(params.threadId);
   const baseSystemPrompt = [
     "Update the durable memory for this Vellium agent thread.",
     thread?.systemPrompt || "",
-    workspaceNote,
     "Write plain text only.",
     "Keep only durable context that should influence future runs: stable user preferences, important decisions, artifacts in progress, constraints, tool findings worth keeping, and unresolved next steps.",
     "Exclude temporary chatter and details that are obvious from the latest user request alone.",
     "Keep the summary compact and scannable."
   ].filter(Boolean).join("\n");
+  const developerMessage = buildDeveloperMessage(params.threadId, [
+    "Refresh only durable memory that should influence future runs.",
+    "Do not duplicate the entire conversation."
+  ]);
   const latestSummaryNote = `Latest run summary:\n${sanitizeText(params.summary, 1200) || "No summary."}`;
   const finalMessageNote = sanitizeText(params.finalMessage, 8000);
   const historySelection = buildPromptHistory({
     threadId: params.threadId,
     settings: params.settings,
-    fixedContent: [baseSystemPrompt, currentMemory, latestSummaryNote, finalMessageNote]
+    fixedContent: [baseSystemPrompt, developerMessage, environmentContextNote, currentMemory, latestSummaryNote, finalMessageNote]
   });
   const messages: UnifiedGenerateMessage[] = [{
     role: "system",
     content: baseSystemPrompt
   }];
+  if (developerMessage) {
+    messages.push({ role: "developer", content: developerMessage });
+  }
+  if (environmentContextNote) {
+    messages.push({ role: "user", content: environmentContextNote });
+  }
   if (currentMemory) {
-    messages.push({ role: "system", content: currentMemory });
+    messages.push({ role: "developer", content: currentMemory });
   }
   if (historySelection.compactedNote) {
     messages.push({ role: "system", content: historySelection.compactedNote });
@@ -1192,10 +1853,10 @@ async function refreshThreadMemory(params: {
 }
 
 async function streamTextDeltas(text: string, writer: RuntimeEventWriter) {
-  const chunks = String(text || "").match(/[\s\S]{1,140}/g) ?? [];
+  const chunks = String(text || "").match(/[\s\S]{1,36}/g) ?? [];
   for (const chunk of chunks) {
     writer.emitDelta(chunk);
-    await new Promise((resolve) => setTimeout(resolve, 6));
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
 
@@ -1204,6 +1865,7 @@ async function requestOpenAiToolCompletion(params: {
   modelId: string;
   messages: Array<Record<string, unknown>>;
   tools: AgentTool[];
+  toolChoice?: "auto" | "required";
   samplerConfig: Record<string, unknown>;
   apiParamPolicy: unknown;
   signal: AbortSignal;
@@ -1229,9 +1891,12 @@ async function requestOpenAiToolCompletion(params: {
     },
     body: JSON.stringify({
       model: params.modelId,
-      messages: params.messages,
+      messages: params.messages.map((message) => ({
+        ...message,
+        role: normalizeChatCompletionRole(String(message.role || "user"), params.provider)
+      })),
       tools: params.tools,
-      tool_choice: "auto",
+      tool_choice: params.toolChoice || "auto",
       ...openAiSampling
     }),
     signal: params.signal
@@ -1241,10 +1906,26 @@ async function requestOpenAiToolCompletion(params: {
     throw new Error(errText || `OpenAI-compatible request failed (${response.status})`);
   }
   return await response.json().catch(() => ({})) as {
+    reasoning?: unknown;
+    reasoning_content?: unknown;
+    reasoning_text?: unknown;
+    reasoningText?: unknown;
+    thinking?: unknown;
+    thinking_content?: unknown;
+    thinking_text?: unknown;
+    thinkingText?: unknown;
     choices?: Array<{
       message?: {
         content?: unknown;
         tool_calls?: OpenAIToolCall[];
+        reasoning?: unknown;
+        reasoning_content?: unknown;
+        reasoning_text?: unknown;
+        reasoningText?: unknown;
+        thinking?: unknown;
+        thinking_content?: unknown;
+        thinking_text?: unknown;
+        thinkingText?: unknown;
       };
     }>;
   };
@@ -1255,10 +1936,12 @@ async function requestOpenAiToolCompletionStream(params: {
   modelId: string;
   messages: Array<Record<string, unknown>>;
   tools?: AgentTool[];
+  toolChoice?: "auto" | "required";
   samplerConfig: Record<string, unknown>;
   apiParamPolicy: unknown;
   signal: AbortSignal;
   onAssistantDelta?: (delta: string) => void;
+  onReasoningDelta?: (delta: string) => void;
 }) {
   const baseUrl = normalizeOpenAiBaseUrl(params.provider.base_url);
   const openAiSampling = buildOpenAiSamplingPayload({
@@ -1281,8 +1964,11 @@ async function requestOpenAiToolCompletionStream(params: {
     },
     body: JSON.stringify({
       model: params.modelId,
-      messages: params.messages,
-      ...(params.tools?.length ? { tools: params.tools, tool_choice: "auto" } : {}),
+      messages: params.messages.map((message) => ({
+        ...message,
+        role: normalizeChatCompletionRole(String(message.role || "user"), params.provider)
+      })),
+      ...(params.tools?.length ? { tools: params.tools, tool_choice: params.toolChoice || "auto" } : {}),
       stream: true,
       ...openAiSampling
     }),
@@ -1300,7 +1986,9 @@ async function requestOpenAiToolCompletionStream(params: {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const assistantTextParts: string[] = [];
+  const reasoningParts: string[] = [];
   const streamedToolCalls = new Map<number, OpenAIToolCall>();
+  const thinkState = createThinkStreamState();
   let buffer = "";
 
   const processEventBlock = (eventBlock: string) => {
@@ -1314,10 +2002,22 @@ async function requestOpenAiToolCompletionStream(params: {
       if (eventType === "error" || streamError) {
         throw new Error(streamError || "Provider stream returned an error event");
       }
+      const reasoningDelta = extractOpenAIReasoningDelta(parsed);
+      if (reasoningDelta) {
+        reasoningParts.push(reasoningDelta);
+        params.onReasoningDelta?.(reasoningDelta);
+      }
       const textDelta = extractOpenAiStreamTextDelta(parsed);
       if (textDelta) {
-        assistantTextParts.push(textDelta);
-        params.onAssistantDelta?.(textDelta);
+        const split = consumeThinkChunk(thinkState, textDelta);
+        if (split.reasoning) {
+          reasoningParts.push(split.reasoning);
+          params.onReasoningDelta?.(split.reasoning);
+        }
+        if (split.content) {
+          assistantTextParts.push(split.content);
+          params.onAssistantDelta?.(split.content);
+        }
       }
       const toolCallDeltas = extractOpenAiStreamToolCallDeltas(parsed);
       for (const delta of toolCallDeltas) {
@@ -1368,17 +2068,288 @@ async function requestOpenAiToolCompletionStream(params: {
   for (const eventBlock of flushed.events) {
     processEventBlock(eventBlock);
   }
+  const tail = flushThinkState(thinkState);
+  if (tail.reasoning) {
+    reasoningParts.push(tail.reasoning);
+    params.onReasoningDelta?.(tail.reasoning);
+  }
+  if (tail.content) {
+    assistantTextParts.push(tail.content);
+    params.onAssistantDelta?.(tail.content);
+  }
 
   return {
     choices: [{
       message: {
         content: assistantTextParts.join(""),
+        reasoning: reasoningParts.join("").trim(),
         tool_calls: [...streamedToolCalls.entries()]
           .sort((a, b) => a[0] - b[0])
           .map(([, call]) => call)
       }
     }]
   };
+}
+
+async function requestTextToolCompletion(params: {
+  provider: ProviderRow;
+  modelId: string;
+  messages: Array<Record<string, unknown>>;
+  samplerConfig: Record<string, unknown>;
+  apiParamPolicy: unknown;
+  signal: AbortSignal;
+}) {
+  const result = await unifiedGenerateText({
+    provider: params.provider,
+    modelId: params.modelId,
+    messages: params.messages.map((message) => ({
+      role: String(message.role || "user"),
+      content: message.content
+    })),
+    samplerConfig: params.samplerConfig,
+    apiParamPolicy: params.apiParamPolicy,
+    signal: params.signal
+  });
+  return {
+    reasoning: result.reasoning,
+    choices: [{
+      message: {
+        content: result.content,
+        reasoning: result.reasoning,
+        tool_calls: []
+      }
+    }]
+  };
+}
+
+function isStructuredPlannerFormatError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /response_format|json_schema|json_object|structured|schema|unsupported|not supported|unknown parameter|invalid parameter/i.test(message);
+}
+
+async function requestOpenAiStructuredCompletion(params: {
+  provider: ProviderRow;
+  modelId: string;
+  messages: UnifiedGenerateMessage[];
+  samplerConfig: Record<string, unknown>;
+  apiParamPolicy: unknown;
+  signal: AbortSignal;
+  responseFormat: Record<string, unknown>;
+}) {
+  const baseUrl = normalizeOpenAiBaseUrl(params.provider.base_url);
+  const openAiSampling = buildOpenAiSamplingPayload({
+    samplerConfig: params.samplerConfig,
+    apiParamPolicy: params.apiParamPolicy,
+    fields: ["temperature", "topP", "frequencyPenalty", "presencePenalty", "maxTokens", "stop"],
+    defaults: {
+      temperature: 0.2,
+      topP: 1,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+      maxTokens: 1800
+    }
+  });
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${params.provider.api_key_cipher}`
+    },
+    body: JSON.stringify({
+      model: params.modelId,
+      messages: params.messages.map((message) => ({
+        ...message,
+        role: normalizeChatCompletionRole(String(message.role || "user"), params.provider)
+      })),
+      response_format: params.responseFormat,
+      ...openAiSampling
+    }),
+    signal: params.signal
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(errText || `OpenAI-compatible structured planner request failed (${response.status})`);
+  }
+  const body = await response.json().catch(() => ({})) as {
+    reasoning?: unknown;
+    reasoning_content?: unknown;
+    reasoning_text?: unknown;
+    reasoningText?: unknown;
+    thinking?: unknown;
+    thinking_content?: unknown;
+    thinking_text?: unknown;
+    thinkingText?: unknown;
+    choices?: Array<{
+      message?: {
+        content?: unknown;
+        reasoning?: unknown;
+        reasoning_content?: unknown;
+        reasoning_text?: unknown;
+        reasoningText?: unknown;
+        thinking?: unknown;
+        thinking_content?: unknown;
+        thinking_text?: unknown;
+        thinkingText?: unknown;
+      };
+    }>;
+  };
+  return {
+    content: sanitizeText(normalizeAssistantContent(body.choices?.[0]?.message?.content), 12000),
+    reasoning: sanitizeText(extractOpenAiCompletionReasoning(body), 12000),
+    providerType: "openai" as const
+  };
+}
+
+async function generatePlannerResult(params: {
+  provider: ProviderRow;
+  modelId: string;
+  messages: UnifiedGenerateMessage[];
+  samplerConfig: Record<string, unknown>;
+  apiParamPolicy: unknown;
+  signal: AbortSignal;
+}) {
+  if (String(params.provider.provider_type || "openai") === "openai") {
+    try {
+      return await requestOpenAiStructuredCompletion({
+        ...params,
+        responseFormat: {
+          type: "json_schema",
+          json_schema: {
+            name: "agent_step",
+            strict: true,
+            schema: AGENT_STEP_RESPONSE_SCHEMA
+          }
+        }
+      });
+    } catch (error) {
+      if (!isStructuredPlannerFormatError(error)) {
+        throw error;
+      }
+    }
+
+    try {
+      return await requestOpenAiStructuredCompletion({
+        ...params,
+        responseFormat: { type: "json_object" }
+      });
+    } catch (error) {
+      if (!isStructuredPlannerFormatError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  return unifiedGenerateText({
+    provider: params.provider,
+    modelId: params.modelId,
+    messages: params.messages,
+    samplerConfig: params.samplerConfig,
+    apiParamPolicy: params.apiParamPolicy,
+    signal: params.signal
+  });
+}
+
+export type AgentFollowupIntent = {
+  intent: "continuation" | "new_task" | "unclear";
+  confidence: number;
+  reason: string;
+};
+
+function normalizeFollowupIntent(raw: unknown): AgentFollowupIntent {
+  const parsed = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : {};
+  const intent = parsed.intent === "continuation" || parsed.intent === "new_task" ? parsed.intent : "unclear";
+  const confidence = Number(parsed.confidence);
+  return {
+    intent,
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    reason: sanitizeText(parsed.reason, 500)
+  };
+}
+
+export async function classifyAgentFollowupIntent(params: {
+  threadId: string;
+  latestUserMessage: string;
+  context: {
+    threadMode?: string;
+    previousUserGoal?: string;
+    latestAssistantCheckpoint?: string;
+    recentRunStatus?: string;
+    recentRunSummary?: string;
+  };
+}): Promise<AgentFollowupIntent> {
+  const { provider, modelId, settings } = resolveProviderForThread(params.threadId);
+  if (!provider || !modelId) {
+    return { intent: "unclear", confidence: 0, reason: "No provider/model configured for follow-up classification." };
+  }
+
+  const prompt = [
+    "Classify the latest user message in an autonomous agent thread.",
+    "",
+    "Labels:",
+    "- continuation: the user is primarily telling the agent to resume, proceed, reduce chatter, or correct a perceived lack of progress on the prior task.",
+    "- new_task: the user introduces a new standalone goal, object to create/change, question, file/path, command, or topic.",
+    "- unclear: there is not enough signal to decide.",
+    "",
+    "Choose continuation only when the previous task context is needed to interpret the latest message.",
+    "Do not classify as continuation merely because the message is short.",
+    "",
+    `Thread mode: ${sanitizeText(params.context.threadMode, 80) || "unknown"}`,
+    `Previous user goal:\n${sanitizeText(params.context.previousUserGoal, 3000) || "[none]"}`,
+    `Latest assistant checkpoint:\n${sanitizeText(params.context.latestAssistantCheckpoint, 2000) || "[none]"}`,
+    `Recent run status: ${sanitizeText(params.context.recentRunStatus, 80) || "unknown"}`,
+    `Recent run summary:\n${sanitizeText(params.context.recentRunSummary, 1200) || "[none]"}`,
+    `Latest user message:\n${sanitizeText(params.latestUserMessage, 1000)}`
+  ].join("\n");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3500);
+  try {
+    const messages: UnifiedGenerateMessage[] = [
+      {
+        role: "system",
+        content: "You are a precise intent classifier. Return only the requested JSON object."
+      },
+      {
+        role: "user",
+        content: prompt
+      }
+    ];
+    const result = String(provider.provider_type || "openai") === "openai"
+      ? await requestOpenAiStructuredCompletion({
+        provider,
+        modelId,
+        messages,
+        samplerConfig: settings.samplerConfig,
+        apiParamPolicy: settings.apiParamPolicy,
+        signal: controller.signal,
+        responseFormat: {
+          type: "json_schema",
+          json_schema: {
+            name: "agent_followup_intent",
+            strict: true,
+            schema: FOLLOWUP_INTENT_RESPONSE_SCHEMA
+          }
+        }
+      })
+      : await unifiedGenerateText({
+        provider,
+        modelId,
+        messages,
+        samplerConfig: settings.samplerConfig,
+        apiParamPolicy: settings.apiParamPolicy,
+        signal: controller.signal
+      });
+    return normalizeFollowupIntent(parseJsonObject(result.content));
+  } catch (error) {
+    const reason = error instanceof Error && isAbortLikeMessage(error.message)
+      ? "Follow-up classifier timed out."
+      : "Follow-up classifier failed.";
+    return { intent: "unclear", confidence: 0, reason };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function generateAssistantTextWithOptionalStream(params: {
@@ -1402,11 +2373,13 @@ async function generateAssistantTextWithOptionalStream(params: {
         samplerConfig: params.samplerConfig,
         apiParamPolicy: params.apiParamPolicy,
         signal: params.signal,
-        onAssistantDelta: (delta) => params.writer?.emitDelta(delta)
+        onAssistantDelta: (delta) => params.writer?.emitDelta(delta),
+        onReasoningDelta: (delta) => params.writer?.emitReasoningDelta(delta)
       });
       const content = sanitizeText(normalizeAssistantContent(body.choices?.[0]?.message?.content), 12000);
+      const reasoning = sanitizeText(extractOpenAiCompletionReasoning(body), 12000);
       if (content) {
-        return { content, streamed: true };
+        return { content, reasoning, streamed: true };
       }
     } catch {
       // Fall through to the regular completion path.
@@ -1423,6 +2396,7 @@ async function generateAssistantTextWithOptionalStream(params: {
   });
   return {
     content: sanitizeText(result.content, 12000),
+    reasoning: sanitizeText(result.reasoning, 12000),
     streamed: false
   };
 }
@@ -1453,6 +2427,7 @@ async function runDirectReply(params: {
     return {
       runId: run.id,
       finalMessage: fallback,
+      reasoning: "",
       summary: fallback,
       status: "error",
       streamedResponse: false,
@@ -1472,6 +2447,7 @@ async function runDirectReply(params: {
     return {
       runId: run.id,
       finalMessage: blocked,
+      reasoning: "",
       summary: blocked,
       status: "error",
       streamedResponse: false,
@@ -1505,6 +2481,7 @@ async function runDirectReply(params: {
     return {
       runId: run.id,
       finalMessage,
+      reasoning: result.reasoning,
       summary,
       status: "done",
       streamedResponse: result.streamed,
@@ -1551,6 +2528,7 @@ async function runDirectToolLoop(params: {
     return {
       runId: run.id,
       finalMessage: fallback,
+      reasoning: "",
       summary: fallback,
       status: "error",
       streamedResponse: false,
@@ -1570,6 +2548,7 @@ async function runDirectToolLoop(params: {
     return {
       runId: run.id,
       finalMessage: blocked,
+      reasoning: "",
       summary: blocked,
       status: "error",
       streamedResponse: false,
@@ -1602,48 +2581,164 @@ async function runDirectToolLoop(params: {
   };
 
   try {
+    const availableTools = params.toolbox.tools;
     const workingMessages = buildDirectToolLoopMessages({
       threadId: params.threadId,
       settings,
+      tools: availableTools,
       extraContext: params.extraContext
     });
-    const availableTools = [...params.toolbox.tools, ...AGENT_RUNTIME_TOOL_DEFINITIONS];
     const maxToolCalls = Math.max(2, Math.min(8, (getAgentThread(params.threadId)?.maxIterations || 4) * 2));
     let toolCallsExecuted = 0;
     let assistantPasses = 0;
     let finalMessage = "";
+    let finalReasoning = "";
     let usedSynthesis = false;
     let streamedResponse = false;
     let memoryRefreshRequested = false;
 
-    while (toolCallsExecuted < maxToolCalls && assistantPasses < Math.max(3, getAgentThread(params.threadId)?.maxIterations || 4)) {
+    const maxAssistantPasses = Math.max(3, getAgentThread(params.threadId)?.maxIterations || 4);
+    const latestUserInput = latestUserMessageText(params.threadId);
+    const hasContinuationContext = (params.extraContext?.length || 0) > 0;
+    const wantsWorkspaceMutation = userAskedForWorkspaceMutation(latestUserInput) && hasWorkspaceEditTools(params.toolbox);
+    const forceInitialTool = (wantsWorkspaceMutation || hasContinuationContext || getAgentThread(params.threadId)?.mode === "build")
+      && availableTools.length > 0;
+    let nativeToolModeAvailable = String(provider.provider_type || "openai") === "openai";
+    const readOnlyToolCache = new Map<string, string>();
+    let readOnlyToolStreak = 0;
+    let workspaceEditCallsExecuted = 0;
+    let antiStallNudgeQueued = false;
+    while (toolCallsExecuted < maxToolCalls && assistantPasses < maxAssistantPasses) {
       if (params.signal.aborted) {
         throw new Error("Aborted");
       }
-      const shouldStreamThisPass = toolCallsExecuted > 0 && Boolean(params.writer);
-      const body = shouldStreamThisPass
-        ? await requestOpenAiToolCompletionStream({
+      if (wantsWorkspaceMutation && workspaceEditCallsExecuted === 0 && readOnlyToolStreak >= READ_ONLY_STALL_THRESHOLD && !antiStallNudgeQueued) {
+        antiStallNudgeQueued = true;
+        writeEvent(
+          "warning",
+          "Read-only loop guard",
+          "The agent has only inspected files so far. Runtime nudged it to apply a workspace edit instead of continuing to read or paste code.",
+          { readOnlyToolStreak }
+        );
+        workingMessages.push({
+          role: "system",
+          content: [
+            "Runtime anti-stall note: the user asked for a code/file change, and the recent tool calls were read-only.",
+            "If you have enough context, call workspace_multi_edit, workspace_replace_text, workspace_insert_text, or workspace_write_file next.",
+            "Do not paste replacement code into chat as the final answer. If a file edit is impossible, state the specific blocker briefly."
+          ].join("\n")
+        });
+      }
+      applySteeringNotes({
+        threadId: params.threadId,
+        runId: run.id,
+        writeEvent,
+        toolLoopMessages: workingMessages
+      });
+      const shouldRequireTool = forceInitialTool && toolCallsExecuted === 0 && assistantPasses === 0;
+      const toolChoice = shouldRequireTool ? "required" : "auto";
+      const shouldStreamThisPass = Boolean(params.writer) && nativeToolModeAvailable;
+      let assistantPassWasStreamed = false;
+      let body: Awaited<ReturnType<typeof requestOpenAiToolCompletion>>;
+      if (nativeToolModeAvailable && shouldStreamThisPass) {
+        try {
+          body = await requestOpenAiToolCompletionStream({
+            provider,
+            modelId,
+            messages: workingMessages,
+            tools: availableTools,
+            toolChoice,
+            samplerConfig: settings.samplerConfig,
+            apiParamPolicy: settings.apiParamPolicy,
+            signal: params.signal,
+            onAssistantDelta: (delta) => params.writer?.emitDelta(delta),
+            onReasoningDelta: (delta) => params.writer?.emitReasoningDelta(delta)
+          });
+          assistantPassWasStreamed = true;
+        } catch (streamError) {
+          const streamMessage = streamError instanceof Error ? streamError.message : "";
+          if (/tool|function|tool_choice|required|unsupported|schema|chat\/completions/i.test(streamMessage)) {
+            nativeToolModeAvailable = false;
+            body = await requestTextToolCompletion({
+              provider,
+              modelId,
+              messages: workingMessages,
+              samplerConfig: settings.samplerConfig,
+              apiParamPolicy: settings.apiParamPolicy,
+              signal: params.signal
+            });
+          } else if (!/stream|sse|event-stream|unsupported/i.test(streamMessage)) {
+            throw streamError;
+          } else {
+            try {
+              body = await requestOpenAiToolCompletion({
+                provider,
+                modelId,
+                messages: workingMessages,
+                tools: availableTools,
+                toolChoice,
+                samplerConfig: settings.samplerConfig,
+                apiParamPolicy: settings.apiParamPolicy,
+                signal: params.signal
+              });
+            } catch (toolError) {
+              const toolMessage = toolError instanceof Error ? toolError.message : "";
+              if (!/tool|function|tool_choice|required|unsupported|schema|chat\/completions/i.test(toolMessage)) {
+                throw toolError;
+              }
+              nativeToolModeAvailable = false;
+              body = await requestTextToolCompletion({
+                provider,
+                modelId,
+                messages: workingMessages,
+                samplerConfig: settings.samplerConfig,
+                apiParamPolicy: settings.apiParamPolicy,
+                signal: params.signal
+              });
+            }
+          }
+        }
+      } else if (nativeToolModeAvailable) {
+        try {
+          body = await requestOpenAiToolCompletion({
+            provider,
+            modelId,
+            messages: workingMessages,
+            tools: availableTools,
+            toolChoice,
+            samplerConfig: settings.samplerConfig,
+            apiParamPolicy: settings.apiParamPolicy,
+            signal: params.signal
+          });
+        } catch (toolError) {
+          const toolMessage = toolError instanceof Error ? toolError.message : "";
+          if (!/tool|function|tool_choice|required|unsupported|schema|chat\/completions/i.test(toolMessage)) {
+            throw toolError;
+          }
+          nativeToolModeAvailable = false;
+          body = await requestTextToolCompletion({
+            provider,
+            modelId,
+            messages: workingMessages,
+            samplerConfig: settings.samplerConfig,
+            apiParamPolicy: settings.apiParamPolicy,
+            signal: params.signal
+          });
+        }
+      } else {
+        body = await requestTextToolCompletion({
           provider,
           modelId,
           messages: workingMessages,
-          tools: availableTools,
-          samplerConfig: settings.samplerConfig,
-          apiParamPolicy: settings.apiParamPolicy,
-          signal: params.signal,
-          onAssistantDelta: (delta) => params.writer?.emitDelta(delta)
-        })
-        : await requestOpenAiToolCompletion({
-          provider,
-          modelId,
-          messages: workingMessages,
-          tools: availableTools,
           samplerConfig: settings.samplerConfig,
           apiParamPolicy: settings.apiParamPolicy,
           signal: params.signal
         });
+      }
       assistantPasses += 1;
       const assistant = body.choices?.[0]?.message;
       const assistantContent = normalizeAssistantContent(assistant?.content);
+      const assistantReasoning = sanitizeText(extractOpenAiCompletionReasoning(body), 12000);
       const availableToolNames = availableTools.map((tool) => tool.function.name);
       const parsedTextToolCalls = extractTextToolCalls(assistantContent, availableToolNames);
       const visibleAssistantContent = parsedTextToolCalls.visibleContent || assistantContent;
@@ -1652,9 +2747,104 @@ async function runDirectToolLoop(params: {
         : parsedTextToolCalls.toolCalls;
 
       if (!toolCalls.length) {
+        const steeringNotesApplied = applySteeringNotes({
+          threadId: params.threadId,
+          runId: run.id,
+          writeEvent,
+          toolLoopMessages: workingMessages
+        });
+        if (steeringNotesApplied > 0) {
+          workingMessages.push({
+            role: "assistant",
+            content: visibleAssistantContent
+          });
+          streamedResponse = false;
+          continue;
+        }
+        if (shouldContinueDirectToolLoopAfterIntermediateReply({
+          threadId: params.threadId,
+          message: visibleAssistantContent,
+          toolbox: params.toolbox,
+          assistantPasses,
+          maxAssistantPasses
+        })) {
+          writeEvent("warning", "Assistant continuation inferred", "Recovered a progress-style reply and continued instead of treating it as the final answer.", { pass: assistantPasses });
+          workingMessages.push({
+            role: "assistant",
+            content: visibleAssistantContent
+          });
+          workingMessages.push({
+            role: "system",
+            content: [
+              "Runtime note: the previous assistant reply looked like an intermediate progress update, not a completed result.",
+              "Continue the task now. If workspace tools are available, the next assistant turn must call a workspace tool instead of another progress update.",
+              "If you cannot call a tool, state the exact blocker briefly."
+            ].join("\n")
+          });
+          finalReasoning = assistantReasoning || finalReasoning;
+          streamedResponse = assistantPassWasStreamed && Boolean(visibleAssistantContent);
+          continue;
+        }
+        if (forceInitialTool && toolCallsExecuted === 0 && assistantPasses < maxAssistantPasses) {
+          writeEvent("warning", "Tool call required", "Runtime requested a concrete tool action instead of accepting a status-only assistant reply.", { pass: assistantPasses });
+          workingMessages.push({
+            role: "assistant",
+            content: visibleAssistantContent
+          });
+          workingMessages.push({
+            role: "system",
+            content: [
+              "Runtime correction: this agent turn requires concrete workspace progress.",
+              "Call one of the available workspace tools now. Do not answer with a plan, greeting, apology, or status-only message.",
+              "If the workspace blocks tool use, provide the exact blocker as the final answer."
+            ].join("\n")
+          });
+          streamedResponse = false;
+          continue;
+        }
+        if (wantsWorkspaceMutation
+          && workspaceEditCallsExecuted === 0
+          && messageLooksLikeCodeInsteadOfWorkspaceEdit(visibleAssistantContent)
+          && assistantPasses < maxAssistantPasses) {
+          writeEvent("warning", "Workspace edit required", "The assistant tried to answer with code instead of editing files. Runtime continued the run and requested an edit tool.", { pass: assistantPasses });
+          workingMessages.push({
+            role: "assistant",
+            content: visibleAssistantContent
+          });
+          workingMessages.push({
+            role: "system",
+            content: [
+              "Runtime correction: this is a coding/file modification task.",
+              "Apply the change to the selected workspace with an edit/write tool. Do not provide a code dump as the final answer unless the user explicitly asked for code only."
+            ].join("\n")
+          });
+          finalReasoning = assistantReasoning || finalReasoning;
+          streamedResponse = false;
+          continue;
+        }
         finalMessage = sanitizeText(visibleAssistantContent, 12000) || finalMessage || "Task complete.";
-        streamedResponse = shouldStreamThisPass && Boolean(finalMessage);
+        finalReasoning = assistantReasoning || finalReasoning;
+        streamedResponse = assistantPassWasStreamed && Boolean(finalMessage);
         break;
+      }
+
+      if (visibleAssistantContent) {
+        insertAndEmitAssistantMessage({
+          threadId: params.threadId,
+          runId: run.id,
+          content: visibleAssistantContent,
+          reasoning: assistantReasoning,
+          metadata: {
+            intermediate: true,
+            toolPass: assistantPasses,
+            toolCallNames: toolCalls
+              .map((call) => sanitizeText(call.function?.name, 200))
+              .filter(Boolean)
+          },
+          writer: params.writer
+        });
+      } else if (assistantReasoning) {
+        params.writer?.clearDraft();
       }
 
       workingMessages.push({
@@ -1697,6 +2887,25 @@ async function runDirectToolLoop(params: {
           continue;
         }
         toolCallsExecuted += 1;
+        const cacheKey = toolCallCacheKey(toolName, toolArgs);
+        if (isReadOnlyWorkspaceTool(toolName) && readOnlyToolCache.has(cacheKey)) {
+          const cached = sanitizeText(readOnlyToolCache.get(cacheKey), 2000);
+          readOnlyToolStreak += 1;
+          writeEvent("warning", "Duplicate read skipped", `Skipped repeated ${toolName}; using the previous result context.`, {
+            tool: toolName,
+            duplicate: true
+          });
+          workingMessages.push({
+            role: "tool",
+            tool_call_id: String(call.id || `${toolName}-${toolCallsExecuted}`),
+            content: [
+              `Duplicate ${toolName} skipped by runtime.`,
+              cached ? `Previous result summary:\n${trimToolContext(cached, 1200)}` : "",
+              wantsWorkspaceMutation ? "For this task, stop repeating read-only calls and use a workspace edit tool when ready." : "Use the previous result context and choose the next action."
+            ].filter(Boolean).join("\n\n")
+          });
+          continue;
+        }
         writeEvent("tool_call", toolName, "Tool requested by agent runtime.", {
           tool: toolName,
           arguments: toolArgs
@@ -1704,6 +2913,16 @@ async function runDirectToolLoop(params: {
         const toolResult = await params.toolbox.executeToolCall(toolName, toolArgs, params.signal);
         const toolText = sanitizeText(toolResult.traceText || toolResult.modelText, 12000);
         writeEvent("tool_result", toolName, toolText, { tool: toolName });
+        if (isWorkspaceEditTool(toolName) && !/^Workspace tool failed/i.test(toolText)) {
+          workspaceEditCallsExecuted += 1;
+          readOnlyToolStreak = 0;
+          antiStallNudgeQueued = false;
+        } else if (isReadOnlyWorkspaceTool(toolName)) {
+          readOnlyToolStreak += 1;
+          readOnlyToolCache.set(cacheKey, toolResult.modelText || toolText);
+        } else {
+          readOnlyToolStreak = 0;
+        }
         workingMessages.push({
           role: "tool",
           tool_call_id: String(call.id || `${toolName}-${toolCallsExecuted}`),
@@ -1730,6 +2949,7 @@ async function runDirectToolLoop(params: {
         writer: params.writer
       });
       finalMessage = result.content || "Task complete.";
+      finalReasoning = result.reasoning || finalReasoning;
       streamedResponse = result.streamed;
     }
 
@@ -1738,6 +2958,7 @@ async function runDirectToolLoop(params: {
     return {
       runId: run.id,
       finalMessage,
+      reasoning: finalReasoning,
       summary,
       status: "done",
       streamedResponse,
@@ -1845,6 +3066,7 @@ async function runAgentLoop(params: {
     return {
       runId: run.id,
       finalMessage: fallback,
+      reasoning: "",
       summary: fallback,
       status: "error",
       streamedResponse: false,
@@ -1866,6 +3088,7 @@ async function runAgentLoop(params: {
     return {
       runId: run.id,
       finalMessage: blocked,
+      reasoning: "",
       summary: blocked,
       status: "error",
       streamedResponse: false,
@@ -1884,6 +3107,7 @@ async function runAgentLoop(params: {
     const scratchpad: string[] = [];
     let activeSkillIds: string[] = [];
     let finalMessage = "";
+    let finalReasoning = "";
     let lastSummary = "";
     let pendingResults = false;
     let stepCount = 0;
@@ -1894,12 +3118,37 @@ async function runAgentLoop(params: {
     let streamedResponse = false;
     let memoryRefreshRequested = false;
     const maxIterations = Math.max(1, Math.min(12, thread.maxIterations || 6));
+    const latestUserInput = latestUserMessageText(params.threadId);
+    const wantsWorkspaceMutation = userAskedForWorkspaceMutation(latestUserInput) && hasWorkspaceEditTools(params.toolbox);
+    const readOnlyToolCache = new Map<string, string>();
+    let readOnlyToolStreak = 0;
+    let workspaceEditCallsExecuted = 0;
+    let antiStallNudgeQueued = false;
 
     for (let step = 1; step <= maxIterations; step += 1) {
       if (params.signal.aborted) {
         throw new Error("Aborted");
       }
       stepCount = step;
+      applySteeringNotes({
+        threadId: params.threadId,
+        runId: run.id,
+        writeEvent,
+        scratchpad
+      });
+      if (wantsWorkspaceMutation && workspaceEditCallsExecuted === 0 && readOnlyToolStreak >= READ_ONLY_STALL_THRESHOLD && !antiStallNudgeQueued) {
+        antiStallNudgeQueued = true;
+        writeEvent(
+          "warning",
+          "Read-only loop guard",
+          "The planner has repeated read-only context gathering. Runtime nudged it to apply a workspace edit or state the blocker.",
+          { step, readOnlyToolStreak }
+        );
+        scratchpad.push([
+          `[Step ${step}] Runtime anti-stall note: the user asked for a code/file change, but recent tool calls were read-only.`,
+          "If enough context is available, request a workspace edit tool next. Do not repeat the same read/search."
+        ].join("\n"));
+      }
 
       const plannerMessages = buildPlannerMessages({
         threadId: params.threadId,
@@ -1912,7 +3161,7 @@ async function runAgentLoop(params: {
         extraContext: params.extraContext
       });
 
-      const plannerResult = await unifiedGenerateText({
+      const plannerResult = await generatePlannerResult({
         provider,
         modelId,
         messages: plannerMessages,
@@ -1920,6 +3169,9 @@ async function runAgentLoop(params: {
         apiParamPolicy: settings.apiParamPolicy,
         signal: params.signal
       });
+      if (plannerResult.reasoning && params.depth === 0) {
+        finalReasoning = sanitizeText(plannerResult.reasoning, 12000) || finalReasoning;
+      }
 
       const parsed = parseJsonObject(plannerResult.content);
       const salvaged = parsed ? null : salvageAgentStep(plannerResult.content);
@@ -1937,6 +3189,8 @@ async function runAgentLoop(params: {
       lastSummary = stepResult.summary || stepResult.assistantMessage || `Completed planning step ${step}`;
       const enabledSkillIds = new Set(listAgentSkills(params.threadId).filter((skill) => skill.enabled).map((skill) => skill.id));
       activeSkillIds = stepResult.skillIds.filter((id) => enabledSkillIds.has(id));
+      const hasExternalToolCalls = stepResult.toolCalls.some((toolCall) => !isAgentRuntimeToolName(sanitizeText(toolCall.tool, 200)));
+      const hasActionableWork = hasExternalToolCalls || stepResult.subagents.length > 0;
 
       const stepReports: string[] = [];
       pendingResults = false;
@@ -1966,6 +3220,23 @@ async function runAgentLoop(params: {
           continue;
         }
         pendingResults = true;
+        const rawArgs = JSON.stringify(toolCall.arguments || {});
+        const cacheKey = toolCallCacheKey(toolName, rawArgs);
+        if (isReadOnlyWorkspaceTool(toolName) && readOnlyToolCache.has(cacheKey)) {
+          const cached = sanitizeText(readOnlyToolCache.get(cacheKey), 2000);
+          readOnlyToolStreak += 1;
+          writeEvent("warning", "Duplicate read skipped", `Skipped repeated ${toolName}; using previous result context.`, {
+            step,
+            tool: toolName,
+            duplicate: true
+          });
+          stepReports.push([
+            `[Duplicate ${toolName} skipped]`,
+            cached ? `Previous result summary:\n${trimToolContext(cached, 1200)}` : "",
+            wantsWorkspaceMutation ? "Runtime note: stop repeating read-only calls and request a workspace edit tool when ready." : "Use the previous result context and choose the next action."
+          ].filter(Boolean).join("\n\n"));
+          continue;
+        }
         toolCallCount += 1;
         writeEvent(
           "tool_call",
@@ -1973,9 +3244,19 @@ async function runAgentLoop(params: {
           toolCall.reason || "Tool requested by planner.",
           { step, tool: toolName, arguments: toolCall.arguments }
         );
-        const toolResult = await params.toolbox.executeToolCall(toolName, JSON.stringify(toolCall.arguments || {}), params.signal);
+        const toolResult = await params.toolbox.executeToolCall(toolName, rawArgs, params.signal);
         const toolText = sanitizeText(toolResult.traceText || toolResult.modelText, 12000);
         writeEvent("tool_result", toolName, toolText, { step, tool: toolName });
+        if (isWorkspaceEditTool(toolName) && !/^Workspace tool failed/i.test(toolText)) {
+          workspaceEditCallsExecuted += 1;
+          readOnlyToolStreak = 0;
+          antiStallNudgeQueued = false;
+        } else if (isReadOnlyWorkspaceTool(toolName)) {
+          readOnlyToolStreak += 1;
+          readOnlyToolCache.set(cacheKey, toolResult.modelText || toolText);
+        } else {
+          readOnlyToolStreak = 0;
+        }
         stepReports.push(`[Tool ${toolName}]\n${trimToolContext(
           toolResult.modelText || toolText,
           normalizeBoundedInteger(settings.agentToolContextChars, 2600, 400, 12000)
@@ -2039,6 +3320,30 @@ async function runAgentLoop(params: {
       }
 
       if (!pendingResults) {
+        const steeringNotesApplied = applySteeringNotes({
+          threadId: params.threadId,
+          runId: run.id,
+          writeEvent,
+          scratchpad
+        });
+        if (steeringNotesApplied > 0) {
+          finalMessage = "";
+          lastSummary = lastSummary || "User correction received";
+          continue;
+        }
+        if (stepResult.status === "continue" && !hasActionableWork && (toolCallCount > 0 || subagentCount > 0 || step > 1)) {
+          const looksIntermediate = messageLooksLikeIntermediateProgress(stepResult.assistantMessage);
+          const shouldPreferSynthesis = looksIntermediate || toolCallCount > 0 || subagentCount > 0;
+          writeEvent(
+            "warning",
+            "Planner continuation stalled",
+            "Planner requested another step without any new tool calls or subagent work. Runtime stopped the loop and finalized from completed work instead of spinning.",
+            { step, repaired: !parsed, looksIntermediate, toolCallsCompleted: toolCallCount, subagentsCompleted: subagentCount }
+          );
+          scratchpad.push(`[Step ${step}] Runtime note: planner requested continue without any new actionable work. Stop the loop and synthesize/finalize from completed work so far.`);
+          finalMessage = shouldPreferSynthesis ? "" : (stepResult.assistantMessage || finalMessage || lastSummary);
+          break;
+        }
         if (shouldContinueAfterIntermediateReply({
           threadId: params.threadId,
           stepResult,
@@ -2058,6 +3363,12 @@ async function runAgentLoop(params: {
       }
     }
 
+    applySteeringNotes({
+      threadId: params.threadId,
+      runId: run.id,
+      writeEvent,
+      scratchpad
+    });
     if (!finalMessage || pendingResults) {
       writeEvent("status", "Synthesizing answer", "Writing the final response.");
       usedSynthesis = true;
@@ -2077,6 +3388,7 @@ async function runAgentLoop(params: {
         writer: params.depth === 0 ? params.writer : undefined
       });
       finalMessage = synthesis.content || finalMessage || lastSummary || "Task complete.";
+      finalReasoning = synthesis.reasoning || finalReasoning;
       streamedResponse = synthesis.streamed;
     }
 
@@ -2085,6 +3397,7 @@ async function runAgentLoop(params: {
     return {
       runId: run.id,
       finalMessage,
+      reasoning: finalReasoning,
       summary,
       status: "done",
       streamedResponse,
@@ -2106,6 +3419,7 @@ async function runAgentLoop(params: {
         return {
           runId: run.id,
           finalMessage: "Subagent aborted.",
+          reasoning: "",
           summary: message,
           status,
           streamedResponse: false,
@@ -2123,6 +3437,7 @@ async function runAgentLoop(params: {
         return {
           runId: run.id,
           finalMessage: message,
+          reasoning: "",
           summary: message,
           status,
           streamedResponse: false,
@@ -2185,19 +3500,42 @@ export async function streamAgentTurn(params: {
     activeAgentAbortControllers.delete(params.threadId);
   });
 
+  let liveDraftContent = "";
+  let liveDraftReasoning = "";
+  let currentRunId: string | null = null;
   const writer: RuntimeEventWriter = {
     emitEvent(event) {
       sendSsePayload(params.res, { type: "agent_event", event });
     },
+    emitMessage(message) {
+      sendSsePayload(params.res, { type: "agent_message", message });
+    },
     emitDelta(delta) {
+      liveDraftContent += delta;
       sendSsePayload(params.res, { type: "delta", delta });
+    },
+    emitReasoningDelta(delta) {
+      liveDraftReasoning += delta;
+      sendSsePayload(params.res, { type: "reasoning_delta", delta });
+    },
+    getDraft() {
+      return {
+        content: liveDraftContent,
+        reasoning: liveDraftReasoning
+      };
+    },
+    clearDraft() {
+      liveDraftContent = "";
+      liveDraftReasoning = "";
     }
   };
+  activeAgentRuntimeWriters.set(params.threadId, writer);
 
   let toolbox: PreparedAgentToolbox | null = null;
   try {
     toolbox = await prepareToolbox(params.threadId);
     const onRunCreated = (runId: string) => {
+      currentRunId = runId;
       if (!params.pendingUserMessageId) return;
       assignAgentMessageRunId(params.threadId, params.pendingUserMessageId, runId);
     };
@@ -2269,18 +3607,19 @@ export async function streamAgentTurn(params: {
         launchIntent: params.launchIntent
       });
     }
-    insertAgentMessage({
-      threadId: params.threadId,
-      runId: result.runId,
-      role: "assistant",
-      content: result.finalMessage,
-      metadata: {
-        summary: result.summary
-      }
-    });
     if (!result.streamedResponse) {
       await streamTextDeltas(result.finalMessage, writer);
     }
+    insertAndEmitAssistantMessage({
+      threadId: params.threadId,
+      runId: result.runId,
+      content: result.finalMessage,
+      reasoning: result.reasoning || undefined,
+      metadata: {
+        summary: result.summary
+      },
+      writer
+    });
     if (shouldRefreshMemoryForRun({
       result,
       launchIntent: params.launchIntent,
@@ -2315,6 +3654,21 @@ export async function streamAgentTurn(params: {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || "Agent run failed");
     const status = isAbortLikeMessage(message) ? "aborted" : "error";
+    const draft = writer.getDraft();
+    if ((draft.content.trim() || draft.reasoning.trim()) && currentRunId) {
+      insertAndEmitAssistantMessage({
+        threadId: params.threadId,
+        runId: currentRunId,
+        content: draft.content.trim() || (status === "aborted" ? "" : "Partial agent response interrupted before completion."),
+        reasoning: draft.reasoning,
+        metadata: {
+          interrupted: true,
+          interruptedStatus: status,
+          interruptedReason: sanitizeText(message, 1000)
+        },
+        writer
+      });
+    }
     setAgentThreadStatus(params.threadId, status === "aborted" ? "idle" : "error");
     sendSsePayload(params.res, {
       type: "agent_event",
@@ -2333,6 +3687,8 @@ export async function streamAgentTurn(params: {
     sendDone(params.res);
   } finally {
     await toolbox?.close().catch(() => undefined);
+    activeAgentRuntimeWriters.delete(params.threadId);
+    activeAgentSteeringNotes.delete(params.threadId);
     activeAgentAbortControllers.delete(params.threadId);
   }
 }

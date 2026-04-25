@@ -1271,7 +1271,69 @@ select {
 }
 
 .agents-simple-event-tool {
-  padding-top: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.agents-simple-event-tool.is-collapsed {
+  border-radius: 14px;
+}
+
+.agents-tool-event-head {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  text-align: left;
+  color: var(--color-text-primary);
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
+}
+
+.agents-tool-event-head:hover {
+  background: var(--color-bg-hover);
+}
+
+.agents-tool-event-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+
+.agents-tool-event-title {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-text-primary);
+}
+
+.agents-tool-event-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.agents-tool-event-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.agents-tool-event-details {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--color-border-subtle);
 }
 
 .agents-simple-streaming {

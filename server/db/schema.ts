@@ -261,6 +261,7 @@ const SCHEMA_SQL = `
     title TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     system_prompt TEXT NOT NULL DEFAULT '',
+    developer_prompt TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'idle',
     mode TEXT NOT NULL DEFAULT 'build',
     hero_character_id TEXT,

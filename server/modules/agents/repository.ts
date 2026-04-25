@@ -285,6 +285,7 @@ function mapThread(row: {
   title: string;
   description: string;
   system_prompt: string;
+  developer_prompt: string;
   status: string;
   mode: string;
   hero_character_id: string | null;
@@ -305,6 +306,7 @@ function mapThread(row: {
     title: row.title,
     description: row.description || "",
     systemPrompt: row.system_prompt || "",
+    developerPrompt: row.developer_prompt || "",
     status: row.status === "running" || row.status === "error" ? row.status : "idle",
     mode: normalizeAgentMode(row.mode),
     heroCharacterId: row.hero_character_id,
@@ -433,6 +435,7 @@ export function listAgentThreads() {
     title: string;
     description: string;
     system_prompt: string;
+    developer_prompt: string;
     status: string;
     mode: string;
     hero_character_id: string | null;
@@ -462,6 +465,7 @@ export function getAgentThread(threadId: string) {
     title: string;
     description: string;
     system_prompt: string;
+    developer_prompt: string;
     status: string;
     mode: string;
     hero_character_id: string | null;
@@ -484,6 +488,7 @@ export function createAgentThread(input?: {
   title?: unknown;
   description?: unknown;
   systemPrompt?: unknown;
+  developerPrompt?: unknown;
   mode?: unknown;
   heroCharacterId?: unknown;
   workspaceRoot?: unknown;
@@ -509,16 +514,22 @@ export function createAgentThread(input?: {
     8000,
     hero ? buildHeroSystemPrompt(hero, hero.profile, mode) : DEFAULT_AGENT_SYSTEM_PROMPT
   ) || (hero ? buildHeroSystemPrompt(hero, hero.profile, mode) : DEFAULT_AGENT_SYSTEM_PROMPT);
+  const baseDeveloperPrompt = sanitizeText(
+    input?.developerPrompt,
+    8000,
+    hero?.profile?.customInstructions || ""
+  );
   db.prepare(`
     INSERT INTO agent_threads (
-      id, title, description, system_prompt, status, mode, hero_character_id, memory_summary, memory_updated_at,
+      id, title, description, system_prompt, developer_prompt, status, mode, hero_character_id, memory_summary, memory_updated_at,
       workspace_root, provider_id, model_id, tool_mode, max_iterations, max_subagents, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     baseTitle,
     baseDescription,
     baseSystemPrompt,
+    baseDeveloperPrompt,
     "idle",
     mode,
     hero?.id || null,
@@ -548,6 +559,7 @@ export function updateAgentThread(threadId: string, patch: {
   title?: unknown;
   description?: unknown;
   systemPrompt?: unknown;
+  developerPrompt?: unknown;
   mode?: unknown;
   heroCharacterId?: unknown;
   workspaceRoot?: unknown;
@@ -565,13 +577,14 @@ export function updateAgentThread(threadId: string, patch: {
   const ts = now();
   db.prepare(`
     UPDATE agent_threads
-    SET title = ?, description = ?, system_prompt = ?, mode = ?, hero_character_id = ?, workspace_root = ?, memory_summary = ?, memory_updated_at = ?, provider_id = ?, model_id = ?, tool_mode = ?,
+    SET title = ?, description = ?, system_prompt = ?, developer_prompt = ?, mode = ?, hero_character_id = ?, workspace_root = ?, memory_summary = ?, memory_updated_at = ?, provider_id = ?, model_id = ?, tool_mode = ?,
         max_iterations = ?, max_subagents = ?, status = ?, updated_at = ?
     WHERE id = ?
   `).run(
     patch.title === undefined ? existing.title : sanitizeText(patch.title, 160, existing.title) || existing.title,
     patch.description === undefined ? existing.description : sanitizeText(patch.description, 500, existing.description),
     patch.systemPrompt === undefined ? existing.systemPrompt : sanitizeText(patch.systemPrompt, 8000, existing.systemPrompt),
+    patch.developerPrompt === undefined ? existing.developerPrompt : sanitizeText(patch.developerPrompt, 8000, existing.developerPrompt),
     patch.mode === undefined ? existing.mode : normalizeAgentMode(patch.mode, existing.mode),
     patch.heroCharacterId === undefined ? existing.heroCharacterId || null : (sanitizeText(patch.heroCharacterId, 120, "") || null),
     patch.workspaceRoot === undefined ? existing.workspaceRoot : normalizeWorkspaceRoot(patch.workspaceRoot, existing.workspaceRoot),
@@ -764,6 +777,63 @@ export function getAgentMessageThreadId(messageId: string) {
   return row?.thread_id || null;
 }
 
+function collectRunBranchIds(threadId: string, seedRunIds: Iterable<string>) {
+  const selected = new Set(Array.from(seedRunIds).filter(Boolean));
+  if (selected.size === 0) return selected;
+  const rows = db.prepare(`
+    SELECT id, parent_run_id
+    FROM agent_runs
+    WHERE thread_id = ?
+  `).all(threadId) as Array<{ id: string; parent_run_id: string | null }>;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows) {
+      if (row.parent_run_id && selected.has(row.parent_run_id) && !selected.has(row.id)) {
+        selected.add(row.id);
+        changed = true;
+      }
+    }
+  }
+  return selected;
+}
+
+function deleteRunArtifactMessages(threadId: string, runIds: Set<string>) {
+  if (runIds.size === 0) return;
+  const placeholders = Array.from(runIds).map(() => "?").join(", ");
+  const rows = db.prepare(`
+    SELECT id, role, metadata_json
+    FROM agent_messages
+    WHERE thread_id = ? AND run_id IN (${placeholders})
+  `).all(threadId, ...Array.from(runIds)) as Array<{
+    id: string;
+    role: string;
+    metadata_json: string | null;
+  }>;
+  const deleteMessage = db.prepare("DELETE FROM agent_messages WHERE id = ? AND thread_id = ?");
+  for (const item of rows) {
+    const metadata = parseJsonObject(item.metadata_json);
+    const isRunArtifact = item.role !== "user"
+      || metadata.steering === true
+      || metadata.followupIntent === "continuation";
+    if (isRunArtifact) {
+      deleteMessage.run(item.id, threadId);
+    }
+  }
+}
+
+function cleanEditedUserMessageMetadata(metadata: Record<string, unknown>, attachments: unknown[]) {
+  const next = { ...metadata };
+  delete next.followupIntent;
+  delete next.followupConfidence;
+  delete next.followupReason;
+  delete next.steeringPending;
+  delete next.steeringForRunId;
+  delete next.steering;
+  next.attachments = attachments;
+  return next;
+}
+
 export function updateAgentMessage(messageId: string, patch: {
   content?: unknown;
   attachments?: unknown[];
@@ -771,10 +841,8 @@ export function updateAgentMessage(messageId: string, patch: {
   const row = getAgentMessageRow(messageId);
   if (!row || row.role !== "user") return null;
   const { metadata } = normalizeMessageMetadata(row.metadata_json);
-  const nextMetadata = {
-    ...metadata,
-    attachments: Array.isArray(patch.attachments) ? patch.attachments : (Array.isArray(metadata.attachments) ? metadata.attachments : [])
-  };
+  const nextAttachments = Array.isArray(patch.attachments) ? patch.attachments : (Array.isArray(metadata.attachments) ? metadata.attachments : []);
+  const nextMetadata = cleanEditedUserMessageMetadata(metadata, nextAttachments);
   const nextContent = patch.content === undefined
     ? row.content
     : sanitizeText(patch.content, 20000, row.content);
@@ -788,6 +856,7 @@ export function updateAgentMessage(messageId: string, patch: {
   for (const laterRow of laterRows) {
     if (laterRow.run_id) pruneRunIds.add(laterRow.run_id);
   }
+  const pruneBranchRunIds = collectRunBranchIds(row.thread_id, pruneRunIds);
 
   const mutate = db.transaction(() => {
     db.prepare(`
@@ -799,7 +868,8 @@ export function updateAgentMessage(messageId: string, patch: {
       DELETE FROM agent_messages
       WHERE thread_id = ? AND rowid > ?
     `).run(row.thread_id, row.rowid);
-    for (const runId of pruneRunIds) {
+    deleteRunArtifactMessages(row.thread_id, pruneBranchRunIds);
+    for (const runId of pruneBranchRunIds) {
       db.prepare("DELETE FROM agent_runs WHERE id = ? AND thread_id = ?").run(runId, row.thread_id);
     }
     db.prepare(`
@@ -825,13 +895,15 @@ export function deleteAgentMessage(messageId: string) {
   for (const item of targetAndLaterRows) {
     if (item.run_id) pruneRunIds.add(item.run_id);
   }
+  const pruneBranchRunIds = collectRunBranchIds(row.thread_id, pruneRunIds);
 
   const mutate = db.transaction(() => {
     db.prepare(`
       DELETE FROM agent_messages
       WHERE thread_id = ? AND rowid >= ?
     `).run(row.thread_id, row.rowid);
-    for (const runId of pruneRunIds) {
+    deleteRunArtifactMessages(row.thread_id, pruneBranchRunIds);
+    for (const runId of pruneBranchRunIds) {
       db.prepare("DELETE FROM agent_runs WHERE id = ? AND thread_id = ?").run(runId, row.thread_id);
     }
     db.prepare(`
@@ -882,18 +954,27 @@ export function forkAgentThreadFromMessage(messageId: string, name?: unknown) {
     metadata_json: string | null;
     created_at: string;
   }>;
+  const forkMessages = sourceMessages.filter((message) => {
+    const metadata = parseJsonObject(message.metadata_json);
+    if (message.role === "assistant" && metadata.intermediate === true) return false;
+    if (message.role === "assistant" && metadata.interrupted === true) return false;
+    if (message.role === "user" && metadata.followupIntent === "continuation") return false;
+    if (message.role === "user" && metadata.steering === true) return false;
+    return true;
+  });
 
   const mutate = db.transaction(() => {
     db.prepare(`
       INSERT INTO agent_threads (
-        id, title, description, system_prompt, status, mode, hero_character_id, memory_summary, memory_updated_at,
+        id, title, description, system_prompt, developer_prompt, status, mode, hero_character_id, memory_summary, memory_updated_at,
         workspace_root, provider_id, model_id, tool_mode, max_iterations, max_subagents, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 'idle', ?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, 'idle', ?, ?, '', NULL, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       newThreadId,
       forkTitle,
       sourceThread.description,
       sourceThread.systemPrompt,
+      sourceThread.developerPrompt,
       sourceThread.mode,
       sourceThread.heroCharacterId || null,
       sourceThread.workspaceRoot,
@@ -928,7 +1009,7 @@ export function forkAgentThreadFromMessage(messageId: string, name?: unknown) {
       INSERT INTO agent_messages (id, thread_id, run_id, role, content, metadata_json, created_at)
       VALUES (?, ?, NULL, ?, ?, ?, ?)
     `);
-    for (const message of sourceMessages) {
+    for (const message of forkMessages) {
       insertMessage.run(
         newId(),
         newThreadId,

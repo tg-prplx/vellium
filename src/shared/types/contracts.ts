@@ -693,6 +693,10 @@ export interface AppSettings {
   agentsEnabled: boolean;
   agentWorkspaceToolsEnabled: boolean;
   agentCommandToolEnabled: boolean;
+  agentDangerousFileOpsEnabled: boolean;
+  agentNetworkCommandsEnabled: boolean;
+  agentShellCommandsEnabled: boolean;
+  agentGitWriteCommandsEnabled: boolean;
   agentAutoCompactEnabled: boolean;
   agentReplyReserveTokens: number;
   agentToolContextChars: number;
@@ -871,6 +875,7 @@ export interface AgentThread {
   title: string;
   description: string;
   systemPrompt: string;
+  developerPrompt: string;
   status: AgentThreadStatus;
   mode: AgentMode;
   heroCharacterId?: Id | null;

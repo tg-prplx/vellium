@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "path";
+import { basename, dirname, isAbsolute, relative, resolve } from "path";
 
 export interface WorkspaceToolDefinition {
   type: "function";
@@ -24,15 +24,24 @@ export interface PreparedWorkspaceTools {
 export interface WorkspaceToolsOptions {
   includeFileTools?: boolean;
   includeCommandTool?: boolean;
+  securityPolicy?: WorkspaceToolSecurityPolicy;
 }
 
 type ToolResult = { modelText: string; traceText: string };
+
+export interface WorkspaceToolSecurityPolicy {
+  allowDangerousFileOps?: boolean;
+  allowNetworkCommands?: boolean;
+  allowShellCommands?: boolean;
+  allowGitWriteCommands?: boolean;
+}
 
 const MAX_LIST_RESULTS = 200;
 const MAX_SEARCH_RESULTS = 80;
 const MAX_FILE_CHARS = 120_000;
 const MAX_WRITE_CHARS = 160_000;
 const MAX_LINE_WINDOW = 400;
+const MAX_MULTI_EDIT_OPERATIONS = 16;
 const MAX_COMMAND_OUTPUT_CHARS = 40_000;
 const BINARY_SAMPLE_BYTES = 4096;
 const DEFAULT_IGNORED_DIRECTORIES = new Set([
@@ -43,6 +52,80 @@ const DEFAULT_IGNORED_DIRECTORIES = new Set([
   "coverage",
   ".next",
   ".turbo"
+]);
+const ALWAYS_BLOCKED_COMMANDS = new Set([
+  "sudo",
+  "su",
+  "doas",
+  "shutdown",
+  "reboot",
+  "halt",
+  "poweroff",
+  "diskutil",
+  "launchctl",
+  "mkfs",
+  "mount",
+  "umount"
+]);
+const NETWORK_COMMANDS = new Set([
+  "curl",
+  "wget",
+  "ssh",
+  "scp",
+  "sftp",
+  "nc",
+  "ncat",
+  "netcat",
+  "ping",
+  "ftp",
+  "telnet",
+  "nmap"
+]);
+const SHELL_COMMANDS = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "dash"
+]);
+const FILE_MUTATION_COMMANDS = new Set([
+  "rm",
+  "mv",
+  "cp",
+  "chmod",
+  "chown",
+  "ln",
+  "mkdir",
+  "rmdir",
+  "touch",
+  "truncate",
+  "dd",
+  "install",
+  "tee"
+]);
+const GIT_WRITE_SUBCOMMANDS = new Set([
+  "add",
+  "am",
+  "apply",
+  "branch",
+  "checkout",
+  "cherry-pick",
+  "clean",
+  "clone",
+  "commit",
+  "fetch",
+  "merge",
+  "pull",
+  "push",
+  "rebase",
+  "reset",
+  "restore",
+  "revert",
+  "rm",
+  "stash",
+  "submodule",
+  "switch",
+  "tag"
 ]);
 
 const WORKSPACE_TOOL_DEFINITIONS: WorkspaceToolDefinition[] = [
@@ -134,6 +217,21 @@ const WORKSPACE_TOOL_DEFINITIONS: WorkspaceToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "workspace_make_directory",
+      description: "Create one directory or a nested directory path inside the current workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Relative directory path to create." }
+        },
+        required: ["path"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "workspace_move_path",
       description: "Move or rename a file or directory inside the current workspace.",
       parameters: {
@@ -160,6 +258,55 @@ const WORKSPACE_TOOL_DEFINITIONS: WorkspaceToolDefinition[] = [
           recursive: { type: "boolean", description: "Allow deleting directories recursively. Defaults to false." }
         },
         required: ["path"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "workspace_multi_edit",
+      description: "Apply multiple exact text edits to one UTF-8 file in a single call. Prefer this over full rewrites for grouped changes.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Relative file path to update." },
+          edits: {
+            type: "array",
+            maxItems: MAX_MULTI_EDIT_OPERATIONS,
+            description: "Ordered exact replacements to apply sequentially.",
+            items: {
+              type: "object",
+              properties: {
+                search: { type: "string", description: "Exact text to find." },
+                replace: { type: "string", description: "Replacement text." },
+                replaceAll: { type: "boolean", description: "Replace every exact match instead of only the first one. Defaults to false." }
+              },
+              required: ["search", "replace"],
+              additionalProperties: false
+            }
+          }
+        },
+        required: ["path", "edits"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "workspace_insert_text",
+      description: "Insert text into a UTF-8 workspace file before or after an exact anchor, or at a 1-based line number.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Relative file path to update." },
+          text: { type: "string", description: "Text to insert." },
+          before: { type: "string", description: "Insert immediately before this exact anchor text." },
+          after: { type: "string", description: "Insert immediately after this exact anchor text." },
+          atLine: { type: "integer", minimum: 1, description: "Insert before this 1-based line number. Use one line past the end to append." }
+        },
+        required: ["path", "text"],
         additionalProperties: false
       }
     }
@@ -271,6 +418,15 @@ function normalizeStringArray(raw: unknown, maxItems: number, maxLength: number)
     .slice(0, maxItems);
 }
 
+function normalizeSecurityPolicy(raw: WorkspaceToolSecurityPolicy | undefined): Required<WorkspaceToolSecurityPolicy> {
+  return {
+    allowDangerousFileOps: raw?.allowDangerousFileOps === true,
+    allowNetworkCommands: raw?.allowNetworkCommands === true,
+    allowShellCommands: raw?.allowShellCommands === true,
+    allowGitWriteCommands: raw?.allowGitWriteCommands === true
+  };
+}
+
 function formatWorkspacePath(rootDir: string, absolutePath: string) {
   const relativePath = relative(rootDir, absolutePath).split("\\").join("/");
   return relativePath || ".";
@@ -292,6 +448,94 @@ async function assertTextFile(filePath: string) {
   if (sample.includes(0)) {
     throw new Error("Binary files are not supported by workspace text tools");
   }
+}
+
+function countExactMatches(content: string, search: string) {
+  if (!search) return 0;
+  let matches = 0;
+  let offset = 0;
+  while (offset <= content.length) {
+    const index = content.indexOf(search, offset);
+    if (index < 0) break;
+    matches += 1;
+    offset = index + Math.max(1, search.length);
+  }
+  return matches;
+}
+
+function describeBlockedCommand(params: {
+  command: string;
+  args: string[];
+  policy: Required<WorkspaceToolSecurityPolicy>;
+}) {
+  const normalizedCommand = basename(params.command || "").toLowerCase();
+  const args = params.args.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
+  const firstArg = args[0] || "";
+
+  if (ALWAYS_BLOCKED_COMMANDS.has(normalizedCommand)) {
+    return `Command "${normalizedCommand}" is blocked by agent security policy.`;
+  }
+  if (!params.policy.allowShellCommands && SHELL_COMMANDS.has(normalizedCommand)) {
+    return `Shell commands like "${normalizedCommand}" are blocked unless shell escapes are explicitly enabled.`;
+  }
+  if (!params.policy.allowShellCommands) {
+    if ((normalizedCommand === "node" && args.some((arg) => arg === "-e" || arg === "--eval"))
+      || ((normalizedCommand === "python" || normalizedCommand === "python3") && args.includes("-c"))
+      || (normalizedCommand === "ruby" && args.includes("-e"))
+      || (normalizedCommand === "perl" && args.includes("-e"))) {
+      return `Inline script execution for "${normalizedCommand}" is blocked unless shell-style commands are explicitly enabled.`;
+    }
+  }
+  if (!params.policy.allowNetworkCommands) {
+    if (NETWORK_COMMANDS.has(normalizedCommand)) {
+      return `Network command "${normalizedCommand}" is blocked unless network access is explicitly enabled for Agents.`;
+    }
+    if ((normalizedCommand === "npm" || normalizedCommand === "pnpm" || normalizedCommand === "yarn" || normalizedCommand === "bun")
+      && args.some((arg) => ["install", "add", "update", "upgrade", "dlx", "create"].includes(arg))) {
+      return `Package manager network/install commands are blocked unless network access is explicitly enabled for Agents.`;
+    }
+    if ((normalizedCommand === "python" || normalizedCommand === "python3")
+      && firstArg === "-m"
+      && args[1] === "pip") {
+      return "pip network/install commands are blocked unless network access is explicitly enabled for Agents.";
+    }
+    if (normalizedCommand === "git" && ["clone", "fetch", "pull", "push", "submodule", "ls-remote"].includes(firstArg)) {
+      return `Git network command "${firstArg}" is blocked unless network access is explicitly enabled for Agents.`;
+    }
+  }
+  if (!params.policy.allowGitWriteCommands && normalizedCommand === "git" && GIT_WRITE_SUBCOMMANDS.has(firstArg)) {
+    return `Git write command "${firstArg}" is blocked unless git write commands are explicitly enabled for Agents.`;
+  }
+  if (!params.policy.allowDangerousFileOps) {
+    if (FILE_MUTATION_COMMANDS.has(normalizedCommand)) {
+      return `File-mutating command "${normalizedCommand}" is blocked unless destructive file operations are explicitly enabled for Agents.`;
+    }
+    if ((normalizedCommand === "sed" || normalizedCommand === "perl") && args.includes("-i")) {
+      return `In-place mutation with "${normalizedCommand} -i" is blocked unless destructive file operations are explicitly enabled for Agents.`;
+    }
+  }
+  return "";
+}
+
+function normalizeEdits(raw: unknown) {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error("workspace_multi_edit requires a non-empty edits array");
+  }
+  return raw.slice(0, MAX_MULTI_EDIT_OPERATIONS).map((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error(`Edit ${index + 1} must be an object`);
+    }
+    const row = entry as Record<string, unknown>;
+    const search = String(row.search ?? "");
+    if (!search) {
+      throw new Error(`Edit ${index + 1} requires search text`);
+    }
+    return {
+      search,
+      replace: String(row.replace ?? ""),
+      replaceAll: normalizeBoolean(row.replaceAll, false)
+    };
+  });
 }
 
 function formatNumberedLines(content: string, startLine: number, endLine: number) {
@@ -508,6 +752,18 @@ async function writeWorkspaceFile(rootDir: string, args: Record<string, unknown>
   };
 }
 
+async function makeWorkspaceDirectory(rootDir: string, args: Record<string, unknown>): Promise<ToolResult> {
+  const inputPath = sanitizeText(args.path, 400);
+  if (!inputPath) throw new Error("workspace_make_directory requires a path");
+  const absoluteDir = ensureInsideWorkspace(rootDir, inputPath);
+  await mkdir(absoluteDir, { recursive: true });
+  const message = `Created directory ${formatWorkspacePath(rootDir, absoluteDir)}.`;
+  return {
+    modelText: message,
+    traceText: message
+  };
+}
+
 async function moveWorkspacePath(rootDir: string, args: Record<string, unknown>): Promise<ToolResult> {
   const fromPath = sanitizeText(args.from, 400);
   const toPath = sanitizeText(args.to, 400);
@@ -545,6 +801,108 @@ async function deleteWorkspacePath(rootDir: string, args: Record<string, unknown
   }
   await rm(absolutePath, { recursive, force: true });
   const message = `Deleted ${formatWorkspacePath(rootDir, absolutePath)}.`;
+  return {
+    modelText: message,
+    traceText: message
+  };
+}
+
+async function multiEditWorkspaceFile(rootDir: string, args: Record<string, unknown>): Promise<ToolResult> {
+  const inputPath = sanitizeText(args.path, 400);
+  if (!inputPath) throw new Error("workspace_multi_edit requires a path");
+  const edits = normalizeEdits(args.edits);
+  const absoluteFile = ensureInsideWorkspace(rootDir, inputPath);
+  const fileStats = await stat(absoluteFile).catch(() => null);
+  if (!fileStats?.isFile()) {
+    throw new Error("File not found");
+  }
+  await assertTextFile(absoluteFile);
+  const original = await readFile(absoluteFile, "utf8");
+  if (original.length > MAX_FILE_CHARS) {
+    throw new Error("File is too large for workspace_multi_edit");
+  }
+
+  let next = original;
+  let totalReplacements = 0;
+  const editSummaries: string[] = [];
+  edits.forEach((edit, index) => {
+    if (!next.includes(edit.search)) {
+      throw new Error(`Edit ${index + 1}: search text not found`);
+    }
+    let replacements = 0;
+    if (edit.replaceAll) {
+      replacements = countExactMatches(next, edit.search);
+      next = next.split(edit.search).join(edit.replace);
+    } else {
+      const firstIndex = next.indexOf(edit.search);
+      replacements = 1;
+      next = `${next.slice(0, firstIndex)}${edit.replace}${next.slice(firstIndex + edit.search.length)}`;
+    }
+    totalReplacements += replacements;
+    editSummaries.push(
+      `Edit ${index + 1}: replacements=${replacements}, replaceAll=${edit.replaceAll ? "yes" : "no"}`
+    );
+  });
+
+  await writeFile(absoluteFile, next, "utf8");
+  const relativePath = formatWorkspacePath(rootDir, absoluteFile);
+  const message = `Updated ${relativePath}. Applied ${edits.length} edit(s) across ${totalReplacements} replacement(s).`;
+  return {
+    modelText: message,
+    traceText: [message, ...editSummaries].join("\n")
+  };
+}
+
+async function insertTextInFile(rootDir: string, args: Record<string, unknown>): Promise<ToolResult> {
+  const inputPath = sanitizeText(args.path, 400);
+  if (!inputPath) throw new Error("workspace_insert_text requires a path");
+  const text = String(args.text ?? "");
+  if (!text) throw new Error("workspace_insert_text requires text");
+  const before = Object.prototype.hasOwnProperty.call(args, "before") ? String(args.before ?? "") : "";
+  const after = Object.prototype.hasOwnProperty.call(args, "after") ? String(args.after ?? "") : "";
+  const hasAtLine = Number.isFinite(Number(args.atLine));
+  const anchorsSpecified = [Boolean(before), Boolean(after), hasAtLine].filter(Boolean).length;
+  if (anchorsSpecified !== 1) {
+    throw new Error("Specify exactly one of before, after, or atLine");
+  }
+
+  const absoluteFile = ensureInsideWorkspace(rootDir, inputPath);
+  const fileStats = await stat(absoluteFile).catch(() => null);
+  if (!fileStats?.isFile()) {
+    throw new Error("File not found");
+  }
+  await assertTextFile(absoluteFile);
+  const original = await readFile(absoluteFile, "utf8");
+  if (original.length > MAX_FILE_CHARS) {
+    throw new Error("File is too large for workspace_insert_text");
+  }
+
+  let next = original;
+  let placement = "";
+  if (before) {
+    const index = original.indexOf(before);
+    if (index < 0) throw new Error("Before anchor not found");
+    next = `${original.slice(0, index)}${text}${original.slice(index)}`;
+    placement = `before the requested anchor`;
+  } else if (after) {
+    const index = original.indexOf(after);
+    if (index < 0) throw new Error("After anchor not found");
+    const insertAt = index + after.length;
+    next = `${original.slice(0, insertAt)}${text}${original.slice(insertAt)}`;
+    placement = `after the requested anchor`;
+  } else {
+    const atLine = normalizeCount(args.atLine, 1, 1, 1_000_000);
+    const normalized = original.replace(/\r\n?/g, "\n");
+    const lines = normalized.split("\n");
+    const insertIndex = Math.max(0, Math.min(lines.length, atLine - 1));
+    lines.splice(insertIndex, 0, text);
+    next = lines.join("\n");
+    placement = `before line ${atLine}`;
+  }
+
+  await writeFile(absoluteFile, next, "utf8");
+  const relativePath = formatWorkspacePath(rootDir, absoluteFile);
+  const message = `Inserted ${text.length} characters into ${relativePath} ${placement}.`;
   return {
     modelText: message,
     traceText: message
@@ -749,6 +1107,7 @@ export function prepareWorkspaceTools(rootDir = process.cwd(), options?: Workspa
   const workspaceRoot = resolve(rootDir);
   const includeFileTools = options?.includeFileTools !== false;
   const includeCommandTool = options?.includeCommandTool !== false;
+  const securityPolicy = normalizeSecurityPolicy(options?.securityPolicy);
   const tools = WORKSPACE_TOOL_DEFINITIONS
     .filter((tool) => {
       if (tool.function.name === "workspace_run_command") {
@@ -778,11 +1137,26 @@ export function prepareWorkspaceTools(rootDir = process.cwd(), options?: Workspa
         if (callName === "workspace_write_file") {
           return await writeWorkspaceFile(workspaceRoot, args);
         }
+        if (callName === "workspace_make_directory") {
+          return await makeWorkspaceDirectory(workspaceRoot, args);
+        }
         if (callName === "workspace_move_path") {
+          if (securityPolicy.allowDangerousFileOps !== true && normalizeBoolean(args.overwrite, false)) {
+            throw new Error("workspace_move_path with overwrite is blocked by agent security policy");
+          }
           return await moveWorkspacePath(workspaceRoot, args);
         }
         if (callName === "workspace_delete_path") {
+          if (securityPolicy.allowDangerousFileOps !== true) {
+            throw new Error("workspace_delete_path is blocked by agent security policy");
+          }
           return await deleteWorkspacePath(workspaceRoot, args);
+        }
+        if (callName === "workspace_multi_edit") {
+          return await multiEditWorkspaceFile(workspaceRoot, args);
+        }
+        if (callName === "workspace_insert_text") {
+          return await insertTextInFile(workspaceRoot, args);
         }
         if (callName === "workspace_replace_text") {
           return await replaceTextInFile(workspaceRoot, args);
@@ -794,6 +1168,16 @@ export function prepareWorkspaceTools(rootDir = process.cwd(), options?: Workspa
           return await gitDiff(workspaceRoot, args, signal);
         }
         if (callName === "workspace_run_command") {
+          const command = sanitizeText(args.command, 260);
+          const argv = normalizeStringArray(args.args, 80, 400);
+          const blockedReason = describeBlockedCommand({
+            command,
+            args: argv,
+            policy: securityPolicy
+          });
+          if (blockedReason) {
+            throw new Error(blockedReason);
+          }
           return await runWorkspaceCommand(workspaceRoot, args, signal);
         }
         return {

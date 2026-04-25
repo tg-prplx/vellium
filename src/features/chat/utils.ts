@@ -248,6 +248,30 @@ export function parseInlineReasoning(text: string): ParsedInlineReasoning {
   };
 }
 
+export function normalizeReasoningDisplayText(text: string) {
+  const source = String(text || "").trim();
+  if (!source) return "";
+  const lines = source.split(/\r?\n/);
+  const meaningfulLines = lines.map((line) => line.trim()).filter(Boolean);
+  if (meaningfulLines.length < 6) return source;
+
+  const codeOrListLines = meaningfulLines.filter((line) => /^(```|[-*+]\s|\d+[.)]\s|#{1,6}\s|\|)/.test(line)).length;
+  if (codeOrListLines > 0) return source;
+
+  const shortFragmentLines = meaningfulLines.filter((line) => (
+    line.length <= 32 && line.split(/\s+/).length <= 3
+  )).length;
+  const shortFragmentRatio = shortFragmentLines / meaningfulLines.length;
+  if (shortFragmentRatio < 0.7) return source;
+
+  return meaningfulLines
+    .join(" ")
+    .replace(/\s+([.,!?;:])/g, "$1")
+    .replace(/\s+(['’]s\b)/gi, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function parseToolResultDisplay(rawResult: string): ParsedToolResultDisplay {
   const source = String(rawResult || "").trim();
   if (!source.startsWith("{")) {
