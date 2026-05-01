@@ -78,7 +78,10 @@ async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string
 
   const apiKey = String(apiKeyRaw || "").trim();
   const response = await fetch(`${baseUrl}/models`, {
-    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined
+    headers: {
+      Accept: "application/json",
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+    }
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -107,6 +110,26 @@ async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string
   const uniq = new Map<string, { id: string }>();
   for (const row of out) uniq.set(row.id, row);
   return Array.from(uniq.values());
+}
+
+function mergeManualModels(models: Array<{ id: string }>, manualModels: Array<{ id: string }>) {
+  if (models.length === 0) return manualModels;
+  return [
+    ...models,
+    ...manualModels.filter((item) => !models.some((model) => model.id === item.id))
+  ];
+}
+
+async function resolveWithManualFallback(
+  manualModels: Array<{ id: string }>,
+  fetchModels: () => Promise<Array<{ id: string }>>
+) {
+  try {
+    return mergeManualModels(await fetchModels(), manualModels);
+  } catch (error) {
+    if (manualModels.length > 0) return manualModels;
+    throw error;
+  }
 }
 
 function assertProviderAllowed(baseUrl: string, fullLocalOnly: boolean) {
@@ -141,25 +164,23 @@ async function resolveProviderModels(row: Pick<ProviderRow, "base_url" | "api_ke
 
   const providerType = normalizeProviderType(row.provider_type);
   if (providerType === "koboldcpp") {
-    const koboldModels = await fetchKoboldModels(row);
-    const fetched = koboldModels.map((id) => ({ id }));
-    return fetched.length > 0
-      ? [...fetched, ...manualModels.filter((item) => !fetched.some((model) => model.id === item.id))]
-      : manualModels;
+    return resolveWithManualFallback(manualModels, async () => {
+      const koboldModels = await fetchKoboldModels(row);
+      return koboldModels.map((id) => ({ id }));
+    });
   }
 
   if (providerType === "custom") {
-    const customModels = await fetchCustomAdapterModels(row);
-    const fetched = customModels.map((id) => ({ id }));
-    return fetched.length > 0
-      ? [...fetched, ...manualModels.filter((item) => !fetched.some((model) => model.id === item.id))]
-      : manualModels;
+    return resolveWithManualFallback(manualModels, async () => {
+      const customModels = await fetchCustomAdapterModels(row);
+      return customModels.map((id) => ({ id }));
+    });
   }
 
-  const models = await fetchOpenAiCompatibleModels(row.base_url, row.api_key_cipher);
-  return models.length > 0
-    ? [...models, ...manualModels.filter((item) => !models.some((model) => model.id === item.id))]
-    : manualModels;
+  return resolveWithManualFallback(
+    manualModels,
+    () => fetchOpenAiCompatibleModels(row.base_url, row.api_key_cipher)
+  );
 }
 
 router.post("/", (req, res) => {

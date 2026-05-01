@@ -3287,6 +3287,42 @@ process.stdin.on("data", (chunk) => {
     });
   });
 
+  it("uses manual fallback models when a provider model endpoint cannot be loaded", async () => {
+    const fallbackPayload = {
+      baseUrl: `${mockProviderBaseUrl}/missing-catalog`,
+      apiKey: "test-key",
+      fullLocalOnly: false,
+      providerType: "openai",
+      adapterId: null,
+      manualModels: ["featherless/manual-model"]
+    };
+
+    const previewModels = await postJson("/api/providers/preview/models", fallbackPayload);
+    expect(previewModels).toEqual([{ id: "featherless/manual-model" }]);
+
+    const previewTest = await postJson("/api/providers/preview/test", fallbackPayload);
+    expect(previewTest).toEqual({ ok: true });
+
+    const savedProvider = await postJson("/api/providers", {
+      id: "manual-fallback-provider",
+      name: "Manual Fallback Provider",
+      baseUrl: fallbackPayload.baseUrl,
+      apiKey: fallbackPayload.apiKey,
+      proxyUrl: null,
+      fullLocalOnly: false,
+      providerType: "openai",
+      adapterId: null,
+      manualModels: fallbackPayload.manualModels
+    });
+    expect(savedProvider.manualModels).toEqual(["featherless/manual-model"]);
+
+    const savedModels = await parseJsonResponse(
+      "/api/providers/manual-fallback-provider/models",
+      await fetch(`${baseUrl}/api/providers/manual-fallback-provider/models`)
+    );
+    expect(savedModels).toEqual([{ id: "featherless/manual-model" }]);
+  });
+
   it("streams tool-calling turns through an MCP server and persists tool traces", async () => {
     await updateSettings({
       activeProviderId: "mock-openai",
