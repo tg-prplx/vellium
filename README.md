@@ -3,11 +3,18 @@
 <p align="center">
   <img width="1439" height="854" alt="image" src="https://github.com/user-attachments/assets/b4f68d1a-1c12-4abc-b810-1280f3ef49cb" />
 </p>
-<p align="center"><strong>Desktop AI chat, RP, writing, lorebook, RAG, and plugin workbench.</strong></p>
+<p align="center"><strong>Desktop AI chat, RP, writing, RAG, agent, and plugin workbench.</strong></p>
 
 Desktop app built with Electron, React, a local Express API, and SQLite.
 
 <img width="1440" height="857" alt="image" src="https://github.com/user-attachments/assets/03e75de3-5b39-4012-98f8-4c959eb1fc80" />
+
+## Current Release
+
+- Latest release: [`v0.9.7`](https://github.com/tg-prplx/vellium/releases/tag/v0.9.7)
+- Desktop builds: macOS (`arm64`, `x64`), Windows (`x64`), Linux (`x64` AppImage).
+- Release builds are unsigned. macOS and Windows may require manual confirmation on first launch.
+- The app is usable day to day, but still moving quickly. Expect active iteration around Agents, tool calling, and provider compatibility.
 
 ## User Documentation
 
@@ -17,9 +24,9 @@ Desktop app built with Electron, React, a local Express API, and SQLite.
 ## Important
 - Use `npm run dev` for day-to-day development.
 - Use `npm run dev:electron` when testing the real desktop shell.
-- Use `npm run dist:mac` / `npm run dist:win` for desktop bundles.
-- CI desktop builds are unsigned. macOS and Windows may require manual confirmation.
-- Desktop packaging works, but it still has rough edges. It is usable, not polished.
+- Use `npm run dist:mac`, `npm run dist:win`, or `npm run dist:linux` for platform bundles.
+- CI publishes GitHub Release assets when a `v*` tag is pushed.
+- Local data is stored in `data/` during development and in the Electron user-data directory in packaged builds.
 
 ## Stack
 - Electron
@@ -30,14 +37,23 @@ Desktop app built with Electron, React, a local Express API, and SQLite.
 
 ## Core Features
 
+### Agents
+- Dedicated `Agents` workspace with ask, build, and research modes.
+- Workspace tools for listing, reading, searching, editing, moving, deleting, and diffing files.
+- Optional command execution for tests/builds, with separate security gates for shell-like commands, network commands, destructive file operations, and git writes.
+- OpenAI-compatible structured planning with JSON-schema responses when supported.
+- Mid-run corrections, abort/resume/retry, event traces, reasoning traces, and partial-response recovery.
+- Context management for long agent threads, including auto-compaction, continuation cues, duplicate read-only call guards, and stale-run cleanup after edits/deletes.
+
 ### Chat / RP
 - Branching chat history.
 - Edit, delete, resend, regenerate.
 - Multi-character chats with auto-turns.
 - RP controls: prompt stack, author note, scene state, presets, personas.
 - LoreBook / World Info support, including SillyTavern-compatible world info import/export.
-- Reasoning support, including `<think>...</think>` parsing.
+- Reasoning support, including streamed reasoning fields and `<think>...</think>` parsing.
 - Vision attachments and chat attachments.
+- MCP tool calling for OpenAI-compatible chat/completions providers, with text-tool-call fallback parsing for providers that do not emit native tool calls cleanly.
 
 ### Writing
 - Projects, chapters, scenes, outlines.
@@ -56,7 +72,10 @@ Desktop app built with Electron, React, a local Express API, and SQLite.
 - OpenAI-compatible providers.
 - KoboldCpp support.
 - Custom endpoint adapters for non-OpenAI / non-Kobold backends.
+- Presets for OpenAI, LM Studio, Ollama, KoboldCpp, OpenRouter, and custom OpenAI-compatible endpoints.
+- Manual fallback models for providers whose `/models` endpoint is missing, empty, or provider-specific.
 - Separate models for translate / compress / TTS / RAG.
+- API parameter forwarding controls for providers that reject unsupported sampling fields.
 
 ### Plugins / Extensions
 - Toolbar tabs from plugins.
@@ -72,7 +91,7 @@ Desktop app built with Electron, React, a local Express API, and SQLite.
 
 
 ## Requirements
-- Node.js + npm.
+- Node.js + npm. Node.js 20+ is recommended because CI builds with Node 20.
 - Python 3 + Pillow for icon generation:
 
 ```bash
@@ -148,6 +167,12 @@ Windows only:
 npm run dist:win
 ```
 
+Linux AppImage only:
+
+```bash
+npm run dist:linux
+```
+
 Build output goes to `release/`.
 
 ## GitHub Actions
@@ -156,8 +181,8 @@ Workflow:
 - `.github/workflows/build-desktop.yml`
 
 What it does:
-- builds macOS (`x64`, `arm64`) and Windows (`x64`) bundles,
-- uploads artifacts,
+- builds macOS (`x64`, `arm64`), Windows (`x64`), and Linux (`x64` AppImage) bundles,
+- uploads workflow artifacts,
 - publishes GitHub Release assets on `v*` tag pushes.
 
 ## Plugins
@@ -174,11 +199,11 @@ Plugin capabilities:
 - `Pluginfile` import/export.
 
 Useful docs:
-- `/Users/prplx/Documents/slv/docs/plugins/README.md`
+- [`docs/plugins/README.md`](./docs/plugins/README.md)
 
 Runtime plugin locations:
-- user plugins: `/Users/prplx/Documents/slv/data/plugins`
-- bundled plugins: `/Users/prplx/Documents/slv/data/bundled-plugins`
+- user plugins: `data/plugins`
+- bundled plugins: `data/bundled-plugins`
 
 Important:
 - plugins are local extensions, not a trusted public plugin marketplace model,
@@ -251,6 +276,8 @@ Generated files:
 - `npm run build` — frontend production build.
 - `npm run build:server` — bundled server build.
 - `npm run build:desktop` — full desktop build pipeline without publishing.
+- `npm run dist` — package all desktop targets supported by the current host/CI runner.
+- `npm run dist:mac` / `npm run dist:win` / `npm run dist:linux` — package a specific desktop target.
 - `npm run rebuild:native` — rebuild `better-sqlite3`.
 - `npm run test` — Vitest.
 

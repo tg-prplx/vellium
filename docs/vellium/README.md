@@ -8,10 +8,11 @@ Vellium is a local-first desktop/workbench app for:
 - long-form writing workflows
 - characters and LoreBooks
 - knowledge collections and RAG
+- autonomous agent workflows over a selected workspace
 - MCP / tool calling
 - local plugins and themes
 
-This guide documents the current UI and is based on the real app areas: `Welcome`, `Chat`, `Writing`, `Characters`, `LoreBooks`, `Knowledge`, `Settings`, and plugin-powered surfaces.
+This guide documents the current UI and is based on the real app areas: `Welcome`, `Chat`, `Writing`, `Agents`, `Characters`, `LoreBooks`, `Knowledge`, `Settings`, and plugin-powered surfaces.
 
 The screenshots in this guide are local captures from the current app build. Where it makes onboarding clearer, they use `Simple Mode` so the first-run flow matches what many users will actually see.
 
@@ -41,9 +42,11 @@ flowchart LR
   F["LoreBooks"] --> C
   G["Knowledge"] --> C
   G --> D
+  B --> I["Agents"]
   B --> H["Plugins / Themes / MCP"]
   H --> C
   H --> D
+  H --> I
 ```
 
 ## Workspaces
@@ -52,6 +55,7 @@ flowchart LR
 | --- | --- | --- |
 | `Chat` | Dialogues, RP, tool calling, translation, TTS | `Characters`, `LoreBooks`, `Knowledge`, `Settings` |
 | `Writing` | Books, chapters, scenes, drafts, summaries, lenses | `Characters`, `Knowledge`, `Settings` |
+| `Agents` | Ask/build/research workflows over a workspace with tools, traces, and resumable runs | `Settings`, provider profiles, workspace/tool security |
 | `Characters` | Importing and editing character cards | `Chat`, `Writing` |
 | `LoreBooks` | World facts, trigger keys, scripted prompt injections | `Chat` |
 | `Knowledge` | Retrieval collections for RAG | `Chat`, `Writing`, `Settings` |
@@ -66,13 +70,15 @@ flowchart LR
 4. Add or import a character in `Characters`.
 5. If your workflow needs world facts, create a LoreBook.
 6. If your workflow needs retrieval, create a knowledge collection in `Knowledge`.
-7. Only after that move on to multi-character scenes, writer workflows, plugins, and MCP.
+7. For workspace automation, create an `Agents` thread after providers and tool/security settings are configured.
+8. Only after that move on to multi-character scenes, writer workflows, plugins, and MCP.
 
 ## Important Things to Know Up Front
 
 - Vellium is not tied to a single backend. Chat, translation, compression, TTS, and RAG can all use different models.
 - `Local-only mode` limits the app to localhost or private-network endpoints.
 - Tool calling through MCP only works with OpenAI-compatible chat/completions providers, not with KoboldCpp.
+- Agents can use first-party workspace tools when enabled. Command execution, network commands, destructive file operations, and git writes are separately gated in settings.
 - `Knowledge` and `LoreBooks` solve different problems: one is retrieval-based, the other is trigger-based scripted context.
 - Plugins in Vellium are local extensions. Treat their permissions the same way you would treat shell tools or third-party scripts.
 
