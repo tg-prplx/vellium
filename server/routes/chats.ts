@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, newId, now, roughTokenCount, nextSortOrder } from "../db.js";
+import { db, isLocalhostUrl, newId, now, roughTokenCount, nextSortOrder } from "../db.js";
 import type { Response } from "express";
 import {
   autoIngestTextAttachmentsForChat,
@@ -30,7 +30,7 @@ import {
   translateMessage,
   ttsMessage
 } from "../modules/chat/contentHandlers.js";
-import { countProviderTokens } from "../modules/chat/providerExecution.js";
+import { completeProviderOnce, countProviderTokens } from "../modules/chat/providerExecution.js";
 import {
   deleteChatCascade,
   deleteMessageTree,
@@ -131,6 +131,81 @@ router.get("/", (_req, res) => {
   }));
 });
 
+router.post("/desktop-pet/reply", async (req, res) => {
+  const content = String(req.body?.content || "").trim().slice(0, 1000);
+  if (!content) {
+    res.status(400).json({ error: "content is required" });
+    return;
+  }
+
+  const settings = getSettings();
+  const providerId = String(settings.activeProviderId || "").trim();
+  const modelId = String(settings.activeModel || "").trim();
+  if (!providerId || !modelId) {
+    res.json({ reply: "[No provider configured] Configure a provider in Settings." });
+    return;
+  }
+
+  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  if (!provider) {
+    res.json({ reply: "[Provider not found] Configure a provider in Settings." });
+    return;
+  }
+  if (settings.fullLocalMode && !isLocalhostUrl(provider.base_url)) {
+    res.status(400).json({ error: "Provider blocked by Full Local Mode" });
+    return;
+  }
+
+  const pet = req.body?.pet && typeof req.body.pet === "object" && !Array.isArray(req.body.pet)
+    ? req.body.pet as Record<string, unknown>
+    : {};
+  const name = String(pet.name || "Desktop Pet").trim().slice(0, 80);
+  const history = Array.isArray(req.body?.history)
+    ? req.body.history.flatMap((item: unknown) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+      const record = item as Record<string, unknown>;
+      const role = record.role === "assistant" ? "assistant" : record.role === "user" ? "user" : "";
+      const historyContent = String(record.content || "").replace(/\s+/g, " ").trim().slice(0, 1200);
+      return role && historyContent ? [{ role, content: historyContent }] : [];
+    }).slice(-12)
+    : [];
+  const recentConversation = history
+    .map((item) => `${item.role === "assistant" ? name : "User"}: ${item.content}`)
+    .join("\n");
+  const systemPrompt = [
+    String(settings.defaultSystemPrompt || "").trim(),
+    String(pet.systemPrompt || "").trim().slice(0, 4000),
+    `[Pet Character]\nName: ${name}\nDescription: ${String(pet.description || "").trim().slice(0, 2000)}\nPersonality: ${String(pet.personality || "").trim().slice(0, 4000)}\nScenario: ${String(pet.scenario || "").trim().slice(0, 4000)}`,
+    String(req.body?.runtimeSystemPrompt || "").trim().slice(0, 4000)
+  ].filter(Boolean).join("\n\n");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+  try {
+    const reply = await completeProviderOnce({
+      provider,
+      modelId,
+      systemPrompt,
+      userPrompt: [
+        recentConversation ? `[Recent Pet Conversation]\n${recentConversation}` : "",
+        `[Current User Message]\n${content}`
+      ].filter(Boolean).join("\n\n"),
+      samplerConfig: {
+        ...((settings.samplerConfig as Record<string, unknown> | undefined) || {}),
+        maxTokens: 420
+      },
+      apiParamPolicy: settings.apiParamPolicy,
+      signal: controller.signal
+    });
+    res.json({ reply: reply.trim() || "..." });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Desktop pet LLM request failed";
+    res.status(500).json({ error: message });
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
 // Rename chat
 router.patch("/:id", (req, res) => {
   const chatId = req.params.id;
@@ -208,7 +283,7 @@ router.get("/:id/timeline", (req, res) => {
 
 router.post("/:id/send", async (req, res: Response) => {
   const chatId = req.params.id;
-  const { content, branchId: reqBranchId, userName, userPersona, attachments: rawAttachments } = req.body;
+  const { content, branchId: reqBranchId, userName, userPersona, attachments: rawAttachments, runtimeSystemPrompt } = req.body;
   const branchId = resolveBranch(chatId, reqBranchId);
   const persona: UserPersonaPayload = {
     name: String(userPersona?.name || userName || "User"),
@@ -276,7 +351,8 @@ router.post("/:id/send", async (req, res: Response) => {
       parentMsgId: userId,
       overrideCharacterName: firstResponder,
       isAutoConvo: false,
-      userPersona: persona
+      userPersona: persona,
+      runtimeSystemPrompt: typeof runtimeSystemPrompt === "string" ? runtimeSystemPrompt : undefined
     });
   } else {
     await streamLlmResponse({
@@ -285,7 +361,8 @@ router.post("/:id/send", async (req, res: Response) => {
       res,
       parentMsgId: userId,
       isAutoConvo: false,
-      userPersona: persona
+      userPersona: persona,
+      runtimeSystemPrompt: typeof runtimeSystemPrompt === "string" ? runtimeSystemPrompt : undefined
     });
   }
 });
@@ -347,7 +424,7 @@ router.post("/:id/regenerate", async (req, res: Response) => {
 // Multi-character: generate next turn for a specific character
 router.post("/:id/next-turn", async (req, res: Response) => {
   const chatId = req.params.id;
-  const { characterName, branchId: reqBranchId, isAutoConvo, userName, userPersona } = req.body;
+  const { characterName, branchId: reqBranchId, isAutoConvo, userName, userPersona, runtimeSystemPrompt } = req.body;
   const branchId = resolveBranch(chatId, reqBranchId);
   const persona: UserPersonaPayload = {
     name: String(userPersona?.name || userName || "User"),
@@ -363,7 +440,8 @@ router.post("/:id/next-turn", async (req, res: Response) => {
     parentMsgId: null,
     overrideCharacterName: characterName,
     isAutoConvo,
-    userPersona: persona
+    userPersona: persona,
+    runtimeSystemPrompt: typeof runtimeSystemPrompt === "string" ? runtimeSystemPrompt : undefined
   });
 });
 

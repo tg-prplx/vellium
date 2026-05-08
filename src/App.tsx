@@ -10,6 +10,7 @@ const ChatScreen = lazy(() => import("./features/chat/ChatScreen").then((module)
 const AgentsScreen = lazy(() => import("./features/agents/AgentsScreen").then((module) => ({ default: module.AgentsScreen })));
 const WritingScreen = lazy(() => import("./features/writer/WritingScreen").then((module) => ({ default: module.WritingScreen })));
 const CharactersScreen = lazy(() => import("./features/characters/CharactersScreen").then((module) => ({ default: module.CharactersScreen })));
+const PetsScreen = lazy(() => import("./features/pets/PetsScreen").then((module) => ({ default: module.PetsScreen })));
 const LorebooksScreen = lazy(() => import("./features/lorebooks/LorebooksScreen").then((module) => ({ default: module.LorebooksScreen })));
 const KnowledgeScreen = lazy(() => import("./features/knowledge/KnowledgeScreen").then((module) => ({ default: module.KnowledgeScreen })));
 const SettingsScreen = lazy(() => import("./features/settings/SettingsScreen").then((module) => ({ default: module.SettingsScreen })));
@@ -61,6 +62,7 @@ function AppContent({
       { id: "chat", label: t("tab.chat"), icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z", kind: "core" },
       { id: "writing", label: t("tab.writing"), icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z", kind: "core" },
       { id: "characters", label: t("tab.characters"), icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z", kind: "core" },
+      { id: "pets", label: t("tab.pets"), icon: "M7.5 9.5C5.6 9.2 4 7.8 4 6.1c0-1.2.8-2.1 1.9-2.1 1.4 0 2.4 1.5 2.8 3.2M16.5 9.5c1.9-.3 3.5-1.7 3.5-3.4 0-1.2-.8-2.1-1.9-2.1-1.4 0-2.4 1.5-2.8 3.2M5.5 13.6C5.5 9.9 8.4 7 12 7s6.5 2.9 6.5 6.6c0 3.4-2.4 5.9-6.5 5.9s-6.5-2.5-6.5-5.9z", kind: "core" },
       { id: "lorebooks", label: t("tab.lorebooks"), icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5A4.5 4.5 0 003 9.5v9A4.5 4.5 0 017.5 14c1.746 0 3.332.477 4.5 1.253m0-9c1.168-.776 2.754-1.253 4.5-1.253A4.5 4.5 0 0121 9.5v9a4.5 4.5 0 00-4.5-4.5c-1.746 0-3.332.477-4.5 1.253", kind: "core" },
       { id: "knowledge", label: t("tab.knowledge"), icon: "M3 7a2 2 0 012-2h4.5a2 2 0 011.6.8l1.8 2.4H19a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V7z", kind: "core" },
       { id: "settings", label: t("tab.settings"), icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z", kind: "core" }
@@ -133,6 +135,7 @@ function AppContent({
     }
     if (activeTab === "writing") return <WritingScreen />;
     if (activeTab === "characters") return <CharactersScreen />;
+    if (activeTab === "pets") return <PetsScreen />;
     if (activeTab === "lorebooks") return <LorebooksScreen />;
     if (activeTab === "knowledge") return <KnowledgeScreen />;
     if (activeTab === "settings") {

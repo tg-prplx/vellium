@@ -157,6 +157,7 @@ export async function streamLlmResponse(params: {
   overrideCharacterName?: string;
   isAutoConvo?: boolean;
   userPersona?: UserPersonaPayload;
+  runtimeSystemPrompt?: string;
 }) {
   const settings = getSettings();
   const providerId = settings.activeProviderId;
@@ -186,6 +187,7 @@ export async function streamLlmResponse(params: {
     params.userPersona?.personality ? `Personality: ${params.userPersona.personality}` : "",
     params.userPersona?.scenario ? `Scenario: ${params.userPersona.scenario}` : ""
   ].filter(Boolean).join("\n");
+  const runtimeSystemPrompt = String(params.runtimeSystemPrompt || "").trim().slice(0, 4000);
 
   let characterIds: string[] = [];
   try {
@@ -280,6 +282,7 @@ export async function streamLlmResponse(params: {
       strictGrounding
     });
     systemPrompt = appendPersonaInstruction(systemPrompt, resolvedUserName, personaInstruction);
+    if (runtimeSystemPrompt) systemPrompt += `\n\n${runtimeSystemPrompt}`;
     apiMessages = characterCards.length > 1 && params.overrideCharacterName
       ? buildMultiCharMessageArray(
         systemPrompt,
@@ -314,6 +317,7 @@ export async function streamLlmResponse(params: {
       strictGrounding
     });
     systemPrompt = appendPersonaInstruction(systemPrompt, resolvedUserName, personaInstruction);
+    if (runtimeSystemPrompt) systemPrompt += `\n\n${runtimeSystemPrompt}`;
     apiMessages = characterCards.length > 1 && params.overrideCharacterName
       ? buildMultiCharMessageArray(
         systemPrompt,
@@ -353,6 +357,9 @@ export async function streamLlmResponse(params: {
         params.overrideCharacterName
       );
       systemPrompt = appendPersonaInstruction(systemPrompt, resolvedUserName, personaInstruction);
+      if (runtimeSystemPrompt) {
+        systemPrompt += `\n\n${runtimeSystemPrompt}`;
+      }
       if (params.isAutoConvo) {
         systemPrompt += "\n\n[IMPORTANT: This is an autonomous conversation between characters. There is NO human user participating. Do NOT wait for user input, do NOT address the user, do NOT ask questions to the user. Act naturally and continue the roleplay conversation with the other character(s). Advance the plot, respond to what the other character said, and keep the story flowing. Be proactive — take actions, express emotions, move the scene forward.]";
       }
@@ -383,6 +390,9 @@ export async function streamLlmResponse(params: {
         userName: resolvedUserName
       });
       systemPrompt = appendPersonaInstruction(systemPrompt, resolvedUserName, personaInstruction);
+      if (runtimeSystemPrompt) {
+        systemPrompt += `\n\n${runtimeSystemPrompt}`;
+      }
       if (ragAppendix) {
         systemPrompt += ragAppendix;
       }

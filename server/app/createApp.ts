@@ -28,10 +28,15 @@ const INLINE_ATTACHMENT_TEXT_LIMIT = 240_000;
 const MAX_UPLOAD_BYTES = 24 * 1024 * 1024;
 const SAFE_UPLOAD_EXTENSIONS = new Set([
   "jpg", "jpeg", "png", "gif", "webp", "bmp",
+  "mp4", "webm", "mov", "m4v",
+  "mp3", "wav", "ogg", "oga", "m4a", "aac", "flac",
   "txt", "md", "json", "csv", "log",
   "yaml", "yml", "toml", "ini", "cfg",
   "pdf", "docx", "py", "rb", "ts"
 ]);
+const SAFE_IMAGE_UPLOAD_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp"]);
+const SAFE_AUDIO_UPLOAD_EXTENSIONS = new Set(["mp3", "wav", "ogg", "oga", "m4a", "aac", "flac"]);
+const SAFE_MEDIA_UPLOAD_EXTENSIONS = new Set([...SAFE_IMAGE_UPLOAD_EXTENSIONS, "mp4", "webm", "mov", "m4v", ...SAFE_AUDIO_UPLOAD_EXTENSIONS]);
 const UNSAFE_UPLOAD_EXTENSIONS = new Set(["svg", "html", "htm", "xml", "js", "mjs", "css", "xhtml"]);
 
 function isAllowedLocalOrigin(origin: string | undefined): boolean {
@@ -164,7 +169,7 @@ function assertUploadExtensionAllowed(ext: string) {
 function setUploadResponseHeaders(res: express.Response, filePath: string) {
   const ext = extname(filePath).replace(/^\./, "").toLowerCase();
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Resource-Policy", SAFE_MEDIA_UPLOAD_EXTENSIONS.has(ext) ? "cross-origin" : "same-origin");
   res.setHeader("Cache-Control", "no-store");
   if (UNSAFE_UPLOAD_EXTENSIONS.has(ext)) {
     const safeName = sanitizeFilename(filePath.split("/").pop() || filePath, "download.bin");
@@ -183,6 +188,17 @@ function mimeByExtension(extRaw: string): string {
     webp: "image/webp",
     bmp: "image/bmp",
     svg: "image/svg+xml",
+    mp4: "video/mp4",
+    webm: "video/webm",
+    mov: "video/quicktime",
+    m4v: "video/x-m4v",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    ogg: "audio/ogg",
+    oga: "audio/ogg",
+    m4a: "audio/mp4",
+    aac: "audio/aac",
+    flac: "audio/flac",
     txt: "text/plain",
     md: "text/markdown",
     json: "application/json",
@@ -260,6 +276,8 @@ function registerUploadRoute(app: express.Express) {
     writeFileSync(join(UPLOADS_DIR, storedName), buffer);
 
     const isImage = /^(jpg|jpeg|png|gif|webp|bmp)$/i.test(ext);
+    const isVideo = /^(mp4|webm|mov|m4v)$/i.test(ext);
+    const isAudio = /^(mp3|wav|ogg|oga|m4a|aac|flac)$/i.test(ext);
     const isTextLike = /^(txt|md|json|csv|log|xml|html|js|ts|py|rb|yaml|yml|toml|ini|cfg|pdf|docx)$/i.test(ext);
 
     let content: string | undefined;
@@ -277,7 +295,7 @@ function registerUploadRoute(app: express.Express) {
     res.json({
       id,
       filename: safeFilename,
-      type: isImage ? "image" : "text",
+      type: isImage ? "image" : isVideo ? "video" : isAudio ? "audio" : "text",
       url: `/api/uploads/${storedName}`,
       mimeType: mimeByExtension(ext),
       content

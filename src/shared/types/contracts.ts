@@ -448,7 +448,7 @@ export interface RpPresetConfig {
 export interface FileAttachment {
   id: string;
   filename: string;
-  type: "image" | "text";
+  type: "image" | "text" | "video" | "audio";
   url: string;
   mimeType?: string;
   dataUrl?: string;
