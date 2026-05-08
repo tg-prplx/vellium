@@ -279,6 +279,13 @@ type AgentPromptHistorySelection = {
   compactedNote: string;
 };
 
+type AgentPromptHistoryItem = {
+  role: string;
+  originalContent: UnifiedGenerateMessage["content"];
+  content: string;
+  tokenCount: number;
+};
+
 export function enqueueAgentSteeringNote(input: {
   threadId: string;
   messageId: string;
@@ -615,13 +622,18 @@ function buildPromptHistory(params: {
   settings: ReturnType<typeof getSettings>;
   fixedContent: string[];
 }): AgentPromptHistorySelection {
-  const history = listAgentMessages(params.threadId, MAX_HISTORY_MESSAGES)
+  const history: AgentPromptHistoryItem[] = listAgentMessages(params.threadId, MAX_HISTORY_MESSAGES)
     .filter(shouldIncludeAgentMessageInPromptHistory)
-    .map((message) => ({
-      role: message.role,
-      originalContent: buildAgentMessagePromptContent(message),
-      content: flattenPromptContent(buildAgentMessagePromptContent(message))
-    }))
+    .map((message) => {
+      const originalContent = buildAgentMessagePromptContent(message);
+      const content = flattenPromptContent(originalContent);
+      return {
+        role: message.role,
+        originalContent,
+        content,
+        tokenCount: roughTokenCount(content)
+      };
+    })
     .filter((message) => message.content);
   if (history.length === 0) {
     return { history: [], compactedNote: "" };
@@ -641,18 +653,15 @@ function buildPromptHistory(params: {
     getContextWindowBudget(params.settings) - reserveTokens - fixedTokenCost
   );
   const selected = selectTimelineForPrompt(
-    history.map((message) => ({
-      content: message.content,
-      tokenCount: roughTokenCount(message.content)
-    })),
+    history,
     "",
     contextBudget,
     getTailBudgetPercent(params.settings, "contextTailBudgetWithSummaryPercent", 35),
     getTailBudgetPercent(params.settings, "contextTailBudgetWithoutSummaryPercent", 75)
-  );
+  ) as AgentPromptHistoryItem[];
   const selectedMessages = selected.map((message) => ({
-    role: typeof (message as { role?: unknown }).role === "string" ? String((message as { role?: unknown }).role) : "user",
-    content: ((message as { originalContent?: UnifiedGenerateMessage["content"] }).originalContent ?? message.content) as UnifiedGenerateMessage["content"]
+    role: message.role,
+    content: message.originalContent
   }));
   const droppedCount = Math.max(0, history.length - selectedMessages.length);
   if (droppedCount === 0 || params.settings.agentAutoCompactEnabled === false) {
@@ -1198,6 +1207,43 @@ function buildEnabledSkillInstructions(threadId: string) {
 function buildScratchpadText(scratchpad: string[]) {
   if (scratchpad.length === 0) return "No prior run steps yet.";
   return scratchpad.slice(-6).map((item) => trimPromptText(item, 1400)).join("\n\n");
+}
+
+function normalizeToolLoopMessagesForPlainCompletion(messages: Array<Record<string, unknown>>): UnifiedGenerateMessage[] {
+  return messages
+    .map((message) => {
+      const role = String(message.role || "user");
+      const content = message.content as UnifiedGenerateMessage["content"];
+      if (role === "tool") {
+        const toolCallId = sanitizeText(message.tool_call_id, 200);
+        const toolText = flattenPromptContent(content).trim();
+        return {
+          role: "user",
+          content: [
+            `[Tool result${toolCallId ? `: ${toolCallId}` : ""}]`,
+            toolText || "[Tool returned no visible output.]"
+          ].join("\n")
+        };
+      }
+      if (role === "assistant" && Array.isArray(message.tool_calls)) {
+        const assistantText = flattenPromptContent(content).trim();
+        const toolNames = (message.tool_calls as OpenAIToolCall[])
+          .map((call) => sanitizeText(call.function?.name, 200))
+          .filter(Boolean);
+        return {
+          role: "assistant",
+          content: [
+            assistantText,
+            toolNames.length > 0 ? `[Requested tools: ${toolNames.join(", ")}]` : "[Requested workspace tools]"
+          ].filter(Boolean).join("\n\n")
+        };
+      }
+      return {
+        role,
+        content
+      };
+    })
+    .filter((message) => flattenPromptContent(message.content).trim());
 }
 
 function buildMemoryNote(threadId: string) {
@@ -2102,10 +2148,7 @@ async function requestTextToolCompletion(params: {
   const result = await unifiedGenerateText({
     provider: params.provider,
     modelId: params.modelId,
-    messages: params.messages.map((message) => ({
-      role: String(message.role || "user"),
-      content: message.content
-    })),
+    messages: normalizeToolLoopMessagesForPlainCompletion(params.messages),
     samplerConfig: params.samplerConfig,
     apiParamPolicy: params.apiParamPolicy,
     signal: params.signal
@@ -2927,7 +2970,7 @@ async function runDirectToolLoop(params: {
           role: "tool",
           tool_call_id: String(call.id || `${toolName}-${toolCallsExecuted}`),
           content: trimToolContext(
-            toolResult.modelText,
+            toolResult.modelText || toolText,
             normalizeBoundedInteger(settings.agentToolContextChars, 2600, 400, 12000)
           )
         });
@@ -2936,13 +2979,11 @@ async function runDirectToolLoop(params: {
 
     if (!finalMessage) {
       usedSynthesis = true;
+      const synthesisMessages = normalizeToolLoopMessagesForPlainCompletion(workingMessages);
       const result = await generateAssistantTextWithOptionalStream({
         provider,
         modelId,
-        messages: workingMessages.map((message) => ({
-          role: String(message.role || "user"),
-          content: message.content
-        })) as UnifiedGenerateMessage[],
+        messages: synthesisMessages,
         samplerConfig: settings.samplerConfig,
         apiParamPolicy: settings.apiParamPolicy,
         signal: params.signal,

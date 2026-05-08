@@ -41,7 +41,7 @@ import {
   parseToolCallContent,
   parseToolResultDisplay,
   readSceneVarPercent,
-  renderContent,
+  renderContentWithFallback,
   resolveChatMode,
   sanitizeSceneVariables,
   type ParsedToolCallContent
@@ -1491,14 +1491,13 @@ export function ChatScreen() {
       ? (chatCharacters.find((item) => item.name === streamingCharacterName) ?? null)
       : activeChatCharacter;
     const renderCharName = streamChar?.name || activeChatCharacter?.name;
-    return renderContent(
+    return renderContentWithFallback(
       streamText,
       renderCharName,
       activePersona?.name || t("chat.user"),
       securitySettings
     );
   }, [streamText, streamingCharacterName, chatCharacters, activeChatCharacter, activePersona, t, securitySettings]);
-
   function getCharacterForMessage(msg: ChatMessage): CharacterDetail | null {
     if (msg.characterName) {
       return chatCharacters.find((c) => c.name === msg.characterName) ?? null;
@@ -2641,7 +2640,7 @@ export function ChatScreen() {
                           </div>
                         )}
                         <div className="prose-chat" dangerouslySetInnerHTML={{
-                          __html: renderContent(
+                          __html: renderContentWithFallback(
                             inPlaceTranslations[msg.id] || inlineReasoning.content,
                             renderCharName,
                             activePersona?.name || t("chat.user"),
@@ -2656,7 +2655,7 @@ export function ChatScreen() {
                           <div className="mt-2 rounded-md border border-border-subtle bg-bg-tertiary p-2">
                             <span className="mb-1 block text-[10px] font-semibold uppercase text-text-tertiary">{t("chat.translate")}</span>
                             <div className="prose-chat text-xs text-text-secondary" dangerouslySetInnerHTML={{
-                              __html: renderContent(translatedTexts[msg.id], renderCharName, activePersona?.name || t("chat.user"), securitySettings)
+                              __html: renderContentWithFallback(translatedTexts[msg.id], renderCharName, activePersona?.name || t("chat.user"), securitySettings)
                             }} onClick={handleRenderedContentClick} />
                           </div>
                         )}
@@ -2850,7 +2849,13 @@ export function ChatScreen() {
                         dangerouslySetInnerHTML={{ __html: streamingRenderedHtml }}
                         onClick={handleRenderedContentClick}
                       />
-                    ) : "..."}
+                    ) : (
+                      <span className="chat-stream-placeholder" aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                      </span>
+                    )}
                   </div>
                   {!zenMode && streamingToolCalls.length > 0 && (
                     <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">

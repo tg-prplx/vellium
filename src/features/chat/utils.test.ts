@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FileAttachment } from "../../shared/types/contracts";
-import { imageSourceFromAttachment, normalizeReasoningDisplayText, parseToolCallContent, parseToolResultDisplay } from "./utils";
+import { imageSourceFromAttachment, normalizeReasoningDisplayText, parseToolCallContent, parseToolResultDisplay, renderContentWithFallback } from "./utils";
 
 const originalWindow = globalThis.window;
 
@@ -78,5 +78,19 @@ describe("tool result display parsing", () => {
     };
 
     expect(imageSourceFromAttachment(attachment)).toBe("http://127.0.0.1:3001/api/uploads/preview.png");
+  });
+});
+
+describe("chat content rendering", () => {
+  it("falls back to escaped plain text when sanitized markdown renders empty", () => {
+    const html = renderContentWithFallback("![generated](data:image/png;base64,abc)", undefined, undefined, {
+      sanitizeMarkdown: true,
+      allowExternalLinks: false,
+      allowRemoteImages: false,
+      allowUnsafeUploads: false
+    });
+
+    expect(html).toContain("![generated]");
+    expect(html).not.toBe("");
   });
 });

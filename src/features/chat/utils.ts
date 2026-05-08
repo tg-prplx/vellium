@@ -134,6 +134,31 @@ export function renderContent(
   return renderMarkdownSafe(replacePlaceholders(text, charName, userName), security);
 }
 
+function renderedHtmlHasVisibleContent(html: string): boolean {
+  const source = String(html || "");
+  if (/<(?:img|video|iframe|audio|table|hr)\b/i.test(source)) return true;
+  const text = source
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;|&lt;|&gt;|&quot;|&#39;|&#96;/gi, "x")
+    .trim();
+  return text.length > 0;
+}
+
+export function renderContentWithFallback(
+  text: string,
+  charName?: string,
+  userName?: string,
+  security: AppSettings["security"] = DEFAULT_CHAT_SECURITY_SETTINGS
+): string {
+  const replaced = replacePlaceholders(text, charName, userName);
+  const html = renderMarkdownSafe(replaced, security);
+  if (renderedHtmlHasVisibleContent(html) || !String(replaced || "").trim()) {
+    return html;
+  }
+  return `<p>${escapeHtml(replaced).replace(/\r?\n/g, "<br />")}</p>`;
+}
+
 export function guessMimeType(filename: string): string {
   const ext = filename.split(".").pop()?.toLowerCase() || "";
   const map: Record<string, string> = {

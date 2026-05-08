@@ -182,14 +182,34 @@ process.stdin.on("data", (chunk) => {
           return (message as { role?: unknown }).role === "tool";
         });
         const toolDefinitions = Array.isArray(body.tools) ? body.tools : [];
+        const flattenMockContent = (content: unknown) => {
+          if (typeof content === "string") return content;
+          if (Array.isArray(content)) {
+            return content
+              .map((part) => {
+                if (!part || typeof part !== "object") return "";
+                const row = part as { type?: unknown; text?: unknown; image_url?: unknown };
+                if (row.type === "text") return String(row.text || "");
+                if (row.type === "image_url") return "[Image attachment]";
+                return "";
+              })
+              .filter(Boolean)
+              .join("\n");
+          }
+          return "";
+        };
         const promptText = messages
           .map((message) => {
             if (!message || typeof message !== "object") return "";
-            return typeof (message as { content?: unknown }).content === "string"
-              ? String((message as { content?: unknown }).content)
-              : "";
+            return flattenMockContent((message as { content?: unknown }).content);
           })
           .join("\n\n");
+        const hasPriorAssistantCapabilityContext = messages.some((message) => (
+          message
+          && typeof message === "object"
+          && (message as { role?: unknown }).role === "assistant"
+          && flattenMockContent((message as { content?: unknown }).content).includes("I can answer questions, inspect the workspace when tools are enabled")
+        ));
 
         if (promptText.includes("compact-history-agent-task")) {
           lastCompactionPromptText = promptText;
@@ -623,6 +643,16 @@ process.stdin.on("data", (chunk) => {
           if (promptText.includes("compact-history-agent-task")) {
             res.setHeader("Content-Type", "text/event-stream");
             res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "History compacted cleanly." } }] })}\n\n`);
+            res.write("data: [DONE]\n\n");
+            res.end();
+            return;
+          }
+          if (promptText.includes("context-carry-agent-task")) {
+            res.setHeader("Content-Type", "text/event-stream");
+            const content = hasPriorAssistantCapabilityContext
+              ? "I still have the prior assistant answer in context."
+              : "Prior assistant context was missing.";
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
             res.write("data: [DONE]\n\n");
             res.end();
             return;
@@ -2385,6 +2415,42 @@ process.stdin.on("data", (chunk) => {
     expect(editedPayload.state.messages[0].attachments).toMatchObject([{
       filename: "note.md"
     }]);
+  });
+
+  it("preserves previous assistant messages as assistant context on later agent turns", async () => {
+    await updateSettings({
+      agentsEnabled: true,
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      mcpServers: []
+    });
+    const thread = await postJson("/api/agents/threads", {
+      title: "Context Carry",
+      mode: "ask"
+    });
+
+    const firstRun = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "simple-capability-agent-task" }
+    });
+    expect(firstRun.ok).toBe(true);
+    await firstRun.text();
+
+    const secondRun = await requestJson(`/api/agents/threads/${thread.id}/respond`, {
+      method: "POST",
+      body: { content: "context-carry-agent-task" }
+    });
+    expect(secondRun.ok).toBe(true);
+    await secondRun.text();
+
+    const state = await parseJsonResponse(
+      `/api/agents/threads/${thread.id}/state`,
+      await fetch(`${baseUrl}/api/agents/threads/${thread.id}/state`)
+    );
+    expect(state.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "I still have the prior assistant answer in context."
+    });
   });
 
   it("continues the run when the planner emits a progress note instead of a completed result", async () => {
