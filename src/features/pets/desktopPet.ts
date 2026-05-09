@@ -31,6 +31,7 @@ export type DesktopPetConfig = {
   emotions: DesktopPetStatePreset[];
   assistantInstructions: string;
   persistentMemory: string;
+  chatContextTokenLimit: number;
   theme?: DesktopPetTheme;
   description?: string;
   personality?: string;
@@ -50,6 +51,7 @@ export type DesktopPetExtension = {
   emotions?: unknown;
   assistantInstructions?: string;
   persistentMemory?: string;
+  chatContextTokenLimit?: number;
 };
 
 export const DESKTOP_PET_STORAGE_KEY = "vellium.desktopPet.config";
@@ -106,12 +108,18 @@ export const DEFAULT_DESKTOP_PET_CONFIG: DesktopPetConfig = {
     { id: "excited", label: "Excited", animation: "bounce", codexState: "jumping", assetUrl: "", soundUrl: "" }
   ],
   assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help.",
-  persistentMemory: ""
+  persistentMemory: "",
+  chatContextTokenLimit: 2400
 };
 
 function clampScale(value: unknown): number {
   const scale = Number(value);
   return Number.isFinite(scale) ? Math.max(0.75, Math.min(1.35, scale)) : DEFAULT_DESKTOP_PET_CONFIG.scale;
+}
+
+function clampPetContextTokenLimit(value: unknown): number {
+  const next = Number(value);
+  return Number.isFinite(next) ? Math.max(800, Math.min(16000, Math.round(next))) : DEFAULT_DESKTOP_PET_CONFIG.chatContextTokenLimit;
 }
 
 export function normalizeDesktopPetVoice(value: unknown): DesktopPetVoice {
@@ -273,6 +281,7 @@ export function readStoredDesktopPetConfig(): DesktopPetConfig {
       emotions: normalizeDesktopPetPresets(parsed.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
       assistantInstructions: stringValue(parsed.assistantInstructions, 3000) || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions,
       persistentMemory: stringValue(parsed.persistentMemory, 6000),
+      chatContextTokenLimit: clampPetContextTokenLimit(parsed.chatContextTokenLimit),
       description: stringValue(parsed.description, 2000),
       personality: stringValue(parsed.personality, 4000),
       scenario: stringValue(parsed.scenario, 4000),
@@ -298,6 +307,7 @@ export function storeDesktopPetConfig(config: DesktopPetConfig, notify = true) {
     emotions: normalizeDesktopPetPresets(config.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
     assistantInstructions: stringValue(config.assistantInstructions, 3000) || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions,
     persistentMemory: stringValue(config.persistentMemory, 6000),
+    chatContextTokenLimit: clampPetContextTokenLimit(config.chatContextTokenLimit),
     theme: readDesktopPetThemeSnapshot() || normalizeDesktopPetTheme(config.theme)
   };
   localStorage.setItem(DESKTOP_PET_STORAGE_KEY, JSON.stringify(normalized));
@@ -323,7 +333,8 @@ export function getDesktopPetExtension(character: Pick<CharacterDetail, "extensi
     actions: raw.actions,
     emotions: raw.emotions,
     assistantInstructions: stringValue(raw.assistantInstructions, 3000),
-    persistentMemory: stringValue(raw.persistentMemory, 6000)
+    persistentMemory: stringValue(raw.persistentMemory, 6000),
+    chatContextTokenLimit: raw.chatContextTokenLimit === undefined ? undefined : clampPetContextTokenLimit(raw.chatContextTokenLimit)
   };
 }
 
@@ -343,6 +354,7 @@ export function buildDesktopPetConfigFromCharacter(character: CharacterDetail, f
     emotions: normalizeDesktopPetPresets(pet.emotions ?? fallbackForCharacter?.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
     assistantInstructions: stringValue(pet.assistantInstructions, 3000) || fallbackForCharacter?.assistantInstructions || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions,
     persistentMemory: stringValue(pet.persistentMemory, 6000) || fallbackForCharacter?.persistentMemory || "",
+    chatContextTokenLimit: clampPetContextTokenLimit(pet.chatContextTokenLimit ?? fallbackForCharacter?.chatContextTokenLimit),
     description: stringValue(character.description, 2000),
     personality: stringValue(character.personality, 4000),
     scenario: stringValue(character.scenario, 4000),
@@ -369,7 +381,8 @@ export function mergeDesktopPetExtension(
       actions: normalizeDesktopPetPresets(pet.actions, DEFAULT_DESKTOP_PET_CONFIG.actions),
       emotions: normalizeDesktopPetPresets(pet.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
       assistantInstructions: stringValue(pet.assistantInstructions, 3000) || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions,
-      persistentMemory: stringValue(pet.persistentMemory, 6000)
+      persistentMemory: stringValue(pet.persistentMemory, 6000),
+      chatContextTokenLimit: clampPetContextTokenLimit(pet.chatContextTokenLimit)
     }
   };
 }

@@ -38,6 +38,7 @@ type PetDraft = {
   emotions: DesktopPetStatePreset[];
   assistantInstructions: string;
   persistentMemory: string;
+  chatContextTokenLimit: number;
 };
 
 type PresetUploadTarget = {
@@ -46,7 +47,17 @@ type PresetUploadTarget = {
   field: "assetUrl" | "soundUrl";
 } | null;
 
-type PetPanelView = "asset" | "states" | "assistant";
+type PetPanelView = "asset" | "states" | "assistant" | "chats";
+type PetChatMessage = { role: "user" | "assistant"; content: string; createdAt: number };
+type PetChatAttachment = { type: "image"; dataUrl: string; mimeType: string; filename: string; createdAt: number };
+type PetChatHistory = {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  count: number;
+  messages: Array<PetChatMessage & { attachments?: PetChatAttachment[] }>;
+};
 type CodexPetManifest = {
   id?: string;
   name?: string;
@@ -164,7 +175,8 @@ function createBlankPetCard(name: string) {
           actions: FALLBACK_ACTIONS.map(codexPreset),
           emotions: FALLBACK_EMOTIONS.map(codexPreset),
           assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help.",
-          persistentMemory: ""
+          persistentMemory: "",
+          chatContextTokenLimit: 2400
         }
       }
     }
@@ -203,7 +215,8 @@ function createCodexPetCard(manifest: CodexPetManifest, spriteSheetUrl: string) 
           actions: FALLBACK_ACTIONS.map(codexPreset),
           emotions: FALLBACK_EMOTIONS.map(codexPreset),
           assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help.",
-          persistentMemory: ""
+          persistentMemory: "",
+          chatContextTokenLimit: 2400
         }
       }
     }
@@ -228,7 +241,8 @@ function draftFromCharacter(character: CharacterDetail, fallback?: DesktopPetCon
     actions: config.actions,
     emotions: config.emotions,
     assistantInstructions: config.assistantInstructions,
-    persistentMemory: config.persistentMemory
+    persistentMemory: config.persistentMemory,
+    chatContextTokenLimit: config.chatContextTokenLimit
   };
 }
 
@@ -269,6 +283,7 @@ function petConfigFromDraft(character: CharacterDetail, draft: PetDraft): Deskto
     emotions: normalizePresetDraft(draft.emotions, FALLBACK_EMOTIONS),
     assistantInstructions: draft.assistantInstructions,
     persistentMemory: draft.persistentMemory,
+    chatContextTokenLimit: draft.chatContextTokenLimit,
     theme: readDesktopPetThemeSnapshot(),
     description: draft.description,
     personality: draft.personality,
@@ -350,6 +365,9 @@ export function PetsScreen() {
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const [visible, setVisible] = useState(false);
   const [rightView, setRightView] = useState<PetPanelView>("asset");
+  const [petChats, setPetChats] = useState<PetChatHistory[]>([]);
+  const [activePetChatId, setActivePetChatId] = useState("");
+  const [petChatsLoading, setPetChatsLoading] = useState(false);
   const [status, setStatus] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const isElectron = Boolean(window.electronAPI?.showDesktopPet);
 
@@ -407,10 +425,42 @@ export function PetsScreen() {
   useEffect(() => {
     if (!selected) {
       setDraft(null);
+      setPetChats([]);
+      setActivePetChatId("");
       return;
     }
     setDraft(draftFromCharacter(selected, activeConfig.characterId === selected.id ? activeConfig : undefined));
   }, [activeConfig, selected]);
+
+  const refreshPetChats = useCallback(async () => {
+    if (!selected || !draft || !isElectron) {
+      setPetChats([]);
+      setActivePetChatId("");
+      return;
+    }
+    setPetChatsLoading(true);
+    try {
+      const payload = await window.electronAPI!.listDesktopPetChats(petConfigFromDraft(selected, draft));
+      const history = Array.isArray(payload.history) ? payload.history : [];
+      setPetChats(history);
+      setActivePetChatId(payload.activeChatId || history[0]?.id || "");
+      if (typeof payload.persistentMemory === "string") {
+        setDraft((current) => {
+          if (!current || current.persistentMemory === payload.persistentMemory) return current;
+          return { ...current, persistentMemory: payload.persistentMemory || "" };
+        });
+      }
+    } catch (error) {
+      setStatus({ kind: "error", text: `${t("pets.chatsLoadFailed")}: ${String(error)}` });
+    } finally {
+      setPetChatsLoading(false);
+    }
+  }, [draft, isElectron, selected, t]);
+
+  useEffect(() => {
+    if (rightView !== "chats") return;
+    void refreshPetChats();
+  }, [refreshPetChats, rightView]);
 
   async function createPet() {
     setCreating(true);
@@ -525,7 +575,8 @@ export function PetsScreen() {
           actions: normalizePresetDraft(draft.actions, FALLBACK_ACTIONS),
           emotions: normalizePresetDraft(draft.emotions, FALLBACK_EMOTIONS),
           assistantInstructions: draft.assistantInstructions,
-          persistentMemory: draft.persistentMemory
+          persistentMemory: draft.persistentMemory,
+          chatContextTokenLimit: draft.chatContextTokenLimit
         })
       });
       setCharacters((prev) => prev.map((character) => character.id === updated.id ? updated : character));
@@ -556,6 +607,31 @@ export function PetsScreen() {
     if (!isElectron) return;
     const result = await window.electronAPI!.hideDesktopPet();
     setVisible(result.visible);
+  }
+
+  async function selectPetChat(chatId: string) {
+    if (!selected || !draft || !isElectron) return;
+    setActivePetChatId(chatId);
+    try {
+      const payload = await window.electronAPI!.selectDesktopPetChat(chatId, petConfigFromDraft(selected, draft));
+      const history = Array.isArray(payload.history) ? payload.history : [];
+      setPetChats(history);
+      setActivePetChatId(payload.activeChatId || chatId);
+    } catch (error) {
+      setStatus({ kind: "error", text: `${t("pets.chatsLoadFailed")}: ${String(error)}` });
+    }
+  }
+
+  async function createPetChat() {
+    if (!selected || !draft || !isElectron) return;
+    try {
+      const payload = await window.electronAPI!.createDesktopPetChat(t("pets.newChatTitle"), petConfigFromDraft(selected, draft));
+      const history = Array.isArray(payload.history) ? payload.history : [];
+      setPetChats(history);
+      setActivePetChatId(payload.activeChatId || history[0]?.id || "");
+    } catch (error) {
+      setStatus({ kind: "error", text: `${t("pets.chatsLoadFailed")}: ${String(error)}` });
+    }
   }
 
   function readFileAsBase64(file: File): Promise<string> {
@@ -804,6 +880,96 @@ export function PetsScreen() {
       return <EmptyState title={t("pets.noSelection")} description={t("pets.noSelectionDesc")} />;
     }
 
+    if (rightView === "chats") {
+      const activeChat = petChats.find((chat) => chat.id === activePetChatId) || petChats[0] || null;
+      return (
+        <div className="flex min-h-0 flex-col gap-3">
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <button
+              type="button"
+              onClick={() => void refreshPetChats()}
+              disabled={!isElectron || petChatsLoading}
+              className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {petChatsLoading ? t("pets.loading") : t("pets.refreshChats")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void createPetChat()}
+              disabled={!isElectron}
+              className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              + {t("pets.newChat")}
+            </button>
+          </div>
+          {!isElectron ? (
+            <EmptyState title={t("pets.desktopOnly")} description={t("pets.desktopUnavailable")} />
+          ) : petChats.length === 0 ? (
+            <EmptyState title={t("pets.noChats")} description={t("pets.noChatsDesc")} />
+          ) : (
+            <div className="grid min-h-0 gap-3">
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                {petChats.map((chat) => (
+                  <button
+                    key={chat.id}
+                    type="button"
+                    onClick={() => void selectPetChat(chat.id)}
+                    className={`max-w-[180px] flex-shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                      activeChat?.id === chat.id
+                        ? "border-accent bg-accent-subtle text-text-primary"
+                        : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                    }`}
+                  >
+                    <div className="truncate font-semibold">{chat.title || t("pets.newChatTitle")}</div>
+                    <div className="mt-0.5 text-[10px] text-text-tertiary">
+                      {chat.count} {t("pets.messagesCount")}
+                      {activeChat?.id === chat.id ? ` · ${t("pets.mainChat")}` : ""}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="max-h-[46vh] min-h-[220px] overflow-y-auto rounded-xl border border-border bg-bg-primary p-3">
+                {activeChat?.messages.length ? (
+                  <div className="grid gap-2">
+                    {activeChat.messages.map((message, index) => (
+                      <div
+                        key={`${activeChat.id}-${message.createdAt}-${index}`}
+                        className={`rounded-lg border px-3 py-2 text-xs leading-5 ${
+                          message.role === "assistant"
+                            ? "border-accent-border bg-accent-subtle text-text-primary"
+                            : "border-border-subtle bg-bg-secondary text-text-secondary"
+                        }`}
+                      >
+                        <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-[0.12em] text-text-tertiary">
+                          <span>{message.role === "assistant" ? draft.name || t("chat.assistant") : t("chat.user")}</span>
+                          <span>{new Date(message.createdAt).toLocaleString()}</span>
+                        </div>
+                        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                        {message.attachments?.length ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {message.attachments.map((attachment, attachmentIndex) => (
+                              <img
+                                key={`${attachment.createdAt}-${attachmentIndex}`}
+                                src={attachment.dataUrl}
+                                alt={attachment.filename || t("chat.imageAttachment")}
+                                className="h-20 w-28 rounded-md border border-border object-cover"
+                              />
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState title={t("pets.emptyChat")} description={t("pets.emptyChatDesc")} />
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     if (rightView === "states") {
       return (
         <div className="grid gap-4">
@@ -840,6 +1006,18 @@ export function PetsScreen() {
               placeholder={t("pets.persistentMemoryPlaceholder")}
               onChange={(event) => setDraft({ ...draft, persistentMemory: event.target.value.slice(0, 6000) })}
             />
+          </label>
+          <label className="pets-field">
+            <span>{t("pets.contextTokenLimit")}</span>
+            <input
+              type="number"
+              min={800}
+              max={16000}
+              step={200}
+              value={draft.chatContextTokenLimit}
+              onChange={(event) => setDraft({ ...draft, chatContextTokenLimit: Math.max(800, Math.min(16000, Math.round(Number(event.target.value) || 2400))) })}
+            />
+            <small>{t("pets.contextTokenLimitDesc")}</small>
           </label>
           <label className="pets-toggle-row">
             <input
@@ -1184,7 +1362,7 @@ export function PetsScreen() {
           </div>
 
           <div className="pets-config-tabs" role="tablist" aria-label={t("pets.desktop")}>
-            {(["asset", "states", "assistant"] as const).map((view) => (
+            {(["asset", "states", "assistant", "chats"] as const).map((view) => (
               <button
                 key={view}
                 type="button"
@@ -1193,7 +1371,7 @@ export function PetsScreen() {
                 className={rightView === view ? "is-active" : ""}
                 onClick={() => setRightView(view)}
               >
-                {view === "asset" ? t("pets.tabAsset") : view === "states" ? t("pets.tabStates") : t("pets.tabAssistant")}
+                {view === "asset" ? t("pets.tabAsset") : view === "states" ? t("pets.tabStates") : view === "assistant" ? t("pets.tabAssistant") : t("pets.tabChats")}
               </button>
             ))}
           </div>

@@ -51,7 +51,8 @@ let desktopPetConfig: DesktopPetConfig = {
   ],
   autonomyEnabled: false,
   assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help.",
-  persistentMemory: ""
+  persistentMemory: "",
+  chatContextTokenLimit: 2400
 };
 let desktopPetUiPlacement: DesktopPetUiPlacement = "above";
 const desktopPetDragState = new Map<number, {
@@ -85,6 +86,7 @@ type DesktopPetConfig = {
   emotions: DesktopPetStatePreset[];
   assistantInstructions: string;
   persistentMemory: string;
+  chatContextTokenLimit: number;
   description?: string;
   personality?: string;
   scenario?: string;
@@ -101,6 +103,15 @@ type DesktopPetTheme = {
 type DesktopPetChatMessage = {
   role: "user" | "assistant";
   content: string;
+  createdAt: number;
+  attachments?: DesktopPetChatAttachment[];
+};
+
+type DesktopPetChatAttachment = {
+  type: "image";
+  dataUrl: string;
+  mimeType: string;
+  filename: string;
   createdAt: number;
 };
 
@@ -320,10 +331,14 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
   const systemPrompt = String(row.systemPrompt || "").trim().slice(0, 4000);
   const assistantInstructions = String(row.assistantInstructions || desktopPetConfig.assistantInstructions || "").trim().slice(0, 3000);
   const persistentMemory = String(row.persistentMemory ?? desktopPetConfig.persistentMemory ?? "").trim().slice(0, 6000);
+  const chatContextTokenLimitRaw = Number(row.chatContextTokenLimit ?? desktopPetConfig.chatContextTokenLimit ?? 2400);
+  const chatContextTokenLimit = Number.isFinite(chatContextTokenLimitRaw)
+    ? Math.max(800, Math.min(16000, Math.round(chatContextTokenLimitRaw)))
+    : 2400;
   const actions = normalizePresets(row.actions, desktopPetConfig.actions);
   const emotions = normalizePresets(row.emotions, desktopPetConfig.emotions);
   const theme = sanitizeTheme(row.theme) || desktopPetConfig.theme;
-  return { characterId, name, spriteUrl, spriteSheetUrl, scale, voice, ttsEnabled, autonomyEnabled, actions, emotions, assistantInstructions, persistentMemory, description, personality, scenario, greeting, systemPrompt, theme };
+  return { characterId, name, spriteUrl, spriteSheetUrl, scale, voice, ttsEnabled, autonomyEnabled, actions, emotions, assistantInstructions, persistentMemory, chatContextTokenLimit, description, personality, scenario, greeting, systemPrompt, theme };
 }
 
 function desktopPetWindowSize(config: DesktopPetConfig, expanded = false) {
@@ -469,6 +484,14 @@ function setActiveDesktopPetInstance(instance: DesktopPetInstance) {
   desktopPetUiPlacement = instance.uiPlacement;
 }
 
+function resolveDesktopPetConfigForRequest(sender: WebContents, rawConfig?: unknown): DesktopPetConfig {
+  if (rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)) {
+    return sanitizeDesktopPetConfig(rawConfig);
+  }
+  const instance = getDesktopPetInstanceForSender(sender);
+  return instance?.config || desktopPetConfig;
+}
+
 function maybeNotifyNearbyDesktopPets(instance: DesktopPetInstance) {
   const bounds = instance.window.getBounds();
   const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
@@ -528,6 +551,30 @@ function nowId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function roughPetTokenCount(text: string): number {
+  return Math.max(1, Math.ceil(String(text || "").length / 4));
+}
+
+function sanitizePetAttachments(value: unknown): DesktopPetChatAttachment[] {
+  if (!Array.isArray(value)) return [];
+  const out: DesktopPetChatAttachment[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const row = item as Record<string, unknown>;
+    if (row.type !== "image") continue;
+    const dataUrl = String(row.dataUrl || "").slice(0, 8 * 1024 * 1024);
+    if (!dataUrl.startsWith("data:image/")) continue;
+    out.push({
+      type: "image",
+      dataUrl,
+      mimeType: String(row.mimeType || "image/png").slice(0, 80),
+      filename: String(row.filename || "screen-context.png").slice(0, 160),
+      createdAt: Number(row.createdAt) || Date.now()
+    });
+  }
+  return out.slice(0, 2);
+}
+
 function sanitizePetMessage(value: unknown): DesktopPetChatMessage | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
@@ -535,7 +582,12 @@ function sanitizePetMessage(value: unknown): DesktopPetChatMessage | null {
   const content = String(row.content || "").trim().slice(0, 1600);
   if (!role || !content) return null;
   const createdAt = Number(row.createdAt);
-  return { role, content, createdAt: Number.isFinite(createdAt) ? createdAt : Date.now() };
+  return {
+    role,
+    content,
+    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+    attachments: sanitizePetAttachments(row.attachments)
+  };
 }
 
 function sanitizePetChat(value: unknown): DesktopPetChat | null {
@@ -660,19 +712,80 @@ function summarizeDesktopPetChats(state: DesktopPetRuntimeState) {
     .map((chat) => ({ id: chat.id, title: chat.title, updatedAt: chat.updatedAt, count: chat.messages.length }));
 }
 
+function summarizeDesktopPetChatHistory(state: DesktopPetRuntimeState) {
+  return state.chats
+    .slice()
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((chat) => ({
+      id: chat.id,
+      title: chat.title,
+      createdAt: chat.createdAt,
+      updatedAt: chat.updatedAt,
+      count: chat.messages.length,
+      messages: chat.messages
+    }));
+}
+
+function selectDesktopPetHistoryForContext(chat: DesktopPetChat, tokenLimit: number) {
+  const limit = Math.max(800, Math.min(16000, Math.round(tokenLimit || 2400)));
+  const selected: DesktopPetChatMessage[] = [];
+  let used = 0;
+  for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
+    const message = chat.messages[index];
+    const cost = roughPetTokenCount(message.content) + 8;
+    if (selected.length > 0 && used + cost > limit) break;
+    selected.unshift(message);
+    used += cost;
+  }
+  return selected.map(({ role, content }) => ({ role, content }));
+}
+
+function selectDesktopPetImagesForContext(chat: DesktopPetChat, current?: DesktopPetScreenContext | null) {
+  const images: DesktopPetScreenContext[] = [];
+  if (current?.dataUrl?.startsWith("data:image/")) images.push(current);
+  for (let messageIndex = chat.messages.length - 1; messageIndex >= 0 && images.length < 2; messageIndex -= 1) {
+    const message = chat.messages[messageIndex];
+    for (let attachmentIndex = (message.attachments || []).length - 1; attachmentIndex >= 0 && images.length < 2; attachmentIndex -= 1) {
+      const attachment = message.attachments?.[attachmentIndex];
+      if (attachment?.type === "image" && attachment.dataUrl.startsWith("data:image/")) {
+        images.push({ dataUrl: attachment.dataUrl, width: 0, height: 0 });
+      }
+    }
+  }
+  return images.slice(0, 2);
+}
+
 function stripDesktopPetToolLine(text: string): string {
   return String(text || "").replace(/<PET_TOOL>[\s\S]*?<\/PET_TOOL>/gi, "").trim();
 }
 
-function parseDesktopPetTool(text: string): Record<string, unknown> {
-  const match = String(text || "").match(/<PET_TOOL>([\s\S]*?)<\/PET_TOOL>/i);
-  if (!match) return {};
-  try {
-    const parsed = JSON.parse(match[1]);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
+function mergeDesktopPetToolValue(previous: unknown, next: unknown): unknown {
+  if (previous === undefined || previous === null || previous === "") return next;
+  if (next === undefined || next === null || next === "") return previous;
+  if (Array.isArray(previous) || Array.isArray(next)) {
+    return [
+      ...(Array.isArray(previous) ? previous : [previous]),
+      ...(Array.isArray(next) ? next : [next])
+    ];
   }
+  return next;
+}
+
+function parseDesktopPetTool(text: string): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  const matches = String(text || "").matchAll(/<PET_TOOL>([\s\S]*?)<\/PET_TOOL>/gi);
+  for (const match of matches) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+        merged[key] = mergeDesktopPetToolValue(merged[key], value);
+      }
+    } catch {
+      // Ignore malformed tool blocks, but still strip them from the visible reply.
+    }
+  }
+  return merged;
 }
 
 function updatePersistentMemory(current: string, tool: Record<string, unknown>): string {
@@ -693,6 +806,24 @@ function updatePersistentMemory(current: string, tool: Record<string, unknown>):
   return lines.slice(-40).join("\n").slice(0, 6000);
 }
 
+function inferDesktopPetMemoryToolFromUserMessage(message: string): Record<string, unknown> {
+  const text = String(message || "").replace(/\s+/g, " ").trim().slice(0, 4000);
+  if (!text) return {};
+  const forgetMatch = text.match(/(?:забудь|удали(?: это)? из памяти|убери(?: это)? из памяти|forget|remove (?:this )?from memory)\s*[:,-]?\s*(.+)?/i);
+  if (forgetMatch) {
+    const target = String(forgetMatch[1] || "").trim();
+    return target ? { memory_remove: target } : {};
+  }
+  const rememberMatch = text.match(/(?:запомни|запиши(?: себе)?|помни|не забудь|remember|remember that|note that|keep in mind)\s*[:,-]?\s*(.+)/i);
+  if (!rememberMatch) return {};
+  const fact = String(rememberMatch[1] || "")
+    .replace(/^(что|that)\s+/i, "")
+    .replace(/[.!?…]+$/g, "")
+    .trim()
+    .slice(0, 240);
+  return fact ? { memory_add: fact } : {};
+}
+
 function buildDesktopPetRuntimePrompt(config: DesktopPetConfig, persistentMemory: string): string {
   const describe = (preset: DesktopPetStatePreset) => `${preset.id}${preset.label && preset.label !== preset.id ? ` (${preset.label})` : ""}: animation=${preset.animation}, codex_row=${preset.codexState || "idle"}${preset.assetUrl ? ", custom_asset=true" : ""}${preset.soundUrl ? ", sound=true" : ""}`;
   const statesById = new Map<string, DesktopPetStatePreset>();
@@ -708,11 +839,15 @@ function buildDesktopPetRuntimePrompt(config: DesktopPetConfig, persistentMemory
     persistentMemory ? `Persistent memory:\n${persistentMemory}` : "",
     "Reply naturally and briefly as the selected character. You are a persistent screen-dwelling companion, not a toy mascot or game UI.",
     "Behave like a small living presence on the desktop: notice attention, keep continuity, and be useful like a personal assistant when the user asks for help.",
-    "Choose one pet state after your text to change the visible pet asset and animation. You may also update persistent memory when the user clearly asks you to remember or forget something important.",
+    "Treat persistent memory as stable identity and relationship memory. Remember durable facts about the user, the user's preferences, devices, projects, routines, and important plans.",
+    "Also remember durable facts about yourself as this pet: your chosen preferences, likes, dislikes, self-descriptions, habits, and long-term opinions. If you once established that you like a programming language, food, activity, or style, keep that preference consistent instead of changing it just because the user asks again.",
+    "Do not store throwaway small talk, temporary moods, one-off jokes, or facts that are likely to expire soon unless the user explicitly asks you to remember them.",
+    "Choose one pet state after your text to change the visible pet asset and animation. You may update persistent memory when a stable fact about you or the user should persist across future pet chats.",
+    "If you tell the user that you remembered or forgot something, you MUST include memory_add or memory_remove in the PET_TOOL line. Never merely claim that memory changed.",
     `Available states: ${states}.`,
-    "Append exactly one final machine-readable line in this format:",
+    "Append exactly one final machine-readable line in this format. Put state/action/emotion and memory_add/memory_remove in the same JSON object, not in separate PET_TOOL blocks:",
     '<PET_TOOL>{"state":"happy"}</PET_TOOL>',
-    'To remember or forget stable facts, use: <PET_TOOL>{"state":"happy","memory_add":"User prefers concise replies"}</PET_TOOL> or <PET_TOOL>{"state":"alert","memory_remove":"old fact"}</PET_TOOL>.',
+    'To remember or forget stable facts, use: <PET_TOOL>{"state":"happy","memory_add":"User prefers concise replies"}</PET_TOOL>, <PET_TOOL>{"state":"happy","memory_add":"Pet likes Rust and keeps this preference consistent"}</PET_TOOL>, or <PET_TOOL>{"state":"alert","memory_remove":"old fact"}</PET_TOOL>.',
     "Use only a state id from the available list. Do not explain the tool line."
   ].filter(Boolean).join("\n");
 }
@@ -722,7 +857,7 @@ async function sendDesktopPetMessageToLlm(
   config = desktopPetConfig,
   screenContext?: DesktopPetScreenContext | null
 ): Promise<{ ok: boolean; reply: string; chatId?: string }> {
-  const text = String(message || "").trim().slice(0, 1000);
+  const text = String(message || "").trim().slice(0, 4000);
   if (!text) return { ok: false, reply: "" };
   await syncDesktopPetRuntimeState(config);
   const runtime = await getDesktopPetRuntimeState(config);
@@ -731,7 +866,7 @@ async function sendDesktopPetMessageToLlm(
     method: "POST",
     body: JSON.stringify({
       content: text,
-      history: chat.messages.slice(-12).map(({ role, content }) => ({ role, content })),
+      history: selectDesktopPetHistoryForContext(chat, config.chatContextTokenLimit),
       pet: {
         name: config.name,
         description: config.description || "",
@@ -739,25 +874,29 @@ async function sendDesktopPetMessageToLlm(
         scenario: config.scenario || "",
         systemPrompt: config.systemPrompt || ""
       },
-      screenContext: screenContext?.dataUrl?.startsWith("data:image/")
-        ? {
-          dataUrl: screenContext.dataUrl,
-          width: screenContext.width,
-          height: screenContext.height
-        }
-        : undefined,
+      screenContexts: selectDesktopPetImagesForContext(chat, screenContext),
       runtimeSystemPrompt: buildDesktopPetRuntimePrompt(config, runtime.persistentMemory)
     })
   });
   const reply = String(response.reply || "").trim() || "...";
   const tool = parseDesktopPetTool(reply);
-  const nextMemory = updatePersistentMemory(runtime.persistentMemory, tool);
+  const inferredMemoryTool = inferDesktopPetMemoryToolFromUserMessage(text);
+  const nextMemory = updatePersistentMemory(updatePersistentMemory(runtime.persistentMemory, inferredMemoryTool), tool);
   if (nextMemory !== runtime.persistentMemory) runtime.persistentMemory = nextMemory;
   const now = Date.now();
   if (chat.messages.length === 0) chat.title = text.slice(0, 42) || "New chat";
+  const userAttachments = screenContext?.dataUrl?.startsWith("data:image/")
+    ? [{
+      type: "image" as const,
+      dataUrl: screenContext.dataUrl.slice(0, 8 * 1024 * 1024),
+      mimeType: "image/png",
+      filename: `screen-context-${now}.png`,
+      createdAt: now
+    }]
+    : [];
   chat.messages = [
     ...chat.messages,
-    { role: "user", content: text, createdAt: now },
+    { role: "user", content: text, createdAt: now, attachments: userAttachments },
     { role: "assistant", content: stripDesktopPetToolLine(reply).slice(0, 1200) || "...", createdAt: now }
   ].slice(-80);
   chat.updatedAt = now;
@@ -1169,7 +1308,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       </div>
       <div class="bubble" id="bubble"></div>
       <form class="controls" id="form">
-        <input id="input" maxlength="160" placeholder="Say something..." autocomplete="off" />
+        <input id="input" placeholder="Say something..." autocomplete="off" />
         <button type="button" id="play">Pet</button>
         <button type="button" id="look" title="Send screen context">Look</button>
         <button type="submit">Send</button>
@@ -1420,20 +1559,23 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     }
     function parsePetTool(raw) {
       const text = String(raw || "");
-      const match = text.match(/<PET_TOOL>([\\s\\S]*?)<\\/PET_TOOL>/i);
-      if (!match) return { message: text.trim(), action: "", emotion: "" };
-      try {
-        const tool = JSON.parse(match[1]);
-        const state = tool.state || tool.emotion || tool.action || tool.animation || "alert";
-        const message = text.replace(match[0], "").trim() || clean(tool.message, 180) || "...";
-        return {
-          message,
-          action: tool.action || state,
-          emotion: tool.emotion || state
-        };
-      } catch {
-        return { message: text.replace(match[0], "").trim() || text.trim(), action: "", emotion: "" };
+      const toolBlocks = [...text.matchAll(/<PET_TOOL>([\\s\\S]*?)<\\/PET_TOOL>/gi)];
+      const visibleText = text.replace(/<PET_TOOL>[\\s\\S]*?<\\/PET_TOOL>/gi, "").trim();
+      if (!toolBlocks.length) return { message: text.trim(), action: "", emotion: "" };
+      const tool = {};
+      for (const match of toolBlocks) {
+        try {
+          const parsed = JSON.parse(match[1]);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+          Object.assign(tool, parsed);
+        } catch {}
       }
+      const state = tool.state || tool.emotion || tool.action || tool.animation || "";
+      return {
+        message: visibleText || clean(tool.message, 180) || "...",
+        action: tool.action || state,
+        emotion: tool.emotion || state
+      };
     }
     function say(text, mood = "", emotion = "") {
       bubble.textContent = text;
@@ -1468,7 +1610,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       return list[Math.floor(Math.random() * list.length)];
     }
     async function sendMessageWithOptionalScreen(text, includeScreen = false) {
-      const messageText = clean(text, 1000);
+      const messageText = clean(text, 4000);
       if (!messageText) return say(randomLine());
       showUi();
       say(includeScreen ? "Looking..." : "...", "running", "running");
@@ -2064,22 +2206,21 @@ ipcMain.handle("desktop-pet:autonomy-step", (event, delta: { dx?: unknown; dy?: 
   return { ok: true, placement };
 });
 
-ipcMain.handle("desktop-pet:chats", async (event) => {
-  const instance = getDesktopPetInstanceForSender(event.sender);
-  const config = instance?.config || desktopPetConfig;
+ipcMain.handle("desktop-pet:chats", async (event, rawConfig?: unknown) => {
+  const config = resolveDesktopPetConfigForRequest(event.sender, rawConfig);
   await syncDesktopPetRuntimeState(config);
   const state = await getDesktopPetRuntimeState(config);
   return {
     ok: true,
     activeChatId: state.defaultChatId,
     persistentMemory: state.persistentMemory,
-    chats: summarizeDesktopPetChats(state)
+    chats: summarizeDesktopPetChats(state),
+    history: summarizeDesktopPetChatHistory(state)
   };
 });
 
-ipcMain.handle("desktop-pet:new-chat", async (event, rawTitle: unknown) => {
-  const instance = getDesktopPetInstanceForSender(event.sender);
-  const config = instance?.config || desktopPetConfig;
+ipcMain.handle("desktop-pet:new-chat", async (event, rawTitle: unknown, rawConfig?: unknown) => {
+  const config = resolveDesktopPetConfigForRequest(event.sender, rawConfig);
   await syncDesktopPetRuntimeState(config);
   const state = await getDesktopPetRuntimeState(config);
   const chat = createDesktopPetChat(String(rawTitle || "New chat").trim().slice(0, 64) || "New chat");
@@ -2087,12 +2228,11 @@ ipcMain.handle("desktop-pet:new-chat", async (event, rawTitle: unknown) => {
   state.defaultChatId = chat.id;
   state.chats = state.chats.slice(0, 20);
   scheduleDesktopPetStoreWrite();
-  return { ok: true, activeChatId: chat.id, chats: summarizeDesktopPetChats(state) };
+  return { ok: true, activeChatId: chat.id, chats: summarizeDesktopPetChats(state), history: summarizeDesktopPetChatHistory(state) };
 });
 
-ipcMain.handle("desktop-pet:select-chat", async (event, rawChatId: unknown) => {
-  const instance = getDesktopPetInstanceForSender(event.sender);
-  const config = instance?.config || desktopPetConfig;
+ipcMain.handle("desktop-pet:select-chat", async (event, rawChatId: unknown, rawConfig?: unknown) => {
+  const config = resolveDesktopPetConfigForRequest(event.sender, rawConfig);
   await syncDesktopPetRuntimeState(config);
   const state = await getDesktopPetRuntimeState(config);
   const chatId = String(rawChatId || "").trim();
@@ -2100,7 +2240,7 @@ ipcMain.handle("desktop-pet:select-chat", async (event, rawChatId: unknown) => {
     state.defaultChatId = chatId;
     scheduleDesktopPetStoreWrite();
   }
-  return { ok: true, activeChatId: state.defaultChatId, chats: summarizeDesktopPetChats(state) };
+  return { ok: true, activeChatId: state.defaultChatId, chats: summarizeDesktopPetChats(state), history: summarizeDesktopPetChatHistory(state) };
 });
 
 ipcMain.handle("desktop-pet:message", async (event, message: unknown, rawScreenContext?: unknown) => {
