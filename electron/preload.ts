@@ -18,9 +18,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   moveDesktopPetDrag: (point: { screenX: number; screenY: number }) => ipcRenderer.invoke("desktop-pet:drag-move", point) as Promise<{ ok: boolean; placement?: "above" | "below" }>,
   resizeDesktopPetUi: (expanded: boolean) => ipcRenderer.invoke("desktop-pet:ui-expanded", expanded) as Promise<{ ok: boolean; placement?: "above" | "below" }>,
   autonomyDesktopPetStep: (delta: { dx: number; dy: number }) => ipcRenderer.invoke("desktop-pet:autonomy-step", delta) as Promise<{ ok: boolean; placement?: "above" | "below" }>,
-  listDesktopPetChats: () => ipcRenderer.invoke("desktop-pet:chats") as Promise<{ ok: boolean; activeChatId: string; persistentMemory: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>,
-  createDesktopPetChat: (title?: string) => ipcRenderer.invoke("desktop-pet:new-chat", title) as Promise<{ ok: boolean; activeChatId: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>,
-  selectDesktopPetChat: (chatId: string) => ipcRenderer.invoke("desktop-pet:select-chat", chatId) as Promise<{ ok: boolean; activeChatId: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>,
+  listDesktopPetChats: (config?: unknown) => ipcRenderer.invoke("desktop-pet:chats", config),
+  createDesktopPetChat: (title?: string, config?: unknown) => ipcRenderer.invoke("desktop-pet:new-chat", title, config),
+  selectDesktopPetChat: (chatId: string, config?: unknown) => ipcRenderer.invoke("desktop-pet:select-chat", chatId, config),
   sendDesktopPetMessage: (message: string, screenContext?: { dataUrl: string; width?: number; height?: number }) =>
     ipcRenderer.invoke("desktop-pet:message", message, screenContext) as Promise<{ ok: boolean; reply: string; chatId?: string }>,
   captureDesktopPetScreenContext: () =>

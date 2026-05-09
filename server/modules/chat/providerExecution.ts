@@ -53,6 +53,7 @@ export interface CompleteProviderOnceParams {
   systemPrompt: string;
   userPrompt: string;
   imageDataUrl?: string;
+  imageDataUrls?: string[];
   samplerConfig?: Record<string, unknown>;
   apiParamPolicy?: unknown;
   signal?: AbortSignal;
@@ -369,6 +370,10 @@ export async function streamProviderCompletion(
 export async function completeProviderOnce(params: CompleteProviderOnceParams): Promise<string> {
   const providerType = normalizeProviderType(params.provider.provider_type);
   const sc = params.samplerConfig || {};
+  const imageDataUrls = [
+    ...(params.imageDataUrl ? [params.imageDataUrl] : []),
+    ...(Array.isArray(params.imageDataUrls) ? params.imageDataUrls : [])
+  ].filter((item, index, array) => item.startsWith("data:image/") && array.indexOf(item) === index).slice(0, 2);
 
   if (providerType === "koboldcpp") {
     const koboldPolicy = normalizeApiParamPolicy(params.apiParamPolicy).kobold;
@@ -387,7 +392,7 @@ export async function completeProviderOnce(params: CompleteProviderOnceParams): 
       apiParamPolicy: params.apiParamPolicy
     });
     const body = buildKoboldGenerateBody({
-      prompt: `${KOBOLD_TAGS.inputOpen}\n${params.userPrompt}${params.imageDataUrl ? "\n\n[Screen context image attached; this provider may not support vision.]" : ""}\n${KOBOLD_TAGS.inputClose}\n\n${KOBOLD_TAGS.outputOpen}`,
+      prompt: `${KOBOLD_TAGS.inputOpen}\n${params.userPrompt}${imageDataUrls.length ? "\n\n[Screen context image attached; this provider may not support vision.]" : ""}\n${KOBOLD_TAGS.inputClose}\n\n${KOBOLD_TAGS.outputOpen}`,
       memory,
       samplerConfig: koboldSamplerConfig,
       includeMemory: koboldPolicy.memory
@@ -405,14 +410,14 @@ export async function completeProviderOnce(params: CompleteProviderOnceParams): 
       systemPrompt: params.systemPrompt,
       userPrompt: params.userPrompt,
       samplerConfig: sc,
-      messages: params.imageDataUrl
+      messages: imageDataUrls.length
         ? [
           { role: "system", content: params.systemPrompt },
           {
             role: "user",
             content: [
               { type: "text", text: params.userPrompt },
-              { type: "image_url", image_url: { url: params.imageDataUrl } }
+              ...imageDataUrls.map((url) => ({ type: "image_url", image_url: { url } }))
             ]
           }
         ]
@@ -441,12 +446,12 @@ export async function completeProviderOnce(params: CompleteProviderOnceParams): 
       model: params.modelId,
       messages: [
         { role: "system", content: params.systemPrompt },
-        params.imageDataUrl
+        imageDataUrls.length
           ? {
             role: "user",
             content: [
               { type: "text", text: params.userPrompt },
-              { type: "image_url", image_url: { url: params.imageDataUrl } }
+              ...imageDataUrls.map((url) => ({ type: "image_url", image_url: { url } }))
             ]
           }
           : { role: "user", content: params.userPrompt }

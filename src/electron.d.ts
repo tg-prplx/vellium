@@ -17,9 +17,9 @@ export interface ElectronAPI {
   moveDesktopPetDrag: (point: { screenX: number; screenY: number }) => Promise<{ ok: boolean; placement?: "above" | "below" }>;
   resizeDesktopPetUi: (expanded: boolean) => Promise<{ ok: boolean; placement?: "above" | "below" }>;
   autonomyDesktopPetStep: (delta: { dx: number; dy: number }) => Promise<{ ok: boolean; placement?: "above" | "below" }>;
-  listDesktopPetChats: () => Promise<{ ok: boolean; activeChatId: string; persistentMemory: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>;
-  createDesktopPetChat: (title?: string) => Promise<{ ok: boolean; activeChatId: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>;
-  selectDesktopPetChat: (chatId: string) => Promise<{ ok: boolean; activeChatId: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>;
+  listDesktopPetChats: (config?: unknown) => Promise<DesktopPetChatsPayload>;
+  createDesktopPetChat: (title?: string, config?: unknown) => Promise<DesktopPetChatsPayload>;
+  selectDesktopPetChat: (chatId: string, config?: unknown) => Promise<DesktopPetChatsPayload>;
   sendDesktopPetMessage: (message: string, screenContext?: { dataUrl: string; width?: number; height?: number }) => Promise<{ ok: boolean; reply: string; chatId?: string }>;
   captureDesktopPetScreenContext: () => Promise<{ ok: boolean; dataUrl?: string; width?: number; height?: number; error?: string }>;
   speakDesktopPetText: (text: string) => Promise<{ ok: boolean; contentType?: string; base64?: string; error?: string }>;
@@ -32,6 +32,26 @@ export interface ElectronAPI {
   onMaximizedChange: (callback: (maximized: boolean) => void) => void;
   onManagedBackendsUpdate: (callback: (states: ManagedBackendRuntimeState[]) => void) => void;
 }
+
+export type DesktopPetChatsPayload = {
+  ok: boolean;
+  activeChatId: string;
+  persistentMemory?: string;
+  chats: Array<{ id: string; title: string; updatedAt: number; count: number }>;
+  history?: Array<{
+    id: string;
+    title: string;
+    createdAt: number;
+    updatedAt: number;
+    count: number;
+    messages: Array<{
+      role: "user" | "assistant";
+      content: string;
+      createdAt: number;
+      attachments?: Array<{ type: "image"; dataUrl: string; mimeType: string; filename: string; createdAt: number }>;
+    }>;
+  }>;
+};
 
 declare global {
   interface Window {

@@ -173,17 +173,16 @@ router.post("/desktop-pet/reply", async (req, res) => {
   const recentConversation = history
     .map((item) => `${item.role === "assistant" ? name : "User"}: ${item.content}`)
     .join("\n");
-  const rawScreenContext = req.body?.screenContext && typeof req.body.screenContext === "object" && !Array.isArray(req.body.screenContext)
-    ? req.body.screenContext as Record<string, unknown>
-    : null;
-  const screenDataUrl = String(rawScreenContext?.dataUrl || "").slice(0, 8 * 1024 * 1024);
-  const screenContext = screenDataUrl.startsWith("data:image/")
-    ? {
-      dataUrl: screenDataUrl,
-      width: Number(rawScreenContext?.width) || 0,
-      height: Number(rawScreenContext?.height) || 0
-    }
-    : null;
+  const rawScreenContexts = Array.isArray(req.body?.screenContexts)
+    ? req.body.screenContexts
+    : req.body?.screenContext
+      ? [req.body.screenContext]
+      : [];
+  const screenContexts = rawScreenContexts.flatMap((item: unknown) => {
+    const row = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
+    const dataUrl = String(row.dataUrl || "").slice(0, 8 * 1024 * 1024);
+    return dataUrl.startsWith("data:image/") ? [{ dataUrl }] : [];
+  }).slice(0, 2);
   const systemPrompt = [
     String(settings.defaultSystemPrompt || "").trim(),
     String(pet.systemPrompt || "").trim().slice(0, 4000),
@@ -200,10 +199,10 @@ router.post("/desktop-pet/reply", async (req, res) => {
       systemPrompt,
       userPrompt: [
         recentConversation ? `[Recent Pet Conversation]\n${recentConversation}` : "",
-        screenContext ? `[Screen Context]\nA current screenshot of the user's desktop is attached. The desktop pet itself was hidden before capture, so do not claim to see the pet in the image unless it is actually visible.` : "",
+        screenContexts.length ? `[Screen Context]\nUp to two recent screenshots from this pet chat are attached. The desktop pet itself was hidden before capture, so do not claim to see the pet in the image unless it is actually visible.` : "",
         `[Current User Message]\n${content}`
       ].filter(Boolean).join("\n\n"),
-      imageDataUrl: screenContext?.dataUrl,
+      imageDataUrls: screenContexts.map((item) => item.dataUrl),
       samplerConfig: {
         ...((settings.samplerConfig as Record<string, unknown> | undefined) || {}),
         maxTokens: 420
