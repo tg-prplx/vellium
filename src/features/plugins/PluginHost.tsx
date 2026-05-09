@@ -125,7 +125,8 @@ async function performPluginApiRequestFor(plugin: PluginDescriptor | null, metho
 }
 
 function postMessageToFrame(frame: HTMLIFrameElement | null, payload: Record<string, unknown>) {
-  frame?.contentWindow?.postMessage({ __velliumHost: true, ...payload }, window.location.origin);
+  // Opaque sandboxed plugin frames cannot be targeted by this page's origin string.
+  frame?.contentWindow?.postMessage({ __velliumHost: true, ...payload }, "*");
 }
 
 function readPluginDevAutoRefreshPreference(): boolean {
@@ -557,7 +558,7 @@ export function PluginFrame({
         ref={iframeRef}
         src={frameUrl}
         title={title || plugin.name}
-        sandbox="allow-same-origin allow-scripts allow-forms allow-downloads"
+        sandbox="allow-scripts allow-forms allow-downloads"
         className={className || "plugin-frame"}
         style={{ height }}
         onLoad={() => {

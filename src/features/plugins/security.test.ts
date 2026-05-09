@@ -16,10 +16,23 @@ describe("normalizePluginApiRequest", () => {
 });
 
 describe("isTrustedPluginFrameMessage", () => {
-  it("accepts only the exact iframe source and origin", () => {
+  it("accepts only the exact iframe source and expected origin", () => {
     const frameSource = {} as MessageEventSource;
     expect(isTrustedPluginFrameMessage({
       origin: "http://localhost:1420",
+      source: frameSource,
+      data: {
+        __velliumPlugin: true,
+        pluginId: "hello-world",
+        frameId: "plugin-frame:hello-world:default"
+      }
+    }, frameSource, "http://localhost:1420", "hello-world", "plugin-frame:hello-world:default")).toBe(true);
+  });
+
+  it("accepts opaque sandbox origins for the exact iframe source", () => {
+    const frameSource = {} as MessageEventSource;
+    expect(isTrustedPluginFrameMessage({
+      origin: "null",
       source: frameSource,
       data: {
         __velliumPlugin: true,
