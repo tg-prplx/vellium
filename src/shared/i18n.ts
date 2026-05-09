@@ -47,6 +47,10 @@ export const translations = {
     "tab.lorebooks": "LoreBooks",
     "tab.knowledge": "Knowledge",
     "tab.settings": "Settings",
+    "tab.groupWork": "Work",
+    "tab.groupCharacters": "Characters",
+    "tab.groupKnowledge": "Knowledge",
+    "tab.groupPlugins": "Plugins",
 
     // Task manager
     "taskManager.title": "Tasks",
@@ -159,8 +163,12 @@ export const translations = {
     "pets.soundUploadAudioOnly": "State sound must be an audio file",
     "pets.assistantInstructions": "Assistant instructions",
     "pets.assistantInstructionsPlaceholder": "How this pet should help, speak, decide actions, and behave as a personal assistant...",
+    "pets.persistentMemory": "Persistent memory",
+    "pets.persistentMemoryPlaceholder": "Stable facts this pet should remember. One item per line works best.",
     "pets.autonomy": "Autonomy",
     "pets.autonomyDesc": "Lets the desktop pet wander a little and become sleepy when you ignore it for a while. It does not create normal chats.",
+    "pets.tts": "TTS",
+    "pets.ttsDesc": "Speak pet replies through the app's configured Text to Speech provider.",
 
     // Agents screen
     "agents.title": "Agents",
@@ -1347,6 +1355,10 @@ export const translations = {
     "tab.lorebooks": "Лорбуки",
     "tab.knowledge": "Знания",
     "tab.settings": "Настройки",
+    "tab.groupWork": "Работа",
+    "tab.groupCharacters": "Персонажи",
+    "tab.groupKnowledge": "Знания",
+    "tab.groupPlugins": "Плагины",
 
     // Task manager
     "taskManager.title": "Задачи",
@@ -1459,8 +1471,12 @@ export const translations = {
     "pets.soundUploadAudioOnly": "Звук состояния должен быть аудиофайлом",
     "pets.assistantInstructions": "Инструкции ассистента",
     "pets.assistantInstructionsPlaceholder": "Как пет должен помогать, говорить, выбирать действия и вести себя как личный ассистент...",
+    "pets.persistentMemory": "Persistent memory",
+    "pets.persistentMemoryPlaceholder": "Важные факты, которые пет должен помнить. Лучше по одному пункту на строку.",
     "pets.autonomy": "Автономия",
     "pets.autonomyDesc": "Пет сможет немного гулять и становиться сонным, если долго не писать. Обычные чаты при этом не создаются.",
+    "pets.tts": "TTS",
+    "pets.ttsDesc": "Озвучивать ответы пета через TTS-провайдер из настроек приложения.",
 
     // Agents screen
     "agents.title": "Агенты",

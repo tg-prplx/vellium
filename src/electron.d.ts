@@ -17,7 +17,13 @@ export interface ElectronAPI {
   moveDesktopPetDrag: (point: { screenX: number; screenY: number }) => Promise<{ ok: boolean; placement?: "above" | "below" }>;
   resizeDesktopPetUi: (expanded: boolean) => Promise<{ ok: boolean; placement?: "above" | "below" }>;
   autonomyDesktopPetStep: (delta: { dx: number; dy: number }) => Promise<{ ok: boolean; placement?: "above" | "below" }>;
-  sendDesktopPetMessage: (message: string) => Promise<{ ok: boolean; reply: string; chatId?: string }>;
+  listDesktopPetChats: () => Promise<{ ok: boolean; activeChatId: string; persistentMemory: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>;
+  createDesktopPetChat: (title?: string) => Promise<{ ok: boolean; activeChatId: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>;
+  selectDesktopPetChat: (chatId: string) => Promise<{ ok: boolean; activeChatId: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>;
+  sendDesktopPetMessage: (message: string, screenContext?: { dataUrl: string; width?: number; height?: number }) => Promise<{ ok: boolean; reply: string; chatId?: string }>;
+  captureDesktopPetScreenContext: () => Promise<{ ok: boolean; dataUrl?: string; width?: number; height?: number; error?: string }>;
+  speakDesktopPetText: (text: string) => Promise<{ ok: boolean; contentType?: string; base64?: string; error?: string }>;
+  onDesktopPetPeerNear: (callback: (payload: { name?: string }) => void) => () => void;
   listManagedBackends: () => Promise<ManagedBackendRuntimeState[]>;
   startManagedBackend: (config: ManagedBackendConfig) => Promise<ManagedBackendRuntimeState>;
   stopManagedBackend: (backendId: string) => Promise<ManagedBackendRuntimeState | null>;

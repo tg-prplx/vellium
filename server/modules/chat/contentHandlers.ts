@@ -109,6 +109,19 @@ export async function ttsMessage(req: Request, res: Response) {
     return;
   }
 
+  await synthesizeTtsText(String(message.content || ""), res);
+}
+
+export async function ttsText(req: Request, res: Response) {
+  const input = String(req.body?.input || "").trim().slice(0, 4000);
+  if (!input) {
+    res.status(400).json({ error: "TTS input is empty" });
+    return;
+  }
+  await synthesizeTtsText(input, res);
+}
+
+async function synthesizeTtsText(input: string, res: Response) {
   const settings = getSettings();
   const rawBaseUrl = String(settings.ttsBaseUrl || "").trim();
   const apiKey = String(settings.ttsApiKey || "").trim();
@@ -136,7 +149,7 @@ export async function ttsMessage(req: Request, res: Response) {
         },
         modelId: model,
         voice,
-        input: String(message.content || "")
+        input
       });
       res.setHeader("Content-Type", result.contentType);
       res.setHeader("Cache-Control", "no-store");
@@ -153,7 +166,7 @@ export async function ttsMessage(req: Request, res: Response) {
       body: JSON.stringify({
         model,
         voice,
-        input: String(message.content || "")
+        input
       })
     });
     if (!response.ok) {

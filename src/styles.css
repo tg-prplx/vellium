@@ -536,7 +536,87 @@ select {
 
 .app-nav {
   position: relative;
+  overflow: visible;
+}
+
+.app-nav-group {
+  position: relative;
+  z-index: 1;
+}
+
+.app-nav-group + .app-nav-group {
+  margin-left: 0.25rem;
+  padding-left: 0.25rem;
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+.app-nav-current {
+  max-width: 5.5rem;
   overflow: hidden;
+  color: var(--color-text-tertiary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-nav-chevron {
+  color: var(--color-text-tertiary);
+  font-size: 0.75rem;
+  line-height: 1;
+  transition: transform var(--motion-fast) var(--motion-spring);
+}
+
+.app-nav-group:hover .app-nav-chevron,
+.app-nav-group:focus-within .app-nav-chevron {
+  transform: rotate(180deg);
+}
+
+.app-nav-menu {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  left: 50%;
+  z-index: 90;
+  min-width: 11.5rem;
+  padding: 0.375rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.625rem;
+  background: color-mix(in srgb, var(--color-bg-secondary) 96%, transparent);
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(-0.25rem) scale(0.98);
+  transform-origin: 50% 0;
+  transition:
+    opacity var(--motion-fast) ease,
+    transform var(--motion-fast) var(--motion-spring);
+}
+
+.app-nav-group:hover .app-nav-menu,
+.app-nav-group:focus-within .app-nav-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+.app-nav-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: left;
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+
+.app-nav-menu-item:hover,
+.app-nav-menu-item.is-active {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 .app-nav::before {

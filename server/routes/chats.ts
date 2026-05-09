@@ -28,7 +28,8 @@ import {
 import {
   compressChat,
   translateMessage,
-  ttsMessage
+  ttsMessage,
+  ttsText
 } from "../modules/chat/contentHandlers.js";
 import { completeProviderOnce, countProviderTokens } from "../modules/chat/providerExecution.js";
 import {
@@ -172,6 +173,17 @@ router.post("/desktop-pet/reply", async (req, res) => {
   const recentConversation = history
     .map((item) => `${item.role === "assistant" ? name : "User"}: ${item.content}`)
     .join("\n");
+  const rawScreenContext = req.body?.screenContext && typeof req.body.screenContext === "object" && !Array.isArray(req.body.screenContext)
+    ? req.body.screenContext as Record<string, unknown>
+    : null;
+  const screenDataUrl = String(rawScreenContext?.dataUrl || "").slice(0, 8 * 1024 * 1024);
+  const screenContext = screenDataUrl.startsWith("data:image/")
+    ? {
+      dataUrl: screenDataUrl,
+      width: Number(rawScreenContext?.width) || 0,
+      height: Number(rawScreenContext?.height) || 0
+    }
+    : null;
   const systemPrompt = [
     String(settings.defaultSystemPrompt || "").trim(),
     String(pet.systemPrompt || "").trim().slice(0, 4000),
@@ -188,8 +200,10 @@ router.post("/desktop-pet/reply", async (req, res) => {
       systemPrompt,
       userPrompt: [
         recentConversation ? `[Recent Pet Conversation]\n${recentConversation}` : "",
+        screenContext ? `[Screen Context]\nA current screenshot of the user's desktop is attached. The desktop pet itself was hidden before capture, so do not claim to see the pet in the image unless it is actually visible.` : "",
         `[Current User Message]\n${content}`
       ].filter(Boolean).join("\n\n"),
+      imageDataUrl: screenContext?.dataUrl,
       samplerConfig: {
         ...((settings.samplerConfig as Record<string, unknown> | undefined) || {}),
         maxTokens: 420
@@ -452,6 +466,7 @@ router.post("/messages/:id/translate", translateMessage);
 
 // --- TTS message (OpenAI-compatible audio/speech) ---
 router.post("/messages/:id/tts", ttsMessage);
+router.post("/tts", ttsText);
 
 // --- Per-chat sampler config ---
 router.patch("/:id/sampler", updateChatSampler);

@@ -25,7 +25,7 @@ export function TitleBar({ children }: TitleBarProps) {
 
   return (
     <div
-      className="flex h-12 flex-shrink-0 items-center border-b border-border bg-bg-primary"
+      className="relative z-[80] flex h-12 flex-shrink-0 items-center overflow-visible border-b border-border bg-bg-primary"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
       {/* macOS: spacer for native traffic lights */}
@@ -33,7 +33,7 @@ export function TitleBar({ children }: TitleBarProps) {
 
       {/* Content area (logo + tabs from App) — stays draggable,
           individual interactive elements inside set no-drag themselves */}
-      <div className="flex flex-1 items-center overflow-hidden">
+      <div className="flex flex-1 items-center overflow-visible">
         {children}
       </div>
 

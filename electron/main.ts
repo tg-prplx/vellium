@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, screen, type Rectangle } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, screen, desktopCapturer, type Rectangle, type WebContents } from "electron";
 import path from "path";
 import { existsSync } from "fs";
-import { writeFile } from "fs/promises";
+import { mkdir, readFile, writeFile } from "fs/promises";
 import { pathToFileURL } from "url";
 import { ManagedBackendManager } from "./managedBackends";
 import type { ManagedBackendConfig } from "../src/shared/types/contracts";
@@ -26,12 +26,14 @@ if (!isDev) {
 
 let mainWindow: BrowserWindow | null = null;
 let desktopPetWindow: BrowserWindow | null = null;
+const desktopPetInstances = new Map<string, DesktopPetInstance>();
 let desktopPetConfig: DesktopPetConfig = {
   name: "Velli",
   spriteUrl: "",
   spriteSheetUrl: "",
   scale: 1,
   voice: "soft",
+  ttsEnabled: false,
   actions: [
     { id: "idle", label: "Idle", animation: "idle", codexState: "idle", assetUrl: "", soundUrl: "" },
     { id: "happy", label: "Happy", animation: "hop", codexState: "jumping", assetUrl: "", soundUrl: "" },
@@ -48,7 +50,8 @@ let desktopPetConfig: DesktopPetConfig = {
     { id: "excited", label: "Excited", animation: "bounce", codexState: "jumping", assetUrl: "", soundUrl: "" }
   ],
   autonomyEnabled: false,
-  assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help."
+  assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help.",
+  persistentMemory: ""
 };
 let desktopPetUiPlacement: DesktopPetUiPlacement = "above";
 const desktopPetDragState = new Map<number, {
@@ -57,9 +60,12 @@ const desktopPetDragState = new Map<number, {
   bounds: Rectangle;
 }>();
 let desktopPetConversationKey = "";
-let desktopPetConversation: Array<{ role: "user" | "assistant"; content: string }> = [];
+let desktopPetStoreLoaded = false;
+let desktopPetStoreWriteTimer: NodeJS.Timeout | null = null;
+let desktopPetStore: DesktopPetStore = { pets: {} };
 let creatingWindow = false;
 let embeddedServerStart: Promise<void> | null = null;
+const desktopPetPeerSeenAt = new Map<string, number>();
 const managedBackendManager = new ManagedBackendManager();
 
 const SERVER_PORT = runtimeOptions.port;
@@ -73,15 +79,61 @@ type DesktopPetConfig = {
   spriteSheetUrl: string;
   scale: number;
   voice: "soft" | "playful" | "quiet";
+  ttsEnabled: boolean;
   autonomyEnabled: boolean;
   actions: DesktopPetStatePreset[];
   emotions: DesktopPetStatePreset[];
   assistantInstructions: string;
+  persistentMemory: string;
   description?: string;
   personality?: string;
   scenario?: string;
   greeting?: string;
   systemPrompt?: string;
+  theme?: DesktopPetTheme;
+};
+
+type DesktopPetTheme = {
+  mode: "dark" | "light";
+  variables: Record<string, string>;
+};
+
+type DesktopPetChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  createdAt: number;
+};
+
+type DesktopPetChat = {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: DesktopPetChatMessage[];
+};
+
+type DesktopPetRuntimeState = {
+  persistentMemory: string;
+  profileMemory: string;
+  defaultChatId: string;
+  chats: DesktopPetChat[];
+};
+
+type DesktopPetStore = {
+  pets: Record<string, DesktopPetRuntimeState>;
+};
+
+type DesktopPetScreenContext = {
+  dataUrl: string;
+  width: number;
+  height: number;
+};
+
+type DesktopPetInstance = {
+  key: string;
+  window: BrowserWindow;
+  config: DesktopPetConfig;
+  uiPlacement: DesktopPetUiPlacement;
 };
 
 type DesktopPetAnimation = "none" | "idle" | "hop" | "pop" | "sway" | "spin" | "shake" | "bounce";
@@ -168,6 +220,7 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
   const scaleRaw = Number(row.scale ?? desktopPetConfig.scale ?? 1);
   const scale = Number.isFinite(scaleRaw) ? Math.max(0.75, Math.min(1.35, scaleRaw)) : 1;
   const voice = row.voice === "playful" || row.voice === "quiet" ? row.voice : row.voice === "soft" ? "soft" : desktopPetConfig.voice || "soft";
+  const ttsEnabled = row.ttsEnabled === true;
   const autonomyEnabled = row.autonomyEnabled === true;
   const normalizeAnimation = (value: unknown): DesktopPetAnimation => (
     value === "none" || value === "hop" || value === "pop" || value === "sway" || value === "spin" || value === "shake" || value === "bounce" || value === "idle"
@@ -202,6 +255,37 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
     return normalizeCodexState(id, "idle");
   };
   const normalizeId = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 32);
+  const themeKeys = new Set([
+    "--color-bg-primary",
+    "--color-bg-secondary",
+    "--color-bg-tertiary",
+    "--color-bg-hover",
+    "--color-border",
+    "--color-border-subtle",
+    "--color-text-primary",
+    "--color-text-secondary",
+    "--color-text-tertiary",
+    "--color-text-inverse",
+    "--color-accent",
+    "--color-accent-hover",
+    "--color-accent-subtle",
+    "--color-accent-border"
+  ]);
+  const sanitizeTheme = (value: unknown): DesktopPetTheme | undefined => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const themeRow = value as Record<string, unknown>;
+    const rawVars = themeRow.variables && typeof themeRow.variables === "object" && !Array.isArray(themeRow.variables)
+      ? themeRow.variables as Record<string, unknown>
+      : {};
+    const variables: Record<string, string> = {};
+    for (const key of themeKeys) {
+      const next = String(rawVars[key] || "").trim().slice(0, 240);
+      if (next) variables[key] = next;
+    }
+    return Object.keys(variables).length
+      ? { mode: themeRow.mode === "light" ? "light" : "dark", variables }
+      : undefined;
+  };
   const normalizePresets = (value: unknown, fallback: DesktopPetStatePreset[]) => {
     const source = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[\n,]/) : [];
     const unique = new Map<string, DesktopPetStatePreset>();
@@ -235,22 +319,40 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
   const greeting = String(row.greeting || "").trim().slice(0, 1000);
   const systemPrompt = String(row.systemPrompt || "").trim().slice(0, 4000);
   const assistantInstructions = String(row.assistantInstructions || desktopPetConfig.assistantInstructions || "").trim().slice(0, 3000);
+  const persistentMemory = String(row.persistentMemory ?? desktopPetConfig.persistentMemory ?? "").trim().slice(0, 6000);
   const actions = normalizePresets(row.actions, desktopPetConfig.actions);
   const emotions = normalizePresets(row.emotions, desktopPetConfig.emotions);
-  return { characterId, name, spriteUrl, spriteSheetUrl, scale, voice, autonomyEnabled, actions, emotions, assistantInstructions, description, personality, scenario, greeting, systemPrompt };
+  const theme = sanitizeTheme(row.theme) || desktopPetConfig.theme;
+  return { characterId, name, spriteUrl, spriteSheetUrl, scale, voice, ttsEnabled, autonomyEnabled, actions, emotions, assistantInstructions, persistentMemory, description, personality, scenario, greeting, systemPrompt, theme };
 }
 
 function desktopPetWindowSize(config: DesktopPetConfig, expanded = false) {
+  const scale = config.scale;
+  if (expanded) {
+    const compactHeight = 190 * scale;
+    const uiHeight = 238 * Math.max(1, scale * 0.82);
+    return {
+      width: Math.round(Math.max(330, 292 * scale)),
+      height: Math.round(compactHeight + uiHeight)
+    };
+  }
   return {
-    width: Math.round((expanded ? 292 : 190) * config.scale),
-    height: Math.round((expanded ? 372 : 190) * config.scale)
+    width: Math.round(190 * scale),
+    height: Math.round(190 * scale)
+  };
+}
+
+function clampDesktopPetWindowSize(size: { width: number; height: number }, area: Rectangle) {
+  return {
+    width: Math.max(160, Math.min(size.width, area.width - 16)),
+    height: Math.max(160, Math.min(size.height, area.height - 16))
   };
 }
 
 function placeDesktopPetWindow(window: BrowserWindow, config: DesktopPetConfig, expanded = false) {
-  const { width, height } = desktopPetWindowSize(config, expanded);
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const area = display.workArea;
+  const { width, height } = clampDesktopPetWindowSize(desktopPetWindowSize(config, expanded), area);
   const current = window.getBounds();
   const hasPosition = current.x !== 0 || current.y !== 0;
   const centerX = current.x + current.width / 2;
@@ -264,31 +366,42 @@ function placeDesktopPetWindow(window: BrowserWindow, config: DesktopPetConfig, 
   window.setBounds({ x, y, width, height });
 }
 
-function resolveDesktopPetUiPlacement(bounds: Rectangle, displayArea: Rectangle, compactHeight: number): DesktopPetUiPlacement {
+function resolveDesktopPetUiPlacement(
+  bounds: Rectangle,
+  displayArea: Rectangle,
+  compactHeight: number,
+  currentPlacement: DesktopPetUiPlacement = desktopPetUiPlacement
+): DesktopPetUiPlacement {
   const isExpanded = bounds.height > compactHeight + 24;
   const petCenterY = isExpanded
-    ? desktopPetUiPlacement === "below"
+    ? currentPlacement === "below"
       ? bounds.y + compactHeight / 2
       : bounds.y + bounds.height - compactHeight / 2
     : bounds.y + bounds.height / 2;
   return petCenterY < displayArea.y + displayArea.height / 2 ? "below" : "above";
 }
 
-function resizeDesktopPetWindowForUi(expanded: boolean): DesktopPetUiPlacement {
-  if (!desktopPetWindow || desktopPetWindow.isDestroyed()) return desktopPetUiPlacement;
-  const { width, height } = desktopPetWindowSize(desktopPetConfig, expanded);
-  const compact = desktopPetWindowSize(desktopPetConfig, false);
-  const current = desktopPetWindow.getBounds();
+function resizeDesktopPetInstanceWindowForUi(instance: DesktopPetInstance, expanded: boolean): DesktopPetUiPlacement {
+  if (!instance.window || instance.window.isDestroyed()) return instance.uiPlacement;
+  const current = instance.window.getBounds();
   const display = screen.getDisplayMatching(current);
   const area = display.workArea;
-  const placement = expanded ? resolveDesktopPetUiPlacement(current, area, compact.height) : desktopPetUiPlacement;
-  if (expanded) desktopPetUiPlacement = placement;
+  const { width, height } = clampDesktopPetWindowSize(desktopPetWindowSize(instance.config, expanded), area);
+  const compact = clampDesktopPetWindowSize(desktopPetWindowSize(instance.config, false), area);
+  const placement = expanded ? resolveDesktopPetUiPlacement(current, area, compact.height, instance.uiPlacement) : instance.uiPlacement;
+  if (expanded) instance.uiPlacement = placement;
   const centerX = current.x + current.width / 2;
   const nextX = Math.max(area.x, Math.min(area.x + area.width - width, Math.round(centerX - width / 2)));
   const preferredY = placement === "below" ? current.y : current.y + current.height - height;
   const nextY = Math.max(area.y, Math.min(area.y + area.height - height, preferredY));
-  desktopPetWindow.setBounds({ x: nextX, y: nextY, width, height }, false);
+  instance.window.setBounds({ x: nextX, y: nextY, width, height }, false);
   return placement;
+}
+
+function resizeDesktopPetWindowForUi(expanded: boolean): DesktopPetUiPlacement {
+  const instance = desktopPetWindow ? getDesktopPetInstanceForWindow(desktopPetWindow) : null;
+  if (!instance) return desktopPetUiPlacement;
+  return resizeDesktopPetInstanceWindowForUi(instance, expanded);
 }
 
 function safeScriptJson(value: unknown) {
@@ -311,18 +424,276 @@ async function readPetApiJson<T>(pathName: string, init?: RequestInit): Promise<
   return (text ? JSON.parse(text) : null) as T;
 }
 
-function syncDesktopPetConversation(config: DesktopPetConfig) {
+async function readPetApiAudio(pathName: string, init?: RequestInit): Promise<{ contentType: string; base64: string }> {
+  const baseUrl = formatServerUrl({ host: SERVER_HOST, port: SERVER_PORT }).replace(/\/+$/, "");
+  const response = await fetch(`${baseUrl}${pathName}`, {
+    ...init,
+    headers: {
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.headers || {})
+    }
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text.trim() || `HTTP ${response.status}`);
+  }
+  const contentType = response.headers.get("content-type") || "audio/mpeg";
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return { contentType, base64: buffer.toString("base64") };
+}
+
+function desktopPetStoragePath(): string {
+  return path.join(app.getPath("userData"), "desktop-pets.json");
+}
+
+function desktopPetKey(config = desktopPetConfig): string {
   const key = config.characterId || `pet:${config.name || "Velli"}`;
-  if (key === desktopPetConversationKey) return;
-  desktopPetConversationKey = key;
-  desktopPetConversation = [];
+  return String(key).trim().slice(0, 160) || "pet:Velli";
+}
+
+function getDesktopPetInstanceForWindow(window: BrowserWindow | null): DesktopPetInstance | null {
+  if (!window || window.isDestroyed()) return null;
+  for (const instance of desktopPetInstances.values()) {
+    if (instance.window === window && !instance.window.isDestroyed()) return instance;
+  }
+  return null;
+}
+
+function getDesktopPetInstanceForSender(sender: WebContents): DesktopPetInstance | null {
+  return getDesktopPetInstanceForWindow(BrowserWindow.fromWebContents(sender));
+}
+
+function setActiveDesktopPetInstance(instance: DesktopPetInstance) {
+  desktopPetWindow = instance.window;
+  desktopPetConfig = instance.config;
+  desktopPetUiPlacement = instance.uiPlacement;
+}
+
+function maybeNotifyNearbyDesktopPets(instance: DesktopPetInstance) {
+  const bounds = instance.window.getBounds();
+  const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+  for (const other of desktopPetInstances.values()) {
+    if (other.key === instance.key || other.window.isDestroyed() || !other.window.isVisible()) continue;
+    const otherBounds = other.window.getBounds();
+    const otherCenter = { x: otherBounds.x + otherBounds.width / 2, y: otherBounds.y + otherBounds.height / 2 };
+    const distance = Math.hypot(center.x - otherCenter.x, center.y - otherCenter.y);
+    if (distance > 180) continue;
+    const pairKey = [instance.key, other.key].sort().join("::");
+    const now = Date.now();
+    if (now - (desktopPetPeerSeenAt.get(pairKey) || 0) < 30000) continue;
+    desktopPetPeerSeenAt.set(pairKey, now);
+    instance.window.webContents.send("desktop-pet:peer-near", { name: other.config.name });
+    other.window.webContents.send("desktop-pet:peer-near", { name: instance.config.name });
+  }
+}
+
+async function captureDesktopPetScreenContext(instance: DesktopPetInstance): Promise<DesktopPetScreenContext> {
+  const visiblePets = [...desktopPetInstances.values()]
+    .filter((item) => !item.window.isDestroyed() && item.window.isVisible());
+  for (const item of visiblePets) item.window.hide();
+  await sleep(120);
+  try {
+    const display = screen.getDisplayMatching(instance.window.getBounds());
+    const scaleFactor = display.scaleFactor || 1;
+    const captureWidth = Math.min(2560, Math.round(display.size.width * scaleFactor));
+    const captureHeight = Math.min(1600, Math.round(display.size.height * scaleFactor));
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: { width: captureWidth, height: captureHeight },
+      fetchWindowIcons: false
+    });
+    const source = sources.find((item) => String(item.display_id || "") === String(display.id)) || sources[0];
+    if (!source || source.thumbnail.isEmpty()) {
+      throw new Error("Screen capture is unavailable");
+    }
+    const sourceSize = source.thumbnail.getSize();
+    const maxWidth = 1400;
+    const image = sourceSize.width > maxWidth
+      ? source.thumbnail.resize({ width: maxWidth, quality: "best" })
+      : source.thumbnail;
+    const size = image.getSize();
+    return {
+      dataUrl: image.toDataURL(),
+      width: size.width,
+      height: size.height
+    };
+  } finally {
+    for (const item of visiblePets) {
+      if (!item.window.isDestroyed()) item.window.showInactive();
+    }
+  }
+}
+
+function nowId(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function sanitizePetMessage(value: unknown): DesktopPetChatMessage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const role = row.role === "assistant" ? "assistant" : row.role === "user" ? "user" : null;
+  const content = String(row.content || "").trim().slice(0, 1600);
+  if (!role || !content) return null;
+  const createdAt = Number(row.createdAt);
+  return { role, content, createdAt: Number.isFinite(createdAt) ? createdAt : Date.now() };
+}
+
+function sanitizePetChat(value: unknown): DesktopPetChat | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const id = String(row.id || "").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80) || nowId("chat");
+  const title = String(row.title || "New chat").trim().slice(0, 64) || "New chat";
+  const createdAt = Number(row.createdAt);
+  const updatedAt = Number(row.updatedAt);
+  const messages = Array.isArray(row.messages)
+    ? row.messages.flatMap((message) => {
+      const normalized = sanitizePetMessage(message);
+      return normalized ? [normalized] : [];
+    }).slice(-80)
+    : [];
+  return {
+    id,
+    title,
+    createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+    updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+    messages
+  };
+}
+
+async function loadDesktopPetStore(): Promise<DesktopPetStore> {
+  if (desktopPetStoreLoaded) return desktopPetStore;
+  desktopPetStoreLoaded = true;
+  try {
+    const raw = JSON.parse(await readFile(desktopPetStoragePath(), "utf8")) as DesktopPetStore;
+    const pets: Record<string, DesktopPetRuntimeState> = {};
+    const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw.pets : {};
+    for (const [key, value] of Object.entries(source || {})) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const row = value as Record<string, unknown>;
+      const chats = Array.isArray(row.chats)
+        ? row.chats.flatMap((chat) => {
+          const normalized = sanitizePetChat(chat);
+          return normalized ? [normalized] : [];
+        }).slice(-20)
+        : [];
+      const defaultChatId = String(row.defaultChatId || "").trim();
+      pets[key] = {
+        persistentMemory: String(row.persistentMemory || "").trim().slice(0, 6000),
+        profileMemory: String(row.profileMemory || "").trim().slice(0, 6000),
+        defaultChatId,
+        chats
+      };
+    }
+    desktopPetStore = { pets };
+  } catch {
+    desktopPetStore = { pets: {} };
+  }
+  return desktopPetStore;
+}
+
+function scheduleDesktopPetStoreWrite() {
+  if (desktopPetStoreWriteTimer) clearTimeout(desktopPetStoreWriteTimer);
+  desktopPetStoreWriteTimer = setTimeout(() => {
+    desktopPetStoreWriteTimer = null;
+    void (async () => {
+      const filePath = desktopPetStoragePath();
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, JSON.stringify(desktopPetStore, null, 2), "utf8");
+    })().catch((error) => {
+      console.warn("Failed to write desktop pet store", error);
+    });
+  }, 120);
+}
+
+function createDesktopPetChat(title = "New chat"): DesktopPetChat {
+  const now = Date.now();
+  return { id: nowId("chat"), title, createdAt: now, updatedAt: now, messages: [] };
+}
+
+async function getDesktopPetRuntimeState(config = desktopPetConfig): Promise<DesktopPetRuntimeState> {
+  const store = await loadDesktopPetStore();
+  const key = desktopPetKey(config);
+  let state = store.pets[key];
+  if (!state) {
+    const chat = createDesktopPetChat("Default");
+    const profileMemory = String(config.persistentMemory || "").trim().slice(0, 6000);
+    state = { persistentMemory: profileMemory, profileMemory, defaultChatId: chat.id, chats: [chat] };
+    store.pets[key] = state;
+    scheduleDesktopPetStoreWrite();
+  }
+  if (!state.chats.some((chat) => chat.id === state.defaultChatId)) {
+    const chat = state.chats[0] || createDesktopPetChat("Default");
+    if (!state.chats.length) state.chats.push(chat);
+    state.defaultChatId = chat.id;
+    scheduleDesktopPetStoreWrite();
+  }
+  return state;
+}
+
+async function syncDesktopPetRuntimeState(config: DesktopPetConfig) {
+  const state = await getDesktopPetRuntimeState(config);
+  const configMemory = String(config.persistentMemory || "").trim().slice(0, 6000);
+  if (configMemory && configMemory !== state.profileMemory) {
+    state.persistentMemory = configMemory;
+    state.profileMemory = configMemory;
+    scheduleDesktopPetStoreWrite();
+  }
+  desktopPetConversationKey = desktopPetKey(config);
+}
+
+async function getDesktopPetActiveChat(config = desktopPetConfig): Promise<DesktopPetChat> {
+  const state = await getDesktopPetRuntimeState(config);
+  let chat = state.chats.find((item) => item.id === state.defaultChatId);
+  if (!chat) {
+    chat = createDesktopPetChat("Default");
+    state.chats.unshift(chat);
+    state.defaultChatId = chat.id;
+    scheduleDesktopPetStoreWrite();
+  }
+  return chat;
+}
+
+function summarizeDesktopPetChats(state: DesktopPetRuntimeState) {
+  return state.chats
+    .slice()
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((chat) => ({ id: chat.id, title: chat.title, updatedAt: chat.updatedAt, count: chat.messages.length }));
 }
 
 function stripDesktopPetToolLine(text: string): string {
   return String(text || "").replace(/<PET_TOOL>[\s\S]*?<\/PET_TOOL>/gi, "").trim();
 }
 
-function buildDesktopPetRuntimePrompt(config: DesktopPetConfig): string {
+function parseDesktopPetTool(text: string): Record<string, unknown> {
+  const match = String(text || "").match(/<PET_TOOL>([\s\S]*?)<\/PET_TOOL>/i);
+  if (!match) return {};
+  try {
+    const parsed = JSON.parse(match[1]);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function updatePersistentMemory(current: string, tool: Record<string, unknown>): string {
+  let lines = current.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const removeRaw = tool.memory_remove ?? tool.forget;
+  const addRaw = tool.memory_add ?? tool.remember;
+  const removeItems = Array.isArray(removeRaw) ? removeRaw : removeRaw ? [removeRaw] : [];
+  const addItems = Array.isArray(addRaw) ? addRaw : addRaw ? [addRaw] : [];
+  for (const item of removeItems) {
+    const needle = String(item || "").trim().toLowerCase();
+    if (!needle) continue;
+    lines = lines.filter((line) => !line.toLowerCase().includes(needle));
+  }
+  for (const item of addItems) {
+    const line = String(item || "").replace(/\s+/g, " ").trim().slice(0, 240);
+    if (line && !lines.some((existing) => existing.toLowerCase() === line.toLowerCase())) lines.push(line);
+  }
+  return lines.slice(-40).join("\n").slice(0, 6000);
+}
+
+function buildDesktopPetRuntimePrompt(config: DesktopPetConfig, persistentMemory: string): string {
   const describe = (preset: DesktopPetStatePreset) => `${preset.id}${preset.label && preset.label !== preset.id ? ` (${preset.label})` : ""}: animation=${preset.animation}, codex_row=${preset.codexState || "idle"}${preset.assetUrl ? ", custom_asset=true" : ""}${preset.soundUrl ? ", sound=true" : ""}`;
   const statesById = new Map<string, DesktopPetStatePreset>();
   for (const preset of [...(config.actions || []), ...(config.emotions || [])]) {
@@ -334,45 +705,99 @@ function buildDesktopPetRuntimePrompt(config: DesktopPetConfig): string {
     "[Desktop Pet Runtime]",
     "You are speaking through a Vellium desktop pet UI.",
     config.assistantInstructions ? `Assistant instructions: ${config.assistantInstructions}` : "",
-    "Reply naturally and briefly as the selected character. Be useful like a small personal assistant when the user asks for help.",
-    "Choose one pet state after your text to change the visible pet asset and animation.",
+    persistentMemory ? `Persistent memory:\n${persistentMemory}` : "",
+    "Reply naturally and briefly as the selected character. You are a persistent screen-dwelling companion, not a toy mascot or game UI.",
+    "Behave like a small living presence on the desktop: notice attention, keep continuity, and be useful like a personal assistant when the user asks for help.",
+    "Choose one pet state after your text to change the visible pet asset and animation. You may also update persistent memory when the user clearly asks you to remember or forget something important.",
     `Available states: ${states}.`,
     "Append exactly one final machine-readable line in this format:",
     '<PET_TOOL>{"state":"happy"}</PET_TOOL>',
-    "Use only a state id from the available list. For example, state=happy must select the happy asset. Do not explain the tool line."
+    'To remember or forget stable facts, use: <PET_TOOL>{"state":"happy","memory_add":"User prefers concise replies"}</PET_TOOL> or <PET_TOOL>{"state":"alert","memory_remove":"old fact"}</PET_TOOL>.',
+    "Use only a state id from the available list. Do not explain the tool line."
   ].filter(Boolean).join("\n");
 }
 
-async function sendDesktopPetMessageToLlm(message: string): Promise<{ ok: boolean; reply: string; chatId?: string }> {
+async function sendDesktopPetMessageToLlm(
+  message: string,
+  config = desktopPetConfig,
+  screenContext?: DesktopPetScreenContext | null
+): Promise<{ ok: boolean; reply: string; chatId?: string }> {
   const text = String(message || "").trim().slice(0, 1000);
   if (!text) return { ok: false, reply: "" };
-  syncDesktopPetConversation(desktopPetConfig);
+  await syncDesktopPetRuntimeState(config);
+  const runtime = await getDesktopPetRuntimeState(config);
+  const chat = await getDesktopPetActiveChat(config);
   const response = await readPetApiJson<{ reply?: string }>("/api/chats/desktop-pet/reply", {
     method: "POST",
     body: JSON.stringify({
       content: text,
-      history: desktopPetConversation.slice(-12),
+      history: chat.messages.slice(-12).map(({ role, content }) => ({ role, content })),
       pet: {
-        name: desktopPetConfig.name,
-        description: desktopPetConfig.description || "",
-        personality: desktopPetConfig.personality || "",
-        scenario: desktopPetConfig.scenario || "",
-        systemPrompt: desktopPetConfig.systemPrompt || ""
+        name: config.name,
+        description: config.description || "",
+        personality: config.personality || "",
+        scenario: config.scenario || "",
+        systemPrompt: config.systemPrompt || ""
       },
-      runtimeSystemPrompt: buildDesktopPetRuntimePrompt(desktopPetConfig)
+      screenContext: screenContext?.dataUrl?.startsWith("data:image/")
+        ? {
+          dataUrl: screenContext.dataUrl,
+          width: screenContext.width,
+          height: screenContext.height
+        }
+        : undefined,
+      runtimeSystemPrompt: buildDesktopPetRuntimePrompt(config, runtime.persistentMemory)
     })
   });
   const reply = String(response.reply || "").trim() || "...";
-  desktopPetConversation = [
-    ...desktopPetConversation,
-    { role: "user", content: text },
-    { role: "assistant", content: stripDesktopPetToolLine(reply).slice(0, 1200) || "..." }
-  ].slice(-16);
-  return { ok: true, reply };
+  const tool = parseDesktopPetTool(reply);
+  const nextMemory = updatePersistentMemory(runtime.persistentMemory, tool);
+  if (nextMemory !== runtime.persistentMemory) runtime.persistentMemory = nextMemory;
+  const now = Date.now();
+  if (chat.messages.length === 0) chat.title = text.slice(0, 42) || "New chat";
+  chat.messages = [
+    ...chat.messages,
+    { role: "user", content: text, createdAt: now },
+    { role: "assistant", content: stripDesktopPetToolLine(reply).slice(0, 1200) || "...", createdAt: now }
+  ].slice(-80);
+  chat.updatedAt = now;
+  runtime.defaultChatId = chat.id;
+  scheduleDesktopPetStoreWrite();
+  return { ok: true, reply, chatId: chat.id };
+}
+
+async function synthesizeDesktopPetSpeech(text: string, config = desktopPetConfig): Promise<{ ok: boolean; contentType: string; base64: string }> {
+  const input = stripDesktopPetToolLine(text).trim().slice(0, 1200);
+  if (!config.ttsEnabled || !input) {
+    return { ok: false, contentType: "", base64: "" };
+  }
+  const audio = await readPetApiAudio("/api/chats/tts", {
+    method: "POST",
+    body: JSON.stringify({ input })
+  });
+  return { ok: true, ...audio };
 }
 
 function buildDesktopPetHtml(config: DesktopPetConfig) {
   const cfg = safeScriptJson(config);
+  const themeVars = config.theme?.variables || {};
+  const cssValue = (value: string, fallback: string) => {
+    const next = String(value || "").replace(/[;{}<>]/g, "").trim().slice(0, 220);
+    return next || fallback;
+  };
+  const theme = {
+    accent: cssValue(themeVars["--color-accent"], "#d97757"),
+    accentHover: cssValue(themeVars["--color-accent-hover"] || themeVars["--color-accent"], "#c4664a"),
+    accentSubtle: cssValue(themeVars["--color-accent-subtle"], "rgba(217, 119, 87, 0.12)"),
+    accentBorder: cssValue(themeVars["--color-accent-border"], "rgba(217, 119, 87, 0.3)"),
+    ink: cssValue(themeVars["--color-text-primary"], "#f7efe9"),
+    muted: cssValue(themeVars["--color-text-secondary"], "rgba(247, 239, 233, 0.68)"),
+    panel: cssValue(themeVars["--color-bg-secondary"], "#171419"),
+    field: cssValue(themeVars["--color-bg-tertiary"], "#231f26"),
+    hover: cssValue(themeVars["--color-bg-hover"], "#302a33"),
+    line: cssValue(themeVars["--color-border"], "#343039"),
+    subtleLine: cssValue(themeVars["--color-border-subtle"] || themeVars["--color-border"], "#2a2730")
+  };
   return `<!doctype html>
 <html>
 <head>
@@ -380,20 +805,27 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: http: https: file:; media-src data: http: https: file: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
   <style>
     :root {
-      color-scheme: dark;
+      color-scheme: ${config.theme?.mode === "light" ? "light" : "dark"};
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --accent: #d97757;
-      --ink: #f7efe9;
-      --muted: rgba(247, 239, 233, 0.68);
-      --panel: #171419;
-      --field: #231f26;
-      --line: #343039;
+      --accent: ${theme.accent};
+      --accent-hover: ${theme.accentHover};
+      --accent-subtle: ${theme.accentSubtle};
+      --accent-border: ${theme.accentBorder};
+      --ink: ${theme.ink};
+      --muted: ${theme.muted};
+      --panel: ${theme.panel};
+      --field: ${theme.field};
+      --hover: ${theme.hover};
+      --line: ${theme.line};
+      --line-subtle: ${theme.subtleLine};
       --pet-scale: ${config.scale};
       --root-pad: calc(6px * var(--pet-scale));
       --ui-side: calc(10px * var(--pet-scale));
-      --ui-offset: calc(196px * var(--pet-scale));
       --stage-size: calc(178px * var(--pet-scale));
       --sprite-size: calc(164px * var(--pet-scale));
+      --ui-offset: calc(var(--stage-size) + (16px * var(--pet-scale)));
+      --ui-space: calc(100vh - var(--ui-offset) - (18px * var(--pet-scale)));
+      --bubble-max: clamp(52px, calc(var(--ui-space) - 62px), calc(150px * var(--pet-scale)));
     }
     html, body {
       margin: 0;
@@ -427,6 +859,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       z-index: 3;
       display: grid;
       gap: 7px;
+      max-height: var(--ui-space);
       visibility: hidden;
       opacity: 0;
       pointer-events: none;
@@ -450,6 +883,10 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     }
     .bubble {
       min-height: 28px;
+      max-height: var(--bubble-max);
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
       padding: 8px 11px;
       border: 1px solid var(--line);
       border-radius: 12px;
@@ -460,6 +897,20 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
       transform-origin: 50% 100%;
       animation: bubbleIn 180ms ease-out both;
+      user-select: text;
+      scrollbar-width: thin;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .chatbar {
+      display: none;
+      grid-template-columns: 1fr auto;
+      gap: 6px;
+      padding: 7px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
     }
     .stage {
       position: relative;
@@ -504,8 +955,8 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       width: 44px;
       height: 52px;
       border-radius: 12px 28px 10px 28px;
-      background: linear-gradient(150deg, #ffcf88, #d97757 70%);
-      border: 2px solid rgba(255, 255, 255, 0.34);
+      background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 38%, var(--field)), var(--accent) 72%);
+      border: 2px solid var(--accent-border);
     }
     .ear.left { left: 18px; transform: rotate(-28deg); }
     .ear.right { right: 18px; transform: rotate(28deg) scaleX(-1); }
@@ -513,10 +964,10 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       position: absolute;
       inset: 26px 8px 6px;
       border-radius: 44% 44% 38% 38%;
-      background: radial-gradient(circle at 36% 28%, #fff7d7 0 18%, transparent 19%),
-        linear-gradient(145deg, #ffc56d, #e38155 58%, #9f5acb);
-      border: 2px solid rgba(255, 255, 255, 0.36);
-      box-shadow: inset -14px -16px 24px rgba(70, 38, 76, 0.26);
+      background: radial-gradient(circle at 36% 28%, color-mix(in srgb, var(--ink) 72%, transparent) 0 18%, transparent 19%),
+        linear-gradient(145deg, color-mix(in srgb, var(--accent) 36%, var(--panel)), var(--accent) 58%, color-mix(in srgb, var(--field) 72%, var(--accent)));
+      border: 2px solid var(--accent-border);
+      box-shadow: inset -14px -16px 24px rgba(0, 0, 0, 0.18);
     }
     .eye {
       position: absolute;
@@ -524,7 +975,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       width: 12px;
       height: 18px;
       border-radius: 999px;
-      background: #20141e;
+      background: color-mix(in srgb, var(--ink) 82%, #000);
       animation: blink 5.4s infinite;
     }
     .eye.left { left: 46px; }
@@ -535,7 +986,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       top: 94px;
       width: 12px;
       height: 7px;
-      border-bottom: 2px solid #2b1723;
+      border-bottom: 2px solid color-mix(in srgb, var(--ink) 72%, #000);
       border-radius: 0 0 999px 999px;
     }
     .paw {
@@ -544,8 +995,8 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       width: 34px;
       height: 22px;
       border-radius: 999px;
-      background: #f6b463;
-      border: 2px solid rgba(255, 255, 255, 0.26);
+      background: color-mix(in srgb, var(--accent) 72%, var(--field));
+      border: 2px solid var(--accent-border);
     }
     .paw.left { left: 28px; }
     .paw.right { right: 28px; }
@@ -576,13 +1027,22 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     .stage.anim-bounce .css-pet,
     .stage.anim-bounce .sprite,
     .stage.anim-bounce .sheet-sprite { animation: petBounce 900ms ease-in-out 1; }
+    .stage.is-present .css-pet,
+    .stage.is-present .sprite,
+    .stage.is-present .sheet-sprite { animation: attentiveShift 1.3s ease-in-out 1; }
+    .stage.is-listening .css-pet,
+    .stage.is-listening .sprite,
+    .stage.is-listening .sheet-sprite { animation: listeningTilt 1.15s ease-in-out 1; }
+    .stage.is-resting .css-pet,
+    .stage.is-resting .sprite,
+    .stage.is-resting .sheet-sprite { animation: quietRest 3.6s ease-in-out infinite; filter: saturate(0.9) brightness(0.96); }
     .pet-root.emotion-happy .bubble { border-color: #6ee7b7; }
     .pet-root.emotion-excited .bubble { border-color: #fbbf24; }
     .pet-root.emotion-sleepy .bubble { border-color: #93c5fd; }
     .pet-root.emotion-curious .bubble { border-color: #c4b5fd; }
     .controls {
       display: grid;
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: 1fr auto auto auto;
       gap: 6px;
       padding: 7px;
       border: 1px solid var(--line);
@@ -590,7 +1050,8 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       background: var(--panel);
       box-shadow: 0 12px 32px rgba(0, 0, 0, 0.26);
     }
-    input {
+    input,
+    select {
       min-width: 0;
       border: 0;
       outline: 0;
@@ -601,7 +1062,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       font-size: 12px;
     }
     button {
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      border: 1px solid var(--line-subtle);
       border-radius: 9px;
       background: var(--field);
       color: var(--ink);
@@ -611,8 +1072,8 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       cursor: pointer;
     }
     button:hover {
-      background: rgba(217, 119, 87, 0.28);
-      border-color: rgba(217, 119, 87, 0.45);
+      background: var(--accent-subtle);
+      border-color: var(--accent-border);
     }
     .close {
       position: absolute;
@@ -621,6 +1082,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       width: 28px;
       padding: 0;
       opacity: 0.62;
+      display: none;
     }
     @keyframes idleFloat {
       0%, 100% { transform: translateY(0) rotate(-1deg); }
@@ -666,6 +1128,19 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       50% { transform: translateY(2px) scale(0.98, 1.04); }
       75% { transform: translateY(-10px) scale(1.02, 0.98); }
     }
+    @keyframes attentiveShift {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      35% { transform: translateY(-5px) rotate(-3deg); }
+      70% { transform: translateY(-3px) rotate(2deg); }
+    }
+    @keyframes listeningTilt {
+      0%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
+      45% { transform: translateY(-4px) rotate(4deg) scale(1.02); }
+    }
+    @keyframes quietRest {
+      0%, 100% { transform: translateY(2px) rotate(-2deg) scale(0.99); }
+      50% { transform: translateY(-3px) rotate(2deg) scale(1); }
+    }
   </style>
 </head>
 <body>
@@ -688,10 +1163,15 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     </div>
     <section class="pet-ui" id="petUi">
       <button class="close" title="Hide">&times;</button>
+      <div class="chatbar">
+        <select id="chatSelect" title="Pet chat"></select>
+        <button type="button" id="newChat" title="New chat">+</button>
+      </div>
       <div class="bubble" id="bubble"></div>
       <form class="controls" id="form">
-        <input id="input" maxlength="160" placeholder="Talk to pet..." autocomplete="off" />
-        <button type="button" id="play">Play</button>
+        <input id="input" maxlength="160" placeholder="Say something..." autocomplete="off" />
+        <button type="button" id="play">Pet</button>
+        <button type="button" id="look" title="Send screen context">Look</button>
         <button type="submit">Send</button>
       </form>
     </section>
@@ -708,21 +1188,30 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     const stateSound = document.getElementById("stateSound");
     const cssPet = document.getElementById("cssPet");
     const input = document.getElementById("input");
+    const chatSelect = document.getElementById("chatSelect");
+    const newChat = document.getElementById("newChat");
     const form = document.getElementById("form");
     const play = document.getElementById("play");
+    const look = document.getElementById("look");
     const close = document.querySelector(".close");
     const lines = {
-      soft: ["I'm here.", "Soft paws, sharp focus.", "I'll keep you company.", "Tiny desktop guardian online."],
-      playful: ["Let's do something fun.", "Boop accepted.", "I saw that click.", "Desktop patrol mode."],
-      quiet: ["...", "Still here.", "Watching the workspace.", "Quiet mode."]
+      soft: ["I'm here.", "I noticed you.", "Still with you.", "I'm listening."],
+      playful: ["I'm here.", "That got my attention.", "Ready when you are.", "I saw you."],
+      quiet: ["Still here.", "I'm listening.", "No rush.", "I'll stay nearby."]
     };
-    const idleLines = ["I got sleepy waiting.", "Still here if you need me.", "I'll keep watch for now."];
+    const idleLines = ["I drifted off for a moment.", "Still here if you need me.", "I'll stay close."];
+    const touchLines = ["I'm here.", "That got my attention.", "I felt that.", "Still with you."];
     let moodTimer = 0;
     let hideTimer = 0;
     let autonomyTimer = 0;
+    let presenceTimer = 0;
     let lastInteractionAt = Date.now();
     let lastWanderAt = Date.now();
+    let lastPresenceAt = Date.now();
     let lastIdleMoodAt = 0;
+    let lastSpokenAt = 0;
+    let nextWanderDelay = 22000 + Math.random() * 18000;
+    let nextPresenceDelay = 6000 + Math.random() * 9000;
     function clean(value, max = 120) {
       return String(value || "").replace(/\\s+/g, " ").trim().slice(0, max);
     }
@@ -736,6 +1225,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     const emotionPresets = new Map((Array.isArray(config.emotions) ? config.emotions : []).map((preset) => [safeId(preset.id, ""), preset]));
     const baseSpriteUrl = clean(config.spriteUrl, 4000);
     const baseSpriteSheetUrl = clean(config.spriteSheetUrl, 4000);
+    const ttsEnabled = config.ttsEnabled === true;
     const sheetStates = {
       idle: { row: 0, frames: [280, 110, 110, 140, 140, 320] },
       "running-right": { row: 1, frames: [120, 120, 120, 120, 120, 120, 120, 220] },
@@ -842,6 +1332,24 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     function markInteraction() {
       lastInteractionAt = Date.now();
     }
+    function clearPresenceClasses() {
+      stage.classList.remove("is-present", "is-listening", "is-resting");
+    }
+    function pulsePresence(className = "is-present", state = "review", duration = 1300) {
+      window.clearTimeout(presenceTimer);
+      clearPresenceClasses();
+      stage.classList.add(className);
+      if (baseSpriteSheetUrl && state) setSheetState(baseSpriteSheetUrl, state);
+      presenceTimer = window.setTimeout(() => {
+        clearPresenceClasses();
+        if (baseSpriteSheetUrl && !root.classList.contains("ui-open") && !dragging) setSheetState(baseSpriteSheetUrl, "idle");
+      }, duration);
+    }
+    function acknowledgePresence() {
+      const now = Date.now();
+      pulsePresence("is-listening", "waving", 1100);
+      if (now - lastSpokenAt > 8500) say(randomLine(), "idle", "calm");
+    }
     function applyUiPlacement(placement) {
       root.classList.toggle("ui-below", placement === "below");
     }
@@ -853,6 +1361,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       if (requestId !== uiRequestId) return;
       applyUiPlacement(result?.placement || "above");
       root.classList.add("ui-open");
+      pulsePresence("is-listening", "review", 900);
     }
     function queueHideUi() {
       clearTimeout(hideTimer);
@@ -928,6 +1437,8 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     }
     function say(text, mood = "", emotion = "") {
       bubble.textContent = text;
+      bubble.scrollTop = 0;
+      lastSpokenAt = Date.now();
       if (mood || emotion) applyPetState(mood, emotion);
       clearTimeout(moodTimer);
       moodTimer = setTimeout(() => {
@@ -936,32 +1447,103 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
         });
       }, 1800);
     }
+    let ttsAudio = null;
+    async function speak(text) {
+      if (!ttsEnabled) return;
+      const inputText = String(text || "").trim();
+      if (!inputText) return;
+      try {
+        const result = await window.electronAPI?.speakDesktopPetText?.(inputText);
+        if (!result?.ok || !result.base64) return;
+        if (ttsAudio) {
+          ttsAudio.pause();
+          ttsAudio = null;
+        }
+        ttsAudio = new Audio("data:" + (result.contentType || "audio/mpeg") + ";base64," + result.base64);
+        await ttsAudio.play();
+      } catch {}
+    }
     function randomLine() {
       const list = lines[voice] || lines.soft;
       return list[Math.floor(Math.random() * list.length)];
+    }
+    async function sendMessageWithOptionalScreen(text, includeScreen = false) {
+      const messageText = clean(text, 1000);
+      if (!messageText) return say(randomLine());
+      showUi();
+      say(includeScreen ? "Looking..." : "...", "running", "running");
+      try {
+        const screenContext = includeScreen
+          ? await window.electronAPI?.captureDesktopPetScreenContext?.()
+          : undefined;
+        const result = await window.electronAPI?.sendDesktopPetMessage?.(messageText, screenContext?.ok ? screenContext : undefined);
+        void refreshChats();
+        const parsed = parsePetTool(result?.reply || "");
+        say(parsed.message || "...", parsed.action, parsed.emotion);
+        void speak(parsed.message || "");
+      } catch (error) {
+        say(clean(error?.message || error, 160) || "LLM is unavailable.", "sleepy", "sleepy");
+      }
+    }
+    function renderChats(payload) {
+      const chats = Array.isArray(payload?.chats) ? payload.chats : [];
+      const active = payload?.activeChatId || "";
+      chatSelect.replaceChildren(...chats.map((chat) => {
+        const option = document.createElement("option");
+        option.value = chat.id;
+        option.textContent = (chat.title || "New chat") + (chat.count ? " (" + chat.count + ")" : "");
+        option.selected = chat.id === active;
+        return option;
+      }));
+      chatSelect.hidden = chats.length === 0;
+    }
+    async function refreshChats() {
+      try {
+        const payload = await window.electronAPI?.listDesktopPetChats?.();
+        renderChats(payload);
+      } catch {}
     }
     if (baseSpriteSheetUrl) {
       setSheetState(baseSpriteSheetUrl, "idle");
     } else {
       setSpriteUrl(baseSpriteUrl);
     }
+    void refreshChats();
+    const offPeerNear = window.electronAPI?.onDesktopPetPeerNear?.((payload) => {
+      if (dragging || document.activeElement === input) return;
+      const name = clean(payload?.name || "", 32);
+      pulsePresence("is-present", "waving", 1500);
+      if (!root.classList.contains("ui-open") && Date.now() - lastSpokenAt > 16000) {
+        say(name ? "I noticed " + name + "." : "I noticed someone nearby.", "happy", "happy");
+      }
+    });
+    window.addEventListener("beforeunload", () => offPeerNear?.(), { once: true });
     say(clean(config.greeting, 140) || ("Hi, I'm " + clean(config.name, 32) + "."));
     function runAutonomyTick() {
       if (!autonomyEnabled || dragging || root.classList.contains("ui-open") || document.activeElement === input) return;
       const now = Date.now();
-      if (now - lastInteractionAt > 180000 && now - lastIdleMoodAt > 45000) {
+      if (now - lastPresenceAt > nextPresenceDelay) {
+        lastPresenceAt = now;
+        nextPresenceDelay = 6500 + Math.random() * 12000;
+        if (now - lastInteractionAt > 45000) {
+          pulsePresence("is-resting", "waiting", 2500);
+        } else {
+          pulsePresence("is-present", "review", 1200);
+        }
+      }
+      if (now - lastInteractionAt > 180000 && now - lastIdleMoodAt > 90000) {
         lastIdleMoodAt = now;
         const line = idleLines[Math.floor(Math.random() * idleLines.length)];
         say(line, "sleepy", "sleepy");
-      } else if (now - lastInteractionAt > 90000 && now - lastIdleMoodAt > 45000) {
+      } else if (now - lastInteractionAt > 90000 && now - lastIdleMoodAt > 90000) {
         lastIdleMoodAt = now;
-        const line = idleLines[Math.floor(Math.random() * idleLines.length)];
-        say(line, "waiting", "waiting");
+        pulsePresence("is-resting", "waiting", 2600);
       }
-      if (now - lastWanderAt > 14000 && now - lastInteractionAt > 8000) {
+      if (now - lastWanderAt > nextWanderDelay && now - lastInteractionAt > 10000) {
         lastWanderAt = now;
-        const dx = Math.round((Math.random() - 0.5) * 80);
-        const dy = Math.round((Math.random() - 0.5) * 36);
+        nextWanderDelay = 22000 + Math.random() * 22000;
+        const dx = Math.round((Math.random() - 0.5) * 120);
+        const dy = Math.round((Math.random() - 0.5) * 42);
         const direction = dx < 0 ? "running-left" : "running-right";
         if (baseSpriteSheetUrl && activeSheetState !== direction) setSheetState(baseSpriteSheetUrl, direction);
         void Promise.resolve(window.electronAPI?.autonomyDesktopPetStep?.({ dx, dy }))
@@ -982,8 +1564,32 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     stage.addEventListener("mouseleave", queueHideUi);
     petUi.addEventListener("mouseenter", showUi);
     petUi.addEventListener("mouseleave", queueHideUi);
-    stage.addEventListener("click", () => { markInteraction(); showUi(); say(randomLine()); });
-    play.addEventListener("click", () => { markInteraction(); say("Wheee.", "happy", "excited"); });
+    stage.addEventListener("click", () => { markInteraction(); showUi(); acknowledgePresence(); });
+    play.addEventListener("click", () => {
+      markInteraction();
+      pulsePresence("is-present", "waving", 1200);
+      say(touchLines[Math.floor(Math.random() * touchLines.length)], "happy", "happy");
+    });
+    look.addEventListener("click", () => {
+      markInteraction();
+      const text = input.value.trim() || "Look at my screen and tell me what you notice.";
+      input.value = "";
+      void sendMessageWithOptionalScreen(text, true);
+    });
+    newChat.addEventListener("click", async () => {
+      markInteraction();
+      const payload = await window.electronAPI?.createDesktopPetChat?.("New chat");
+      renderChats(payload);
+      say("We can start fresh.", "happy", "happy");
+      input.focus();
+    });
+    chatSelect.addEventListener("change", async () => {
+      markInteraction();
+      const payload = await window.electronAPI?.selectDesktopPetChat?.(chatSelect.value);
+      renderChats(payload);
+      say("I remember this thread.", "idle", "calm");
+      input.focus();
+    });
     close.addEventListener("click", () => window.electronAPI?.hideDesktopPet?.());
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -991,15 +1597,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       const text = input.value.trim();
       if (!text) return say(randomLine());
       input.value = "";
-      showUi();
-      say("...", "running", "running");
-      try {
-        const result = await window.electronAPI?.sendDesktopPetMessage?.(text);
-        const parsed = parsePetTool(result?.reply || "");
-        say(parsed.message || "...", parsed.action, parsed.emotion);
-      } catch (error) {
-        say(clean(error?.message || error, 160) || "LLM is unavailable.", "sleepy", "sleepy");
-      }
+      void sendMessageWithOptionalScreen(text, false);
     });
     let dragging = false;
     stage.addEventListener("pointerdown", async (event) => {
@@ -1025,17 +1623,22 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
 }
 
 async function ensureDesktopPetWindow(config?: unknown) {
-  desktopPetConfig = sanitizeDesktopPetConfig(config);
-  if (desktopPetWindow && !desktopPetWindow.isDestroyed()) {
-    placeDesktopPetWindow(desktopPetWindow, desktopPetConfig);
-    await desktopPetWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDesktopPetHtml(desktopPetConfig))}`);
-    desktopPetWindow.showInactive();
-    desktopPetWindow.setAlwaysOnTop(true, "floating");
-    return desktopPetWindow;
+  const nextConfig = sanitizeDesktopPetConfig(config);
+  await syncDesktopPetRuntimeState(nextConfig);
+  const key = desktopPetKey(nextConfig);
+  const existing = desktopPetInstances.get(key);
+  if (existing && !existing.window.isDestroyed()) {
+    existing.config = nextConfig;
+    setActiveDesktopPetInstance(existing);
+    placeDesktopPetWindow(existing.window, nextConfig);
+    await existing.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDesktopPetHtml(nextConfig))}`);
+    existing.window.showInactive();
+    existing.window.setAlwaysOnTop(true, "floating");
+    return existing.window;
   }
 
-  const { width, height } = desktopPetWindowSize(desktopPetConfig);
-  desktopPetWindow = new BrowserWindow({
+  const { width, height } = desktopPetWindowSize(nextConfig);
+  const window = new BrowserWindow({
     width,
     height,
     show: false,
@@ -1057,16 +1660,27 @@ async function ensureDesktopPetWindow(config?: unknown) {
       allowRunningInsecureContent: false
     }
   });
-  desktopPetWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  desktopPetWindow.setAlwaysOnTop(true, "floating");
-  desktopPetWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  desktopPetWindow.on("closed", () => {
-    desktopPetWindow = null;
+  const instance: DesktopPetInstance = { key, window, config: nextConfig, uiPlacement: "above" };
+  desktopPetInstances.set(key, instance);
+  setActiveDesktopPetInstance(instance);
+  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  window.setAlwaysOnTop(true, "floating");
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.on("closed", () => {
+    desktopPetInstances.delete(key);
+    if (desktopPetWindow === window) {
+      const next = [...desktopPetInstances.values()].find((item) => !item.window.isDestroyed()) || null;
+      if (next) {
+        setActiveDesktopPetInstance(next);
+      } else {
+        desktopPetWindow = null;
+      }
+    }
   });
-  placeDesktopPetWindow(desktopPetWindow, desktopPetConfig);
-  await desktopPetWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDesktopPetHtml(desktopPetConfig))}`);
-  desktopPetWindow.showInactive();
-  return desktopPetWindow;
+  placeDesktopPetWindow(window, nextConfig);
+  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDesktopPetHtml(nextConfig))}`);
+  window.showInactive();
+  return window;
 }
 
 function resolveBundledServerScript(): string {
@@ -1261,6 +1875,8 @@ async function createWindow() {
     mainWindow.on("closed", () => {
       clearTimeout(forceShowTimer);
       mainWindow = null;
+      for (const instance of desktopPetInstances.values()) instance.window.close();
+      desktopPetInstances.clear();
       desktopPetWindow?.close();
       desktopPetWindow = null;
     });
@@ -1327,42 +1943,63 @@ ipcMain.handle("shell:openExternal", async (_event, rawUrl: unknown) => {
 });
 
 ipcMain.handle("desktop-pet:show", async (_event, rawConfig: unknown) => {
-  await ensureDesktopPetWindow(rawConfig);
-  return { ok: true, visible: Boolean(desktopPetWindow && !desktopPetWindow.isDestroyed() && desktopPetWindow.isVisible()) };
+  const window = await ensureDesktopPetWindow(rawConfig);
+  return { ok: true, visible: Boolean(window && !window.isDestroyed() && window.isVisible()) };
 });
 
-ipcMain.handle("desktop-pet:hide", () => {
-  desktopPetWindow?.hide();
+ipcMain.handle("desktop-pet:hide", (event) => {
+  const instance = getDesktopPetInstanceForSender(event.sender) || (desktopPetWindow ? getDesktopPetInstanceForWindow(desktopPetWindow) : null);
+  if (instance) {
+    instance.window.hide();
+  } else {
+    desktopPetWindow?.hide();
+  }
   return { ok: true, visible: false };
 });
 
 ipcMain.handle("desktop-pet:toggle", async (_event, rawConfig: unknown) => {
-  if (desktopPetWindow && !desktopPetWindow.isDestroyed() && desktopPetWindow.isVisible()) {
-    desktopPetWindow.hide();
+  const nextConfig = sanitizeDesktopPetConfig(rawConfig);
+  const existing = desktopPetInstances.get(desktopPetKey(nextConfig));
+  if (existing && !existing.window.isDestroyed() && existing.window.isVisible()) {
+    setActiveDesktopPetInstance(existing);
+    existing.window.hide();
     return { ok: true, visible: false };
   }
-  await ensureDesktopPetWindow(rawConfig);
-  return { ok: true, visible: Boolean(desktopPetWindow && !desktopPetWindow.isDestroyed() && desktopPetWindow.isVisible()) };
+  const window = await ensureDesktopPetWindow(nextConfig);
+  return { ok: true, visible: Boolean(window && !window.isDestroyed() && window.isVisible()) };
 });
 
 ipcMain.handle("desktop-pet:configure", async (_event, rawConfig: unknown) => {
-  const shouldShow = Boolean(desktopPetWindow && !desktopPetWindow.isDestroyed() && desktopPetWindow.isVisible());
-  desktopPetConfig = sanitizeDesktopPetConfig(rawConfig);
-  if (desktopPetWindow && !desktopPetWindow.isDestroyed()) {
-    placeDesktopPetWindow(desktopPetWindow, desktopPetConfig);
-    void desktopPetWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDesktopPetHtml(desktopPetConfig))}`);
-    if (shouldShow) desktopPetWindow.showInactive();
+  const nextConfig = sanitizeDesktopPetConfig(rawConfig);
+  const key = desktopPetKey(nextConfig);
+  const instance = desktopPetInstances.get(key) || (desktopPetWindow ? getDesktopPetInstanceForWindow(desktopPetWindow) : null);
+  const shouldShow = Boolean(instance && !instance.window.isDestroyed() && instance.window.isVisible());
+  desktopPetConfig = nextConfig;
+  await syncDesktopPetRuntimeState(nextConfig);
+  if (instance && !instance.window.isDestroyed()) {
+    if (instance.key !== key) {
+      desktopPetInstances.delete(instance.key);
+      instance.key = key;
+      desktopPetInstances.set(key, instance);
+    }
+    instance.config = nextConfig;
+    setActiveDesktopPetInstance(instance);
+    placeDesktopPetWindow(instance.window, nextConfig);
+    void instance.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDesktopPetHtml(nextConfig))}`);
+    if (shouldShow) instance.window.showInactive();
   }
   return { ok: true, visible: shouldShow };
 });
 
 ipcMain.handle("desktop-pet:isVisible", () => {
-  return Boolean(desktopPetWindow && !desktopPetWindow.isDestroyed() && desktopPetWindow.isVisible());
+  return [...desktopPetInstances.values()].some((instance) => !instance.window.isDestroyed() && instance.window.isVisible());
 });
 
 ipcMain.handle("desktop-pet:drag-start", (event, point: { screenX?: unknown; screenY?: unknown }) => {
   const target = BrowserWindow.fromWebContents(event.sender);
-  if (!target || target !== desktopPetWindow) return { ok: false };
+  const instance = getDesktopPetInstanceForSender(event.sender);
+  if (!target || !instance || target !== instance.window) return { ok: false };
+  setActiveDesktopPetInstance(instance);
   desktopPetDragState.set(event.sender.id, {
     startX: Number(point?.screenX) || 0,
     startY: Number(point?.screenY) || 0,
@@ -1373,38 +2010,44 @@ ipcMain.handle("desktop-pet:drag-start", (event, point: { screenX?: unknown; scr
 
 ipcMain.handle("desktop-pet:drag-move", (event, point: { screenX?: unknown; screenY?: unknown }) => {
   const target = BrowserWindow.fromWebContents(event.sender);
+  const instance = getDesktopPetInstanceForSender(event.sender);
   const drag = desktopPetDragState.get(event.sender.id);
-  if (!target || target !== desktopPetWindow || !drag) return { ok: false };
+  if (!target || !instance || target !== instance.window || !drag) return { ok: false };
   const nextX = drag.bounds.x + Math.round((Number(point?.screenX) || 0) - drag.startX);
   const nextY = drag.bounds.y + Math.round((Number(point?.screenY) || 0) - drag.startY);
   target.setPosition(nextX, nextY, false);
   const bounds = target.getBounds();
   const display = screen.getDisplayMatching(bounds);
-  const compact = desktopPetWindowSize(desktopPetConfig, false);
-  const placement = resolveDesktopPetUiPlacement(bounds, display.workArea, compact.height);
-  if (placement !== desktopPetUiPlacement && bounds.height > compact.height + 24) {
+  const compact = desktopPetWindowSize(instance.config, false);
+  const placement = resolveDesktopPetUiPlacement(bounds, display.workArea, compact.height, instance.uiPlacement);
+  if (placement !== instance.uiPlacement && bounds.height > compact.height + 24) {
     const current = target.getBounds();
-    const delta = desktopPetWindowSize(desktopPetConfig, true).height - compact.height;
+    const delta = desktopPetWindowSize(instance.config, true).height - compact.height;
     const preferredY = placement === "below" ? current.y + delta : current.y - delta;
     const area = display.workArea;
     const adjustedY = Math.max(area.y, Math.min(area.y + area.height - current.height, preferredY));
     target.setPosition(current.x, adjustedY, false);
     drag.bounds = { ...drag.bounds, y: drag.bounds.y + (adjustedY - current.y) };
   }
-  desktopPetUiPlacement = placement;
+  instance.uiPlacement = placement;
+  setActiveDesktopPetInstance(instance);
+  maybeNotifyNearbyDesktopPets(instance);
   return { ok: true, placement };
 });
 
 ipcMain.handle("desktop-pet:ui-expanded", (event, expanded: unknown) => {
   const target = BrowserWindow.fromWebContents(event.sender);
-  if (!target || target !== desktopPetWindow) return { ok: false };
-  const placement = resizeDesktopPetWindowForUi(Boolean(expanded));
+  const instance = getDesktopPetInstanceForSender(event.sender);
+  if (!target || !instance || target !== instance.window) return { ok: false };
+  const placement = resizeDesktopPetInstanceWindowForUi(instance, Boolean(expanded));
+  setActiveDesktopPetInstance(instance);
   return { ok: true, placement };
 });
 
 ipcMain.handle("desktop-pet:autonomy-step", (event, delta: { dx?: unknown; dy?: unknown }) => {
   const target = BrowserWindow.fromWebContents(event.sender);
-  if (!target || target !== desktopPetWindow) return { ok: false };
+  const instance = getDesktopPetInstanceForSender(event.sender);
+  if (!target || !instance || target !== instance.window) return { ok: false };
   const bounds = target.getBounds();
   const display = screen.getDisplayMatching(bounds);
   const area = display.workArea;
@@ -1413,19 +2056,98 @@ ipcMain.handle("desktop-pet:autonomy-step", (event, delta: { dx?: unknown; dy?: 
   const nextX = Math.max(area.x, Math.min(area.x + area.width - bounds.width, bounds.x + dx));
   const nextY = Math.max(area.y, Math.min(area.y + area.height - bounds.height, bounds.y + dy));
   target.setPosition(nextX, nextY, false);
-  const compact = desktopPetWindowSize(desktopPetConfig, false);
-  const placement = resolveDesktopPetUiPlacement(target.getBounds(), area, compact.height);
-  desktopPetUiPlacement = placement;
+  const compact = desktopPetWindowSize(instance.config, false);
+  const placement = resolveDesktopPetUiPlacement(target.getBounds(), area, compact.height, instance.uiPlacement);
+  instance.uiPlacement = placement;
+  setActiveDesktopPetInstance(instance);
+  maybeNotifyNearbyDesktopPets(instance);
   return { ok: true, placement };
 });
 
-ipcMain.handle("desktop-pet:message", async (_event, message: unknown) => {
+ipcMain.handle("desktop-pet:chats", async (event) => {
+  const instance = getDesktopPetInstanceForSender(event.sender);
+  const config = instance?.config || desktopPetConfig;
+  await syncDesktopPetRuntimeState(config);
+  const state = await getDesktopPetRuntimeState(config);
+  return {
+    ok: true,
+    activeChatId: state.defaultChatId,
+    persistentMemory: state.persistentMemory,
+    chats: summarizeDesktopPetChats(state)
+  };
+});
+
+ipcMain.handle("desktop-pet:new-chat", async (event, rawTitle: unknown) => {
+  const instance = getDesktopPetInstanceForSender(event.sender);
+  const config = instance?.config || desktopPetConfig;
+  await syncDesktopPetRuntimeState(config);
+  const state = await getDesktopPetRuntimeState(config);
+  const chat = createDesktopPetChat(String(rawTitle || "New chat").trim().slice(0, 64) || "New chat");
+  state.chats.unshift(chat);
+  state.defaultChatId = chat.id;
+  state.chats = state.chats.slice(0, 20);
+  scheduleDesktopPetStoreWrite();
+  return { ok: true, activeChatId: chat.id, chats: summarizeDesktopPetChats(state) };
+});
+
+ipcMain.handle("desktop-pet:select-chat", async (event, rawChatId: unknown) => {
+  const instance = getDesktopPetInstanceForSender(event.sender);
+  const config = instance?.config || desktopPetConfig;
+  await syncDesktopPetRuntimeState(config);
+  const state = await getDesktopPetRuntimeState(config);
+  const chatId = String(rawChatId || "").trim();
+  if (state.chats.some((chat) => chat.id === chatId)) {
+    state.defaultChatId = chatId;
+    scheduleDesktopPetStoreWrite();
+  }
+  return { ok: true, activeChatId: state.defaultChatId, chats: summarizeDesktopPetChats(state) };
+});
+
+ipcMain.handle("desktop-pet:message", async (event, message: unknown, rawScreenContext?: unknown) => {
   try {
-    return await sendDesktopPetMessageToLlm(String(message || ""));
+    const instance = getDesktopPetInstanceForSender(event.sender);
+    const screenContext = rawScreenContext && typeof rawScreenContext === "object" && !Array.isArray(rawScreenContext)
+      ? rawScreenContext as Record<string, unknown>
+      : null;
+    const dataUrl = String(screenContext?.dataUrl || "").slice(0, 8 * 1024 * 1024);
+    const normalizedScreenContext = dataUrl.startsWith("data:image/")
+      ? {
+        dataUrl,
+        width: Number(screenContext?.width) || 0,
+        height: Number(screenContext?.height) || 0
+      }
+      : null;
+    return await sendDesktopPetMessageToLlm(String(message || ""), instance?.config || desktopPetConfig, normalizedScreenContext);
   } catch (error) {
     return {
       ok: false,
       reply: error instanceof Error ? error.message : "Desktop pet LLM request failed"
+    };
+  }
+});
+
+ipcMain.handle("desktop-pet:screen-context", async (event) => {
+  try {
+    const instance = getDesktopPetInstanceForSender(event.sender) || (desktopPetWindow ? getDesktopPetInstanceForWindow(desktopPetWindow) : null);
+    if (!instance) return { ok: false, error: "Desktop pet is unavailable" };
+    const result = await captureDesktopPetScreenContext(instance);
+    return { ok: true, ...result };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Screen capture failed"
+    };
+  }
+});
+
+ipcMain.handle("desktop-pet:tts", async (event, text: unknown) => {
+  try {
+    const instance = getDesktopPetInstanceForSender(event.sender);
+    return await synthesizeDesktopPetSpeech(String(text || ""), instance?.config || desktopPetConfig);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Desktop pet TTS request failed"
     };
   }
 });
