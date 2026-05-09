@@ -942,6 +942,18 @@ export interface AgentEvent {
   createdAt: string;
 }
 
+export interface AgentPendingConfirmation {
+  id: Id;
+  threadId: Id;
+  runId: Id;
+  tool: string;
+  argumentsJson: string;
+  arguments: Record<string, unknown>;
+  category: string;
+  reason: string;
+  createdAt: string;
+}
+
 export interface AgentThreadState {
   thread: AgentThread;
   skills: AgentSkill[];

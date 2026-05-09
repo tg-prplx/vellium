@@ -36,6 +36,13 @@ export interface WorkspaceToolSecurityPolicy {
   allowGitWriteCommands?: boolean;
 }
 
+export type WorkspaceCommandRiskCategory =
+  | "system_admin"
+  | "shell_escape"
+  | "network"
+  | "git_write"
+  | "file_mutation";
+
 const MAX_LIST_RESULTS = 200;
 const MAX_SEARCH_RESULTS = 80;
 const MAX_FILE_CHARS = 120_000;
@@ -515,6 +522,63 @@ function describeBlockedCommand(params: {
     }
   }
   return "";
+}
+
+export function describeBlockedWorkspaceCommand(params: {
+  command: string;
+  args: string[];
+  policy: Required<WorkspaceToolSecurityPolicy>;
+}) {
+  return describeBlockedCommand(params);
+}
+
+export function classifyWorkspaceCommandRisk(params: {
+  command: string;
+  args: string[];
+}): WorkspaceCommandRiskCategory | null {
+  const normalizedCommand = basename(params.command || "").toLowerCase();
+  const args = params.args.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
+  const firstArg = args[0] || "";
+
+  if (ALWAYS_BLOCKED_COMMANDS.has(normalizedCommand)) {
+    return "system_admin";
+  }
+  if (SHELL_COMMANDS.has(normalizedCommand)) {
+    return "shell_escape";
+  }
+  if ((normalizedCommand === "node" && args.some((arg) => arg === "-e" || arg === "--eval"))
+    || ((normalizedCommand === "python" || normalizedCommand === "python3") && args.includes("-c"))
+    || (normalizedCommand === "ruby" && args.includes("-e"))
+    || (normalizedCommand === "perl" && args.includes("-e"))) {
+    return "shell_escape";
+  }
+  if (NETWORK_COMMANDS.has(normalizedCommand)) {
+    return "network";
+  }
+  if ((normalizedCommand === "npm" || normalizedCommand === "pnpm" || normalizedCommand === "yarn" || normalizedCommand === "bun")
+    && args.some((arg) => ["install", "add", "update", "upgrade", "dlx", "create"].includes(arg))) {
+    return "network";
+  }
+  if ((normalizedCommand === "python" || normalizedCommand === "python3")
+    && firstArg === "-m"
+    && args[1] === "pip") {
+    return "network";
+  }
+  if (normalizedCommand === "git") {
+    if (GIT_WRITE_SUBCOMMANDS.has(firstArg)) return "git_write";
+    if (["clone", "fetch", "pull", "push", "submodule", "ls-remote"].includes(firstArg)) return "network";
+  }
+  if (FILE_MUTATION_COMMANDS.has(normalizedCommand)) {
+    return "file_mutation";
+  }
+  if ((normalizedCommand === "sed" || normalizedCommand === "perl") && args.includes("-i")) {
+    return "file_mutation";
+  }
+  return null;
+}
+
+export function normalizeWorkspaceToolSecurityPolicy(raw: WorkspaceToolSecurityPolicy | undefined): Required<WorkspaceToolSecurityPolicy> {
+  return normalizeSecurityPolicy(raw);
 }
 
 function normalizeEdits(raw: unknown) {

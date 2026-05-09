@@ -5,7 +5,13 @@ import { db, isLocalhostUrl, roughTokenCount } from "../../db.js";
 import { buildOpenAiSamplingPayload } from "../../services/apiParamPolicy.js";
 import { unifiedGenerateText, type UnifiedGenerateMessage } from "../../services/unifiedGeneration.js";
 import { prepareMcpTools, type PreparedMcpServerDiagnostic } from "../../services/mcp.js";
-import { prepareWorkspaceTools } from "../../services/workspaceTools.js";
+import {
+  classifyWorkspaceCommandRisk,
+  describeBlockedWorkspaceCommand,
+  normalizeWorkspaceToolSecurityPolicy,
+  prepareWorkspaceTools,
+  type WorkspaceCommandRiskCategory
+} from "../../services/workspaceTools.js";
 import { getContextWindowBudget, getTailBudgetPercent, selectTimelineForPrompt } from "../chat/attachments.js";
 import {
   consumeSseEventBlocks,
@@ -68,6 +74,20 @@ export const activeAgentSteeringNotes = new Map<string, Array<{
   attachments: unknown[];
   createdAt: string;
 }>>();
+const activeAgentPendingConfirmations = new Map<string, AgentPendingConfirmation>();
+const approvedDangerousActionFingerprints = new Map<string, Map<string, number>>();
+
+export type AgentPendingConfirmation = {
+  id: string;
+  threadId: string;
+  runId: string;
+  tool: string;
+  argumentsJson: string;
+  arguments: Record<string, unknown>;
+  category: WorkspaceCommandRiskCategory | "delete_path" | "move_overwrite";
+  reason: string;
+  createdAt: string;
+};
 
 type AgentSubagentRole = "general" | "research" | "builder" | "reviewer";
 
@@ -777,6 +797,165 @@ function toolCallCacheKey(toolName: string, rawArgs: string) {
   const parsedArgs = parseJsonObject(rawArgs);
   const normalizedArgs = parsedArgs ? stableStringify(parsedArgs) : sanitizeText(compactWhitespace(rawArgs), 3000);
   return `${toolName}\n${normalizedArgs}`;
+}
+
+function consumeApprovedDangerousAction(threadId: string, fingerprint: string) {
+  const byThread = approvedDangerousActionFingerprints.get(threadId);
+  if (!byThread) return false;
+  const current = byThread.get(fingerprint) || 0;
+  if (current <= 0) return false;
+  if (current === 1) {
+    byThread.delete(fingerprint);
+  } else {
+    byThread.set(fingerprint, current - 1);
+  }
+  if (byThread.size === 0) {
+    approvedDangerousActionFingerprints.delete(threadId);
+  }
+  return true;
+}
+
+function grantApprovedDangerousAction(threadId: string, fingerprint: string) {
+  const byThread = approvedDangerousActionFingerprints.get(threadId) || new Map<string, number>();
+  byThread.set(fingerprint, (byThread.get(fingerprint) || 0) + 1);
+  approvedDangerousActionFingerprints.set(threadId, byThread);
+}
+
+function normalizedToolArguments(rawArgs: string) {
+  return parseJsonObject(rawArgs) || {};
+}
+
+function dangerousActionFingerprint(toolName: string, args: Record<string, unknown>) {
+  return `${toolName}\n${stableStringify(args)}`;
+}
+
+function getCommandArgv(args: Record<string, unknown>) {
+  const raw = Array.isArray(args.args) ? args.args : [];
+  return raw
+    .map((item) => sanitizeText(item, 400))
+    .filter(Boolean)
+    .slice(0, 80);
+}
+
+function determineDangerousActionRequest(params: {
+  threadId: string;
+  runId: string;
+  toolName: string;
+  rawArgs: string;
+  settings: ReturnType<typeof getSettings>;
+}): AgentPendingConfirmation | null {
+  const args = normalizedToolArguments(params.rawArgs);
+  const fingerprint = dangerousActionFingerprint(params.toolName, args);
+  if (consumeApprovedDangerousAction(params.threadId, fingerprint)) {
+    activeAgentPendingConfirmations.delete(params.threadId);
+    return null;
+  }
+
+  if (params.toolName === "workspace_delete_path" && params.settings.agentDangerousFileOpsEnabled === true) {
+    return {
+      id: `confirm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      threadId: params.threadId,
+      runId: params.runId,
+      tool: params.toolName,
+      argumentsJson: JSON.stringify(args),
+      arguments: args,
+      category: "delete_path",
+      reason: "Agent requested file or directory deletion.",
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (params.toolName === "workspace_move_path" && params.settings.agentDangerousFileOpsEnabled === true) {
+    const overwrite = args.overwrite === true;
+    if (overwrite) {
+      return {
+        id: `confirm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        threadId: params.threadId,
+        runId: params.runId,
+        tool: params.toolName,
+        argumentsJson: JSON.stringify(args),
+        arguments: args,
+        category: "move_overwrite",
+        reason: "Agent requested overwrite move that can destroy existing files.",
+        createdAt: new Date().toISOString()
+      };
+    }
+  }
+  if (params.toolName !== "workspace_run_command") return null;
+
+  const command = sanitizeText(args.command, 260);
+  const argv = getCommandArgv(args);
+  const policy = normalizeWorkspaceToolSecurityPolicy({
+    allowDangerousFileOps: params.settings.agentDangerousFileOpsEnabled === true,
+    allowNetworkCommands: params.settings.agentNetworkCommandsEnabled === true,
+    allowShellCommands: params.settings.agentShellCommandsEnabled === true,
+    allowGitWriteCommands: params.settings.agentGitWriteCommandsEnabled === true
+  });
+  const blockedReason = describeBlockedWorkspaceCommand({
+    command,
+    args: argv,
+    policy
+  });
+  if (blockedReason) return null;
+  const category = classifyWorkspaceCommandRisk({
+    command,
+    args: argv
+  });
+  if (!category) return null;
+  return {
+    id: `confirm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    threadId: params.threadId,
+    runId: params.runId,
+    tool: params.toolName,
+    argumentsJson: JSON.stringify(args),
+    arguments: args,
+    category,
+    reason: `Agent requested potentially dangerous command: ${sanitizeText([command, ...argv].join(" "), 280) || command || "command"}.`,
+    createdAt: new Date().toISOString()
+  };
+}
+
+function formatDangerousActionLabel(category: AgentPendingConfirmation["category"]) {
+  if (category === "delete_path") return "deletion";
+  if (category === "move_overwrite") return "overwrite move";
+  if (category === "network") return "network command";
+  if (category === "shell_escape") return "shell execution";
+  if (category === "git_write") return "git write command";
+  if (category === "file_mutation") return "file mutation command";
+  if (category === "system_admin") return "system-level command";
+  return "dangerous action";
+}
+
+export function getPendingAgentConfirmation(threadId: string) {
+  const pending = activeAgentPendingConfirmations.get(threadId);
+  if (!pending) return null;
+  return { ...pending, arguments: { ...pending.arguments } };
+}
+
+export function resolvePendingAgentConfirmation(params: {
+  threadId: string;
+  confirmationId: string;
+  action: "approve" | "deny";
+}) {
+  const pending = activeAgentPendingConfirmations.get(params.threadId);
+  if (!pending) {
+    return { ok: false as const, error: "No pending confirmation for this thread" };
+  }
+  if (pending.id !== params.confirmationId) {
+    return { ok: false as const, error: "Pending confirmation token does not match" };
+  }
+  const fingerprint = dangerousActionFingerprint(pending.tool, pending.arguments);
+  if (params.action === "approve") {
+    grantApprovedDangerousAction(params.threadId, fingerprint);
+    activeAgentPendingConfirmations.delete(params.threadId);
+    return { ok: true as const, action: "approved" as const, pending };
+  }
+  activeAgentPendingConfirmations.delete(params.threadId);
+  return { ok: true as const, action: "denied" as const, pending };
+}
+
+export function clearAgentDangerousActionState(threadId: string) {
+  activeAgentPendingConfirmations.delete(threadId);
+  approvedDangerousActionFingerprints.delete(threadId);
 }
 
 function insertAndEmitAssistantMessage(params: {
@@ -2949,6 +3128,47 @@ async function runDirectToolLoop(params: {
           });
           continue;
         }
+        const confirmation = determineDangerousActionRequest({
+          threadId: params.threadId,
+          runId: run.id,
+          toolName,
+          rawArgs: toolArgs,
+          settings
+        });
+        if (confirmation) {
+          activeAgentPendingConfirmations.set(params.threadId, confirmation);
+          writeEvent(
+            "warning",
+            "Confirmation required",
+            confirmation.reason,
+            {
+              confirmationRequired: true,
+              confirmationId: confirmation.id,
+              tool: confirmation.tool,
+              category: confirmation.category,
+              arguments: confirmation.arguments,
+              runId: confirmation.runId
+            }
+          );
+          const finalMessage = `Need your confirmation before running ${formatDangerousActionLabel(confirmation.category)} (${confirmation.tool}).`;
+          completeAgentRun(run.id, "aborted", finalMessage);
+          return {
+            runId: run.id,
+            finalMessage,
+            reasoning: finalReasoning,
+            summary: finalMessage,
+            status: "aborted",
+            streamedResponse: false,
+            execution: {
+              stepCount: assistantPasses,
+              toolCalls: toolCallsExecuted,
+              subagents: 0,
+              planEvents: 0,
+              usedSynthesis: false,
+              memoryRefreshRequested
+            }
+          };
+        }
         writeEvent("tool_call", toolName, "Tool requested by agent runtime.", {
           tool: toolName,
           arguments: toolArgs
@@ -3278,6 +3498,48 @@ async function runAgentLoop(params: {
           ].filter(Boolean).join("\n\n"));
           continue;
         }
+        const confirmation = determineDangerousActionRequest({
+          threadId: params.threadId,
+          runId: run.id,
+          toolName,
+          rawArgs,
+          settings
+        });
+        if (confirmation) {
+          activeAgentPendingConfirmations.set(params.threadId, confirmation);
+          writeEvent(
+            "warning",
+            "Confirmation required",
+            confirmation.reason,
+            {
+              step,
+              confirmationRequired: true,
+              confirmationId: confirmation.id,
+              tool: confirmation.tool,
+              category: confirmation.category,
+              arguments: confirmation.arguments,
+              runId: confirmation.runId
+            }
+          );
+          const finalMessage = `Need your confirmation before running ${formatDangerousActionLabel(confirmation.category)} (${confirmation.tool}).`;
+          completeAgentRun(run.id, "aborted", finalMessage);
+          return {
+            runId: run.id,
+            finalMessage,
+            reasoning: finalReasoning,
+            summary: finalMessage,
+            status: "aborted",
+            streamedResponse: false,
+            execution: {
+              stepCount: step,
+              toolCalls: toolCallCount,
+              subagents: subagentCount,
+              planEvents: planEventCount,
+              usedSynthesis,
+              memoryRefreshRequested
+            }
+          };
+        }
         toolCallCount += 1;
         writeEvent(
           "tool_call",
@@ -3524,6 +3786,7 @@ export async function streamAgentTurn(params: {
     params.res.status(404).json({ error: "Agent thread not found" });
     return;
   }
+  activeAgentPendingConfirmations.delete(params.threadId);
 
   beginSse(params.res);
   const abortController = new AbortController();
@@ -3690,7 +3953,7 @@ export async function streamAgentTurn(params: {
         }
       }
     }
-    setAgentThreadStatus(params.threadId, result.status === "done" ? "idle" : "error");
+    setAgentThreadStatus(params.threadId, result.status === "error" ? "error" : "idle");
     sendDone(params.res);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || "Agent run failed");

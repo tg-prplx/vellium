@@ -443,8 +443,8 @@ process.stdin.on("data", (chunk) => {
                     function: {
                       name: commandTool,
                       arguments: JSON.stringify({
-                        command: "node",
-                        args: ["-e", "setTimeout(() => { console.log('scan done'); }, 180)"],
+                        command: "sleep",
+                        args: ["0.18"],
                         cwd: ".",
                         timeoutMs: 4000
                       })
@@ -801,8 +801,8 @@ process.stdin.on("data", (chunk) => {
               .filter(Boolean);
             const commandTool = toolNames.find((name) => name === "workspace_run_command") || toolNames[0] || "";
             streamToolCall("tool-call-steer-1", commandTool, {
-              command: "node",
-              args: ["-e", "setTimeout(() => { console.log('scan done'); }, 180)"],
+              command: "sleep",
+              args: ["0.18"],
               cwd: ".",
               timeoutMs: 4000
             });
@@ -2864,7 +2864,7 @@ process.stdin.on("data", (chunk) => {
     expect(disabledState.events.some((event: { type: string; title: string }) => event.title === "workspace_run_command")).toBe(false);
   });
 
-  it("blocks dangerous command mutations by default and allows them when explicitly enabled", async () => {
+  it("blocks dangerous command mutations by default and requires explicit confirmation when enabled", async () => {
     await updateSettings({
       agentsEnabled: true,
       agentWorkspaceToolsEnabled: false,
@@ -2904,11 +2904,38 @@ process.stdin.on("data", (chunk) => {
     });
     expect(enabledRun.ok).toBe(true);
     const enabledBody = await enabledRun.text();
-    expect(enabledBody).toContain("The dangerous workspace command ran after the policy was enabled.");
+    expect(enabledBody).toContain("Confirmation required");
+    expect(enabledBody).toContain("Need your confirmation before running file mutation command (workspace_run_command).");
+    expect(existsSync(join(workspaceDir, "danger-dir"))).toBe(false);
+
+    const pendingConfirmation = await parseJsonResponse(
+      `/api/agents/threads/${enabledThread.id}/pending-confirmation`,
+      await fetch(`${baseUrl}/api/agents/threads/${enabledThread.id}/pending-confirmation`)
+    );
+    expect(pendingConfirmation.pending?.tool).toBe("workspace_run_command");
+    const confirmationId = String(pendingConfirmation.pending?.id || "");
+    expect(confirmationId).toBeTruthy();
+    const pendingRunId = String(pendingConfirmation.pending?.runId || "");
+    expect(pendingRunId).toBeTruthy();
+
+    const approveResult = await postJson(`/api/agents/threads/${enabledThread.id}/confirm-action`, {
+      confirmationId,
+      action: "approve"
+    });
+    expect(approveResult.ok).toBe(true);
+    expect(approveResult.action).toBe("approved");
+
+    const resumedRun = await requestJson(`/api/agents/threads/${enabledThread.id}/runs/${pendingRunId}/resume`, {
+      method: "POST",
+      body: {}
+    });
+    expect(resumedRun.ok).toBe(true);
+    const resumedBody = await resumedRun.text();
+    expect(resumedBody).toContain("The dangerous workspace command ran after the policy was enabled.");
     expect(existsSync(join(workspaceDir, "danger-dir"))).toBe(true);
   });
 
-  it("blocks destructive file tools by default and allows them when explicitly enabled", async () => {
+  it("blocks destructive file tools by default and requires explicit confirmation when enabled", async () => {
     await updateSettings({
       agentsEnabled: true,
       agentWorkspaceToolsEnabled: true,
@@ -2952,7 +2979,34 @@ process.stdin.on("data", (chunk) => {
     });
     expect(enabledRun.ok).toBe(true);
     const enabledBody = await enabledRun.text();
-    expect(enabledBody).toContain("The delete request ran after the policy was enabled.");
+    expect(enabledBody).toContain("Confirmation required");
+    expect(enabledBody).toContain("Need your confirmation before running deletion (workspace_delete_path).");
+    expect(existsSync(blockedPath)).toBe(true);
+
+    const pendingConfirmation = await parseJsonResponse(
+      `/api/agents/threads/${enabledThread.id}/pending-confirmation`,
+      await fetch(`${baseUrl}/api/agents/threads/${enabledThread.id}/pending-confirmation`)
+    );
+    expect(pendingConfirmation.pending?.tool).toBe("workspace_delete_path");
+    const confirmationId = String(pendingConfirmation.pending?.id || "");
+    expect(confirmationId).toBeTruthy();
+    const pendingRunId = String(pendingConfirmation.pending?.runId || "");
+    expect(pendingRunId).toBeTruthy();
+
+    const approveResult = await postJson(`/api/agents/threads/${enabledThread.id}/confirm-action`, {
+      confirmationId,
+      action: "approve"
+    });
+    expect(approveResult.ok).toBe(true);
+    expect(approveResult.action).toBe("approved");
+
+    const resumedRun = await requestJson(`/api/agents/threads/${enabledThread.id}/runs/${pendingRunId}/resume`, {
+      method: "POST",
+      body: {}
+    });
+    expect(resumedRun.ok).toBe(true);
+    const resumedBody = await resumedRun.text();
+    expect(resumedBody).toContain("The delete request ran after the policy was enabled.");
     expect(existsSync(blockedPath)).toBe(false);
   });
 

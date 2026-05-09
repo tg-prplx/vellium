@@ -3,7 +3,20 @@ import { ThreePanelLayout, Badge, EmptyState } from "../../components/Panels";
 import { api } from "../../shared/api";
 import { resolveApiAssetUrl, type StreamCallbacks } from "../../shared/api/core";
 import { useI18n } from "../../shared/i18n";
-import type { AgentEvent, AgentMessage, AgentMode, AgentSkill, AgentThread, AgentThreadState, AgentWorkspaceDirectoryState, AppSettings, FileAttachment, ProviderModel, ProviderProfile } from "../../shared/types/contracts";
+import type {
+  AgentEvent,
+  AgentMessage,
+  AgentMode,
+  AgentPendingConfirmation,
+  AgentSkill,
+  AgentThread,
+  AgentThreadState,
+  AgentWorkspaceDirectoryState,
+  AppSettings,
+  FileAttachment,
+  ProviderModel,
+  ProviderProfile
+} from "../../shared/types/contracts";
 import {
   failBackgroundTask,
   finishBackgroundTask,
@@ -271,6 +284,8 @@ export function AgentsScreen({
   const [loadingState, setLoadingState] = useState(false);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState("");
+  const [pendingConfirmation, setPendingConfirmation] = useState<AgentPendingConfirmation | null>(null);
+  const [resolvingConfirmation, setResolvingConfirmation] = useState<"approve" | "deny" | null>(null);
   const [composer, setComposer] = useState("");
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -407,9 +422,11 @@ export function AgentsScreen({
   }, [workspaceDirectories?.entries, workspacePickerQuery]);
   const hasDraftPayload = composer.trim().length > 0 || attachments.length > 0;
   const composerPlaceholder = running ? t("agents.composerCorrectionPlaceholder") : t("agents.composerPlaceholder");
-  const composerStatusLabel = running
-    ? t("agents.runningCorrectionHint")
-    : status || t("agents.workspaceReady");
+  const composerStatusLabel = pendingConfirmation
+    ? t("agents.pendingConfirmationStatus")
+    : running
+      ? t("agents.runningCorrectionHint")
+      : status || t("agents.workspaceReady");
   const showInspector = Boolean(workspaceOpen && selectedThread && threadDraft);
   const agentLayoutClassName = `agents-layout chat-simple-layout is-thread ${showInspector ? "is-inspector-open" : "is-inspector-closed"} ${sidebarOpen ? "is-sidebar-open" : "is-sidebar-closed"}`;
   const enabledMcpServers = useMemo(
@@ -519,6 +536,7 @@ export function AgentsScreen({
   useEffect(() => {
     if (!selectedThreadId) {
       setThreadState(null);
+      setPendingConfirmation(null);
       setThreadDraft(null);
       setSkillDrafts([]);
       setSelectedTraceRunId(null);
@@ -652,8 +670,12 @@ export function AgentsScreen({
   async function refreshThreadState(threadId: string) {
     setLoadingState(true);
     try {
-      const state = await api.agentThreadState(threadId);
+      const [state, pending] = await Promise.all([
+        api.agentThreadState(threadId),
+        api.agentPendingConfirmation(threadId)
+      ]);
       setThreadState(state);
+      setPendingConfirmation(pending.pending);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -831,6 +853,24 @@ export function AgentsScreen({
           setStreamReasoningExpanded(true);
         },
         onAgentEvent: (event: AgentEvent) => {
+          const payload = event.payload || {};
+          if (payload.confirmationRequired === true) {
+            setPendingConfirmation({
+              id: String(payload.confirmationId || ""),
+              threadId: event.threadId,
+              runId: String(payload.runId || event.runId || ""),
+              tool: String(payload.tool || ""),
+              argumentsJson: typeof payload.arguments === "string"
+                ? payload.arguments
+                : JSON.stringify(payload.arguments || {}),
+              arguments: payload.arguments && typeof payload.arguments === "object" && !Array.isArray(payload.arguments)
+                ? payload.arguments as Record<string, unknown>
+                : {},
+              category: String(payload.category || ""),
+              reason: String(event.content || payload.reason || "").trim(),
+              createdAt: event.createdAt
+            });
+          }
           setThreadState((prev) => {
             if (!prev) return prev;
             const nextEvents = [...prev.events.filter((item) => item.id !== event.id), event].sort((a, b) => (
@@ -919,6 +959,35 @@ export function AgentsScreen({
       content: composer,
       attachments
     });
+  }
+
+  async function resolveDangerousAction(action: "approve" | "deny") {
+    if (!selectedThreadId || !pendingConfirmation || resolvingConfirmation) return;
+    setResolvingConfirmation(action);
+    try {
+      const result = await api.agentConfirmAction(selectedThreadId, {
+        confirmationId: pendingConfirmation.id,
+        action
+      });
+      setPendingConfirmation(result.pending);
+      setThreadState(result.state);
+      await refreshThreads(selectedThreadId);
+      if (action === "approve") {
+        setStatus(t("agents.pendingConfirmationApproved"));
+        if (result.resolved?.runId) {
+          await executeThreadRun({
+            mode: "resume",
+            runId: result.resolved.runId
+          });
+        }
+      } else {
+        setStatus(t("agents.pendingConfirmationDenied"));
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setResolvingConfirmation(null);
+    }
   }
 
   async function sendSteering() {
@@ -1822,6 +1891,42 @@ export function AgentsScreen({
 
           <div className="agents-simple-composer-wrap">
             <div className={`mx-auto w-full ${AGENT_CENTER_MAX_WIDTH_CLASS}`}>
+              {pendingConfirmation ? (
+                <div className="mb-2 rounded-lg border border-warning/35 bg-warning-subtle/35 px-3 py-2.5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-warning">{t("agents.pendingConfirmationTitle")}</div>
+                      <div className="mt-1 text-[12px] leading-5 text-text-primary">
+                        {pendingConfirmation.reason || t("agents.pendingConfirmationPrompt")}
+                      </div>
+                      <div className="mt-1 text-[11px] leading-5 text-text-secondary">
+                        {pendingConfirmation.tool}
+                        {getOneLineToolPreview(pendingConfirmation.arguments)
+                          ? ` · ${getOneLineToolPreview(pendingConfirmation.arguments)}`
+                          : ""}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { void resolveDangerousAction("deny"); }}
+                        disabled={Boolean(resolvingConfirmation)}
+                        className="rounded-md border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-60"
+                      >
+                        {t("agents.pendingConfirmationDeny")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { void resolveDangerousAction("approve"); }}
+                        disabled={Boolean(resolvingConfirmation)}
+                        className="rounded-md bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-60"
+                      >
+                        {resolvingConfirmation === "approve" ? t("agents.pendingConfirmationApproving") : t("agents.pendingConfirmationApprove")}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               {attachments.length > 0 ? (
                 <div className="chat-simple-attachments is-docked agents-simple-composer-attachments">
                   {attachments.map((attachment) => (
