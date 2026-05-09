@@ -4,6 +4,10 @@ import { resolveApiAssetUrl } from "../../shared/api";
 export type DesktopPetVoice = "soft" | "playful" | "quiet";
 export type DesktopPetAnimation = "none" | "idle" | "hop" | "pop" | "sway" | "spin" | "shake" | "bounce";
 export type DesktopPetCodexState = "idle" | "running-right" | "running-left" | "waving" | "jumping" | "failed" | "waiting" | "running" | "review";
+export type DesktopPetTheme = {
+  mode: "dark" | "light";
+  variables: Record<string, string>;
+};
 
 export type DesktopPetStatePreset = {
   id: string;
@@ -21,10 +25,13 @@ export type DesktopPetConfig = {
   spriteSheetUrl: string;
   scale: number;
   voice: DesktopPetVoice;
+  ttsEnabled: boolean;
   autonomyEnabled: boolean;
   actions: DesktopPetStatePreset[];
   emotions: DesktopPetStatePreset[];
   assistantInstructions: string;
+  persistentMemory: string;
+  theme?: DesktopPetTheme;
   description?: string;
   personality?: string;
   scenario?: string;
@@ -37,14 +44,32 @@ export type DesktopPetExtension = {
   spriteSheetUrl?: string;
   scale?: number;
   voice?: DesktopPetVoice;
+  ttsEnabled?: boolean;
   autonomyEnabled?: boolean;
   actions?: unknown;
   emotions?: unknown;
   assistantInstructions?: string;
+  persistentMemory?: string;
 };
 
 export const DESKTOP_PET_STORAGE_KEY = "vellium.desktopPet.config";
 export const DESKTOP_PET_EXTENSION_KEY = "velliumPet";
+const DESKTOP_PET_THEME_VARIABLES = [
+  "--color-bg-primary",
+  "--color-bg-secondary",
+  "--color-bg-tertiary",
+  "--color-bg-hover",
+  "--color-border",
+  "--color-border-subtle",
+  "--color-text-primary",
+  "--color-text-secondary",
+  "--color-text-tertiary",
+  "--color-text-inverse",
+  "--color-accent",
+  "--color-accent-hover",
+  "--color-accent-subtle",
+  "--color-accent-border"
+];
 export const CODEX_PET_STATES: DesktopPetCodexState[] = [
   "idle",
   "running-right",
@@ -63,6 +88,7 @@ export const DEFAULT_DESKTOP_PET_CONFIG: DesktopPetConfig = {
   spriteSheetUrl: "",
   scale: 1,
   voice: "soft",
+  ttsEnabled: false,
   autonomyEnabled: false,
   actions: [
     { id: "idle", label: "Idle", animation: "idle", codexState: "idle", assetUrl: "", soundUrl: "" },
@@ -79,7 +105,8 @@ export const DEFAULT_DESKTOP_PET_CONFIG: DesktopPetConfig = {
     { id: "sleepy", label: "Sleepy", animation: "sway", codexState: "failed", assetUrl: "", soundUrl: "" },
     { id: "excited", label: "Excited", animation: "bounce", codexState: "jumping", assetUrl: "", soundUrl: "" }
   ],
-  assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help."
+  assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help.",
+  persistentMemory: ""
 };
 
 function clampScale(value: unknown): number {
@@ -103,6 +130,40 @@ export function normalizeDesktopPetCodexState(value: unknown, fallback?: Desktop
 
 function stringValue(value: unknown, maxLength: number): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+}
+
+function normalizeDesktopPetTheme(value: unknown): DesktopPetTheme | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const rawVars = record.variables && typeof record.variables === "object" && !Array.isArray(record.variables)
+    ? record.variables as Record<string, unknown>
+    : {};
+  const variables: Record<string, string> = {};
+  for (const key of DESKTOP_PET_THEME_VARIABLES) {
+    const next = stringValue(rawVars[key], 240);
+    if (next) variables[key] = next;
+  }
+  if (!Object.keys(variables).length) return undefined;
+  return {
+    mode: record.mode === "light" ? "light" : "dark",
+    variables
+  };
+}
+
+export function readDesktopPetThemeSnapshot(): DesktopPetTheme | undefined {
+  if (typeof window === "undefined" || typeof document === "undefined") return undefined;
+  const root = document.documentElement;
+  const styles = window.getComputedStyle(root);
+  const variables: Record<string, string> = {};
+  for (const key of DESKTOP_PET_THEME_VARIABLES) {
+    const value = styles.getPropertyValue(key).trim();
+    if (value) variables[key] = value;
+  }
+  if (!Object.keys(variables).length) return undefined;
+  return {
+    mode: root.classList.contains("theme-light") ? "light" : "dark",
+    variables
+  };
 }
 
 export function normalizeDesktopPetList(value: unknown, fallback: string[]): string[] {
@@ -206,15 +267,18 @@ export function readStoredDesktopPetConfig(): DesktopPetConfig {
       spriteSheetUrl,
       scale: clampScale(parsed.scale),
       voice: normalizeDesktopPetVoice(parsed.voice),
+      ttsEnabled: parsed.ttsEnabled === true,
       autonomyEnabled: parsed.autonomyEnabled === true,
       actions: normalizeDesktopPetPresets(parsed.actions, DEFAULT_DESKTOP_PET_CONFIG.actions),
       emotions: normalizeDesktopPetPresets(parsed.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
       assistantInstructions: stringValue(parsed.assistantInstructions, 3000) || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions,
+      persistentMemory: stringValue(parsed.persistentMemory, 6000),
       description: stringValue(parsed.description, 2000),
       personality: stringValue(parsed.personality, 4000),
       scenario: stringValue(parsed.scenario, 4000),
       greeting: stringValue(parsed.greeting, 1000),
-      systemPrompt: stringValue(parsed.systemPrompt, 4000)
+      systemPrompt: stringValue(parsed.systemPrompt, 4000),
+      theme: normalizeDesktopPetTheme(parsed.theme) || readDesktopPetThemeSnapshot()
     };
   } catch {
     return { ...DEFAULT_DESKTOP_PET_CONFIG };
@@ -226,12 +290,15 @@ export function storeDesktopPetConfig(config: DesktopPetConfig, notify = true) {
     ...config,
     scale: clampScale(config.scale),
     voice: normalizeDesktopPetVoice(config.voice),
+    ttsEnabled: config.ttsEnabled === true,
     autonomyEnabled: config.autonomyEnabled === true,
     spriteUrl: resolveDesktopPetAssetUrl(stringValue(config.spriteUrl, 4000)),
     spriteSheetUrl: resolveDesktopPetAssetUrl(stringValue(config.spriteSheetUrl, 4000)),
     actions: normalizeDesktopPetPresets(config.actions, DEFAULT_DESKTOP_PET_CONFIG.actions),
     emotions: normalizeDesktopPetPresets(config.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
-    assistantInstructions: stringValue(config.assistantInstructions, 3000) || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions
+    assistantInstructions: stringValue(config.assistantInstructions, 3000) || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions,
+    persistentMemory: stringValue(config.persistentMemory, 6000),
+    theme: readDesktopPetThemeSnapshot() || normalizeDesktopPetTheme(config.theme)
   };
   localStorage.setItem(DESKTOP_PET_STORAGE_KEY, JSON.stringify(normalized));
   if (notify) {
@@ -251,10 +318,12 @@ export function getDesktopPetExtension(character: Pick<CharacterDetail, "extensi
     spriteSheetUrl: stringValue(raw.spriteSheetUrl, 4000),
     scale: raw.scale === undefined ? undefined : clampScale(raw.scale),
     voice: raw.voice === undefined ? undefined : normalizeDesktopPetVoice(raw.voice),
+    ttsEnabled: raw.ttsEnabled === undefined ? undefined : raw.ttsEnabled === true,
     autonomyEnabled: raw.autonomyEnabled === undefined ? undefined : raw.autonomyEnabled === true,
     actions: raw.actions,
     emotions: raw.emotions,
-    assistantInstructions: stringValue(raw.assistantInstructions, 3000)
+    assistantInstructions: stringValue(raw.assistantInstructions, 3000),
+    persistentMemory: stringValue(raw.persistentMemory, 6000)
   };
 }
 
@@ -268,15 +337,18 @@ export function buildDesktopPetConfigFromCharacter(character: CharacterDetail, f
     spriteSheetUrl: resolveDesktopPetAssetUrl(pet.spriteSheetUrl || fallbackForCharacter?.spriteSheetUrl || ""),
     scale: clampScale(pet.scale ?? fallbackForCharacter?.scale),
     voice: normalizeDesktopPetVoice(pet.voice ?? fallbackForCharacter?.voice),
+    ttsEnabled: pet.ttsEnabled ?? fallbackForCharacter?.ttsEnabled ?? DEFAULT_DESKTOP_PET_CONFIG.ttsEnabled,
     autonomyEnabled: pet.autonomyEnabled ?? fallbackForCharacter?.autonomyEnabled ?? DEFAULT_DESKTOP_PET_CONFIG.autonomyEnabled,
     actions: normalizeDesktopPetPresets(pet.actions ?? fallbackForCharacter?.actions, DEFAULT_DESKTOP_PET_CONFIG.actions),
     emotions: normalizeDesktopPetPresets(pet.emotions ?? fallbackForCharacter?.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
     assistantInstructions: stringValue(pet.assistantInstructions, 3000) || fallbackForCharacter?.assistantInstructions || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions,
+    persistentMemory: stringValue(pet.persistentMemory, 6000) || fallbackForCharacter?.persistentMemory || "",
     description: stringValue(character.description, 2000),
     personality: stringValue(character.personality, 4000),
     scenario: stringValue(character.scenario, 4000),
     greeting: stringValue(character.greeting, 1000),
-    systemPrompt: stringValue(character.systemPrompt, 4000)
+    systemPrompt: stringValue(character.systemPrompt, 4000),
+    theme: readDesktopPetThemeSnapshot() || fallbackForCharacter?.theme
   };
 }
 
@@ -292,10 +364,12 @@ export function mergeDesktopPetExtension(
       spriteSheetUrl: stringValue(pet.spriteSheetUrl, 4000),
       scale: clampScale(pet.scale),
       voice: normalizeDesktopPetVoice(pet.voice),
+      ttsEnabled: pet.ttsEnabled === true,
       autonomyEnabled: pet.autonomyEnabled === true,
       actions: normalizeDesktopPetPresets(pet.actions, DEFAULT_DESKTOP_PET_CONFIG.actions),
       emotions: normalizeDesktopPetPresets(pet.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
-      assistantInstructions: stringValue(pet.assistantInstructions, 3000) || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions
+      assistantInstructions: stringValue(pet.assistantInstructions, 3000) || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions,
+      persistentMemory: stringValue(pet.persistentMemory, 6000)
     }
   };
 }

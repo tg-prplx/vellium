@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState } from "../src/shared/types/contracts";
 
 contextBridge.exposeInMainWorld("electronAPI", {
@@ -18,7 +18,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
   moveDesktopPetDrag: (point: { screenX: number; screenY: number }) => ipcRenderer.invoke("desktop-pet:drag-move", point) as Promise<{ ok: boolean; placement?: "above" | "below" }>,
   resizeDesktopPetUi: (expanded: boolean) => ipcRenderer.invoke("desktop-pet:ui-expanded", expanded) as Promise<{ ok: boolean; placement?: "above" | "below" }>,
   autonomyDesktopPetStep: (delta: { dx: number; dy: number }) => ipcRenderer.invoke("desktop-pet:autonomy-step", delta) as Promise<{ ok: boolean; placement?: "above" | "below" }>,
-  sendDesktopPetMessage: (message: string) => ipcRenderer.invoke("desktop-pet:message", message) as Promise<{ ok: boolean; reply: string; chatId?: string }>,
+  listDesktopPetChats: () => ipcRenderer.invoke("desktop-pet:chats") as Promise<{ ok: boolean; activeChatId: string; persistentMemory: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>,
+  createDesktopPetChat: (title?: string) => ipcRenderer.invoke("desktop-pet:new-chat", title) as Promise<{ ok: boolean; activeChatId: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>,
+  selectDesktopPetChat: (chatId: string) => ipcRenderer.invoke("desktop-pet:select-chat", chatId) as Promise<{ ok: boolean; activeChatId: string; chats: Array<{ id: string; title: string; updatedAt: number; count: number }> }>,
+  sendDesktopPetMessage: (message: string, screenContext?: { dataUrl: string; width?: number; height?: number }) =>
+    ipcRenderer.invoke("desktop-pet:message", message, screenContext) as Promise<{ ok: boolean; reply: string; chatId?: string }>,
+  captureDesktopPetScreenContext: () =>
+    ipcRenderer.invoke("desktop-pet:screen-context") as Promise<{ ok: boolean; dataUrl?: string; width?: number; height?: number; error?: string }>,
+  speakDesktopPetText: (text: string) => ipcRenderer.invoke("desktop-pet:tts", text) as Promise<{ ok: boolean; contentType?: string; base64?: string; error?: string }>,
+  onDesktopPetPeerNear: (callback: (payload: { name?: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload: { name?: string }) => callback(payload);
+    ipcRenderer.on("desktop-pet:peer-near", listener);
+    return () => ipcRenderer.removeListener("desktop-pet:peer-near", listener);
+  },
   listManagedBackends: () => ipcRenderer.invoke("managed-backends:list") as Promise<ManagedBackendRuntimeState[]>,
   startManagedBackend: (config: ManagedBackendConfig) => ipcRenderer.invoke("managed-backends:start", config) as Promise<ManagedBackendRuntimeState>,
   stopManagedBackend: (backendId: string) => ipcRenderer.invoke("managed-backends:stop", backendId) as Promise<ManagedBackendRuntimeState | null>,

@@ -179,25 +179,65 @@ function AppContent({
     </div>
   );
 
+  const tabGroups = useMemo(() => {
+    const byId = new Map(tabs.map((tab) => [tab.id, tab]));
+    const pick = (ids: string[]) => ids.flatMap((id) => {
+      const tab = byId.get(id);
+      return tab ? [tab] : [];
+    });
+    return [
+      { id: "work", label: t("tab.groupWork"), tabs: pick(["agents", "chat", "writing"]) },
+      { id: "characters", label: t("tab.groupCharacters"), tabs: pick(["characters", "pets"]) },
+      { id: "knowledge", label: t("tab.groupKnowledge"), tabs: pick(["knowledge", "lorebooks"]) },
+      { id: "settings", label: t("tab.settings"), tabs: pick(["settings"]) },
+      { id: "plugins", label: t("tab.groupPlugins"), tabs: tabs.filter((tab) => tab.kind === "plugin") }
+    ].filter((group) => group.tabs.length > 0);
+  }, [tabs]);
+
   const tabsNode = (
     <nav
       className="app-nav my-1.5 flex items-center gap-1 rounded-lg border border-border-subtle bg-bg-secondary p-1"
       style={noDrag}
     >
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          onClick={() => setActiveTab(tab.id)}
-          className={`app-tab-button flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-            activeTab === tab.id
-              ? "is-active bg-bg-hover text-text-primary"
-              : "text-text-tertiary hover:text-text-secondary"
-          }`}
-        >
-          <TabIcon path={tab.icon} />
-          {tab.label}
-        </button>
-      ))}
+      {tabGroups.map((group) => {
+        const activeGroupTab = group.tabs.find((tab) => tab.id === activeTab);
+        const triggerTab = activeGroupTab || group.tabs[0];
+        const isGroupActive = Boolean(activeGroupTab);
+        return (
+          <div key={group.id} className={`app-nav-group ${isGroupActive ? "is-active" : ""}`}>
+            <button
+              type="button"
+              onClick={() => setActiveTab(triggerTab.id)}
+              className={`app-tab-button app-nav-trigger flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                isGroupActive
+                  ? "is-active bg-bg-hover text-text-primary"
+                  : "text-text-tertiary hover:text-text-secondary"
+              }`}
+            >
+              <TabIcon path={triggerTab.icon} />
+              <span>{group.label}</span>
+              {activeGroupTab ? <span className="app-nav-current">{activeGroupTab.label}</span> : null}
+              {group.tabs.length > 1 ? <span className="app-nav-chevron" aria-hidden="true">⌄</span> : null}
+            </button>
+            {group.tabs.length > 1 ? (
+              <div className="app-nav-menu" role="menu">
+                {group.tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`app-nav-menu-item ${activeTab === tab.id ? "is-active" : ""}`}
+                  >
+                    <TabIcon path={tab.icon} />
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </nav>
   );
 
@@ -227,7 +267,7 @@ function AppContent({
           </div>
         </TitleBar>
       ) : (
-        <header className="flex-shrink-0 border-b border-border">
+        <header className="relative z-[80] flex-shrink-0 overflow-visible border-b border-border">
           <div className="flex w-full items-center px-7 py-4">
             <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-3">
               <div className="justify-self-start">{brandNode}</div>

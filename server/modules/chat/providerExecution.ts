@@ -52,6 +52,7 @@ export interface CompleteProviderOnceParams {
   modelId: string;
   systemPrompt: string;
   userPrompt: string;
+  imageDataUrl?: string;
   samplerConfig?: Record<string, unknown>;
   apiParamPolicy?: unknown;
   signal?: AbortSignal;
@@ -386,7 +387,7 @@ export async function completeProviderOnce(params: CompleteProviderOnceParams): 
       apiParamPolicy: params.apiParamPolicy
     });
     const body = buildKoboldGenerateBody({
-      prompt: `${KOBOLD_TAGS.inputOpen}\n${params.userPrompt}\n${KOBOLD_TAGS.inputClose}\n\n${KOBOLD_TAGS.outputOpen}`,
+      prompt: `${KOBOLD_TAGS.inputOpen}\n${params.userPrompt}${params.imageDataUrl ? "\n\n[Screen context image attached; this provider may not support vision.]" : ""}\n${KOBOLD_TAGS.inputClose}\n\n${KOBOLD_TAGS.outputOpen}`,
       memory,
       samplerConfig: koboldSamplerConfig,
       includeMemory: koboldPolicy.memory
@@ -404,6 +405,18 @@ export async function completeProviderOnce(params: CompleteProviderOnceParams): 
       systemPrompt: params.systemPrompt,
       userPrompt: params.userPrompt,
       samplerConfig: sc,
+      messages: params.imageDataUrl
+        ? [
+          { role: "system", content: params.systemPrompt },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: params.userPrompt },
+              { type: "image_url", image_url: { url: params.imageDataUrl } }
+            ]
+          }
+        ]
+        : undefined,
       signal: params.signal
     });
   }
@@ -428,7 +441,15 @@ export async function completeProviderOnce(params: CompleteProviderOnceParams): 
       model: params.modelId,
       messages: [
         { role: "system", content: params.systemPrompt },
-        { role: "user", content: params.userPrompt }
+        params.imageDataUrl
+          ? {
+            role: "user",
+            content: [
+              { type: "text", text: params.userPrompt },
+              { type: "image_url", image_url: { url: params.imageDataUrl } }
+            ]
+          }
+          : { role: "user", content: params.userPrompt }
       ],
       ...openAiSampling
     }),

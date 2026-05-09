@@ -10,6 +10,7 @@ import {
   CODEX_PET_STATES,
   getDesktopPetExtension,
   mergeDesktopPetExtension,
+  readDesktopPetThemeSnapshot,
   normalizeDesktopPetCodexState,
   normalizeDesktopPetAnimation,
   readStoredDesktopPetConfig,
@@ -31,10 +32,12 @@ type PetDraft = {
   spriteSheetUrl: string;
   scale: number;
   voice: DesktopPetVoice;
+  ttsEnabled: boolean;
   autonomyEnabled: boolean;
   actions: DesktopPetStatePreset[];
   emotions: DesktopPetStatePreset[];
   assistantInstructions: string;
+  persistentMemory: string;
 };
 
 type PresetUploadTarget = {
@@ -156,10 +159,12 @@ function createBlankPetCard(name: string) {
           spriteSheetUrl: "",
           scale: 1,
           voice: "soft",
+          ttsEnabled: false,
           autonomyEnabled: false,
           actions: FALLBACK_ACTIONS.map(codexPreset),
           emotions: FALLBACK_EMOTIONS.map(codexPreset),
-          assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help."
+          assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help.",
+          persistentMemory: ""
         }
       }
     }
@@ -193,10 +198,12 @@ function createCodexPetCard(manifest: CodexPetManifest, spriteSheetUrl: string) 
           spriteSheetUrl,
           scale: 1,
           voice: "soft",
+          ttsEnabled: false,
           autonomyEnabled: false,
           actions: FALLBACK_ACTIONS.map(codexPreset),
           emotions: FALLBACK_EMOTIONS.map(codexPreset),
-          assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help."
+          assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help.",
+          persistentMemory: ""
         }
       }
     }
@@ -216,10 +223,12 @@ function draftFromCharacter(character: CharacterDetail, fallback?: DesktopPetCon
     spriteSheetUrl: config.spriteSheetUrl,
     scale: config.scale,
     voice: config.voice,
+    ttsEnabled: config.ttsEnabled,
     autonomyEnabled: config.autonomyEnabled,
     actions: config.actions,
     emotions: config.emotions,
-    assistantInstructions: config.assistantInstructions
+    assistantInstructions: config.assistantInstructions,
+    persistentMemory: config.persistentMemory
   };
 }
 
@@ -254,10 +263,13 @@ function petConfigFromDraft(character: CharacterDetail, draft: PetDraft): Deskto
     spriteSheetUrl: draft.spriteSheetUrl,
     scale: draft.scale,
     voice: draft.voice,
+    ttsEnabled: draft.ttsEnabled,
     autonomyEnabled: draft.autonomyEnabled,
     actions: normalizePresetDraft(draft.actions, FALLBACK_ACTIONS),
     emotions: normalizePresetDraft(draft.emotions, FALLBACK_EMOTIONS),
     assistantInstructions: draft.assistantInstructions,
+    persistentMemory: draft.persistentMemory,
+    theme: readDesktopPetThemeSnapshot(),
     description: draft.description,
     personality: draft.personality,
     scenario: draft.scenario,
@@ -508,10 +520,12 @@ export function PetsScreen() {
           spriteSheetUrl: draft.spriteSheetUrl,
           scale: draft.scale,
           voice: draft.voice,
+          ttsEnabled: draft.ttsEnabled,
           autonomyEnabled: draft.autonomyEnabled,
           actions: normalizePresetDraft(draft.actions, FALLBACK_ACTIONS),
           emotions: normalizePresetDraft(draft.emotions, FALLBACK_EMOTIONS),
-          assistantInstructions: draft.assistantInstructions
+          assistantInstructions: draft.assistantInstructions,
+          persistentMemory: draft.persistentMemory
         })
       });
       setCharacters((prev) => prev.map((character) => character.id === updated.id ? updated : character));
@@ -818,6 +832,15 @@ export function PetsScreen() {
               onChange={(event) => setDraft({ ...draft, assistantInstructions: event.target.value })}
             />
           </label>
+          <label className="pets-field">
+            <span>{t("pets.persistentMemory")}</span>
+            <textarea
+              rows={8}
+              value={draft.persistentMemory}
+              placeholder={t("pets.persistentMemoryPlaceholder")}
+              onChange={(event) => setDraft({ ...draft, persistentMemory: event.target.value.slice(0, 6000) })}
+            />
+          </label>
           <label className="pets-toggle-row">
             <input
               type="checkbox"
@@ -827,6 +850,17 @@ export function PetsScreen() {
             <span>
               <strong>{t("pets.autonomy")}</strong>
               <small>{t("pets.autonomyDesc")}</small>
+            </span>
+          </label>
+          <label className="pets-toggle-row">
+            <input
+              type="checkbox"
+              checked={draft.ttsEnabled}
+              onChange={(event) => setDraft({ ...draft, ttsEnabled: event.target.checked })}
+            />
+            <span>
+              <strong>{t("pets.tts")}</strong>
+              <small>{t("pets.ttsDesc")}</small>
             </span>
           </label>
           <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs leading-5 text-text-tertiary">

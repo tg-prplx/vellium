@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../../shared/i18n";
 import {
+  readDesktopPetThemeSnapshot,
   readStoredDesktopPetConfig,
   storeDesktopPetConfig,
   type DesktopPetConfig,
@@ -59,16 +60,17 @@ export function DesktopPetControl() {
       setOpen(true);
       return;
     }
-    const result = await window.electronAPI!.toggleDesktopPet(config);
+    const result = await window.electronAPI!.toggleDesktopPet({ ...config, theme: readDesktopPetThemeSnapshot() });
     setVisible(result.visible);
   }
 
   async function applyConfig(next = config) {
-    storeDesktopPetConfig(next);
+    const themedNext = { ...next, theme: readDesktopPetThemeSnapshot() };
+    storeDesktopPetConfig(themedNext);
     if (!isElectron) return;
     const result = visible
-      ? await window.electronAPI!.showDesktopPet(next)
-      : await window.electronAPI!.configureDesktopPet(next);
+      ? await window.electronAPI!.showDesktopPet(themedNext)
+      : await window.electronAPI!.configureDesktopPet(themedNext);
     setVisible(result.visible);
   }
 
