@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { existsSync, realpathSync } from "fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve } from "path";
 
@@ -439,14 +440,42 @@ function formatWorkspacePath(rootDir: string, absolutePath: string) {
   return relativePath || ".";
 }
 
+function isPathInside(rootDir: string, candidatePath: string) {
+  const rel = relative(rootDir, candidatePath);
+  return rel === "" || (!rel.startsWith("..") && rel !== ".." && !isAbsolute(rel));
+}
+
+function realpathOrResolved(targetPath: string) {
+  try {
+    return realpathSync.native(targetPath);
+  } catch {
+    return resolve(targetPath);
+  }
+}
+
+function nearestExistingPath(targetPath: string) {
+  let current = resolve(targetPath);
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) return current;
+    current = parent;
+  }
+  return current;
+}
+
 function ensureInsideWorkspace(rootDir: string, targetPath: string) {
   const normalizedRoot = resolve(rootDir);
   const candidate = resolve(isAbsolute(targetPath) ? targetPath : resolve(normalizedRoot, targetPath));
-  const rel = relative(normalizedRoot, candidate);
-  if (rel === "" || (!rel.startsWith("..") && rel !== ".." && !isAbsolute(rel))) {
-    return candidate;
+  if (!isPathInside(normalizedRoot, candidate)) {
+    throw new Error("Path escapes the workspace root");
   }
-  throw new Error("Path escapes the workspace root");
+
+  const realRoot = realpathOrResolved(normalizedRoot);
+  const realExisting = realpathOrResolved(nearestExistingPath(candidate));
+  if (!isPathInside(realRoot, realExisting)) {
+    throw new Error("Path escapes the workspace root");
+  }
+  return candidate;
 }
 
 async function assertTextFile(filePath: string) {

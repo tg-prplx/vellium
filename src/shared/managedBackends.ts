@@ -1,5 +1,7 @@
 import type { ManagedBackendConfig, ManagedBackendKoboldOptions, ManagedBackendOllamaOptions, ManagedBackendStatusMode } from "./types/contracts";
 
+declare const process: { env?: { HOME?: string } } | undefined;
+
 function expandUserPath(value: string): string {
   const raw = String(value || "").trim().replace(/^(['"])(.*)\1$/, "$2");
   if (!raw) return "";
