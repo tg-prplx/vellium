@@ -2,7 +2,16 @@ import { Router } from "express";
 import type { Response } from "express";
 import { readdirSync, statSync } from "fs";
 import { isAbsolute, relative, resolve } from "path";
-import { activeAgentAbortControllers, classifyAgentFollowupIntent, enqueueAgentSteeringNote, isPotentialAgentFollowupCueText, streamAgentTurn } from "../modules/agents/runtime.js";
+import {
+  activeAgentAbortControllers,
+  clearAgentDangerousActionState,
+  classifyAgentFollowupIntent,
+  enqueueAgentSteeringNote,
+  getPendingAgentConfirmation,
+  isPotentialAgentFollowupCueText,
+  resolvePendingAgentConfirmation,
+  streamAgentTurn
+} from "../modules/agents/runtime.js";
 import { sanitizeAttachments } from "../modules/chat/attachments.js";
 import { getSettings } from "../modules/chat/routeHelpers.js";
 import {
@@ -282,6 +291,55 @@ router.get("/threads/:id/state", (req, res) => {
   res.json(state);
 });
 
+router.get("/threads/:id/pending-confirmation", (req, res) => {
+  const state = getAgentThreadState(req.params.id);
+  if (!state) {
+    res.status(404).json({ error: "Agent thread not found" });
+    return;
+  }
+  res.json({
+    pending: getPendingAgentConfirmation(req.params.id)
+  });
+});
+
+router.post("/threads/:id/confirm-action", (req, res) => {
+  const state = getAgentThreadState(req.params.id);
+  if (!state) {
+    res.status(404).json({ error: "Agent thread not found" });
+    return;
+  }
+  const confirmationId = sanitizeText(req.body?.confirmationId, 120);
+  const action = sanitizeText(req.body?.action, 20);
+  if (!confirmationId) {
+    res.status(400).json({ error: "confirmationId is required" });
+    return;
+  }
+  if (action !== "approve" && action !== "deny") {
+    res.status(400).json({ error: "action must be approve or deny" });
+    return;
+  }
+  if (activeAgentAbortControllers.has(req.params.id)) {
+    res.status(409).json({ error: "Cannot resolve confirmation while the agent thread is running" });
+    return;
+  }
+  const result = resolvePendingAgentConfirmation({
+    threadId: req.params.id,
+    confirmationId,
+    action: action as "approve" | "deny"
+  });
+  if (!result.ok) {
+    res.status(409).json({ error: result.error });
+    return;
+  }
+  res.json({
+    ok: true,
+    action: result.action,
+    resolved: result.pending,
+    pending: getPendingAgentConfirmation(req.params.id),
+    state: getAgentThreadState(req.params.id)
+  });
+});
+
 router.patch("/threads/:id", (req, res) => {
   if (req.body && "workspaceRoot" in req.body) {
     const workspaceRoot = resolveWorkspaceRootInput(req.body.workspaceRoot);
@@ -305,6 +363,7 @@ router.delete("/threads/:id", (req, res) => {
     return;
   }
   deleteAgentThread(req.params.id);
+  clearAgentDangerousActionState(req.params.id);
   res.json({ ok: true });
 });
 

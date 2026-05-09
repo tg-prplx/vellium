@@ -1,4 +1,13 @@
-import type { AgentEvent, AgentMessage, AgentSkill, AgentThread, AgentThreadState, AgentWorkspaceDirectoryState, FileAttachment } from "../types/contracts";
+import type {
+  AgentEvent,
+  AgentMessage,
+  AgentPendingConfirmation,
+  AgentSkill,
+  AgentThread,
+  AgentThreadState,
+  AgentWorkspaceDirectoryState,
+  FileAttachment
+} from "../types/contracts";
 import { del, get, patchReq, post, streamPost, type StreamCallbacks } from "./core";
 
 const THREAD_STATE_TIMEOUT_MS = 15_000;
@@ -39,6 +48,17 @@ export const agentClient = {
     patchReq<AgentSkill>(`/agents/threads/${threadId}/skills/${skillId}`, payload),
   agentSkillDelete: (threadId: string, skillId: string) => del<{ ok: boolean }>(`/agents/threads/${threadId}/skills/${skillId}`),
   agentAbort: (threadId: string) => post<{ ok: boolean; interrupted: boolean }>(`/agents/threads/${threadId}/abort`),
+  agentPendingConfirmation: (threadId: string) => get<{ pending: AgentPendingConfirmation | null }>(`/agents/threads/${threadId}/pending-confirmation`),
+  agentConfirmAction: (
+    threadId: string,
+    payload: { confirmationId: string; action: "approve" | "deny" }
+  ) => post<{
+    ok: boolean;
+    action: "approved" | "denied";
+    resolved: AgentPendingConfirmation;
+    pending: AgentPendingConfirmation | null;
+    state: AgentThreadState;
+  }>(`/agents/threads/${threadId}/confirm-action`, payload),
   agentSteer: (threadId: string, content: string, attachments?: FileAttachment[]) =>
     post<{ ok: boolean; state: AgentThreadState }>(`/agents/threads/${threadId}/steer`, { content, attachments }),
   agentRetryRun: async (
