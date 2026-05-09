@@ -3,11 +3,13 @@ import { resolveApiAssetUrl } from "../../shared/api";
 
 export type DesktopPetVoice = "soft" | "playful" | "quiet";
 export type DesktopPetAnimation = "none" | "idle" | "hop" | "pop" | "sway" | "spin" | "shake" | "bounce";
+export type DesktopPetCodexState = "idle" | "running-right" | "running-left" | "waving" | "jumping" | "failed" | "waiting" | "running" | "review";
 
 export type DesktopPetStatePreset = {
   id: string;
   label: string;
   animation: DesktopPetAnimation;
+  codexState: DesktopPetCodexState;
   assetUrl: string;
   soundUrl: string;
 };
@@ -16,6 +18,7 @@ export type DesktopPetConfig = {
   characterId?: string;
   name: string;
   spriteUrl: string;
+  spriteSheetUrl: string;
   scale: number;
   voice: DesktopPetVoice;
   autonomyEnabled: boolean;
@@ -31,6 +34,7 @@ export type DesktopPetConfig = {
 
 export type DesktopPetExtension = {
   spriteUrl?: string;
+  spriteSheetUrl?: string;
   scale?: number;
   voice?: DesktopPetVoice;
   autonomyEnabled?: boolean;
@@ -41,27 +45,39 @@ export type DesktopPetExtension = {
 
 export const DESKTOP_PET_STORAGE_KEY = "vellium.desktopPet.config";
 export const DESKTOP_PET_EXTENSION_KEY = "velliumPet";
+export const CODEX_PET_STATES: DesktopPetCodexState[] = [
+  "idle",
+  "running-right",
+  "running-left",
+  "waving",
+  "jumping",
+  "failed",
+  "waiting",
+  "running",
+  "review"
+];
 
 export const DEFAULT_DESKTOP_PET_CONFIG: DesktopPetConfig = {
   name: "Velli",
   spriteUrl: "",
+  spriteSheetUrl: "",
   scale: 1,
   voice: "soft",
   autonomyEnabled: false,
   actions: [
-    { id: "idle", label: "Idle", animation: "idle", assetUrl: "", soundUrl: "" },
-    { id: "happy", label: "Happy", animation: "hop", assetUrl: "", soundUrl: "" },
-    { id: "alert", label: "Alert", animation: "pop", assetUrl: "", soundUrl: "" },
-    { id: "sleepy", label: "Sleepy", animation: "sway", assetUrl: "", soundUrl: "" },
-    { id: "spin", label: "Spin", animation: "spin", assetUrl: "", soundUrl: "" },
-    { id: "shake", label: "Shake", animation: "shake", assetUrl: "", soundUrl: "" }
+    { id: "idle", label: "Idle", animation: "idle", codexState: "idle", assetUrl: "", soundUrl: "" },
+    { id: "happy", label: "Happy", animation: "hop", codexState: "jumping", assetUrl: "", soundUrl: "" },
+    { id: "alert", label: "Alert", animation: "pop", codexState: "review", assetUrl: "", soundUrl: "" },
+    { id: "sleepy", label: "Sleepy", animation: "sway", codexState: "failed", assetUrl: "", soundUrl: "" },
+    { id: "spin", label: "Spin", animation: "spin", codexState: "idle", assetUrl: "", soundUrl: "" },
+    { id: "shake", label: "Shake", animation: "shake", codexState: "failed", assetUrl: "", soundUrl: "" }
   ],
   emotions: [
-    { id: "calm", label: "Calm", animation: "idle", assetUrl: "", soundUrl: "" },
-    { id: "happy", label: "Happy", animation: "hop", assetUrl: "", soundUrl: "" },
-    { id: "curious", label: "Curious", animation: "pop", assetUrl: "", soundUrl: "" },
-    { id: "sleepy", label: "Sleepy", animation: "sway", assetUrl: "", soundUrl: "" },
-    { id: "excited", label: "Excited", animation: "bounce", assetUrl: "", soundUrl: "" }
+    { id: "calm", label: "Calm", animation: "idle", codexState: "idle", assetUrl: "", soundUrl: "" },
+    { id: "happy", label: "Happy", animation: "hop", codexState: "waving", assetUrl: "", soundUrl: "" },
+    { id: "curious", label: "Curious", animation: "pop", codexState: "review", assetUrl: "", soundUrl: "" },
+    { id: "sleepy", label: "Sleepy", animation: "sway", codexState: "failed", assetUrl: "", soundUrl: "" },
+    { id: "excited", label: "Excited", animation: "bounce", codexState: "jumping", assetUrl: "", soundUrl: "" }
   ],
   assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help."
 };
@@ -79,6 +95,10 @@ export function normalizeDesktopPetAnimation(value: unknown): DesktopPetAnimatio
   return value === "none" || value === "hop" || value === "pop" || value === "sway" || value === "spin" || value === "shake" || value === "bounce" || value === "idle"
     ? value
     : "idle";
+}
+
+export function normalizeDesktopPetCodexState(value: unknown, fallback?: DesktopPetCodexState): DesktopPetCodexState {
+  return CODEX_PET_STATES.includes(value as DesktopPetCodexState) ? value as DesktopPetCodexState : fallback || "idle";
 }
 
 function stringValue(value: unknown, maxLength: number): string {
@@ -108,6 +128,21 @@ function defaultAnimationForId(id: string): DesktopPetAnimation {
   return "idle";
 }
 
+function defaultCodexStateForId(id: string, animation?: DesktopPetAnimation): DesktopPetCodexState {
+  if (/running-right|right/.test(id)) return "running-right";
+  if (/running-left|left/.test(id)) return "running-left";
+  if (/running|working|progress|busy|task/.test(id)) return "running";
+  if (/review|alert|curious|think|focus|inspect/.test(id)) return "review";
+  if (/wait|waiting|idle2|patient/.test(id)) return "waiting";
+  if (/sleep|sad|failed|fail|tired|shake|angry/.test(id)) return "failed";
+  if (/jump|excited|bounce/.test(id)) return "jumping";
+  if (/happy|joy|play|wave|hello|hi/.test(id)) return animation === "bounce" ? "jumping" : "waving";
+  if (animation === "hop" || animation === "bounce") return "jumping";
+  if (animation === "pop") return "review";
+  if (animation === "sway") return "waiting";
+  return normalizeDesktopPetCodexState(id, "idle");
+}
+
 function normalizePresetId(value: unknown): string {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 32);
 }
@@ -121,16 +156,19 @@ export function normalizeDesktopPetPresets(value: unknown, fallback: DesktopPetS
   const presets = raw.flatMap((item): DesktopPetStatePreset[] => {
     if (typeof item === "string") {
       const id = normalizePresetId(item);
-      return id ? [{ id, label: id, animation: defaultAnimationForId(id), assetUrl: "", soundUrl: "" }] : [];
+      const animation = defaultAnimationForId(id);
+      return id ? [{ id, label: id, animation, codexState: defaultCodexStateForId(id, animation), assetUrl: "", soundUrl: "" }] : [];
     }
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const record = item as Record<string, unknown>;
     const id = normalizePresetId(record.id);
     if (!id) return [];
+    const animation = normalizeDesktopPetAnimation(record.animation);
     return [{
       id,
       label: stringValue(record.label, 48) || id,
-      animation: normalizeDesktopPetAnimation(record.animation),
+      animation,
+      codexState: normalizeDesktopPetCodexState(record.codexState, defaultCodexStateForId(id, animation)),
       assetUrl: resolveDesktopPetAssetUrl(stringValue(record.assetUrl, 4000)),
       soundUrl: resolveDesktopPetAssetUrl(stringValue(record.soundUrl, 4000))
     }];
@@ -159,10 +197,13 @@ function resolveDesktopPetAssetUrl(url: string | null | undefined): string {
 export function readStoredDesktopPetConfig(): DesktopPetConfig {
   try {
     const parsed = JSON.parse(localStorage.getItem(DESKTOP_PET_STORAGE_KEY) || "{}") as Partial<DesktopPetConfig>;
+    const spriteUrl = stringValue(parsed.spriteUrl, 4000);
+    const spriteSheetUrl = stringValue(parsed.spriteSheetUrl, 4000);
     return {
       characterId: stringValue(parsed.characterId, 120) || undefined,
       name: stringValue(parsed.name, 32) || DEFAULT_DESKTOP_PET_CONFIG.name,
-      spriteUrl: stringValue(parsed.spriteUrl, 4000),
+      spriteUrl,
+      spriteSheetUrl,
       scale: clampScale(parsed.scale),
       voice: normalizeDesktopPetVoice(parsed.voice),
       autonomyEnabled: parsed.autonomyEnabled === true,
@@ -186,6 +227,8 @@ export function storeDesktopPetConfig(config: DesktopPetConfig, notify = true) {
     scale: clampScale(config.scale),
     voice: normalizeDesktopPetVoice(config.voice),
     autonomyEnabled: config.autonomyEnabled === true,
+    spriteUrl: resolveDesktopPetAssetUrl(stringValue(config.spriteUrl, 4000)),
+    spriteSheetUrl: resolveDesktopPetAssetUrl(stringValue(config.spriteSheetUrl, 4000)),
     actions: normalizeDesktopPetPresets(config.actions, DEFAULT_DESKTOP_PET_CONFIG.actions),
     emotions: normalizeDesktopPetPresets(config.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
     assistantInstructions: stringValue(config.assistantInstructions, 3000) || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions
@@ -205,6 +248,7 @@ export function getDesktopPetExtension(character: Pick<CharacterDetail, "extensi
   const raw = toRecord(extensions[DESKTOP_PET_EXTENSION_KEY]);
   return {
     spriteUrl: stringValue(raw.spriteUrl, 4000),
+    spriteSheetUrl: stringValue(raw.spriteSheetUrl, 4000),
     scale: raw.scale === undefined ? undefined : clampScale(raw.scale),
     voice: raw.voice === undefined ? undefined : normalizeDesktopPetVoice(raw.voice),
     autonomyEnabled: raw.autonomyEnabled === undefined ? undefined : raw.autonomyEnabled === true,
@@ -216,16 +260,18 @@ export function getDesktopPetExtension(character: Pick<CharacterDetail, "extensi
 
 export function buildDesktopPetConfigFromCharacter(character: CharacterDetail, fallback?: DesktopPetConfig): DesktopPetConfig {
   const pet = getDesktopPetExtension(character);
+  const fallbackForCharacter = fallback?.characterId === character.id ? fallback : undefined;
   return {
     characterId: character.id,
     name: stringValue(character.name, 32) || DEFAULT_DESKTOP_PET_CONFIG.name,
-    spriteUrl: resolveDesktopPetAssetUrl(pet.spriteUrl || fallback?.spriteUrl || character.avatarUrl),
-    scale: clampScale(pet.scale ?? fallback?.scale),
-    voice: normalizeDesktopPetVoice(pet.voice ?? fallback?.voice),
-    autonomyEnabled: pet.autonomyEnabled ?? fallback?.autonomyEnabled ?? DEFAULT_DESKTOP_PET_CONFIG.autonomyEnabled,
-    actions: normalizeDesktopPetPresets(pet.actions ?? fallback?.actions, DEFAULT_DESKTOP_PET_CONFIG.actions),
-    emotions: normalizeDesktopPetPresets(pet.emotions ?? fallback?.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
-    assistantInstructions: stringValue(pet.assistantInstructions, 3000) || fallback?.assistantInstructions || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions,
+    spriteUrl: resolveDesktopPetAssetUrl(pet.spriteUrl || fallbackForCharacter?.spriteUrl || character.avatarUrl),
+    spriteSheetUrl: resolveDesktopPetAssetUrl(pet.spriteSheetUrl || fallbackForCharacter?.spriteSheetUrl || ""),
+    scale: clampScale(pet.scale ?? fallbackForCharacter?.scale),
+    voice: normalizeDesktopPetVoice(pet.voice ?? fallbackForCharacter?.voice),
+    autonomyEnabled: pet.autonomyEnabled ?? fallbackForCharacter?.autonomyEnabled ?? DEFAULT_DESKTOP_PET_CONFIG.autonomyEnabled,
+    actions: normalizeDesktopPetPresets(pet.actions ?? fallbackForCharacter?.actions, DEFAULT_DESKTOP_PET_CONFIG.actions),
+    emotions: normalizeDesktopPetPresets(pet.emotions ?? fallbackForCharacter?.emotions, DEFAULT_DESKTOP_PET_CONFIG.emotions),
+    assistantInstructions: stringValue(pet.assistantInstructions, 3000) || fallbackForCharacter?.assistantInstructions || DEFAULT_DESKTOP_PET_CONFIG.assistantInstructions,
     description: stringValue(character.description, 2000),
     personality: stringValue(character.personality, 4000),
     scenario: stringValue(character.scenario, 4000),
@@ -243,6 +289,7 @@ export function mergeDesktopPetExtension(
     [DESKTOP_PET_EXTENSION_KEY]: {
       ...toRecord(extensions[DESKTOP_PET_EXTENSION_KEY]),
       spriteUrl: stringValue(pet.spriteUrl, 4000),
+      spriteSheetUrl: stringValue(pet.spriteSheetUrl, 4000),
       scale: clampScale(pet.scale),
       voice: normalizeDesktopPetVoice(pet.voice),
       autonomyEnabled: pet.autonomyEnabled === true,
