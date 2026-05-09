@@ -29,22 +29,23 @@ let desktopPetWindow: BrowserWindow | null = null;
 let desktopPetConfig: DesktopPetConfig = {
   name: "Velli",
   spriteUrl: "",
+  spriteSheetUrl: "",
   scale: 1,
   voice: "soft",
   actions: [
-    { id: "idle", label: "Idle", animation: "idle", assetUrl: "", soundUrl: "" },
-    { id: "happy", label: "Happy", animation: "hop", assetUrl: "", soundUrl: "" },
-    { id: "alert", label: "Alert", animation: "pop", assetUrl: "", soundUrl: "" },
-    { id: "sleepy", label: "Sleepy", animation: "sway", assetUrl: "", soundUrl: "" },
-    { id: "spin", label: "Spin", animation: "spin", assetUrl: "", soundUrl: "" },
-    { id: "shake", label: "Shake", animation: "shake", assetUrl: "", soundUrl: "" }
+    { id: "idle", label: "Idle", animation: "idle", codexState: "idle", assetUrl: "", soundUrl: "" },
+    { id: "happy", label: "Happy", animation: "hop", codexState: "jumping", assetUrl: "", soundUrl: "" },
+    { id: "alert", label: "Alert", animation: "pop", codexState: "review", assetUrl: "", soundUrl: "" },
+    { id: "sleepy", label: "Sleepy", animation: "sway", codexState: "failed", assetUrl: "", soundUrl: "" },
+    { id: "spin", label: "Spin", animation: "spin", codexState: "idle", assetUrl: "", soundUrl: "" },
+    { id: "shake", label: "Shake", animation: "shake", codexState: "failed", assetUrl: "", soundUrl: "" }
   ],
   emotions: [
-    { id: "calm", label: "Calm", animation: "idle", assetUrl: "", soundUrl: "" },
-    { id: "happy", label: "Happy", animation: "hop", assetUrl: "", soundUrl: "" },
-    { id: "curious", label: "Curious", animation: "pop", assetUrl: "", soundUrl: "" },
-    { id: "sleepy", label: "Sleepy", animation: "sway", assetUrl: "", soundUrl: "" },
-    { id: "excited", label: "Excited", animation: "bounce", assetUrl: "", soundUrl: "" }
+    { id: "calm", label: "Calm", animation: "idle", codexState: "idle", assetUrl: "", soundUrl: "" },
+    { id: "happy", label: "Happy", animation: "hop", codexState: "waving", assetUrl: "", soundUrl: "" },
+    { id: "curious", label: "Curious", animation: "pop", codexState: "review", assetUrl: "", soundUrl: "" },
+    { id: "sleepy", label: "Sleepy", animation: "sway", codexState: "failed", assetUrl: "", soundUrl: "" },
+    { id: "excited", label: "Excited", animation: "bounce", codexState: "jumping", assetUrl: "", soundUrl: "" }
   ],
   autonomyEnabled: false,
   assistantInstructions: "Act like a compact personal desktop assistant: be warm, practical, brief, and proactive when the user asks for help."
@@ -69,6 +70,7 @@ type DesktopPetConfig = {
   characterId?: string;
   name: string;
   spriteUrl: string;
+  spriteSheetUrl: string;
   scale: number;
   voice: "soft" | "playful" | "quiet";
   autonomyEnabled: boolean;
@@ -84,11 +86,13 @@ type DesktopPetConfig = {
 
 type DesktopPetAnimation = "none" | "idle" | "hop" | "pop" | "sway" | "spin" | "shake" | "bounce";
 type DesktopPetUiPlacement = "above" | "below";
+type DesktopPetCodexState = "idle" | "running-right" | "running-left" | "waving" | "jumping" | "failed" | "waiting" | "running" | "review";
 
 type DesktopPetStatePreset = {
   id: string;
   label: string;
   animation: DesktopPetAnimation;
+  codexState: DesktopPetCodexState;
   assetUrl: string;
   soundUrl: string;
 };
@@ -157,6 +161,10 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
     return rawUrl;
   };
   const spriteUrl = resolveRuntimeAssetUrl(row.spriteUrl || desktopPetConfig.spriteUrl || "");
+  const hasSpriteSheetUrl = Object.prototype.hasOwnProperty.call(row, "spriteSheetUrl");
+  const spriteSheetUrl = resolveRuntimeAssetUrl(
+    hasSpriteSheetUrl ? row.spriteSheetUrl : (spriteUrl ? "" : desktopPetConfig.spriteSheetUrl || "")
+  );
   const scaleRaw = Number(row.scale ?? desktopPetConfig.scale ?? 1);
   const scale = Number.isFinite(scaleRaw) ? Math.max(0.75, Math.min(1.35, scaleRaw)) : 1;
   const voice = row.voice === "playful" || row.voice === "quiet" ? row.voice : row.voice === "soft" ? "soft" : desktopPetConfig.voice || "soft";
@@ -166,6 +174,10 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
       ? value
       : "idle"
   );
+  const codexStates = new Set<DesktopPetCodexState>(["idle", "running-right", "running-left", "waving", "jumping", "failed", "waiting", "running", "review"]);
+  const normalizeCodexState = (value: unknown, fallback: DesktopPetCodexState = "idle"): DesktopPetCodexState => {
+    return codexStates.has(value as DesktopPetCodexState) ? value as DesktopPetCodexState : fallback;
+  };
   const defaultAnimationForId = (id: string): DesktopPetAnimation => {
     if (/happy|joy|excited|play/.test(id)) return "hop";
     if (/alert|curious|think|focus/.test(id)) return "pop";
@@ -175,6 +187,20 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
     if (/bounce/.test(id)) return "bounce";
     return "idle";
   };
+  const defaultCodexStateForId = (id: string, animation?: DesktopPetAnimation): DesktopPetCodexState => {
+    if (/running-right|right/.test(id)) return "running-right";
+    if (/running-left|left/.test(id)) return "running-left";
+    if (/running|working|progress|busy|task/.test(id)) return "running";
+    if (/review|alert|curious|think|focus|inspect/.test(id)) return "review";
+    if (/wait|waiting|idle2|patient/.test(id)) return "waiting";
+    if (/sleep|sad|failed|fail|tired|shake|angry/.test(id)) return "failed";
+    if (/jump|excited|bounce/.test(id) || animation === "bounce") return "jumping";
+    if (/happy|joy|play|wave|hello|hi/.test(id)) return animation === "hop" ? "jumping" : "waving";
+    if (animation === "hop") return "jumping";
+    if (animation === "pop") return "review";
+    if (animation === "sway") return "waiting";
+    return normalizeCodexState(id, "idle");
+  };
   const normalizeId = (value: unknown) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 32);
   const normalizePresets = (value: unknown, fallback: DesktopPetStatePreset[]) => {
     const source = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[\n,]/) : [];
@@ -182,17 +208,20 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
     for (const item of source) {
       if (typeof item === "string") {
         const id = normalizeId(item);
-        if (id && !unique.has(id)) unique.set(id, { id, label: id, animation: defaultAnimationForId(id), assetUrl: "", soundUrl: "" });
+        const animation = defaultAnimationForId(id);
+        if (id && !unique.has(id)) unique.set(id, { id, label: id, animation, codexState: defaultCodexStateForId(id, animation), assetUrl: "", soundUrl: "" });
         continue;
       }
       if (!item || typeof item !== "object" || Array.isArray(item)) continue;
       const record = item as Record<string, unknown>;
       const id = normalizeId(record.id);
       if (!id || unique.has(id)) continue;
+      const animation = normalizeAnimation(record.animation);
       unique.set(id, {
         id,
         label: String(record.label || id).trim().slice(0, 48) || id,
-        animation: normalizeAnimation(record.animation),
+        animation,
+        codexState: normalizeCodexState(record.codexState, defaultCodexStateForId(id, animation)),
         assetUrl: resolveRuntimeAssetUrl(record.assetUrl),
         soundUrl: resolveRuntimeAssetUrl(record.soundUrl)
       });
@@ -208,7 +237,7 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
   const assistantInstructions = String(row.assistantInstructions || desktopPetConfig.assistantInstructions || "").trim().slice(0, 3000);
   const actions = normalizePresets(row.actions, desktopPetConfig.actions);
   const emotions = normalizePresets(row.emotions, desktopPetConfig.emotions);
-  return { characterId, name, spriteUrl, scale, voice, autonomyEnabled, actions, emotions, assistantInstructions, description, personality, scenario, greeting, systemPrompt };
+  return { characterId, name, spriteUrl, spriteSheetUrl, scale, voice, autonomyEnabled, actions, emotions, assistantInstructions, description, personality, scenario, greeting, systemPrompt };
 }
 
 function desktopPetWindowSize(config: DesktopPetConfig, expanded = false) {
@@ -294,7 +323,7 @@ function stripDesktopPetToolLine(text: string): string {
 }
 
 function buildDesktopPetRuntimePrompt(config: DesktopPetConfig): string {
-  const describe = (preset: DesktopPetStatePreset) => `${preset.id}${preset.label && preset.label !== preset.id ? ` (${preset.label})` : ""}: animation=${preset.animation}${preset.assetUrl ? ", custom_asset=true" : ""}${preset.soundUrl ? ", sound=true" : ""}`;
+  const describe = (preset: DesktopPetStatePreset) => `${preset.id}${preset.label && preset.label !== preset.id ? ` (${preset.label})` : ""}: animation=${preset.animation}, codex_row=${preset.codexState || "idle"}${preset.assetUrl ? ", custom_asset=true" : ""}${preset.soundUrl ? ", sound=true" : ""}`;
   const statesById = new Map<string, DesktopPetStatePreset>();
   for (const preset of [...(config.actions || []), ...(config.emotions || [])]) {
     const existing = statesById.get(preset.id);
@@ -452,6 +481,15 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       pointer-events: none;
       border-radius: 18px;
     }
+    .sheet-sprite {
+      width: calc(var(--sprite-size) * 0.923);
+      height: var(--sprite-size);
+      background-repeat: no-repeat;
+      background-size: 800% 900%;
+      background-position: 0 0;
+      animation: idleFloat 2.2s ease-in-out infinite;
+      pointer-events: none;
+    }
     .css-pet {
       position: relative;
       width: 132px;
@@ -512,23 +550,32 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     .paw.left { left: 28px; }
     .paw.right { right: 28px; }
     .stage.is-happy .css-pet,
-    .stage.is-happy .sprite { animation: happyHop 650ms ease-in-out 1; }
+    .stage.is-happy .sprite,
+    .stage.is-happy .sheet-sprite { animation: happyHop 650ms ease-in-out 1; }
     .stage.is-sleepy .css-pet,
-    .stage.is-sleepy .sprite { animation: sleepySway 2.8s ease-in-out infinite; filter: saturate(0.8); }
+    .stage.is-sleepy .sprite,
+    .stage.is-sleepy .sheet-sprite { animation: sleepySway 2.8s ease-in-out infinite; filter: saturate(0.8); }
     .stage.is-alert .css-pet,
-    .stage.is-alert .sprite { animation: alertPop 520ms ease-out 1; }
+    .stage.is-alert .sprite,
+    .stage.is-alert .sheet-sprite { animation: alertPop 520ms ease-out 1; }
     .stage.anim-hop .css-pet,
-    .stage.anim-hop .sprite { animation: happyHop 650ms ease-in-out 1; }
+    .stage.anim-hop .sprite,
+    .stage.anim-hop .sheet-sprite { animation: happyHop 650ms ease-in-out 1; }
     .stage.anim-sway .css-pet,
-    .stage.anim-sway .sprite { animation: sleepySway 2.8s ease-in-out infinite; filter: saturate(0.8); }
+    .stage.anim-sway .sprite,
+    .stage.anim-sway .sheet-sprite { animation: sleepySway 2.8s ease-in-out infinite; filter: saturate(0.8); }
     .stage.anim-pop .css-pet,
-    .stage.anim-pop .sprite { animation: alertPop 520ms ease-out 1; }
+    .stage.anim-pop .sprite,
+    .stage.anim-pop .sheet-sprite { animation: alertPop 520ms ease-out 1; }
     .stage.anim-spin .css-pet,
-    .stage.anim-spin .sprite { animation: petSpin 720ms ease-in-out 1; }
+    .stage.anim-spin .sprite,
+    .stage.anim-spin .sheet-sprite { animation: petSpin 720ms ease-in-out 1; }
     .stage.anim-shake .css-pet,
-    .stage.anim-shake .sprite { animation: petShake 480ms ease-in-out 1; }
+    .stage.anim-shake .sprite,
+    .stage.anim-shake .sheet-sprite { animation: petShake 480ms ease-in-out 1; }
     .stage.anim-bounce .css-pet,
-    .stage.anim-bounce .sprite { animation: petBounce 900ms ease-in-out 1; }
+    .stage.anim-bounce .sprite,
+    .stage.anim-bounce .sheet-sprite { animation: petBounce 900ms ease-in-out 1; }
     .pet-root.emotion-happy .bubble { border-color: #6ee7b7; }
     .pet-root.emotion-excited .bubble { border-color: #fbbf24; }
     .pet-root.emotion-sleepy .bubble { border-color: #93c5fd; }
@@ -626,6 +673,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     <div class="stage" id="stage">
       <img class="sprite" id="imageSprite" alt="" hidden />
       <video class="sprite" id="videoSprite" muted loop playsinline autoplay hidden></video>
+      <div class="sheet-sprite" id="sheetSprite" aria-hidden="true" hidden></div>
       <audio id="stateSound" preload="auto"></audio>
       <div class="css-pet" id="cssPet" aria-hidden="true">
         <div class="ear left"></div>
@@ -656,6 +704,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     const stage = document.getElementById("stage");
     const imageSprite = document.getElementById("imageSprite");
     const videoSprite = document.getElementById("videoSprite");
+    const sheetSprite = document.getElementById("sheetSprite");
     const stateSound = document.getElementById("stateSound");
     const cssPet = document.getElementById("cssPet");
     const input = document.getElementById("input");
@@ -686,7 +735,21 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
     const actionPresets = new Map((Array.isArray(config.actions) ? config.actions : []).map((preset) => [safeId(preset.id, ""), preset]));
     const emotionPresets = new Map((Array.isArray(config.emotions) ? config.emotions : []).map((preset) => [safeId(preset.id, ""), preset]));
     const baseSpriteUrl = clean(config.spriteUrl, 4000);
+    const baseSpriteSheetUrl = clean(config.spriteSheetUrl, 4000);
+    const sheetStates = {
+      idle: { row: 0, frames: [280, 110, 110, 140, 140, 320] },
+      "running-right": { row: 1, frames: [120, 120, 120, 120, 120, 120, 120, 220] },
+      "running-left": { row: 2, frames: [120, 120, 120, 120, 120, 120, 120, 220] },
+      waving: { row: 3, frames: [140, 140, 140, 280] },
+      jumping: { row: 4, frames: [140, 140, 140, 140, 280] },
+      failed: { row: 5, frames: [140, 140, 140, 140, 140, 140, 140, 240] },
+      waiting: { row: 6, frames: [150, 150, 150, 150, 150, 260] },
+      running: { row: 7, frames: [120, 120, 120, 120, 120, 220] },
+      review: { row: 8, frames: [150, 150, 150, 150, 150, 280] }
+    };
     let uiRequestId = 0;
+    let sheetAnimationTimer = 0;
+    let activeSheetState = "";
     function isVideoUrl(url) {
       return /^data:video\\//i.test(url) || /\\.(mp4|webm|mov|m4v)(?:[?#]|$)/i.test(url);
     }
@@ -694,11 +757,45 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       imageSprite.hidden = true;
       videoSprite.hidden = true;
       videoSprite.pause();
+      sheetSprite.hidden = true;
+      window.clearTimeout(sheetAnimationTimer);
       cssPet.hidden = false;
+    }
+    function positionSheetFrame(row, frame) {
+      const x = frame <= 0 ? 0 : (frame / 7) * 100;
+      const y = row <= 0 ? 0 : (row / 8) * 100;
+      sheetSprite.style.backgroundPosition = x + "% " + y + "%";
+    }
+    function setSheetState(url, state = "idle") {
+      const nextUrl = clean(url, 4000);
+      if (!nextUrl) return false;
+      const spec = sheetStates[state] || sheetStates.idle;
+      activeSheetState = sheetStates[state] ? state : "idle";
+      imageSprite.hidden = true;
+      videoSprite.hidden = true;
+      videoSprite.pause();
+      cssPet.hidden = true;
+      sheetSprite.hidden = false;
+      if (sheetSprite.dataset.src !== nextUrl) {
+        sheetSprite.dataset.src = nextUrl;
+        sheetSprite.style.backgroundImage = "url(" + JSON.stringify(nextUrl) + ")";
+      }
+      window.clearTimeout(sheetAnimationTimer);
+      let frame = 0;
+      const tick = () => {
+        positionSheetFrame(spec.row, frame);
+        const delay = spec.frames[frame] || 140;
+        frame = (frame + 1) % spec.frames.length;
+        sheetAnimationTimer = window.setTimeout(tick, delay);
+      };
+      tick();
+      return true;
     }
     function setSpriteUrl(url) {
       const nextUrl = clean(url, 4000);
       if (nextUrl) {
+        window.clearTimeout(sheetAnimationTimer);
+        sheetSprite.hidden = true;
         if (isVideoUrl(nextUrl)) {
           if (videoSprite.src !== nextUrl) {
             videoSprite.src = nextUrl;
@@ -718,6 +815,20 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       } else {
         hideMedia();
       }
+    }
+    function resolveSheetState(stateId, animation, preset) {
+      const presetCodexState = safeId(preset?.codexState || "", "");
+      if (sheetStates[presetCodexState]) return presetCodexState;
+      const id = safeId(stateId || "", "");
+      const anim = safeId(animation || "", "");
+      if (/sleep|sad|failed|fail|tired/.test(id)) return "failed";
+      if (/alert|curious|think|focus|review/.test(id)) return "review";
+      if (/happy|joy|excited|play|wave/.test(id)) return anim === "bounce" || anim === "hop" ? "jumping" : "waving";
+      if (/walk|wander|move/.test(id)) return "running-right";
+      if (anim === "hop" || anim === "bounce") return "jumping";
+      if (anim === "pop") return "review";
+      if (anim === "sway") return "waiting";
+      return sheetStates[id] ? id : "idle";
     }
     imageSprite.addEventListener("error", hideMedia);
     videoSprite.addEventListener("error", hideMedia);
@@ -776,7 +887,7 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       if (!actionId && !emotionId) return;
       const visualStateId = emotionId || actionId;
       const preset = resolvePetPreset(actionId, emotionId);
-      const animation = safeId(preset?.animation || actionId, "idle");
+      const animation = safeId(preset?.animation || "", "idle");
       const presetAsset = clean(preset?.assetUrl || "", 4000);
       const presetSound = clean(preset?.soundUrl || "", 4000);
       [...stage.classList].forEach((name) => {
@@ -788,7 +899,13 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
         if (name.startsWith("emotion-")) root.classList.remove(name);
       });
       if (animation !== "idle" && animation !== "none") stage.classList.add("anim-" + animation);
-      setSpriteUrl(presetAsset || baseSpriteUrl);
+      if (presetAsset) {
+        setSpriteUrl(presetAsset);
+      } else if (baseSpriteSheetUrl) {
+        setSheetState(baseSpriteSheetUrl, resolveSheetState(visualStateId, animation, preset));
+      } else {
+        setSpriteUrl(baseSpriteUrl);
+      }
       playStateSound(presetSound);
       if (visualStateId) root.classList.add("emotion-" + visualStateId);
     }
@@ -823,21 +940,38 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       const list = lines[voice] || lines.soft;
       return list[Math.floor(Math.random() * list.length)];
     }
-    setSpriteUrl(baseSpriteUrl);
+    if (baseSpriteSheetUrl) {
+      setSheetState(baseSpriteSheetUrl, "idle");
+    } else {
+      setSpriteUrl(baseSpriteUrl);
+    }
     say(clean(config.greeting, 140) || ("Hi, I'm " + clean(config.name, 32) + "."));
     function runAutonomyTick() {
       if (!autonomyEnabled || dragging || root.classList.contains("ui-open") || document.activeElement === input) return;
       const now = Date.now();
-      if (now - lastInteractionAt > 90000 && now - lastIdleMoodAt > 45000) {
+      if (now - lastInteractionAt > 180000 && now - lastIdleMoodAt > 45000) {
         lastIdleMoodAt = now;
         const line = idleLines[Math.floor(Math.random() * idleLines.length)];
         say(line, "sleepy", "sleepy");
+      } else if (now - lastInteractionAt > 90000 && now - lastIdleMoodAt > 45000) {
+        lastIdleMoodAt = now;
+        const line = idleLines[Math.floor(Math.random() * idleLines.length)];
+        say(line, "waiting", "waiting");
       }
       if (now - lastWanderAt > 14000 && now - lastInteractionAt > 8000) {
         lastWanderAt = now;
         const dx = Math.round((Math.random() - 0.5) * 80);
         const dy = Math.round((Math.random() - 0.5) * 36);
-        void window.electronAPI?.autonomyDesktopPetStep?.({ dx, dy });
+        const direction = dx < 0 ? "running-left" : "running-right";
+        if (baseSpriteSheetUrl && activeSheetState !== direction) setSheetState(baseSpriteSheetUrl, direction);
+        void Promise.resolve(window.electronAPI?.autonomyDesktopPetStep?.({ dx, dy }))
+          .finally(() => {
+            window.setTimeout(() => {
+              if (!dragging && !root.classList.contains("ui-open")) {
+                if (baseSpriteSheetUrl) setSheetState(baseSpriteSheetUrl, "idle");
+              }
+            }, 650);
+          });
       }
     }
     if (autonomyEnabled) {
@@ -858,13 +992,13 @@ function buildDesktopPetHtml(config: DesktopPetConfig) {
       if (!text) return say(randomLine());
       input.value = "";
       showUi();
-      say("...");
+      say("...", "running", "running");
       try {
         const result = await window.electronAPI?.sendDesktopPetMessage?.(text);
         const parsed = parsePetTool(result?.reply || "");
         say(parsed.message || "...", parsed.action, parsed.emotion);
       } catch (error) {
-        say(clean(error?.message || error, 160) || "LLM is unavailable.");
+        say(clean(error?.message || error, 160) || "LLM is unavailable.", "sleepy", "sleepy");
       }
     });
     let dragging = false;
