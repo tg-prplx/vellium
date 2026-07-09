@@ -1845,7 +1845,7 @@ function resolveBundledDistPath(): string {
 
 function resolveBundledPluginsPath(): string {
   if (isDev) {
-    return path.join(__dirname, "..", "data", "bundled-plugins");
+    return path.join(__dirname, "..", "bundled-plugins");
   }
   return path.join(process.resourcesPath, "data", "bundled-plugins");
 }

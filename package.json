@@ -101,7 +101,7 @@
     ],
     "extraResources": [
       {
-        "from": "data/bundled-plugins",
+        "from": "bundled-plugins",
         "to": "data/bundled-plugins",
         "filter": [
           "**/*"
