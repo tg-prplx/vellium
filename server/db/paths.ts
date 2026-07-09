@@ -22,7 +22,7 @@ function resolveBundledPluginsDir() {
 
   const cwdPackageJson = resolve(process.cwd(), "package.json");
   if (existsSync(cwdPackageJson)) {
-    return resolve(process.cwd(), "data", "bundled-plugins");
+    return resolve(process.cwd(), "bundled-plugins");
   }
 
   const candidates = [

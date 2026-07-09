@@ -77,6 +77,14 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist:win
 
+      - name: Verify bundled plugins are packaged
+        shell: pwsh
+        run: |
+          $plugin = "release/win-unpacked/resources/data/bundled-plugins/plugin-theme-catppuccin/plugin.json"
+          if (-not (Test-Path $plugin)) {
+            throw "Bundled plugin was not included in the Windows application package: $plugin"
+          }
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
