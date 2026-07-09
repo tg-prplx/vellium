@@ -1580,6 +1580,45 @@ process.stdin.on("data", (chunk) => {
     });
   });
 
+  it("exports a stable chat JSON bundle with branches and messages", async () => {
+    await updateSettings({
+      activeProviderId: null,
+      activeModel: null
+    });
+
+    const created = await postJson("/api/chats", { title: "Exportable Chat" });
+    const timeline = await postJson(`/api/chats/${created.id}/send`, {
+      content: "Export this conversation"
+    });
+    const branchId = timeline[0]?.branchId;
+    expect(branchId).toEqual(expect.any(String));
+
+    const response = await fetch(`${baseUrl}/api/chats/${created.id}/export/json?branchId=${encodeURIComponent(branchId)}`);
+    expect(response.ok).toBe(true);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(response.headers.get("content-disposition")).toContain("Exportable Chat.vellium-chat.json");
+
+    const exported = await response.json() as {
+      format?: string;
+      version?: number;
+      chat?: { id?: string; title?: string };
+      activeBranchId?: string;
+      branches?: Array<{ id: string; name: string }>;
+      messages?: Array<{ role: string; content: string; branchId: string }>;
+      messagesByBranch?: Record<string, Array<{ role: string; content: string }>>;
+    };
+    expect(exported.format).toBe("vellium.chat.export");
+    expect(exported.version).toBe(1);
+    expect(exported.chat).toMatchObject({ id: created.id, title: "Exportable Chat" });
+    expect(exported.activeBranchId).toBe(branchId);
+    expect(exported.branches).toEqual(expect.arrayContaining([expect.objectContaining({ id: branchId, name: "main" })]));
+    expect(exported.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: "Export this conversation", branchId }),
+      expect.objectContaining({ role: "assistant", content: "[No provider configured] Echo: Export this conversation", branchId })
+    ]));
+    expect(exported.messagesByBranch?.[branchId]).toHaveLength(2);
+  });
+
   it("translates messages and synthesizes TTS against a local mock provider", async () => {
     await updateSettings({
       activeProviderId: null,

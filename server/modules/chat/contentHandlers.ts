@@ -4,6 +4,31 @@ import { synthesizeCustomAdapterSpeech } from "../../services/customProviderAdap
 import { completeProviderOnce, normalizeOpenAiBaseUrl } from "./providerExecution.js";
 import { getSettings, getTimeline, resolveBranch, type MessageRow, type ProviderRow } from "./routeHelpers.js";
 
+const TRANSLATION_PROVIDER_TIMEOUT_MS = 120_000;
+
+function isAbortLikeError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.name === "AbortError" ||
+    /aborted|abort|timed out|timeout/i.test(error.message)
+  );
+}
+
+async function withServerTimeout<T>(
+  timeoutMs: number,
+  run: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(new Error(`Translation provider timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  try {
+    return await run(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function compressChat(req: Request, res: Response) {
   const chatId = req.params.id;
   const { branchId: reqBranchId } = req.body ?? {};
@@ -87,16 +112,20 @@ export async function translateMessage(req: Request, res: Response) {
   const language = targetLanguage || settings.translateLanguage || settings.responseLanguage || "English";
 
   try {
-    const translation = await completeProviderOnce({
+    const translation = await withServerTimeout(TRANSLATION_PROVIDER_TIMEOUT_MS, (signal) => completeProviderOnce({
       provider,
       modelId,
       systemPrompt: `Translate the following message to ${language}. Output ONLY the translation, nothing else. Preserve formatting, line breaks, and markdown.`,
       userPrompt: message.content,
       samplerConfig: { temperature: 0.2, maxTokens: 2048 },
-      apiParamPolicy: settings.apiParamPolicy
-    });
-    res.json({ translation });
-  } catch {
+      apiParamPolicy: settings.apiParamPolicy,
+      signal
+    }));
+    res.json({ translation: String(translation || "").trim() || message.content });
+  } catch (error) {
+    if (!isAbortLikeError(error)) {
+      console.warn("Message translation failed", error);
+    }
     res.json({ translation: message.content });
   }
 }

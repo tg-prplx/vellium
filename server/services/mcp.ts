@@ -84,6 +84,35 @@ export function isAllowedMcpCommand(raw: unknown): boolean {
   return ALLOWED_MCP_COMMANDS.has(base);
 }
 
+export function describeBlockedMcpLaunch(commandRaw: unknown, argsRaw: unknown): string {
+  const command = String(commandRaw || "").trim();
+  if (!isAllowedMcpCommand(command)) {
+    return command ? `MCP command is not allowed: ${command}` : "MCP command is required";
+  }
+
+  const base = basename(command).toLowerCase().replace(/\.exe$/i, "");
+  const args = Array.isArray(argsRaw)
+    ? argsRaw.map((item) => String(item ?? "").trim()).filter(Boolean)
+    : parseArgs(String(argsRaw || ""));
+  const normalizedArgs = args.map((arg) => arg.toLowerCase());
+  const firstArg = normalizedArgs[0] || "";
+
+  if ((base === "node" || base === "deno") && normalizedArgs.some((arg) => arg === "-e" || arg === "--eval")) {
+    return `Inline eval for ${base} is not allowed in MCP server commands.`;
+  }
+  if ((base === "python" || base === "python3") && normalizedArgs.some((arg) => arg === "-c" || arg === "-m" && normalizedArgs[normalizedArgs.indexOf(arg) + 1] === "pip")) {
+    return `Inline or package-management execution for ${base} is not allowed in MCP server commands.`;
+  }
+  if ((base === "powershell" || base === "pwsh") && normalizedArgs.some((arg) => arg === "-command" || arg === "-encodedcommand" || arg === "-enc")) {
+    return `Inline command execution for ${base} is not allowed in MCP server commands.`;
+  }
+  if (base === "cmd" && (firstArg === "/c" || firstArg === "/k")) {
+    return "Inline cmd execution is not allowed in MCP server commands.";
+  }
+
+  return "";
+}
+
 let cachedShellPath: string | null | undefined;
 
 function uniquePathEntries(entries: Array<string | undefined | null>): string[] {
@@ -395,8 +424,9 @@ class McpStdioClient {
   private stderrTail = "";
 
   constructor(private readonly config: McpServerConfig, wireFormat?: StdioWireFormat) {
-    if (!isAllowedMcpCommand(config.command)) {
-      throw new Error(`MCP command is not allowed: ${config.command}`);
+    const blockedReason = describeBlockedMcpLaunch(config.command, config.args);
+    if (blockedReason) {
+      throw new Error(blockedReason);
     }
     this.wireFormat = wireFormat ?? detectStdioWireFormat(config);
     const args = parseArgs(config.args);

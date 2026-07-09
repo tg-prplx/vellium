@@ -72,6 +72,7 @@ import {
   updateBackgroundTask,
   useBackgroundTasks
 } from "../../shared/backgroundTasks";
+import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
 
 interface StreamingToolCall {
   callId: string;
@@ -147,6 +148,7 @@ export function ChatScreen() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [compressing, setCompressing] = useState(false);
+  const [exportingChat, setExportingChat] = useState(false);
   const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerState | null>(null);
 
   // Model selector in chat — auto-loading
@@ -849,6 +851,21 @@ export function ChatScreen() {
       setErrorText(String(error));
     }
     setCompressing(false);
+  }
+
+  async function handleExportChatJson() {
+    if (!activeChat || exportingChat) return;
+    setErrorText("");
+    setExportingChat(true);
+    try {
+      const blob = await api.chatExportJson(activeChat.id, activeBranchId || undefined);
+      const filenameBase = buildFilenameBase(activeChat.title, "vellium-chat");
+      await triggerBlobDownload(blob, `${filenameBase}.vellium-chat.json`);
+    } catch (error) {
+      setErrorText(String(error));
+    } finally {
+      setExportingChat(false);
+    }
   }
 
   async function handleTranslate(msgId: string, inPlace?: boolean) {
@@ -2298,6 +2315,14 @@ export function ChatScreen() {
                         {compressing ? t("chat.compressing") : t("chat.compress")}
                       </button>
                       <button
+                        onClick={() => { void handleExportChatJson(); }}
+                        disabled={exportingChat || !activeChat}
+                        className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                        title={t("chat.exportJson")}
+                      >
+                        {exportingChat ? t("chat.exporting") : t("chat.exportJson")}
+                      </button>
+                      <button
                         onClick={() => setZenMode((prev) => !prev)}
                         className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                           zenMode
@@ -2370,6 +2395,16 @@ export function ChatScreen() {
                       title={compressing ? t("chat.compressing") : t("chat.compress")}>
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => { void handleExportChatJson(); }}
+                      disabled={exportingChat || !activeChat}
+                      className="chat-simple-thread-action-btn"
+                      title={exportingChat ? t("chat.exporting") : t("chat.exportJson")}
+                    >
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" />
                       </svg>
                     </button>
                     <span className="chat-simple-thread-divider" />

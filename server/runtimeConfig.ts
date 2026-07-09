@@ -95,6 +95,9 @@ export function parseServerRuntimeOptions(
   if (basicAuth && !basicAuth.includes(":")) {
     throw new Error("Basic auth must use the format username:password.");
   }
+  if (allowRemote && !basicAuth) {
+    throw new Error("Public server mode requires --basic-auth username:password.");
+  }
 
   return {
     headless,

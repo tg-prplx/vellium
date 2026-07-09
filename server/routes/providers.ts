@@ -5,6 +5,8 @@ import { fetchKoboldModels, normalizeProviderType } from "../services/providerAp
 import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 
 const router = Router();
+const MODEL_FETCH_TIMEOUT_MS = 15_000;
+const MODEL_FETCH_RETRY_DELAYS_MS = [0, 250, 750];
 
 interface ProviderRow {
   id: string;
@@ -70,6 +72,65 @@ function normalizeOpenAiBaseUrl(raw: string): string {
   return `${trimmed}/v1`;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function describeFetchFailure(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = (error as Error & { cause?: unknown }).cause;
+  if (cause instanceof Error && cause.message) {
+    return `${error.message}: ${cause.message}`;
+  }
+  if (cause && typeof cause === "object") {
+    const code = String((cause as { code?: unknown }).code || "").trim();
+    const syscall = String((cause as { syscall?: unknown }).syscall || "").trim();
+    const address = String((cause as { address?: unknown }).address || "").trim();
+    const port = String((cause as { port?: unknown }).port || "").trim();
+    const details = [code, syscall, address && port ? `${address}:${port}` : address || port].filter(Boolean).join(" ");
+    if (details) return `${error.message}: ${details}`;
+  }
+  return error.message || String(error);
+}
+
+async function fetchModelsResponse(url: string, apiKey: string) {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < MODEL_FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
+    const delay = MODEL_FETCH_RETRY_DELAYS_MS[attempt] ?? 0;
+    if (delay > 0) await sleep(delay);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort(new Error(`Model endpoint timed out after ${MODEL_FETCH_TIMEOUT_MS}ms`));
+    }, MODEL_FETCH_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: "application/json",
+          Connection: "close",
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+        },
+        cache: "no-store",
+        signal: controller.signal
+      });
+      if ([429, 502, 503, 504].includes(response.status) && attempt < MODEL_FETCH_RETRY_DELAYS_MS.length - 1) {
+        lastError = new Error(`Model endpoint returned HTTP ${response.status}`);
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= MODEL_FETCH_RETRY_DELAYS_MS.length - 1) break;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw new Error(`Model endpoint unreachable: ${url} (${describeFetchFailure(lastError)})`);
+}
+
 async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string): Promise<Array<{ id: string }>> {
   const baseUrl = normalizeOpenAiBaseUrl(baseUrlRaw);
   if (!baseUrl) {
@@ -77,15 +138,11 @@ async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string
   }
 
   const apiKey = String(apiKeyRaw || "").trim();
-  const response = await fetch(`${baseUrl}/models`, {
-    headers: {
-      Accept: "application/json",
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-    }
-  });
+  const endpoint = `${baseUrl}/models`;
+  const response = await fetchModelsResponse(endpoint, apiKey);
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(text || `Model endpoint returned HTTP ${response.status}`);
+    throw new Error(text || `Model endpoint returned HTTP ${response.status}: ${endpoint}`);
   }
 
   const body = await response.json() as {

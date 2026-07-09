@@ -2,7 +2,6 @@ import type { BranchNode, ChatMessage, ChatSession, FileAttachment, PromptBlock,
 import { del, get, patchReq, post, put, requestBlob, streamPost, type StreamCallbacks } from "./core";
 
 type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
-const TRANSLATION_TIMEOUT_MS = 60_000;
 const STREAM_TIMELINE_TIMEOUT_MS = 15_000;
 
 function sleep(ms: number): Promise<void> {
@@ -40,6 +39,8 @@ export const chatClient = {
   chatList: () => get<ChatSession[]>("/chats"),
   chatTimeline: (chatId: string, branchId?: string) =>
     get<ChatMessage[]>(`/chats/${chatId}/timeline${branchId ? `?branchId=${branchId}` : ""}`),
+  chatExportJson: (chatId: string, branchId?: string) =>
+    requestBlob("GET", `/chats/${chatId}/export/json${branchId ? `?branchId=${encodeURIComponent(branchId)}` : ""}`, undefined, { timeoutMs: 0 }),
   chatNextTurn: async (chatId: string, characterName: string, branchId?: string, callbacks?: StreamCallbacks, isAutoConvo?: boolean, userPersona?: UserPersonaPayload | null): Promise<ChatMessage[]> => {
     if (callbacks) {
       await streamPost(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userPersona }, callbacks);
@@ -66,7 +67,7 @@ export const chatClient = {
   chatEditMessage: (messageId: string, content: string) => patchReq<{ ok: boolean; timeline: ChatMessage[] }>(`/messages/${messageId}`, { content }),
   chatDeleteMessage: (messageId: string) => del<{ ok: boolean; timeline: ChatMessage[] }>(`/messages/${messageId}`),
   chatTranslateMessage: (messageId: string, targetLanguage?: string) =>
-    post<{ translation: string }>(`/chats/messages/${messageId}/translate`, { targetLanguage }, { timeoutMs: TRANSLATION_TIMEOUT_MS }),
+    post<{ translation: string }>(`/chats/messages/${messageId}/translate`, { targetLanguage }, { timeoutMs: 0 }),
   chatTtsMessage: (messageId: string) => requestBlob("POST", `/chats/messages/${messageId}/tts`),
   chatSaveSampler: (chatId: string, samplerConfig: SamplerConfig) => patchReq<{ ok: boolean }>(`/chats/${chatId}/sampler`, { samplerConfig }),
   chatGetSampler: (chatId: string) => get<SamplerConfig | null>(`/chats/${chatId}/sampler`),

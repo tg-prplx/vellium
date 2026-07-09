@@ -73,6 +73,23 @@ function shellJoin(args: string[]): string {
   return args.map((arg) => quoteShellArg(arg)).join(" ");
 }
 
+function appendArg(args: string[], flag: string, value?: string | number | boolean | null) {
+  if (value === null || value === undefined || value === false || value === "") return;
+  args.push(flag);
+  if (value !== true) {
+    args.push(String(value));
+  }
+}
+
+function splitCommandPrefix(rawCommand: string, fallback: string): { command: string; args: string[] } {
+  const tokens = tokenizeShellCommand(rawCommand || fallback).map((token) => expandUserPath(token));
+  const command = tokens[0] || fallback;
+  return {
+    command,
+    args: tokens.slice(1)
+  };
+}
+
 export function resolveManagedBackendBaseUrl(config: ManagedBackendConfig): string {
   const explicit = String(config.baseUrl || "").trim().replace(/\/+$/, "");
   if (explicit) return explicit;
@@ -291,6 +308,74 @@ export function buildManagedBackendCommand(config: ManagedBackendConfig): { comm
     command,
     env: parseManagedBackendEnv(config.envText),
     cwd: expandUserPath(config.workingDirectory || "") || undefined
+  };
+}
+
+export function buildManagedBackendLaunch(config: ManagedBackendConfig): { command: string; args: string[]; env: Record<string, string>; cwd?: string; commandPreview: string } {
+  if (config.commandOverride && config.commandOverride.trim()) {
+    const tokens = tokenizeShellCommand(config.commandOverride.trim()).map((token) => expandUserPath(token));
+    const command = tokens[0] || "";
+    const args = tokens.slice(1);
+    return {
+      command,
+      args,
+      env: parseManagedBackendEnv(config.envText),
+      cwd: expandUserPath(config.workingDirectory || "") || undefined,
+      commandPreview: shellJoin([command, ...args])
+    };
+  }
+
+  if (config.backendKind === "koboldcpp") {
+    const options = config.koboldcpp || defaultManagedBackendKoboldOptions();
+    const prefix = splitCommandPrefix(options.executable || "koboldcpp", "koboldcpp");
+    const args = [...prefix.args];
+    appendArg(args, "--model", expandUserPath(options.modelPath));
+    appendArg(args, "--host", options.host || "127.0.0.1");
+    appendArg(args, "--port", options.port || 5001);
+    appendArg(args, "--contextsize", options.contextSize || 8192);
+    appendArg(args, "--threads", options.threads || 8);
+    appendArg(args, "--blasthreads", options.blasThreads || options.threads || 8);
+    if ((options.gpuLayers || 0) > 0) appendArg(args, "--gpulayers", options.gpuLayers);
+    appendArg(args, "--batchsize", options.batchSize ?? 512);
+    appendArg(args, "--highpriority", options.highPriority);
+    appendArg(args, "--smartcontext", options.smartContext);
+    appendArg(args, "--usemmap", options.useMmap && !options.noMmap);
+    appendArg(args, "--flashattention", options.flashAttention);
+    appendArg(args, "--nommap", options.noMmap);
+    appendArg(args, "--nokv-offload", options.noKvOffload);
+    args.push(...tokenizeShellCommand(config.extraArgs || ""));
+    return {
+      command: prefix.command,
+      args,
+      env: parseManagedBackendEnv(config.envText),
+      cwd: expandUserPath(config.workingDirectory || "") || undefined,
+      commandPreview: shellJoin([prefix.command, ...args])
+    };
+  }
+
+  if (config.backendKind === "ollama") {
+    const options = config.ollama || defaultManagedBackendOllamaOptions();
+    const env = parseManagedBackendEnv(config.envText);
+    env.OLLAMA_HOST = `${options.host || "127.0.0.1"}:${options.port || 11434}`;
+    const prefix = splitCommandPrefix(options.executable || "ollama", "ollama");
+    const args = [...prefix.args, "serve", ...tokenizeShellCommand(config.extraArgs || "")];
+    return {
+      command: prefix.command,
+      args,
+      env,
+      cwd: expandUserPath(config.workingDirectory || "") || undefined,
+      commandPreview: shellJoin([prefix.command, ...args])
+    };
+  }
+
+  const prefix = splitCommandPrefix(config.commandOverride?.trim() || config.name, config.name || "backend");
+  const args = [...prefix.args, ...tokenizeShellCommand(config.extraArgs || "")];
+  return {
+    command: prefix.command,
+    args,
+    env: parseManagedBackendEnv(config.envText),
+    cwd: expandUserPath(config.workingDirectory || "") || undefined,
+    commandPreview: shellJoin([prefix.command, ...args])
   };
 }
 

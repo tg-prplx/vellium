@@ -1,6 +1,7 @@
 import { Router } from "express";
+import type { Request } from "express";
 import { db, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
-import { discoverMcpToolCatalog, isAllowedMcpCommand, testMcpServerConnection, type McpServerConfig } from "../services/mcp.js";
+import { describeBlockedMcpLaunch, discoverMcpToolCatalog, testMcpServerConnection, type McpServerConfig } from "../services/mcp.js";
 import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { fetchCustomAdapterModels, fetchCustomAdapterVoices } from "../services/customProviderAdapters.js";
 import { normalizeCustomEndpointAdapters, normalizeCustomInspectorFields } from "../services/extensions.js";
@@ -280,9 +281,8 @@ function normalizeMcpServer(raw: unknown, fallbackIndex = 1): McpServerConfig | 
   const name = String(row.name || row.displayName || id).trim() || id;
   const url = String(row.url || "").trim();
   const command = String(row.command || row.cmd || (url ? "npx" : "")).trim();
-  if (!command) return null;
-  if (!isAllowedMcpCommand(command)) return null;
   const args = normalizeArgs(row.args || row.arguments || (url ? `-y mcp-remote ${url}` : ""));
+  if (describeBlockedMcpLaunch(command, args)) return null;
   const env = normalizeEnv(row.env);
   const cwd = String(row.cwd || "").trim();
   const timeoutMsRaw = Number(row.timeoutMs);
@@ -353,6 +353,33 @@ async function fetchImportSource(source: string): Promise<{ sourceType: "url" | 
   }
   return { sourceType: "json", content: trimmed };
 }
+
+function hasConfiguredBasicAuth(req: Request): boolean {
+  const secret = String(process.env.SLV_BASIC_AUTH || "").trim();
+  if (!secret || !secret.includes(":")) return false;
+  return String(req.headers.authorization || "").startsWith("Basic ");
+}
+
+function isPrivilegedMcpOriginAllowed(req: Request): boolean {
+  if (hasConfiguredBasicAuth(req)) return true;
+  const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+  if (!origin) return false;
+  try {
+    const parsed = new URL(origin);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:")
+      && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1");
+  } catch {
+    return false;
+  }
+}
+
+router.use("/mcp", (req, res, next) => {
+  if (!isPrivilegedMcpOriginAllowed(req)) {
+    res.status(403).json({ error: "MCP settings actions require a trusted app origin or Basic auth." });
+    return;
+  }
+  next();
+});
 
 router.get("/", (_req, res) => {
   res.json(getSettings());
