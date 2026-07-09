@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import type { BrowserWindow } from "electron";
-import { buildManagedBackendCommand, parseManagedBackendEnv, resolveManagedBackendBaseUrl } from "../src/shared/managedBackends";
+import { buildManagedBackendLaunch, parseManagedBackendEnv, resolveManagedBackendBaseUrl } from "../src/shared/managedBackends";
 import type { ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState } from "../src/shared/types/contracts";
 
 const LOG_LIMIT = 800;
@@ -173,7 +173,10 @@ export class ManagedBackendManager {
       return { ...existing.runtime, models: [...existing.runtime.models] };
     }
 
-    const { command, env, cwd } = buildManagedBackendCommand(config);
+    const { command, args, env, cwd, commandPreview } = buildManagedBackendLaunch(config);
+    if (!command) {
+      throw new Error("Managed backend command is empty");
+    }
     const state: ManagedProcessState = existing || {
       config,
       child: null,
@@ -182,7 +185,7 @@ export class ManagedBackendManager {
         status: "starting",
         pid: null,
         baseUrl: resolveManagedBackendBaseUrl(config),
-        commandPreview: command,
+        commandPreview,
         progress: null,
         progressLabel: "Starting process...",
         models: [],
@@ -201,7 +204,7 @@ export class ManagedBackendManager {
       status: "starting",
       pid: null,
       baseUrl: resolveManagedBackendBaseUrl(config),
-      commandPreview: command,
+      commandPreview,
       progress: null,
       progressLabel: "Starting process...",
       models: [],
@@ -213,10 +216,10 @@ export class ManagedBackendManager {
     state.stderrBuffer = "";
     this.states.set(config.id, state);
     this.activeBackendId = config.id;
-    this.pushLog(state, "system", `Starting backend with command: ${command}`);
+    this.pushLog(state, "system", `Starting backend with command: ${commandPreview}`);
 
-    const child = spawn(command, {
-      shell: true,
+    const child = spawn(command, args, {
+      shell: false,
       cwd: cwd || undefined,
       env: { ...process.env, ...parseManagedBackendEnv(config.envText), ...env },
       stdio: "pipe"

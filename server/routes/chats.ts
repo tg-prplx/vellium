@@ -13,6 +13,7 @@ import {
 import {
   getSettings,
   getTimeline,
+  messageToJson,
   parseCardData,
   pickInitialGreeting,
   pickStringList,
@@ -47,6 +48,106 @@ import {
 import { getChatRagBinding, setChatRagBinding } from "../services/rag.js";
 
 const router = Router();
+
+function parseJsonArray(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== "string" || !raw.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonObject(raw: unknown): Record<string, unknown> | null {
+  if (!raw) return null;
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function exportChatJson(chatId: string, activeBranchId?: string) {
+  const chat = db.prepare("SELECT * FROM chats WHERE id = ?").get(chatId) as {
+    id: string;
+    title: string;
+    character_id?: string | null;
+    character_ids?: string | null;
+    lorebook_id?: string | null;
+    lorebook_ids?: string | null;
+    auto_conversation?: number;
+    context_summary?: string | null;
+    created_at: string;
+  } | undefined;
+  if (!chat) return null;
+
+  const branches = listBranches(chatId);
+  const resolvedActiveBranchId = branches.some((branch) => branch.id === activeBranchId)
+    ? activeBranchId
+    : branches[0]?.id || null;
+  const rows = db.prepare(
+    "SELECT * FROM messages WHERE chat_id = ? AND deleted = 0 ORDER BY branch_id ASC, sort_order ASC, created_at ASC, id ASC"
+  ).all(chatId) as MessageRow[];
+  const messages = rows.map(messageToJson);
+  const messagesByBranch = branches.reduce<Record<string, unknown[]>>((acc, branch) => {
+    acc[branch.id] = messages.filter((message) => message.branchId === branch.id);
+    return acc;
+  }, {});
+  const promptBlocks = db.prepare(
+    "SELECT id, kind, enabled, ordering, content, created_at FROM prompt_blocks WHERE chat_id = ? ORDER BY ordering ASC, created_at ASC, id ASC"
+  ).all(chatId) as Array<{
+    id: string;
+    kind: string;
+    enabled: number;
+    ordering: number;
+    content: string;
+    created_at: string;
+  }>;
+  const sceneRow = db.prepare("SELECT payload, updated_at FROM rp_scene_state WHERE chat_id = ?").get(chatId) as {
+    payload: string;
+    updated_at: string;
+  } | undefined;
+
+  return {
+    format: "vellium.chat.export",
+    version: 1,
+    exportedAt: now(),
+    chat: {
+      id: chat.id,
+      title: chat.title,
+      characterId: chat.character_id || null,
+      characterIds: parseJsonArray(chat.character_ids),
+      lorebookId: chat.lorebook_id || null,
+      lorebookIds: resolveLorebookIds(chat),
+      autoConversation: chat.auto_conversation === 1,
+      contextSummary: chat.context_summary || "",
+      createdAt: chat.created_at
+    },
+    activeBranchId: resolvedActiveBranchId,
+    branches,
+    messages,
+    messagesByBranch,
+    promptBlocks: promptBlocks.map((block) => ({
+      id: block.id,
+      kind: block.kind,
+      enabled: block.enabled === 1,
+      order: block.ordering,
+      content: block.content,
+      createdAt: block.created_at
+    })),
+    sceneState: sceneRow ? {
+      payload: parseJsonObject(sceneRow.payload),
+      updatedAt: sceneRow.updated_at
+    } : null
+  };
+}
 
 // --- Routes ---
 
@@ -287,6 +388,22 @@ router.patch("/:id/rag", (req, res) => {
 
 router.get("/:id/branches", (req, res) => {
   res.json(listBranches(req.params.id));
+});
+
+router.get("/:id/export/json", (req, res) => {
+  const payload = exportChatJson(req.params.id, String(req.query.branchId || "").trim() || undefined);
+  if (!payload) {
+    res.status(404).json({ error: "Chat not found" });
+    return;
+  }
+  const filenameBase = String(payload.chat.title || "chat")
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80) || "chat";
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filenameBase}.vellium-chat.json"`);
+  res.send(`${JSON.stringify(payload, null, 2)}\n`);
 });
 
 router.get("/:id/timeline", (req, res) => {

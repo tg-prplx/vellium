@@ -242,6 +242,24 @@ export interface ChatSession {
   createdAt: string;
 }
 
+export interface ChatExportBundle {
+  format: "vellium.chat.export";
+  version: number;
+  exportedAt: string;
+  chat: ChatSession & {
+    contextSummary?: string;
+  };
+  activeBranchId?: Id | null;
+  branches: BranchNode[];
+  messages: ChatMessage[];
+  messagesByBranch: Record<Id, ChatMessage[]>;
+  promptBlocks: PromptBlock[];
+  sceneState?: {
+    payload: RpSceneState | Record<string, unknown> | null;
+    updatedAt: string;
+  } | null;
+}
+
 export interface CharacterCardV2 {
   spec: "chara_card_v2";
   spec_version: string;
