@@ -11,7 +11,7 @@ Desktop app built with Electron, React, a local Express API, and SQLite.
 
 ## Current Release
 
-- Latest release: [`v0.9.7`](https://github.com/tg-prplx/vellium/releases/tag/v0.9.7)
+- Latest release: [`v0.9.9`](https://github.com/tg-prplx/vellium/releases/tag/v0.9.9)
 - Desktop builds: macOS (`arm64`, `x64`), Windows (`x64`), Linux (`x64` AppImage).
 - Release builds are unsigned. macOS and Windows may require manual confirmation on first launch.
 - The app is usable day to day, but still moving quickly. Expect active iteration around Agents, tool calling, and provider compatibility.
@@ -76,6 +76,15 @@ Desktop app built with Electron, React, a local Express API, and SQLite.
 - Manual fallback models for providers whose `/models` endpoint is missing, empty, or provider-specific.
 - Separate models for translate / compress / TTS / RAG.
 - API parameter forwarding controls for providers that reject unsupported sampling fields.
+
+### Localization
+- Built-in UI translations: English, Russian, Japanese, and Chinese.
+- Language selectable in `Settings`, with English as the fallback locale.
+
+### Desktop Pet
+- Optional always-on-top desktop companion window.
+- Animated states (idle, hop, pop, sway, spin, shake, bounce) with configurable state presets.
+- Chat with the pet directly from the desktop, including attachments and a configurable context token limit.
 
 ### Plugins / Extensions
 - Toolbar tabs from plugins.
