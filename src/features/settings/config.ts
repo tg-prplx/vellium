@@ -1,6 +1,6 @@
 import type { ApiParamPolicy, AppSettings, PromptBlock } from "../../shared/types/contracts";
 
-export type SettingsCategory = "connection" | "backends" | "interface" | "generation" | "context" | "prompts" | "tools" | "agents";
+export type SettingsCategory = "connection" | "backends" | "interface" | "generation" | "context" | "prompts" | "tools" | "legacy";
 
 export interface SettingsSectionLink {
   id: string;
@@ -82,7 +82,7 @@ export function buildSettingsNavigation(t: (key: any) => string) {
     { id: "context", label: t("settings.categoryContext"), icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" },
     { id: "prompts", label: t("settings.categoryPrompts"), icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
     { id: "tools", label: t("settings.categoryTools"), icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
-    { id: "agents", label: t("settings.categoryAgents"), icon: "M4.5 6.75A2.25 2.25 0 016.75 4.5h4.5A2.25 2.25 0 0113.5 6.75v4.5a2.25 2.25 0 01-2.25 2.25h-4.5A2.25 2.25 0 014.5 11.25v-4.5zM10.5 16.5h6.75A2.25 2.25 0 0119.5 18.75v.75H8.25v-.75A2.25 2.25 0 0110.5 16.5zM15 4.875a1.125 1.125 0 011.125-1.125h2.25A1.125 1.125 0 0119.5 4.875v2.25A1.125 1.125 0 0118.375 8.25h-2.25A1.125 1.125 0 0115 7.125v-2.25z" }
+    { id: "legacy", label: t("tab.legacy"), icon: "M12 8v4l3 2m6-2a9 9 0 11-9-9 9 9 0 019 9z" }
   ];
 
   const categorySections: Record<SettingsCategory, SettingsSectionLink[]> = {
@@ -101,6 +101,7 @@ export function buildSettingsNavigation(t: (key: any) => string) {
     interface: [
       { id: "settings-general", label: t("settings.general") },
       { id: "settings-wallpaper", label: t("settings.wallpaperTitle") },
+      { id: "settings-welcome-tour", label: t("settings.welcomeTour") },
       { id: "settings-workspace-mode", label: t("settings.workspaceMode") }
     ],
     generation: [
@@ -129,8 +130,8 @@ export function buildSettingsNavigation(t: (key: any) => string) {
       { id: "settings-tools-mcp", label: t("settings.mcpServers") },
       { id: "settings-danger-zone", label: t("settings.dangerZone") }
     ],
-    agents: [
-      { id: "settings-agents-core", label: t("settings.agents") }
+    legacy: [
+      { id: "settings-legacy", label: t("legacy.overview") }
     ]
   };
 

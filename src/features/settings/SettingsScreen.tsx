@@ -8,7 +8,10 @@ import { buildManagedBackendCommand, defaultManagedBackendConfig, normalizeManag
 import type { ApiParamPolicy, AppSettings, ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
 import { FieldLabel, InputField, SelectField, TextareaField, ToggleSwitch } from "./components/FormControls";
 import { ModalShell } from "../../components/ModalShell";
+import { IconButton } from "../../components/IconButton";
 import { SettingsSidebar } from "./components/SettingsSidebar";
+import { ManagedBackendsSettings } from "./components/ManagedBackendsSettings";
+import { LegacyScreen } from "../legacy/public";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
 import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue } from "./utils";
 
@@ -109,17 +112,43 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
   "context",
   "prompts",
   "tools",
-  "agents"
+  "legacy"
 ];
+
+type SettingsActionIconName = "add" | "refresh" | "edit" | "test" | "save" | "models" | "activate" | "voice" | "tour";
+
+function SettingsActionIcon({ name }: { name: SettingsActionIconName }) {
+  const paths: Record<SettingsActionIconName, string> = {
+    add: "M12 5v14M5 12h14",
+    refresh: "M20 7v5h-5M4 17v-5h5M18.4 9A7 7 0 006.2 6.2L4 9m16 6l-2.2 2.8A7 7 0 015.6 15",
+    edit: "M4 20h4l10.5-10.5a2.12 2.12 0 00-3-3L5 17v3zM13.5 8.5l3 3",
+    test: "M9 3h6m-5 0v5l-5 9a2 2 0 001.75 3h10.5A2 2 0 0019 17l-5-9V3M7.5 15h9",
+    save: "M5 4h12l2 2v14H5V4zm3 0v6h8V4M8 20v-6h8v6",
+    models: "M12 3l8 4-8 4-8-4 8-4zm8 9l-8 4-8-4m16 5l-8 4-8-4",
+    activate: "M5 12h13m-5-5l5 5-5 5",
+    voice: "M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zm-6 9a6 6 0 0012 0M12 18v3m-3 0h6",
+    tour: "M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7L12 3zm6 11l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z"
+  };
+
+  return (
+    <svg className="settings-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d={paths[name]} />
+    </svg>
+  );
+}
 
 export function SettingsScreen({
   initialCategory,
   initialSectionId,
-  onInitialViewHandled
+  onInitialViewHandled,
+  initialLegacyAgentThreadId,
+  onInitialLegacyAgentThreadHandled
 }: {
   initialCategory?: string;
   initialSectionId?: string;
   onInitialViewHandled?: () => void;
+  initialLegacyAgentThreadId?: string | null;
+  onInitialLegacyAgentThreadHandled?: () => void;
 } = {}) {
   const { t } = useI18n();
   const { catalog: pluginCatalog, plugins, loading: pluginsLoading, error: pluginError, setPluginEnabled, refresh: refreshPlugins, pendingPluginStates } = usePlugins();
@@ -284,12 +313,15 @@ export function SettingsScreen({
 
     let timer: number | null = null;
     const frame = window.requestAnimationFrame(() => {
-      if (!initialSectionId) return;
+      if (!initialSectionId) {
+        onInitialViewHandled?.();
+        return;
+      }
       timer = window.setTimeout(() => {
         scrollToSettingsSection(initialSectionId);
+        onInitialViewHandled?.();
       }, 60);
     });
-    onInitialViewHandled?.();
     return () => {
       window.cancelAnimationFrame(frame);
       if (timer) window.clearTimeout(timer);
@@ -1222,8 +1254,8 @@ export function SettingsScreen({
   const draftHasApiKey = Boolean(providerApiKey.trim()) || Boolean(editingProvider?.apiKeyMasked);
   const canTestProvider = Boolean(providerBaseUrl.trim());
   const canActivateSelectedModel = Boolean(selectedProviderId && selectedModelId);
-  const primaryActionClass = "rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60";
-  const secondaryActionClass = "rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60";
+  const primaryActionClass = "inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60";
+  const secondaryActionClass = "inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60";
   const subtleChipClass = "inline-flex items-center rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] font-medium text-text-secondary";
   const insetPanelClass = "rounded-lg border border-border-subtle bg-bg-primary";
   const autosaveProps = { commitMode: "debounced" as const, debounceMs: 420 };
@@ -1321,9 +1353,11 @@ export function SettingsScreen({
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button onClick={quickAddPreset} className={primaryActionClass}>
+                        <SettingsActionIcon name="add" />
                         {t("settings.quickAdd")}
                       </button>
                       <button onClick={refreshProviders} className={secondaryActionClass}>
+                        <SettingsActionIcon name="refresh" />
                         {t("settings.refresh")}
                       </button>
                     </div>
@@ -1359,10 +1393,12 @@ export function SettingsScreen({
                     <div className="mt-3 flex flex-wrap gap-2">
                       {activeProvider && (
                         <button onClick={() => loadProviderIntoForm(activeProvider)} className={secondaryActionClass}>
+                          <SettingsActionIcon name="edit" />
                           {t("chat.edit")}
                         </button>
                       )}
                       <button onClick={testProvider} disabled={!canTestProvider} className={secondaryActionClass}>
+                        <SettingsActionIcon name="test" />
                         {t("settings.test")}
                       </button>
                     </div>
@@ -1450,9 +1486,9 @@ export function SettingsScreen({
                       </div>
                     )}
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={saveProvider} className={primaryActionClass}>{t("settings.saveProvider")}</button>
-                      <button onClick={testProvider} disabled={!canTestProvider} className={secondaryActionClass}>{t("settings.test")}</button>
-                      <button onClick={loadDraftModels} disabled={!canTestProvider} className={secondaryActionClass}>{t("settings.refresh")}</button>
+                      <button onClick={saveProvider} className={primaryActionClass}><SettingsActionIcon name="save" />{t("settings.saveProvider")}</button>
+                      <button onClick={testProvider} disabled={!canTestProvider} className={secondaryActionClass}><SettingsActionIcon name="test" />{t("settings.test")}</button>
+                      <button onClick={loadDraftModels} disabled={!canTestProvider} className={secondaryActionClass}><SettingsActionIcon name="refresh" />{t("settings.refresh")}</button>
                     </div>
                   </div>
                 </div>
@@ -1550,6 +1586,7 @@ export function SettingsScreen({
                       <div className="mb-1.5 flex items-center justify-between">
                         <FieldLabel>{t("chat.model")}</FieldLabel>
                         <button onClick={loadModels} disabled={!selectedProviderId} className={secondaryActionClass}>
+                          <SettingsActionIcon name="models" />
                           {t("settings.loadModels")}
                         </button>
                       </div>
@@ -1563,6 +1600,7 @@ export function SettingsScreen({
                       {selectedProviderProfile?.baseUrl ? ` • ${selectedProviderProfile.baseUrl}` : ""}
                     </div>
                     <button onClick={applyActiveModel} disabled={!canActivateSelectedModel} className={primaryActionClass}>
+                      <SettingsActionIcon name="activate" />
                       {t("settings.useModel")}
                     </button>
                   </div>
@@ -1611,6 +1649,7 @@ export function SettingsScreen({
                         <div className="mb-1.5 flex items-center justify-between">
                           <FieldLabel>{t("chat.model")}</FieldLabel>
                           <button onClick={() => void loadTranslateModels(settings.translateProviderId)} className={secondaryActionClass}>
+                            <SettingsActionIcon name="models" />
                             {t("settings.loadModels")}
                           </button>
                         </div>
@@ -1668,7 +1707,7 @@ export function SettingsScreen({
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
                         <FieldLabel>{t("settings.ttsModel")}</FieldLabel>
-                        <button onClick={() => void loadTtsModels()} className={secondaryActionClass}>{t("settings.loadModels")}</button>
+                        <button onClick={() => void loadTtsModels()} className={secondaryActionClass}><SettingsActionIcon name="models" />{t("settings.loadModels")}</button>
                       </div>
                       <SelectField value={settings.ttsModel || ""} onChange={(v) => patch({ ttsModel: v })}>
                         <option value="">{t("settings.selectModel")}</option>
@@ -1678,7 +1717,7 @@ export function SettingsScreen({
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
                         <FieldLabel>{t("settings.ttsVoice")}</FieldLabel>
-                        <button onClick={() => void loadTtsVoices()} className={secondaryActionClass}>{t("settings.loadVoices")}</button>
+                        <button onClick={() => void loadTtsVoices()} className={secondaryActionClass}><SettingsActionIcon name="voice" />{t("settings.loadVoices")}</button>
                       </div>
                       <InputField
                         value={settings.ttsVoice || ""}
@@ -1700,417 +1739,22 @@ export function SettingsScreen({
 
           {/* ===== MANAGED BACKENDS ===== */}
           {activeCategory === "backends" && (
-            <div className="space-y-4">
-              <div id="settings-managed-backends" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.managedBackends")}</div>
-                <p className="mb-4 text-xs text-text-tertiary">{t("settings.managedBackendsDesc")}</p>
-
-                {managedBackends.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-border bg-bg-primary px-4 py-5 text-sm text-text-tertiary">
-                    {t("settings.managedBackendsEmpty")}
-                  </div>
-                ) : null}
-
-                <div className="space-y-4">
-                  {managedBackends.map((backend) => {
-                    const runtime = managedBackendStateMap.get(backend.id);
-                    const koboldOptions = backend.koboldcpp || defaultManagedBackendConfig().koboldcpp!;
-                    const ollamaOptions = backend.ollama || defaultManagedBackendConfig().ollama!;
-                    const isStarting = runtime?.status === "starting";
-                    const isRunning = runtime?.status === "running" || isStarting;
-                    const commandPreview = runtime?.commandPreview || buildManagedBackendCommand(backend).command;
-                    const envText = backend.envText || "";
-                    const runtimeStatus = runtime?.status || "idle";
-
-                    return (
-                      <div key={backend.id} className="rounded-2xl border border-border bg-bg-secondary p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-sm font-semibold text-text-primary">{backend.name}</div>
-                              <span className="rounded-full border border-border-subtle bg-bg-primary px-2 py-0.5 text-[10px] uppercase tracking-wide text-text-tertiary">
-                                {backend.backendKind}
-                              </span>
-                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                                runtimeStatus === "running"
-                                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                                  : isStarting
-                                    ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-                                    : runtimeStatus === "error"
-                                      ? "border-rose-500/30 bg-rose-500/10 text-rose-300"
-                                      : "border-border-subtle bg-bg-primary text-text-tertiary"
-                              }`}>
-                                {runtimeStatus}
-                              </span>
-                              {runtime?.pid ? (
-                                <span className="rounded-full border border-border-subtle bg-bg-primary px-2 py-0.5 text-[10px] text-text-tertiary">
-                                  PID {runtime.pid}
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="mt-1 text-[11px] text-text-tertiary">
-                              {resolveManagedBackendBaseUrl(backend)}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              onClick={() => void startManagedBackend(backend)}
-                              disabled={isRunning}
-                              className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {t("settings.startBackend")}
-                            </button>
-                            <button
-                              onClick={() => void stopManagedBackend(backend.id)}
-                              disabled={!isRunning}
-                              className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {t("settings.stopBackend")}
-                            </button>
-                            <button
-                              data-modal-trigger="backend-logs"
-                              onClick={() => void openManagedBackendLogs(backend)}
-                              className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover"
-                            >
-                              {t("settings.viewLogs")}
-                            </button>
-                            <button
-                              onClick={() => removeManagedBackend(backend.id)}
-                              className="rounded-lg border border-danger-border px-3 py-2 text-xs font-medium text-danger hover:bg-danger-subtle"
-                            >
-                              {t("common.delete")}
-                            </button>
-                          </div>
-                        </div>
-
-                        {typeof runtime?.progress === "number" || runtime?.progressLabel ? (
-                          <div className="mt-4 rounded-xl border border-border-subtle bg-bg-primary px-3 py-3">
-                            <div className="mb-2 flex items-center justify-between gap-3 text-xs text-text-secondary">
-                              <span>{runtime?.progressLabel || runtimeStatus}</span>
-                              <span>{typeof runtime?.progress === "number" ? `${runtime.progress}%` : runtimeStatus}</span>
-                            </div>
-                            <div className="h-2 rounded-full bg-bg-hover">
-                              <div
-                                className="h-2 rounded-full bg-accent transition-all"
-                                style={{ width: `${Math.max(0, Math.min(100, runtime?.progress ?? 0))}%` }}
-                              />
-                            </div>
-                          </div>
-                        ) : null}
-
-                        {runtime?.lastError ? (
-                          <div className="mt-4 rounded-xl border border-danger-border bg-danger-subtle px-3 py-2 text-xs text-danger">
-                            {runtime.lastError}
-                          </div>
-                        ) : null}
-
-                        {Array.isArray(runtime?.models) && runtime.models.length > 0 ? (
-                          <div className="mt-4 rounded-xl border border-border-subtle bg-bg-primary px-3 py-3">
-                            <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.modelsLoaded")}</div>
-                            <div className="flex flex-wrap gap-2">
-                              {runtime.models.map((model) => (
-                                <span key={model} className="rounded-full border border-border-subtle bg-bg-secondary px-2 py-1 text-[11px] text-text-secondary">
-                                  {model}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          <div>
-                            <FieldLabel>{t("settings.backendName")}</FieldLabel>
-                            <InputField
-                              value={backend.name}
-                              onChange={(value) => updateManagedBackend(backend.id, { name: value })}
-                              placeholder={t("settings.backendNamePlaceholder")}
-                            />
-                          </div>
-                          <div>
-                            <FieldLabel>{t("settings.backendKind")}</FieldLabel>
-                            <SelectField
-                              value={backend.backendKind}
-                              onChange={(value) => updateManagedBackend(backend.id, { backendKind: value as ManagedBackendConfig["backendKind"] })}
-                            >
-                              <option value="koboldcpp">KoboldCpp</option>
-                              <option value="ollama">Ollama</option>
-                              <option value="generic">Generic</option>
-                            </SelectField>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 grid gap-3 md:grid-cols-3">
-                          <div>
-                            <FieldLabel>{t("settings.provider")}</FieldLabel>
-                            <SelectField value={backend.providerId} onChange={(value) => updateManagedBackend(backend.id, { providerId: value })}>
-                              {providers.map((provider) => (
-                                <option key={provider.id} value={provider.id}>{provider.name}</option>
-                              ))}
-                            </SelectField>
-                          </div>
-                          <div>
-                            <FieldLabel>{t("settings.providerType")}</FieldLabel>
-                            <SelectField
-                              value={backend.providerType}
-                              onChange={(value) => updateManagedBackend(backend.id, { providerType: value as ManagedBackendConfig["providerType"] })}
-                            >
-                              <option value="openai">{t("settings.providerTypeOpenAi")}</option>
-                              <option value="koboldcpp">{t("settings.providerTypeKobold")}</option>
-                              <option value="custom">{t("settings.providerTypeCustom")}</option>
-                            </SelectField>
-                          </div>
-                          <div>
-                            <FieldLabel>{t("settings.baseUrl")}</FieldLabel>
-                            <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-sm text-text-secondary">
-                              {resolveManagedBackendBaseUrl(backend)}
-                            </div>
-                          </div>
-                        </div>
-
-                        {backend.providerType === "custom" && (
-                          <div className="mt-4">
-                            <FieldLabel>{t("settings.adapterId")}</FieldLabel>
-                            <InputField
-                              value={backend.adapterId || ""}
-                              onChange={(value) => updateManagedBackend(backend.id, { adapterId: value.trim() || null })}
-                              placeholder={t("settings.adapterIdPlaceholder")}
-                            />
-                          </div>
-                        )}
-
-                        <div className="mt-4 rounded-xl border border-border-subtle bg-bg-primary px-3 py-3">
-                          <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.importCommand")}</div>
-                          <div className="flex flex-col gap-3 md:flex-row">
-                            <textarea
-                              value={managedBackendImportCommands[backend.id] || ""}
-                              onChange={(e) => setManagedBackendImportCommands((current) => ({ ...current, [backend.id]: e.target.value }))}
-                              placeholder={t("settings.importCommandPlaceholder")}
-                              className="h-24 min-h-[96px] flex-1 rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
-                            />
-                            <button
-                              onClick={() => applyManagedBackendCommand(backend)}
-                              className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover"
-                            >
-                              {t("settings.applyCommand")}
-                            </button>
-                          </div>
-                        </div>
-
-                        {backend.backendKind === "koboldcpp" && (
-                          <>
-                            <div className="mt-4 grid gap-3 md:grid-cols-2">
-                              <div>
-                                <FieldLabel>{t("settings.executable")}</FieldLabel>
-                                <InputField value={koboldOptions.executable} onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, executable: value } })} />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.modelPath")}</FieldLabel>
-                                <InputField value={koboldOptions.modelPath || ""} onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, modelPath: value } })} />
-                              </div>
-                            </div>
-                            <div className="mt-4 grid gap-3 md:grid-cols-4">
-                              <div>
-                                <FieldLabel>{t("settings.host")}</FieldLabel>
-                                <InputField value={koboldOptions.host} onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, host: value } })} />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.port")}</FieldLabel>
-                                <InputField type="number" value={String(koboldOptions.port)} onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, port: Number(value || 0) || koboldOptions.port } })} />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.contextWindow")}</FieldLabel>
-                                <InputField
-                                  type="number"
-                                  value={String(koboldOptions.contextSize || 0)}
-                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, contextSize: Number(value || 0) || 0 } })}
-                                />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.gpuLayers")}</FieldLabel>
-                                <InputField
-                                  type="number"
-                                  value={String(koboldOptions.gpuLayers || 0)}
-                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, gpuLayers: Number(value || 0) || 0 } })}
-                                />
-                              </div>
-                            </div>
-                            <div className="mt-4 grid gap-3 md:grid-cols-3">
-                              <div>
-                                <FieldLabel>{t("settings.threads")}</FieldLabel>
-                                <InputField
-                                  type="number"
-                                  value={String(koboldOptions.threads || 0)}
-                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, threads: Number(value || 0) || 0 } })}
-                                />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.blasThreads")}</FieldLabel>
-                                <InputField
-                                  type="number"
-                                  value={String(koboldOptions.blasThreads || 0)}
-                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, blasThreads: Number(value || 0) || 0 } })}
-                                />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.batchSize")}</FieldLabel>
-                                <InputField
-                                  type="number"
-                                  value={String(koboldOptions.batchSize || 0)}
-                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, batchSize: Number(value || 0) || 0 } })}
-                                />
-                              </div>
-                            </div>
-                            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                              {([
-                                ["highPriority", t("settings.highPriority")],
-                                ["smartContext", t("settings.smartContext")],
-                                ["useMmap", t("settings.useMmap")],
-                                ["flashAttention", t("settings.flashAttention")],
-                                ["noMmap", t("settings.noMmap")],
-                                ["noKvOffload", t("settings.noKvOffload")]
-                              ] as const).map(([key, label]) => (
-                                <label key={key} className="settings-toggle-row rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
-                                  <span className="text-xs font-medium text-text-secondary">{label}</span>
-                                  <ToggleSwitch
-                                    checked={Boolean(koboldOptions[key])}
-                                    onChange={(e) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, [key]: e.target.checked } })}
-                                  />
-                                </label>
-                              ))}
-                            </div>
-                          </>
-                        )}
-
-                        {backend.backendKind === "ollama" && (
-                          <>
-                            <div className="mt-4 grid gap-3 md:grid-cols-2">
-                              <div>
-                                <FieldLabel>{t("settings.executable")}</FieldLabel>
-                                <InputField value={ollamaOptions.executable} onChange={(value) => updateManagedBackend(backend.id, { ollama: { ...ollamaOptions, executable: value } })} />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.defaultModel")}</FieldLabel>
-                                <InputField value={backend.defaultModel || ""} onChange={(value) => updateManagedBackend(backend.id, { defaultModel: value })} />
-                              </div>
-                            </div>
-                            <div className="mt-4 grid gap-3 md:grid-cols-2">
-                              <div>
-                                <FieldLabel>{t("settings.host")}</FieldLabel>
-                                <InputField value={ollamaOptions.host} onChange={(value) => updateManagedBackend(backend.id, { ollama: { ...ollamaOptions, host: value } })} />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.port")}</FieldLabel>
-                                <InputField type="number" value={String(ollamaOptions.port)} onChange={(value) => updateManagedBackend(backend.id, { ollama: { ...ollamaOptions, port: Number(value || 0) || ollamaOptions.port } })} />
-                              </div>
-                            </div>
-                          </>
-                        )}
-
-                        {backend.backendKind === "generic" && (
-                          <>
-                            <div className="mt-4">
-                              <FieldLabel>{t("settings.commandOverride")}</FieldLabel>
-                              <InputField
-                                value={backend.commandOverride || ""}
-                                onChange={(value) => updateManagedBackend(backend.id, { commandOverride: value })}
-                                placeholder="python server.py --host 127.0.0.1 --port 8000"
-                              />
-                            </div>
-                            <div className="mt-4 grid gap-3 md:grid-cols-2">
-                              <div>
-                                <FieldLabel>{t("settings.defaultModel")}</FieldLabel>
-                                <InputField value={backend.defaultModel || ""} onChange={(value) => updateManagedBackend(backend.id, { defaultModel: value })} />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.healthPath")}</FieldLabel>
-                                <InputField value={backend.healthPath || ""} onChange={(value) => updateManagedBackend(backend.id, { healthPath: value })} />
-                              </div>
-                            </div>
-                            <div className="mt-4 grid gap-3 md:grid-cols-2">
-                              <div>
-                                <FieldLabel>{t("settings.modelsPath")}</FieldLabel>
-                                <InputField value={backend.modelsPath || ""} onChange={(value) => updateManagedBackend(backend.id, { modelsPath: value })} />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.statusPath")}</FieldLabel>
-                                <InputField value={backend.statusPath || ""} onChange={(value) => updateManagedBackend(backend.id, { statusPath: value })} />
-                              </div>
-                            </div>
-                            <div className="mt-4 grid gap-3 md:grid-cols-3">
-                              <div>
-                                <FieldLabel>{t("settings.statusMode")}</FieldLabel>
-                                <SelectField
-                                  value={backend.statusMode || "auto"}
-                                  onChange={(value) => updateManagedBackend(backend.id, { statusMode: value as ManagedBackendConfig["statusMode"] })}
-                                >
-                                  <option value="auto">auto</option>
-                                  <option value="api">api</option>
-                                  <option value="stdout">stdout</option>
-                                  <option value="none">none</option>
-                                </SelectField>
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.statusTextPath")}</FieldLabel>
-                                <InputField value={backend.statusTextPath || ""} onChange={(value) => updateManagedBackend(backend.id, { statusTextPath: value })} />
-                              </div>
-                              <div>
-                                <FieldLabel>{t("settings.statusProgressPath")}</FieldLabel>
-                                <InputField value={backend.statusProgressPath || ""} onChange={(value) => updateManagedBackend(backend.id, { statusProgressPath: value })} />
-                              </div>
-                            </div>
-                          </>
-                        )}
-
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          <div>
-                            <FieldLabel>{t("settings.workingDirectory")}</FieldLabel>
-                            <InputField value={backend.workingDirectory || ""} onChange={(value) => updateManagedBackend(backend.id, { workingDirectory: value })} />
-                          </div>
-                          <div>
-                            <FieldLabel>{t("settings.extraArgs")}</FieldLabel>
-                            <InputField value={backend.extraArgs || ""} onChange={(value) => updateManagedBackend(backend.id, { extraArgs: value })} />
-                          </div>
-                        </div>
-
-                        <div className="mt-4">
-                          <FieldLabel>{t("settings.envVars")}</FieldLabel>
-                          <TextareaField
-                            value={envText}
-                            onChange={(value) => updateManagedBackend(backend.id, { envText: value })}
-                            placeholder={"KEY=value\nANOTHER=value"}
-                            className="h-24 min-h-[96px] text-xs"
-                            {...autosaveProps}
-                          />
-                        </div>
-
-                        <label className="mt-4 settings-toggle-row rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
-                          <span className="text-xs font-medium text-text-secondary">{t("settings.autoStopOnSwitch")}</span>
-                          <ToggleSwitch
-                            checked={backend.autoStopOnSwitch !== false}
-                            onChange={(e) => updateManagedBackend(backend.id, { autoStopOnSwitch: e.target.checked })}
-                          />
-                        </label>
-
-                        <div className="mt-4">
-                          <FieldLabel>{t("settings.commandPreview")}</FieldLabel>
-                          <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 font-mono text-[11px] text-text-secondary">
-                            {commandPreview}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <button
-                  onClick={addManagedBackend}
-                  className="mt-4 w-full rounded-lg border border-border border-dashed px-3 py-2 text-xs font-semibold text-text-secondary hover:bg-bg-hover"
-                >
-                  {t("settings.addManagedBackend")}
-                </button>
-              </div>
-            </div>
+            <ManagedBackendsSettings
+              backends={managedBackends}
+              runtimeStateById={managedBackendStateMap}
+              providers={providers}
+              importCommands={managedBackendImportCommands}
+              onImportCommandsChange={setManagedBackendImportCommands}
+              onAdd={addManagedBackend}
+              onUpdate={updateManagedBackend}
+              onRemove={removeManagedBackend}
+              onStart={startManagedBackend}
+              onStop={stopManagedBackend}
+              onOpenLogs={openManagedBackendLogs}
+              onApplyCommand={applyManagedBackendCommand}
+              autosaveProps={autosaveProps}
+              t={t}
+            />
           )}
 
           {/* ===== INTERFACE ===== */}
@@ -2222,11 +1866,24 @@ export function SettingsScreen({
 
                     <div
                       className={`settings-wallpaper-preview ${settings.simpleModeWallpaper ? "has-image" : ""}`}
-                      style={settings.simpleModeWallpaper ? {
-                        backgroundImage: `linear-gradient(rgb(8 8 12 / ${settings.simpleModeWallpaperDim}), rgb(8 8 12 / ${settings.simpleModeWallpaperDim})), url(${JSON.stringify(settings.simpleModeWallpaper)})`,
-                        backgroundPosition: settings.simpleModeWallpaperPosition
-                      } : undefined}
                     >
+                      {settings.simpleModeWallpaper ? (
+                        <>
+                          <div
+                            className="settings-wallpaper-preview-image"
+                            style={{
+                              backgroundImage: `url(${JSON.stringify(settings.simpleModeWallpaper)})`,
+                              backgroundPosition: settings.simpleModeWallpaperPosition,
+                              filter: `blur(${settings.simpleModeWallpaperBlur}px)`,
+                              transform: `scale(${1 + Math.min(24, settings.simpleModeWallpaperBlur) / 180})`
+                            }}
+                          />
+                          <div
+                            className="settings-wallpaper-preview-dim"
+                            style={{ opacity: settings.simpleModeWallpaperDim }}
+                          />
+                        </>
+                      ) : null}
                       <div className="settings-wallpaper-preview-ui">
                         <span />
                         <div>
@@ -2246,13 +1903,16 @@ export function SettingsScreen({
                         {settings.simpleModeWallpaper ? t("settings.wallpaperReplace") : t("settings.wallpaperChoose")}
                       </button>
                       {settings.simpleModeWallpaper ? (
-                        <button
-                          type="button"
+                        <IconButton
+                          label={t("settings.wallpaperRemove")}
                           onClick={() => void patch({ simpleModeWallpaper: "" })}
-                          className={secondaryActionClass}
-                        >
-                          {t("settings.wallpaperRemove")}
-                        </button>
+                          tone="danger"
+                          icon={(
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" />
+                            </svg>
+                          )}
+                        />
                       ) : null}
                       <input
                         ref={wallpaperInputRef}
@@ -2328,15 +1988,33 @@ export function SettingsScreen({
                 </div>
               </div>
 
+              <div id="settings-welcome-tour" className="settings-section settings-tour-callout scroll-mt-24">
+                <div className="settings-tour-callout-icon" aria-hidden="true">
+                  <SettingsActionIcon name="tour" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="settings-section-title">{t("settings.welcomeTour")}</div>
+                  <p className="settings-section-desc">{t("settings.welcomeTourDesc")}</p>
+                </div>
+                <button
+                  type="button"
+                  className={primaryActionClass}
+                  onClick={() => window.dispatchEvent(new Event("welcome-tour-start"))}
+                >
+                  <SettingsActionIcon name="tour" />
+                  {t("settings.welcomeTourStart")}
+                </button>
+              </div>
+
               <div id="settings-workspace-mode" className="settings-section scroll-mt-24">
                 <div className="settings-section-title">{t("settings.workspaceMode")}</div>
                 <div className="space-y-2">
                   <div className="settings-toggle-row">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.alternateSimpleMode")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.alternateSimpleModeDesc")}</div>
+                      <div className="text-sm font-medium text-text-primary">{t("settings.simpleModeRequired")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.simpleModeRequiredDesc")}</div>
                     </div>
-                    <ToggleSwitch checked={settings.alternateSimpleMode === true} onChange={(e) => patch({ alternateSimpleMode: e.target.checked })} />
+                    <span className="rounded-full border border-success-border bg-success-subtle px-2 py-1 text-[10px] font-semibold text-success">✓</span>
                   </div>
                 </div>
               </div>
@@ -2888,29 +2566,41 @@ export function SettingsScreen({
                             )}
                           </div>
                           <div className="flex items-center gap-2">
-                            <button
+                            <IconButton
+                              size="sm"
+                              label={t("settings.exportPluginfile")}
                               onClick={() => { void exportPluginfile(plugin); }}
-                              className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
-                            >
-                              {t("settings.exportPluginfile")}
-                            </button>
+                              icon={(
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14" />
+                                </svg>
+                              )}
+                            />
                             {plugin.requestedPermissions.length > 0 && (
-                              <button
+                              <IconButton
+                                size="sm"
+                                label={t("settings.pluginPermissionsManage")}
                                 data-modal-trigger="plugin-permissions"
                                 onClick={() => openPluginPermissions(plugin)}
-                                className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
-                              >
-                                {t("settings.pluginPermissionsManage")}
-                              </button>
+                                icon={(
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3 5 6v5c0 4.6 2.8 8.2 7 10 4.2-1.8 7-5.4 7-10V6l-7-3Zm-2 9 1.5 1.5L15 10" />
+                                  </svg>
+                                )}
+                              />
                             )}
                             {plugin.settingsFields.length > 0 && (
-                              <button
+                              <IconButton
+                                size="sm"
+                                label={t("settings.pluginSettings")}
                                 data-modal-trigger="plugin-settings"
                                 onClick={() => { void openPluginSettings(plugin); }}
-                                className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
-                              >
-                                {t("settings.pluginSettings")}
-                              </button>
+                                icon={(
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm8 4 2-1-2-3-2 .5a8 8 0 0 0-1.6-.9L16 5h-4l-.4 2.6a8 8 0 0 0-1.6.9L8 8 6 11l2 1a8 8 0 0 0 0 2l-2 1 2 3 2-.5a8 8 0 0 0 1.6.9L12 21h4l.4-2.6a8 8 0 0 0 1.6-.9l2 .5 2-3-2-1a8 8 0 0 0 0-2Z" />
+                                  </svg>
+                                )}
+                              />
                             )}
                             <ToggleSwitch checked={plugin.enabled} disabled={Object.prototype.hasOwnProperty.call(pendingPluginStates, plugin.id)} onChange={(e) => {
                               if (e.target.checked && plugin.requestedPermissions.length > 0 && !plugin.permissionsConfigured) {
@@ -3045,131 +2735,13 @@ export function SettingsScreen({
             </div>
           )}
 
-          {/* ===== AGENTS ===== */}
-          {activeCategory === "agents" && (
-            <div className="space-y-4">
-              <div id="settings-agents-core" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.agents")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.agentsDesc")}</p>
-                <div className="space-y-3">
-                  <div className="settings-toggle-row">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsEnable")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsEnableDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.agentsEnabled === true} onChange={(e) => patch({ agentsEnabled: e.target.checked })} />
-                  </div>
-                  <div className="settings-toggle-row">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsWorkspaceTools")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsWorkspaceToolsDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.agentWorkspaceToolsEnabled !== false} onChange={(e) => patch({ agentWorkspaceToolsEnabled: e.target.checked })} />
-                  </div>
-                  <div className="settings-toggle-row">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsCommandTool")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsCommandToolDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.agentCommandToolEnabled !== false} onChange={(e) => patch({ agentCommandToolEnabled: e.target.checked })} />
-                  </div>
-                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
-                    {settings.agentsEnabled ? t("settings.agentsEnabledHint") : t("settings.agentsDisabledHint")}
-                  </div>
-                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
-                    {settings.agentWorkspaceToolsEnabled !== false ? t("settings.agentsWorkspaceToolsEnabledHint") : t("settings.agentsWorkspaceToolsDisabledHint")}
-                  </div>
-                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
-                    {settings.agentCommandToolEnabled !== false ? t("settings.agentsCommandToolEnabledHint") : t("settings.agentsCommandToolDisabledHint")}
-                  </div>
-                </div>
-              </div>
-
-              <div id="settings-agents-security" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.agentsSecurity")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.agentsSecurityDesc")}</p>
-                <div className="space-y-3">
-                  <div className="settings-toggle-row">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsDangerousFileOps")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsDangerousFileOpsDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.agentDangerousFileOpsEnabled === true} onChange={(e) => patch({ agentDangerousFileOpsEnabled: e.target.checked })} />
-                  </div>
-                  <div className="settings-toggle-row">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsNetworkCommands")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsNetworkCommandsDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.agentNetworkCommandsEnabled === true} onChange={(e) => patch({ agentNetworkCommandsEnabled: e.target.checked })} />
-                  </div>
-                  <div className="settings-toggle-row">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsShellCommands")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsShellCommandsDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.agentShellCommandsEnabled === true} onChange={(e) => patch({ agentShellCommandsEnabled: e.target.checked })} />
-                  </div>
-                  <div className="settings-toggle-row">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsGitWriteCommands")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsGitWriteCommandsDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.agentGitWriteCommandsEnabled === true} onChange={(e) => patch({ agentGitWriteCommandsEnabled: e.target.checked })} />
-                  </div>
-                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
-                    {settings.agentDangerousFileOpsEnabled === true ? t("agents.globalToggleOn") : t("settings.agentsDangerousFileOpsDisabledHint")}
-                  </div>
-                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
-                    {settings.agentNetworkCommandsEnabled === true ? t("agents.globalToggleOn") : t("settings.agentsNetworkCommandsDisabledHint")}
-                  </div>
-                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
-                    {settings.agentShellCommandsEnabled === true ? t("agents.globalToggleOn") : t("settings.agentsShellCommandsDisabledHint")}
-                  </div>
-                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
-                    {settings.agentGitWriteCommandsEnabled === true ? t("agents.globalToggleOn") : t("settings.agentsGitWriteCommandsDisabledHint")}
-                  </div>
-                </div>
-              </div>
-
-              <div id="settings-agents-runtime" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.agentsRuntime")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.agentsRuntimeDesc")}</p>
-                <div className="space-y-3">
-                  <div className="settings-toggle-row">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.agentsAutoCompact")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.agentsAutoCompactDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.agentAutoCompactEnabled !== false} onChange={(e) => patch({ agentAutoCompactEnabled: e.target.checked })} />
-                  </div>
-                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-3 text-xs leading-relaxed text-text-tertiary">
-                    {settings.agentAutoCompactEnabled !== false ? t("settings.agentsAutoCompactEnabledHint") : t("settings.agentsAutoCompactDisabledHint")}
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <FieldLabel>{t("settings.agentsReplyReserveTokens")}</FieldLabel>
-                      <div className="mb-1 text-[10px] leading-5 text-text-tertiary">{t("settings.agentsReplyReserveTokensDesc")}</div>
-                      <InputField
-                        type="number"
-                        value={String(settings.agentReplyReserveTokens)}
-                        onChange={(v) => patch({ agentReplyReserveTokens: clampInteger(v, settings.agentReplyReserveTokens, 256, 12000) })}
-                        {...autosaveProps}
-                      />
-                    </div>
-                    <div>
-                      <FieldLabel>{t("settings.agentsToolContextChars")}</FieldLabel>
-                      <div className="mb-1 text-[10px] leading-5 text-text-tertiary">{t("settings.agentsToolContextCharsDesc")}</div>
-                      <InputField
-                        type="number"
-                        value={String(settings.agentToolContextChars)}
-                        onChange={(v) => patch({ agentToolContextChars: clampInteger(v, settings.agentToolContextChars, 400, 12000) })}
-                        {...autosaveProps}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
+          {activeCategory === "legacy" && (
+            <div id="settings-legacy" className="scroll-mt-24">
+              <LegacyScreen
+                embedded
+                initialAgentThreadId={initialLegacyAgentThreadId}
+                onInitialAgentThreadHandled={onInitialLegacyAgentThreadHandled}
+              />
             </div>
           )}
 

@@ -708,6 +708,7 @@ export interface PluginHostContext {
 
 export interface AppSettings {
   onboardingCompleted: boolean;
+  /** @deprecated The Agents workspace is available only through the Legacy tab. */
   agentsEnabled: boolean;
   agentWorkspaceToolsEnabled: boolean;
   agentCommandToolEnabled: boolean;
@@ -718,6 +719,7 @@ export interface AppSettings {
   agentAutoCompactEnabled: boolean;
   agentReplyReserveTokens: number;
   agentToolContextChars: number;
+  /** @deprecated The non-Simple workspace can be enabled only through the Legacy tab. */
   alternateSimpleMode: boolean;
   theme: "dark" | "light" | "custom";
   pluginThemeId?: string | null;

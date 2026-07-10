@@ -22,9 +22,16 @@ import {
   finishBackgroundTask,
   startBackgroundTask
 } from "../../shared/backgroundTasks";
-import { guessMimeType, imageSourceFromAttachment, normalizeReasoningDisplayText, parseInlineReasoning, renderMarkdown } from "../chat/utils";
-import { AttachmentCard } from "../chat/components/AttachmentCard";
-import { AttachmentPreviewModal, type AttachmentViewerState } from "../chat/components/AttachmentPreviewModal";
+import {
+  AttachmentCard,
+  AttachmentPreviewModal,
+  guessMimeType,
+  imageSourceFromAttachment,
+  normalizeReasoningDisplayText,
+  parseInlineReasoning,
+  renderMarkdown,
+  type AttachmentViewerState
+} from "../chat/public";
 
 type TimelineItem =
   | { kind: "message"; id: string; createdAt: string; role: "system" | "user" | "assistant"; content: string; attachments: FileAttachment[]; runId?: string | null; metadata?: Record<string, unknown> }
@@ -1237,6 +1244,10 @@ export function AgentsScreen({
   }
 
   function openSettingsView(category: "agents" | "tools", sectionId?: string) {
+    if (category === "agents") {
+      window.dispatchEvent(new CustomEvent("open-legacy-view"));
+      return;
+    }
     window.dispatchEvent(new CustomEvent("open-settings-view", {
       detail: {
         category,

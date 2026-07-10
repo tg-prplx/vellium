@@ -4,7 +4,6 @@ import { tmpdir } from "os";
 import { join } from "path";
 import type { AddressInfo } from "net";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { Express } from "express";
 
 interface JsonRequestInit extends Omit<RequestInit, "body"> {
   body?: unknown;
@@ -1767,6 +1766,24 @@ process.stdin.on("data", (chunk) => {
     expect(timelineAfterRegenerate[1]).toMatchObject({
       role: "assistant",
       content: "MOCK STREAM RESPONSE"
+    });
+  });
+
+  it("keeps the deprecated workspace setting available to Legacy clients", async () => {
+    const updateResponse = await fetch(`${baseUrl}/api/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alternateSimpleMode: false })
+    });
+    expect(updateResponse.ok).toBe(true);
+    expect(await updateResponse.json()).toMatchObject({
+      alternateSimpleMode: false
+    });
+
+    const getResponse = await fetch(`${baseUrl}/api/settings`);
+    expect(getResponse.ok).toBe(true);
+    expect(await getResponse.json()).toMatchObject({
+      alternateSimpleMode: false
     });
   });
 
@@ -3797,7 +3814,7 @@ function toBaseUrl(server: HttpServer) {
   return `http://127.0.0.1:${address.port}`;
 }
 
-async function listen(app: Express) {
+async function listen(app: { listen(port: number, hostname: string): HttpServer }) {
   const server = app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve, reject) => {
     server.once("listening", () => resolve());

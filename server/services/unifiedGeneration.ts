@@ -230,10 +230,22 @@ export async function unifiedGenerateText(params: {
         content?: unknown;
         reasoning?: unknown;
         reasoning_content?: unknown;
+        reasoning_text?: unknown;
+        reasoningText?: unknown;
+        thinking?: unknown;
+        thinking_content?: unknown;
+        thinking_text?: unknown;
+        thinkingText?: unknown;
       };
     }>;
     reasoning?: unknown;
     reasoning_content?: unknown;
+    reasoning_text?: unknown;
+    reasoningText?: unknown;
+    thinking?: unknown;
+    thinking_content?: unknown;
+    thinking_text?: unknown;
+    thinkingText?: unknown;
   };
   const message = body.choices?.[0]?.message;
   const directReasoning = [

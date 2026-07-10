@@ -139,7 +139,7 @@ router.get("/sdk.js", (_req, res) => {
 
 router.get("/:id/assets/*", (req, res) => {
   const pluginId = String(req.params.id || "").trim();
-  const assetPath = String(req.params[0] || "").trim();
+  const assetPath = String((req.params as unknown as Record<string, string | undefined>)[0] || "").trim();
   const resolved = resolvePluginAssetPath(pluginId, assetPath);
   if (!resolved || !existsSync(resolved)) {
     res.status(404).json({ error: "Plugin asset not found" });

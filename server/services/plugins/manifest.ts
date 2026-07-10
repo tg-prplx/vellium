@@ -115,8 +115,8 @@ export function normalizePluginActions(raw: unknown): PluginActionManifest[] {
       : null;
     const requestPath = String(request?.path || "").trim();
     const requestMethodRaw = String(request?.method || "POST").trim().toUpperCase();
-    const requestMethod = ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(requestMethodRaw)
-      ? requestMethodRaw as "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
+    const requestMethod = ["GET", "POST", "PATCH", "DELETE"].includes(requestMethodRaw)
+      ? requestMethodRaw as "GET" | "POST" | "PATCH" | "DELETE"
       : "POST";
     const hasInlineRequest = mode === "inline" && /^\/api\//.test(requestPath);
     if ((!path && !hasInlineRequest) || !PLUGIN_ACTION_LOCATIONS.includes(location) || seen.has(id)) continue;

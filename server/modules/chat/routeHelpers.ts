@@ -38,6 +38,7 @@ export interface MessageAttachmentPayload {
 
 export interface ProviderRow {
   id: string;
+  name: string;
   base_url: string;
   api_key_cipher: string;
   full_local_only: number;
@@ -249,6 +250,8 @@ export function parseCharacterCard(characterId: string | null): CharacterCardDat
     mesExample: pickString(data.mes_example),
     postHistoryInstructions: pickString(data.post_history_instructions),
     alternateGreetings: pickStringList(data.alternate_greetings),
+    creator: pickString(data.creator),
+    characterVersion: pickString(data.character_version),
     extensions: pickObject(data.extensions)
   };
 }

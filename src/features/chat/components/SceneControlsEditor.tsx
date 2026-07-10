@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AppSettings, CustomInspectorField } from "../../../shared/types/contracts";
 import type { TranslationKey } from "../../../shared/i18n";
 import { ModalShell } from "../../../components/ModalShell";
-import { InputField, ToggleSwitch } from "../../settings/components/FormControls";
+import { InputField, ToggleSwitch } from "../../../components/FormControls";
 import { DEFAULT_SCENE_FIELD_VISIBILITY } from "../constants";
 
 type SceneFieldVisibility = AppSettings["sceneFieldVisibility"];

@@ -204,7 +204,7 @@ router.post("/", (req, res) => {
     const alternateGreetings = pickStringList(cardData.alternate_greetings);
     const firstGreeting = String(firstChar?.greeting || "").trim();
     const greetingToInsert = pickInitialGreeting(firstGreeting, alternateGreetings, settings.useAlternateGreetings === true);
-    if (greetingToInsert) {
+    if (greetingToInsert && firstChar) {
       db.prepare(
         "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
       ).run(newId(), chatId, branchId, "assistant", greetingToInsert, roughTokenCount(greetingToInsert), null, ts, firstChar.name, 1);
@@ -262,11 +262,11 @@ router.post("/desktop-pet/reply", async (req, res) => {
     ? req.body.pet as Record<string, unknown>
     : {};
   const name = String(pet.name || "Desktop Pet").trim().slice(0, 80);
-  const history = Array.isArray(req.body?.history)
-    ? req.body.history.flatMap((item: unknown) => {
+  const history: Array<{ role: "assistant" | "user"; content: string }> = Array.isArray(req.body?.history)
+    ? req.body.history.flatMap((item: unknown): Array<{ role: "assistant" | "user"; content: string }> => {
       if (!item || typeof item !== "object" || Array.isArray(item)) return [];
       const record = item as Record<string, unknown>;
-      const role = record.role === "assistant" ? "assistant" : record.role === "user" ? "user" : "";
+      const role = record.role === "assistant" ? "assistant" as const : record.role === "user" ? "user" as const : null;
       const historyContent = String(record.content || "").replace(/\s+/g, " ").trim().slice(0, 1200);
       return role && historyContent ? [{ role, content: historyContent }] : [];
     }).slice(-12)
@@ -279,7 +279,7 @@ router.post("/desktop-pet/reply", async (req, res) => {
     : req.body?.screenContext
       ? [req.body.screenContext]
       : [];
-  const screenContexts = rawScreenContexts.flatMap((item: unknown) => {
+  const screenContexts: Array<{ dataUrl: string }> = rawScreenContexts.flatMap((item: unknown): Array<{ dataUrl: string }> => {
     const row = item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {};
     const dataUrl = String(row.dataUrl || "").slice(0, 8 * 1024 * 1024);
     return dataUrl.startsWith("data:image/") ? [{ dataUrl }] : [];

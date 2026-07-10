@@ -121,12 +121,16 @@ async function completeProviderOnce(params: {
   }
 
   if (providerType === "custom") {
+    const samplerConfig = {
+      temperature: 0.2,
+      maxTokens: 512
+    };
     return completeCustomAdapter({
       provider: params.provider,
       modelId: params.modelId,
       systemPrompt: params.systemPrompt,
       userPrompt: params.userPrompt,
-      samplerConfig: sc
+      samplerConfig
     });
   }
 

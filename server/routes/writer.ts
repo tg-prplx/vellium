@@ -725,8 +725,8 @@ router.patch("/chapters/:id/settings", (req, res) => {
     patchInput && typeof patchInput === "object"
       ? patchInput as Record<string, unknown>
       : {};
-  const patch = normalizeChapterSettings({ ...current, ...patchObject });
-  updateChapterSettings(chapterId, patch);
+  const patch = normalizeChapterSettings({ ...(current as unknown as Record<string, unknown>), ...patchObject });
+  updateChapterSettings(chapterId, patch as unknown as Record<string, unknown>);
   res.json({ ...toChapterJson(row), settings: patch });
 });
 

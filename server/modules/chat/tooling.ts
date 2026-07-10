@@ -651,6 +651,7 @@ async function requestChatCompletion(
     throw new Error(`[API Error: ${response.status}] ${errText.slice(0, 500)}`);
   }
   return response.json() as Promise<{
+    assistantWasStreamed?: boolean;
     choices?: Array<{
       message?: {
         content?: unknown;

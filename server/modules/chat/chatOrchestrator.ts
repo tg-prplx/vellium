@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { db, newId, now, roughTokenCount, isLocalhostUrl, nextSortOrder } from "../../db.js";
 import { buildSystemPrompt, buildMessageArray, buildMultiCharSystemPrompt, buildMultiCharMessageArray, mergeConsecutiveRoles } from "../../domain/rpEngine.js";
-import type { CharacterCardData } from "../../domain/rpEngine.js";
+import type { CharacterCardData, ChatCompletionMessage } from "../../domain/rpEngine.js";
 import { getTriggeredLoreEntries, injectLoreBlocks } from "../../domain/lorebooks.js";
 import { normalizeProviderType } from "../../services/providerApi.js";
 import { retrieveRagContext, type RagContextSource } from "../../services/rag.js";
@@ -248,12 +248,12 @@ export async function streamLlmResponse(params: {
     ? injectLoreBlocks(blocks, triggeredLoreEntries)
     : blocks;
   const promptTimelineForModel = promptTimeline.map((item) => ({
-    role: item.role,
+    role: item.role === "assistant" ? "assistant" as const : "user" as const,
     content: buildPromptContentWithAttachments(
       String(item.content || ""),
       item.attachments as MessageAttachmentPayload[] | undefined || []
     ),
-    characterName: item.characterName,
+    characterName: item.characterName || undefined,
     attachments: toChatAttachments(item.attachments as MessageAttachmentPayload[] | undefined)
   }));
 
@@ -268,7 +268,7 @@ export async function streamLlmResponse(params: {
       : null;
 
   let systemPrompt = "";
-  let apiMessages: Array<{ role: string; content: unknown }>;
+  let apiMessages: ChatCompletionMessage[];
 
   if (pureChatMode) {
     systemPrompt = buildSillyTavernCompatiblePurePrompt({

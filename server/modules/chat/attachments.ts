@@ -4,8 +4,11 @@ import { getChatRagBinding, ingestRagDocument } from "../../services/rag.js";
 import type { MessageAttachmentPayload } from "./routeHelpers.js";
 
 interface PromptTimelineItem {
+  role: string;
   content: string;
   tokenCount?: number;
+  characterName?: string | null;
+  attachments?: MessageAttachmentPayload[];
 }
 
 export function sanitizeAttachments(input: unknown): MessageAttachmentPayload[] {
@@ -156,7 +159,7 @@ export function buildPromptContentWithAttachments(content: string, attachments: 
   return `${String(content || "")}${buildAttachmentPromptAppendix(attachments)}`;
 }
 
-export function resolveLorebookIds(row: { lorebook_id: string | null; lorebook_ids?: string | null } | undefined): string[] {
+export function resolveLorebookIds(row: { lorebook_id?: string | null; lorebook_ids?: string | null } | undefined): string[] {
   if (!row) return [];
   const ids = normalizeLorebookIdList((() => {
     try {
@@ -187,9 +190,9 @@ export function selectFirstResponderByMention(content: string, orderedCharacterN
 
   let best: { name: string; score: number; order: number } | null = null;
 
-  orderedCharacterNames.forEach((name, order) => {
+  for (const [order, name] of orderedCharacterNames.entries()) {
     const rawWords = tokenizeWords(name);
-    if (!rawWords.length) return;
+    if (!rawWords.length) continue;
     const filtered = rawWords.filter((word) => word.length > 1);
     const nameWords = [...new Set((filtered.length > 0 ? filtered : rawWords))];
     let score = Number.POSITIVE_INFINITY;
@@ -199,11 +202,11 @@ export function selectFirstResponderByMention(content: string, orderedCharacterN
       if (pos !== undefined && pos < score) score = pos;
     }
 
-    if (!Number.isFinite(score)) return;
+    if (!Number.isFinite(score)) continue;
     if (!best || score < best.score || (score === best.score && order < best.order)) {
       best = { name, score, order };
     }
-  });
+  }
 
   return best?.name;
 }

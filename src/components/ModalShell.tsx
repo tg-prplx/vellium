@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 type ModalSize = "sm" | "md" | "lg" | "xl" | "viewport";
 
@@ -78,20 +79,31 @@ export function ModalShell({
   const onCloseRef = useRef(onClose);
   const closeDisabledRef = useRef(closeDisabled);
   const [origin, setOrigin] = useState({ x: 50, y: 50 });
+  const [workspaceTop, setWorkspaceTop] = useState(0);
 
   onCloseRef.current = onClose;
   closeDisabledRef.current = closeDisabled;
 
   useLayoutEffect(() => {
+    const syncWorkspaceTop = () => {
+      const toolbar = document.querySelector<HTMLElement>(".app-shell > .app-header");
+      setWorkspaceTop(toolbar ? Math.max(0, Math.round(toolbar.getBoundingClientRect().bottom)) : 0);
+    };
+    syncWorkspaceTop();
+    window.addEventListener("resize", syncWorkspaceTop);
+
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (!originId) return;
-    const trigger = document.querySelector<HTMLElement>(`[data-modal-trigger="${originId}"]`);
-    if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
-    setOrigin({
-      x: Math.max(8, Math.min(92, ((rect.left + rect.width / 2) / window.innerWidth) * 100)),
-      y: Math.max(8, Math.min(92, ((rect.top + rect.height / 2) / window.innerHeight) * 100))
-    });
+    if (originId) {
+      const trigger = document.querySelector<HTMLElement>(`[data-modal-trigger="${originId}"]`);
+      if (trigger) {
+        const rect = trigger.getBoundingClientRect();
+        setOrigin({
+          x: Math.max(8, Math.min(92, ((rect.left + rect.width / 2) / window.innerWidth) * 100)),
+          y: Math.max(8, Math.min(92, ((rect.top + rect.height / 2) / window.innerHeight) * 100))
+        });
+      }
+    }
+    return () => window.removeEventListener("resize", syncWorkspaceTop);
   }, [originId]);
 
   useEffect(() => {
@@ -102,6 +114,8 @@ export function ModalShell({
       document.body.style.overflow = "hidden";
     }
     bodyLockDepth += 1;
+    document.documentElement.dataset.modalOpen = "true";
+    document.documentElement.dataset.modalDepth = String(bodyLockDepth);
     const modalId = modalIdRef.current;
 
     modalStack.push({ id: modalId, surface });
@@ -145,7 +159,13 @@ export function ModalShell({
       if (stackIndex >= 0) modalStack.splice(stackIndex, 1);
       syncModalStack();
       bodyLockDepth = Math.max(0, bodyLockDepth - 1);
-      if (bodyLockDepth === 0) document.body.style.overflow = previousBodyOverflow;
+      if (bodyLockDepth === 0) {
+        document.body.style.overflow = previousBodyOverflow;
+        delete document.documentElement.dataset.modalOpen;
+        delete document.documentElement.dataset.modalDepth;
+      } else {
+        document.documentElement.dataset.modalDepth = String(bodyLockDepth);
+      }
       returnFocusRef.current?.focus({ preventScroll: true });
     };
   }, []);
@@ -156,9 +176,10 @@ export function ModalShell({
     ...surfaceStyle
   } as CSSProperties;
 
-  return (
+  const modal = (
     <div
       className={`vellium-modal-layer ${layerClassName}`.trim()}
+      style={{ top: workspaceTop }}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !closeDisabled) onClose();
       }}
@@ -203,4 +224,6 @@ export function ModalShell({
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

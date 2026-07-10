@@ -101,23 +101,7 @@ function parseJsonObject(raw: string | null | undefined): Record<string, unknown
 function normalizeMessageMetadata(raw: string | null | undefined) {
   const metadata = parseJsonObject(raw);
   const attachments = Array.isArray(metadata.attachments)
-    ? metadata.attachments
-      .filter((item) => item && typeof item === "object")
-      .map((item) => {
-        const row = item as Record<string, unknown>;
-        const type = row.type === "image" ? "image" : row.type === "text" ? "text" : null;
-        if (!type) return null;
-        return {
-          id: sanitizeText(row.id, 160),
-          filename: sanitizeText(row.filename, 260),
-          type,
-          url: sanitizeText(row.url, 2000),
-          mimeType: sanitizeText(row.mimeType, 200),
-          dataUrl: type === "image" ? sanitizeText(row.dataUrl, 15 * 1024 * 1024) : undefined,
-          content: type === "text" ? sanitizeText(row.content, 20000) : undefined
-        };
-      })
-      .filter((item): item is {
+    ? metadata.attachments.flatMap((item): Array<{
         id: string;
         filename: string;
         type: "image" | "text";
@@ -125,7 +109,21 @@ function normalizeMessageMetadata(raw: string | null | undefined) {
         mimeType: string;
         dataUrl?: string;
         content?: string;
-      } => item !== null)
+      }> => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Record<string, unknown>;
+        const type = row.type === "image" ? "image" : row.type === "text" ? "text" : null;
+        if (!type) return [];
+        return [{
+          id: sanitizeText(row.id, 160),
+          filename: sanitizeText(row.filename, 260),
+          type,
+          url: sanitizeText(row.url, 2000),
+          mimeType: sanitizeText(row.mimeType, 200),
+          dataUrl: type === "image" ? sanitizeText(row.dataUrl, 15 * 1024 * 1024) : undefined,
+          content: type === "text" ? sanitizeText(row.content, 20000) : undefined
+        }];
+      })
       .slice(0, 12)
     : [];
   return { metadata, attachments };
@@ -388,7 +386,9 @@ function mapRun(row: {
     threadId: row.thread_id,
     parentRunId: row.parent_run_id,
     title: row.title || "",
-    status: row.status === "done" || row.status === "error" || row.status === "aborted" ? row.status : "running",
+    status: (row.status === "done" || row.status === "error" || row.status === "aborted"
+      ? row.status
+      : "running") as "running" | "done" | "error" | "aborted",
     depth: row.depth ?? 0,
     summary: row.summary || "",
     startedAt: row.started_at,

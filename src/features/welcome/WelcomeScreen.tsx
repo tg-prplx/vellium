@@ -17,7 +17,6 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
   const [theme, setTheme] = useState<AppSettings["theme"]>(initialSettings.theme || "dark");
   const [censorshipMode, setCensorshipMode] = useState<AppSettings["censorshipMode"]>(initialSettings.censorshipMode || "Unfiltered");
   const [fullLocalMode, setFullLocalMode] = useState<boolean>(Boolean(initialSettings.fullLocalMode));
-  const [alternateSimpleMode, setAlternateSimpleMode] = useState<boolean>(initialSettings.alternateSimpleMode ?? true);
   const [selectedPresetKey, setSelectedPresetKey] = useState("openai");
   const [providerApiKey, setProviderApiKey] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -67,7 +66,7 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
         theme,
         censorshipMode,
         fullLocalMode,
-        alternateSimpleMode,
+        alternateSimpleMode: true,
         ...providerPatch,
         onboardingCompleted: true
       });
@@ -190,16 +189,12 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
             <input type="checkbox" checked={fullLocalMode} onChange={(e) => setFullLocalMode(e.target.checked)} />
           </div>
 
-          <div className="mt-3 flex items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
+          <div className="mt-3 flex items-center justify-between rounded-lg border border-success-border bg-success-subtle px-3 py-2.5">
             <div>
-              <div className="text-sm font-medium text-text-primary">{t("welcome.simpleMode")}</div>
-              <div className="mt-0.5 text-[11px] text-text-tertiary">{t("welcome.simpleModeDesc")}</div>
+              <div className="text-sm font-medium text-text-primary">{t("settings.simpleModeRequired")}</div>
+              <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.simpleModeRequiredDesc")}</div>
             </div>
-            <input
-              type="checkbox"
-              checked={alternateSimpleMode}
-              onChange={(e) => setAlternateSimpleMode(e.target.checked)}
-            />
+            <span className="text-sm font-semibold text-success">✓</span>
           </div>
 
           <div className="mt-4 rounded-lg border border-border-subtle bg-bg-primary p-3">
