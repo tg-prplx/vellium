@@ -7,6 +7,7 @@ import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPres
 import { buildManagedBackendCommand, defaultManagedBackendConfig, normalizeManagedBackends, parseManagedBackendCommand, resolveManagedBackendBaseUrl } from "../../shared/managedBackends";
 import type { ApiParamPolicy, AppSettings, ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
 import { FieldLabel, InputField, SelectField, TextareaField, ToggleSwitch } from "./components/FormControls";
+import { ModalShell } from "../../components/ModalShell";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
 import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue } from "./utils";
@@ -67,6 +68,37 @@ function clampDecimal(raw: string, fallback: number, min: number, max: number, p
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return fallback;
   return Number(Math.max(min, Math.min(max, parsed)).toFixed(precision));
+}
+
+async function prepareSimpleModeWallpaper(file: File, t: (key: any) => string): Promise<string> {
+  if (!file.type.startsWith("image/")) {
+    throw new Error(t("settings.wallpaperInvalidFile"));
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    throw new Error(t("settings.wallpaperTooLarge"));
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error(t("settings.wallpaperUnreadable")));
+      image.src = objectUrl;
+    });
+
+    const maxEdge = 2560;
+    const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error(t("settings.wallpaperProcessingUnavailable"));
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.88);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 const SETTINGS_CATEGORIES: SettingsCategory[] = [
@@ -198,9 +230,13 @@ export function SettingsScreen({
   const [pluginPermissionsEnableAfterSave, setPluginPermissionsEnableAfterSave] = useState(false);
   const [pluginInstallBusy, setPluginInstallBusy] = useState(false);
   const pluginInstallInputRef = useRef<HTMLInputElement | null>(null);
+  const wallpaperInputRef = useRef<HTMLInputElement | null>(null);
   const [managedBackendImportCommands, setManagedBackendImportCommands] = useState<Record<string, string>>({});
   const [settingsSaveState, setSettingsSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const settingsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settingsRequestIdRef = useRef(0);
+  const wallpaperPatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wallpaperPatchDraftRef = useRef<Partial<AppSettings>>({});
   const managedBackendsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const managedBackendsDraftRef = useRef<ManagedBackendConfig[]>([]);
 
@@ -264,6 +300,9 @@ export function SettingsScreen({
     return () => {
       if (settingsSaveTimerRef.current) {
         clearTimeout(settingsSaveTimerRef.current);
+      }
+      if (wallpaperPatchTimerRef.current) {
+        clearTimeout(wallpaperPatchTimerRef.current);
       }
       if (managedBackendsSaveTimerRef.current) {
         clearTimeout(managedBackendsSaveTimerRef.current);
@@ -415,19 +454,32 @@ export function SettingsScreen({
   }
 
   async function patch(next: Partial<AppSettings>) {
+    const requestId = ++settingsRequestIdRef.current;
     setSettingsSaveState("saving");
     try {
       const updated = await api.settingsUpdate(next);
+      if (requestId !== settingsRequestIdRef.current) return;
       setSettings(updated);
       window.dispatchEvent(new CustomEvent("settings-change", { detail: updated }));
       if (next.theme !== undefined || next.pluginThemeId !== undefined) {
         window.dispatchEvent(new CustomEvent("theme-change", { detail: updated }));
       }
-      if (next.fontScale !== undefined || next.density !== undefined) {
+      if (
+        next.fontScale !== undefined
+        || next.density !== undefined
+        || next.simpleModeWallpaper !== undefined
+        || next.simpleModeWallpaperDim !== undefined
+        || next.simpleModeWallpaperBlur !== undefined
+        || next.simpleModeWallpaperPosition !== undefined
+      ) {
         window.dispatchEvent(new CustomEvent("display-settings-change", {
           detail: {
             fontScale: updated.fontScale,
-            density: updated.density
+            density: updated.density,
+            simpleModeWallpaper: updated.simpleModeWallpaper,
+            simpleModeWallpaperDim: updated.simpleModeWallpaperDim,
+            simpleModeWallpaperBlur: updated.simpleModeWallpaperBlur,
+            simpleModeWallpaperPosition: updated.simpleModeWallpaperPosition
           }
         }));
       }
@@ -440,8 +492,49 @@ export function SettingsScreen({
         settingsSaveTimerRef.current = null;
       }, 1600);
     } catch (error) {
+      if (requestId !== settingsRequestIdRef.current) return;
       setSettingsSaveState("error");
       showResult(error instanceof Error ? error.message : String(error), "error");
+    }
+  }
+
+  function queueWallpaperPatch(next: Partial<AppSettings>) {
+    if (!settings) return;
+    wallpaperPatchDraftRef.current = { ...wallpaperPatchDraftRef.current, ...next };
+    const optimistic = { ...settings, ...wallpaperPatchDraftRef.current };
+    setSettings(optimistic);
+    window.dispatchEvent(new CustomEvent("display-settings-change", {
+      detail: {
+        fontScale: optimistic.fontScale,
+        density: optimistic.density,
+        simpleModeWallpaper: optimistic.simpleModeWallpaper,
+        simpleModeWallpaperDim: optimistic.simpleModeWallpaperDim,
+        simpleModeWallpaperBlur: optimistic.simpleModeWallpaperBlur,
+        simpleModeWallpaperPosition: optimistic.simpleModeWallpaperPosition
+      }
+    }));
+    setSettingsSaveState("saving");
+    if (wallpaperPatchTimerRef.current) clearTimeout(wallpaperPatchTimerRef.current);
+    wallpaperPatchTimerRef.current = setTimeout(() => {
+      const queued = wallpaperPatchDraftRef.current;
+      wallpaperPatchDraftRef.current = {};
+      wallpaperPatchTimerRef.current = null;
+      void patch(queued);
+    }, 180);
+  }
+
+  async function handleWallpaperFile(file: File | null) {
+    if (!file) return;
+    setSettingsSaveState("saving");
+    try {
+      const dataUrl = await prepareSimpleModeWallpaper(file, t);
+      await patch({ simpleModeWallpaper: dataUrl });
+      showResult(t("settings.wallpaperApplied"), "success");
+    } catch (error) {
+      setSettingsSaveState("error");
+      showResult(error instanceof Error ? error.message : String(error), "error");
+    } finally {
+      if (wallpaperInputRef.current) wallpaperInputRef.current.value = "";
     }
   }
 
@@ -1676,6 +1769,7 @@ export function SettingsScreen({
                               {t("settings.stopBackend")}
                             </button>
                             <button
+                              data-modal-trigger="backend-logs"
                               onClick={() => void openManagedBackendLogs(backend)}
                               className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover"
                             >
@@ -2115,6 +2209,106 @@ export function SettingsScreen({
                       {t("settings.noPluginThemes")}
                     </div>
                   )}
+                  <div id="settings-wallpaper" className="settings-wallpaper-studio scroll-mt-24">
+                    <div className="settings-wallpaper-copy">
+                      <div>
+                        <div className="settings-wallpaper-title">{t("settings.wallpaperTitle")}</div>
+                        <p className="settings-wallpaper-desc">{t("settings.wallpaperDesc")}</p>
+                      </div>
+                      <span className={`settings-wallpaper-state ${settings.simpleModeWallpaper ? "is-active" : ""}`}>
+                        {settings.simpleModeWallpaper ? t("settings.wallpaperActive") : t("settings.wallpaperDefault")}
+                      </span>
+                    </div>
+
+                    <div
+                      className={`settings-wallpaper-preview ${settings.simpleModeWallpaper ? "has-image" : ""}`}
+                      style={settings.simpleModeWallpaper ? {
+                        backgroundImage: `linear-gradient(rgb(8 8 12 / ${settings.simpleModeWallpaperDim}), rgb(8 8 12 / ${settings.simpleModeWallpaperDim})), url(${JSON.stringify(settings.simpleModeWallpaper)})`,
+                        backgroundPosition: settings.simpleModeWallpaperPosition
+                      } : undefined}
+                    >
+                      <div className="settings-wallpaper-preview-ui">
+                        <span />
+                        <div>
+                          <i />
+                          <i />
+                        </div>
+                      </div>
+                      <div className="settings-wallpaper-preview-label">Simple Mode</div>
+                    </div>
+
+                    <div className="settings-wallpaper-actions">
+                      <button
+                        type="button"
+                        onClick={() => wallpaperInputRef.current?.click()}
+                        className={primaryActionClass}
+                      >
+                        {settings.simpleModeWallpaper ? t("settings.wallpaperReplace") : t("settings.wallpaperChoose")}
+                      </button>
+                      {settings.simpleModeWallpaper ? (
+                        <button
+                          type="button"
+                          onClick={() => void patch({ simpleModeWallpaper: "" })}
+                          className={secondaryActionClass}
+                        >
+                          {t("settings.wallpaperRemove")}
+                        </button>
+                      ) : null}
+                      <input
+                        ref={wallpaperInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        className="hidden"
+                        onChange={(event) => { void handleWallpaperFile(event.target.files?.[0] || null); }}
+                      />
+                    </div>
+
+                    {settings.simpleModeWallpaper ? (
+                      <div className="settings-wallpaper-controls">
+                        <div>
+                          <div className="mb-1.5 flex items-center justify-between">
+                            <FieldLabel>{t("settings.wallpaperDim")}</FieldLabel>
+                            <span className="text-xs text-text-tertiary">{Math.round(settings.simpleModeWallpaperDim * 100)}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0.15}
+                            max={0.9}
+                            step={0.05}
+                            value={settings.simpleModeWallpaperDim}
+                            onChange={(event) => queueWallpaperPatch({ simpleModeWallpaperDim: Number(event.target.value) })}
+                            className="w-full"
+                          />
+                        </div>
+                        <div>
+                          <div className="mb-1.5 flex items-center justify-between">
+                            <FieldLabel>{t("settings.wallpaperBlur")}</FieldLabel>
+                            <span className="text-xs text-text-tertiary">{Math.round(settings.simpleModeWallpaperBlur)} px</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={24}
+                            step={1}
+                            value={settings.simpleModeWallpaperBlur}
+                            onChange={(event) => queueWallpaperPatch({ simpleModeWallpaperBlur: Number(event.target.value) })}
+                            className="w-full"
+                          />
+                        </div>
+                        <div>
+                          <FieldLabel>{t("settings.wallpaperPosition")}</FieldLabel>
+                          <SelectField
+                            value={settings.simpleModeWallpaperPosition}
+                            onChange={(value) => void patch({ simpleModeWallpaperPosition: value as AppSettings["simpleModeWallpaperPosition"] })}
+                          >
+                            <option value="top">{t("settings.wallpaperPositionTop")}</option>
+                            <option value="center">{t("settings.wallpaperPositionCenter")}</option>
+                            <option value="bottom">{t("settings.wallpaperPositionBottom")}</option>
+                          </SelectField>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
                       <FieldLabel>{t("settings.textSize")}</FieldLabel>
@@ -2702,6 +2896,7 @@ export function SettingsScreen({
                             </button>
                             {plugin.requestedPermissions.length > 0 && (
                               <button
+                                data-modal-trigger="plugin-permissions"
                                 onClick={() => openPluginPermissions(plugin)}
                                 className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
                               >
@@ -2710,6 +2905,7 @@ export function SettingsScreen({
                             )}
                             {plugin.settingsFields.length > 0 && (
                               <button
+                                data-modal-trigger="plugin-settings"
                                 onClick={() => { void openPluginSettings(plugin); }}
                                 className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover"
                               >
@@ -2978,24 +3174,45 @@ export function SettingsScreen({
           )}
 
           {pluginPermissionsPlugin && (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-4">
-              <div className="modal-pop w-full max-w-xl rounded-2xl border border-border bg-bg-secondary shadow-2xl">
-                <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-4">
-                  <div className="min-w-0">
-                    <div className="text-lg font-semibold text-text-primary">{pluginPermissionsPlugin.name}</div>
-                    <div className="mt-1 text-xs text-text-tertiary">{t("settings.pluginPermissionsDesc")}</div>
-                  </div>
+            <ModalShell
+              title={pluginPermissionsPlugin.name}
+              description={t("settings.pluginPermissionsDesc")}
+              closeLabel={t("settings.pluginPermissionsCancel")}
+              onClose={() => {
+                setPluginPermissionsPlugin(null);
+                setPluginPermissionsEnableAfterSave(false);
+              }}
+              closeDisabled={pluginPermissionsSaving}
+              size="md"
+              originId="plugin-permissions"
+              surfaceClassName="settings-dialog"
+              bodyClassName="settings-dialog-body"
+              icon={(
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 3 5 6v5c0 4.6 2.8 8.2 7 10 4.2-1.8 7-5.4 7-10V6l-7-3Zm-2 9 1.5 1.5L15 10" />
+                </svg>
+              )}
+              footer={(
+                <>
+                  <span className="vellium-modal-footer-note mr-auto">
+                    {pluginPermissionsEnableAfterSave ? t("settings.pluginPermissionsEnableHint") : t("settings.pluginPermissionsRuntimeHint")}
+                  </span>
                   <button
                     onClick={() => {
                       setPluginPermissionsPlugin(null);
                       setPluginPermissionsEnableAfterSave(false);
                     }}
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover"
+                    className="vellium-button vellium-button-secondary"
                   >
                     {t("settings.pluginPermissionsCancel")}
                   </button>
-                </div>
-                <div className="max-h-[70vh] space-y-3 overflow-auto px-5 py-4">
+                  <button onClick={() => void savePluginPermissions()} disabled={pluginPermissionsSaving} className="vellium-button vellium-button-primary">
+                    {pluginPermissionsSaving ? t("settings.pluginPermissionsSaving") : t("settings.pluginPermissionsSave")}
+                  </button>
+                </>
+              )}
+            >
+                <div className="settings-dialog-list">
                   {pluginPermissionsPlugin.requestedPermissions.map((permission) => {
                     const tone = pluginPermissionTone(permission);
                     const badgeClass =
@@ -3024,49 +3241,41 @@ export function SettingsScreen({
                     );
                   })}
                 </div>
-                <div className="flex items-center justify-between gap-3 border-t border-border-subtle px-5 py-4">
-                  <div className="text-xs text-text-tertiary">
-                    {pluginPermissionsEnableAfterSave ? t("settings.pluginPermissionsEnableHint") : t("settings.pluginPermissionsRuntimeHint")}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setPluginPermissionsPlugin(null);
-                        setPluginPermissionsEnableAfterSave(false);
-                      }}
-                      className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover"
-                    >
-                      {t("settings.pluginPermissionsCancel")}
-                    </button>
-                    <button
-                      onClick={() => void savePluginPermissions()}
-                      disabled={pluginPermissionsSaving}
-                      className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-60"
-                    >
-                      {pluginPermissionsSaving ? t("settings.pluginPermissionsSaving") : t("settings.pluginPermissionsSave")}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            </ModalShell>
           )}
 
           {pluginSettingsPlugin && (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-4">
-              <div className="modal-pop w-full max-w-2xl rounded-2xl border border-border bg-bg-secondary shadow-2xl">
-                <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-4">
-                  <div className="min-w-0">
-                    <div className="text-lg font-semibold text-text-primary">{pluginSettingsPlugin.name}</div>
-                    <div className="mt-1 text-xs text-text-tertiary">{t("settings.pluginSettingsDesc")}</div>
-                  </div>
-                  <button
-                    onClick={() => setPluginSettingsPlugin(null)}
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover"
-                  >
+            <ModalShell
+              title={pluginSettingsPlugin.name}
+              description={t("settings.pluginSettingsDesc")}
+              closeLabel={t("settings.pluginSettingsCancel")}
+              onClose={() => setPluginSettingsPlugin(null)}
+              closeDisabled={pluginSettingsSaving}
+              size="lg"
+              originId="plugin-settings"
+              surfaceClassName="settings-dialog"
+              bodyClassName="settings-dialog-body"
+              icon={(
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm8 4 2-1-2-3-2 .5a8 8 0 0 0-1.6-.9L16 5h-4l-.4 2.6a8 8 0 0 0-1.6.9L8 8 6 11l2 1a8 8 0 0 0 0 2l-2 1 2 3 2-.5a8 8 0 0 0 1.6.9L12 21h4l.4-2.6a8 8 0 0 0 1.6-.9l2 .5 2-3-2-1a8 8 0 0 0 0-2Z" />
+                </svg>
+              )}
+              footer={(
+                <>
+                  <button onClick={() => setPluginSettingsPlugin(null)} className="vellium-button vellium-button-secondary">
                     {t("settings.pluginSettingsCancel")}
                   </button>
-                </div>
-                <div className="max-h-[70vh] space-y-4 overflow-auto px-5 py-4">
+                  <button
+                    onClick={() => void savePluginSettings()}
+                    disabled={pluginSettingsLoading || pluginSettingsSaving}
+                    className="vellium-button vellium-button-primary"
+                  >
+                    {pluginSettingsSaving ? t("settings.pluginSettingsSaving") : t("settings.pluginSettingsSave")}
+                  </button>
+                </>
+              )}
+            >
+                <div className="settings-dialog-fields">
                   {pluginSettingsLoading ? (
                     <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-sm text-text-tertiary">{t("settings.pluginSettingsLoading")}</div>
                   ) : (
@@ -3129,45 +3338,35 @@ export function SettingsScreen({
                     })
                   )}
                 </div>
-                <div className="flex items-center justify-end gap-2 border-t border-border-subtle px-5 py-4">
-                  <button
-                    onClick={() => setPluginSettingsPlugin(null)}
-                    className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover"
-                  >
-                    {t("settings.pluginSettingsCancel")}
-                  </button>
-                  <button
-                    onClick={() => void savePluginSettings()}
-                    disabled={pluginSettingsLoading || pluginSettingsSaving}
-                    className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-60"
-                  >
-                    {pluginSettingsSaving ? t("settings.pluginSettingsSaving") : t("settings.pluginSettingsSave")}
-                  </button>
-                </div>
-              </div>
-            </div>
+            </ModalShell>
           )}
 
           {managedBackendLogsFor && (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/45 p-4">
-              <div className="modal-pop w-full max-w-4xl rounded-2xl border border-border bg-bg-secondary shadow-2xl">
-                <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-4">
-                  <div className="min-w-0">
-                    <div className="text-lg font-semibold text-text-primary">{managedBackendLogsFor.name}</div>
-                    <div className="mt-1 text-xs text-text-tertiary">{t("settings.backendLogsDesc")}</div>
-                  </div>
-                  <button
-                    onClick={() => setManagedBackendLogsFor(null)}
-                    className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover"
-                  >
-                    {t("common.close")}
-                  </button>
-                </div>
-                <div className="space-y-3 px-5 py-4">
-                  <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-[11px] text-text-secondary">
+            <ModalShell
+              title={managedBackendLogsFor.name}
+              description={t("settings.backendLogsDesc")}
+              closeLabel={t("common.close")}
+              onClose={() => setManagedBackendLogsFor(null)}
+              size="xl"
+              originId="backend-logs"
+              surfaceClassName="settings-dialog backend-logs-dialog"
+              bodyClassName="settings-dialog-body"
+              icon={(
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m6 8 4 4-4 4m6 0h6M4 4h16v16H4z" />
+                </svg>
+              )}
+              footer={(
+                <button onClick={() => setManagedBackendLogsFor(null)} className="vellium-button vellium-button-primary">
+                  {t("common.close")}
+                </button>
+              )}
+            >
+                <div className="backend-log-stack">
+                  <div className="backend-log-command">
                     {managedBackendStateMap.get(managedBackendLogsFor.id)?.commandPreview || buildManagedBackendCommand(managedBackendLogsFor).command}
                   </div>
-                  <div className="max-h-[60vh] overflow-auto rounded-lg border border-border-subtle bg-black/80 px-3 py-2 font-mono text-[11px] text-slate-200">
+                  <div className="backend-log-output">
                     {managedBackendLogs.length === 0 ? (
                       <div className="text-slate-400">{t("settings.backendLogsEmpty")}</div>
                     ) : managedBackendLogs.map((entry) => (
@@ -3179,8 +3378,7 @@ export function SettingsScreen({
                     ))}
                   </div>
                 </div>
-              </div>
-            </div>
+            </ModalShell>
           )}
 
         </div>

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api } from "../../shared/api";
 import { isTrustedPluginFrameMessage, normalizePluginApiRequest } from "./security";
 import { buildPluginInlineRequest } from "./utils";
+import { ModalShell } from "../../components/ModalShell";
 import type {
   PluginActionContribution,
   PluginActionLocation,
@@ -646,25 +647,22 @@ export function PluginActionModalHost() {
   if (!activeActionRequest) return null;
   const { plugin, action, payload } = activeActionRequest;
   return (
-    <div className="plugin-action-modal-backdrop" onClick={closePluginAction}>
-      <div
-        className="plugin-action-modal"
-        style={{ width: `min(${action.width}px, calc(100vw - 32px))` }}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="plugin-action-modal-header">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-text-primary">{action.title}</div>
-            <div className="text-[11px] text-text-tertiary">{plugin.name}</div>
-          </div>
-          <button
-            type="button"
-            onClick={closePluginAction}
-            className="rounded-md border border-border px-2 py-1 text-xs text-text-secondary hover:bg-bg-hover"
-          >
-            ×
-          </button>
-        </div>
+    <ModalShell
+      title={action.title}
+      eyebrow={plugin.name}
+      closeLabel="Close"
+      onClose={closePluginAction}
+      size="viewport"
+      originId="plugin-action"
+      surfaceClassName="plugin-action-modal"
+      bodyClassName="plugin-action-modal-body"
+      surfaceStyle={{ width: `min(${action.width}px, calc(100vw - 32px))` }}
+      icon={(
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9.5 3.5 11 6l2.8.4-2 2 .5 2.8-2.8-1.3L7 11.2l.5-2.8-2-2L8.2 6l1.3-2.5ZM16 13l1 1.8 2 .3-1.5 1.4.4 2-1.9-.9-1.9.9.4-2-1.5-1.4 2-.3L16 13Z" />
+        </svg>
+      )}
+    >
         <PluginFrame
           plugin={plugin}
           url={action.url}
@@ -680,8 +678,7 @@ export function PluginActionModalHost() {
           instanceKey={`action:${plugin.id}:${action.id}:${catalogRevision}`}
           className="plugin-action-frame"
         />
-      </div>
-    </div>
+    </ModalShell>
   );
 }
 

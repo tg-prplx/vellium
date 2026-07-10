@@ -202,8 +202,16 @@ export function TaskManager({
       setIsOpen(false);
     }
 
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsOpen(false);
+    }
+
     window.addEventListener("mousedown", handlePointerDown);
-    return () => window.removeEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -247,7 +255,9 @@ export function TaskManager({
       {isOpen && (
         <div
           ref={panelRef}
-          className={`fixed ${topClass} right-4 z-[90] w-[360px] max-w-[calc(100vw-2rem)] rounded-3xl border border-border bg-bg-secondary/95 p-3 shadow-2xl backdrop-blur`}
+          role="dialog"
+          aria-label={t("taskManager.title")}
+          className={`task-manager-popover fixed ${topClass} right-4 z-[90] w-[360px] max-w-[calc(100vw-2rem)] rounded-3xl border border-border bg-bg-secondary/95 p-3 shadow-2xl backdrop-blur`}
         >
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>

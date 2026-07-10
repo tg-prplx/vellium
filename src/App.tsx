@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { PluginActionBar, PluginActionModalHost, PluginActionToastHost, PluginFrame, PluginProvider, usePlugins } from "./features/plugins/PluginHost";
 import { I18nContext, translations, useI18n, type Locale } from "./shared/i18n";
 import { api } from "./shared/api";
@@ -56,6 +56,8 @@ function AppContent({
   const { pluginTabs, catalogRevision } = usePlugins();
   const [pendingAgentThreadId, setPendingAgentThreadId] = useState<string | null>(null);
   const [pendingSettingsView, setPendingSettingsView] = useState<{ category?: string; sectionId?: string } | null>(null);
+  const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
+  const navRef = useRef<HTMLElement | null>(null);
 
   const coreTabs = useMemo<AppTab[]>(() => {
     const tabs: AppTab[] = [
@@ -94,6 +96,27 @@ function AppContent({
     if (tabs.some((tab) => tab.id === activeTab)) return;
     setActiveTab("chat");
   }, [tabs, activeTab]);
+
+  useEffect(() => {
+    setOpenNavGroup(null);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!openNavGroup) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && !navRef.current?.contains(target)) setOpenNavGroup(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenNavGroup(null);
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openNavGroup]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -169,8 +192,8 @@ function AppContent({
     : undefined;
 
   const brandNode = (
-    <div className="flex items-center gap-2.5">
-      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent">
+    <div className="app-brand flex items-center gap-2.5">
+      <div className="app-brand-mark flex h-8 w-8 items-center justify-center rounded-xl bg-accent">
         <svg className="h-4 w-4 text-text-inverse" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
         </svg>
@@ -196,6 +219,7 @@ function AppContent({
 
   const tabsNode = (
     <nav
+      ref={navRef}
       className="app-nav my-1.5 flex items-center gap-1 rounded-lg border border-border-subtle bg-bg-secondary p-1"
       style={noDrag}
     >
@@ -203,11 +227,21 @@ function AppContent({
         const activeGroupTab = group.tabs.find((tab) => tab.id === activeTab);
         const triggerTab = activeGroupTab || group.tabs[0];
         const isGroupActive = Boolean(activeGroupTab);
+        const isMenuOpen = openNavGroup === group.id;
         return (
-          <div key={group.id} className={`app-nav-group ${isGroupActive ? "is-active" : ""}`}>
+          <div key={group.id} className={`app-nav-group ${isGroupActive ? "is-active" : ""} ${isMenuOpen ? "is-open" : ""}`}>
             <button
               type="button"
-              onClick={() => setActiveTab(triggerTab.id)}
+              aria-haspopup={group.tabs.length > 1 ? "menu" : undefined}
+              aria-expanded={group.tabs.length > 1 ? isMenuOpen : undefined}
+              aria-controls={group.tabs.length > 1 ? `app-nav-menu-${group.id}` : undefined}
+              onClick={() => {
+                if (group.tabs.length > 1) {
+                  setOpenNavGroup((current) => current === group.id ? null : group.id);
+                  return;
+                }
+                setActiveTab(triggerTab.id);
+              }}
               className={`app-tab-button app-nav-trigger flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                 isGroupActive
                   ? "is-active bg-bg-hover text-text-primary"
@@ -216,21 +250,30 @@ function AppContent({
             >
               <TabIcon path={triggerTab.icon} />
               <span>{group.label}</span>
-              {activeGroupTab ? <span className="app-nav-current">{activeGroupTab.label}</span> : null}
+              {activeGroupTab && group.tabs.length > 1 ? <span className="app-nav-current">{activeGroupTab.label}</span> : null}
               {group.tabs.length > 1 ? <span className="app-nav-chevron" aria-hidden="true">⌄</span> : null}
             </button>
-            {group.tabs.length > 1 ? (
-              <div className="app-nav-menu" role="menu">
+            {group.tabs.length > 1 && isMenuOpen ? (
+              <div id={`app-nav-menu-${group.id}`} className="app-nav-menu" role="menu">
+                <div className="app-nav-menu-label">{group.label}</div>
                 {group.tabs.map((tab) => (
                   <button
                     key={tab.id}
                     type="button"
                     role="menuitem"
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      setOpenNavGroup(null);
+                    }}
                     className={`app-nav-menu-item ${activeTab === tab.id ? "is-active" : ""}`}
                   >
-                    <TabIcon path={tab.icon} />
-                    <span>{tab.label}</span>
+                    <span className="app-nav-menu-icon"><TabIcon path={tab.icon} /></span>
+                    <span className="app-nav-menu-copy">{tab.label}</span>
+                    {activeTab === tab.id ? (
+                      <svg className="app-nav-menu-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -267,7 +310,7 @@ function AppContent({
           </div>
         </TitleBar>
       ) : (
-        <header className="relative z-[80] flex-shrink-0 overflow-visible border-b border-border">
+        <header className="app-header relative z-[80] flex-shrink-0 overflow-visible border-b border-border">
           <div className="flex w-full items-center px-7 py-4">
             <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-3">
               <div className="justify-self-start">{brandNode}</div>
@@ -278,7 +321,7 @@ function AppContent({
         </header>
       )}
 
-      <main className="w-full flex-1 overflow-hidden p-4">
+      <main className="app-main w-full flex-1 overflow-hidden p-4">
         <div className="tab-content-enter h-full">
           <Suspense fallback={<ScreenFallback />}>
             {content}
@@ -356,12 +399,35 @@ function findPluginTheme(catalog: PluginCatalog | null, pluginThemeId: string | 
   return null;
 }
 
-function applyDisplaySettings(settings: Pick<AppSettings, "fontScale" | "density">) {
+type DisplaySettings = Pick<
+  AppSettings,
+  | "fontScale"
+  | "density"
+  | "simpleModeWallpaper"
+  | "simpleModeWallpaperDim"
+  | "simpleModeWallpaperBlur"
+  | "simpleModeWallpaperPosition"
+>;
+
+function applyDisplaySettings(settings: DisplaySettings) {
   const root = document.documentElement;
   const fontScale = Number(settings.fontScale);
   const safeFontScale = Number.isFinite(fontScale) ? Math.max(0.65, Math.min(1.5, fontScale)) : 1;
+  const wallpaper = typeof settings.simpleModeWallpaper === "string" && settings.simpleModeWallpaper.startsWith("data:image/")
+    ? settings.simpleModeWallpaper
+    : "";
+  const dim = Number(settings.simpleModeWallpaperDim);
+  const blur = Number(settings.simpleModeWallpaperBlur);
+  const position = settings.simpleModeWallpaperPosition === "top" || settings.simpleModeWallpaperPosition === "bottom"
+    ? settings.simpleModeWallpaperPosition
+    : "center";
   root.style.setProperty("--app-font-scale", String(safeFontScale));
   root.style.setProperty("--app-ui-scale", String(safeFontScale));
+  root.style.setProperty("--simple-wallpaper-image", wallpaper ? `url(${JSON.stringify(wallpaper)})` : "none");
+  root.style.setProperty("--simple-wallpaper-dim", String(Number.isFinite(dim) ? Math.max(0.15, Math.min(0.9, dim)) : 0.6));
+  root.style.setProperty("--simple-wallpaper-blur", `${Number.isFinite(blur) ? Math.max(0, Math.min(24, blur)) : 0}px`);
+  root.style.setProperty("--simple-wallpaper-position", position);
+  root.dataset.simpleWallpaper = wallpaper ? "active" : "none";
   root.dataset.density = settings.density === "compact" ? "compact" : "comfortable";
 }
 
@@ -415,7 +481,7 @@ export function App() {
       }
     };
     const displayHandler = (e: Event) => {
-      const detail = (e as CustomEvent<Pick<AppSettings, "fontScale" | "density">>).detail;
+      const detail = (e as CustomEvent<DisplaySettings>).detail;
       if (!detail || typeof detail !== "object") return;
       applyDisplaySettings(detail);
     };

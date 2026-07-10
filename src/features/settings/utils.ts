@@ -35,7 +35,17 @@ export function normalizeApiParamPolicy(raw: ApiParamPolicy | null | undefined):
 export function scrollToSettingsSection(id: string) {
   const node = document.getElementById(id);
   if (!node) return;
-  node.scrollIntoView({ behavior: "smooth", block: "start" });
+  const scroller = node.closest(".settings-content-area") as HTMLElement | null;
+  if (!scroller) {
+    node.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+    return;
+  }
+  const scrollerRect = scroller.getBoundingClientRect();
+  const nodeRect = node.getBoundingClientRect();
+  scroller.scrollTo({
+    top: scroller.scrollTop + nodeRect.top - scrollerRect.top - 18,
+    behavior: "smooth"
+  });
 }
 
 const HIGH_RISK_PLUGIN_PERMISSIONS = new Set(["api.write", "pluginSettings.write"]);
