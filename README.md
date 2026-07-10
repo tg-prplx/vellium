@@ -1,7 +1,5 @@
 # Vellium
 
-![Uploading image.png…]()
-
 <p align="center"><strong>Desktop AI chat, RP, writing, RAG, agent, and plugin workbench.</strong></p>
 
 Desktop app built with Electron, React, a local Express API, and SQLite.
