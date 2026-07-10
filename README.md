@@ -1,5 +1,7 @@
 # Vellium
 
+<img width="1440" height="913" alt="image" src="https://github.com/user-attachments/assets/b81aeaa9-7f40-44e0-b739-deb6d91b8edf" />
+
 <p align="center"><strong>Desktop AI chat, RP, writing, RAG, agent, and plugin workbench.</strong></p>
 
 Desktop app built with Electron, React, a local Express API, and SQLite.
