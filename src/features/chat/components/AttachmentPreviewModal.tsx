@@ -1,4 +1,5 @@
 import type { FileAttachment } from "../../../shared/types/contracts";
+import { ModalShell } from "../../../components/ModalShell";
 
 export interface AttachmentViewerState {
   attachment: FileAttachment;
@@ -22,60 +23,46 @@ export function AttachmentPreviewModal({
   if (!viewer) return null;
 
   return (
-    <div
-      className="overlay-animate fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4 py-6"
-      onClick={onClose}
+    <ModalShell
+      title={viewer.attachment.filename || t("chat.attachment")}
+      description={viewer.attachment.mimeType || (viewer.mode === "image" ? t("chat.imageAttachment") : t("chat.textAttachment"))}
+      closeLabel={t("chat.closePreview")}
+      onClose={onClose}
+      size={viewer.mode === "image" ? "viewport" : "xl"}
+      originId="attachment-preview"
+      surfaceClassName="attachment-preview-modal"
+      bodyClassName="attachment-preview-body"
+      icon={viewer.mode === "image" ? (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+          <rect x="3" y="4" width="18" height="16" rx="3" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="m7 16 3.5-3.5 2.5 2.5 2-2 3 3M8 9h.01" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M7 3h7l5 5v13H7zM14 3v6h5M10 13h6M10 17h6" />
+        </svg>
+      )}
+      headerActions={(
+        <button type="button" onClick={() => void onOpenRaw(viewer.attachment)} className="vellium-button vellium-button-secondary">
+          {t("chat.openAttachment")}
+        </button>
+      )}
     >
-      <div
-        className={`modal-pop w-full overflow-hidden rounded-2xl border border-border bg-bg-secondary shadow-2xl ${
-          viewer.mode === "image" ? "max-w-6xl" : "max-w-4xl"
-        }`}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-text-primary">
-              {viewer.attachment.filename || t("chat.attachment")}
-            </div>
-            <div className="truncate text-[11px] text-text-tertiary">
-              {viewer.attachment.mimeType || (viewer.mode === "image" ? t("chat.imageAttachment") : t("chat.textAttachment"))}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void onOpenRaw(viewer.attachment);
-              }}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-            >
-              {t("chat.openAttachment")}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-            >
-              {t("chat.closePreview")}
-            </button>
-          </div>
-        </div>
         {viewer.mode === "image" ? (
-          <div className="flex max-h-[78vh] items-center justify-center overflow-auto bg-bg-primary p-4">
+          <div className="attachment-preview-canvas">
             <img
               src={viewer.previewUrl || undefined}
               alt={viewer.attachment.filename || t("chat.imageAttachment")}
-              className="max-h-[72vh] max-w-full rounded-xl object-contain"
+              className="attachment-preview-image"
             />
           </div>
         ) : (
-          <div className="max-h-[72vh] overflow-auto bg-bg-primary p-4">
-            <pre className="whitespace-pre-wrap break-words rounded-xl border border-border-subtle bg-bg-secondary p-4 font-mono text-xs leading-relaxed text-text-secondary">
+          <div className="attachment-preview-text-wrap">
+            <pre className="attachment-preview-text">
               {viewer.attachment.content || t("chat.noAttachmentPreview")}
             </pre>
           </div>
         )}
-      </div>
-    </div>
+    </ModalShell>
   );
 }

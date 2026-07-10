@@ -100,6 +100,7 @@ export function buildSettingsNavigation(t: (key: any) => string) {
     ],
     interface: [
       { id: "settings-general", label: t("settings.general") },
+      { id: "settings-wallpaper", label: t("settings.wallpaperTitle") },
       { id: "settings-workspace-mode", label: t("settings.workspaceMode") }
     ],
     generation: [

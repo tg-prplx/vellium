@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AppSettings, CustomInspectorField } from "../../../shared/types/contracts";
 import type { TranslationKey } from "../../../shared/i18n";
+import { ModalShell } from "../../../components/ModalShell";
 import { InputField, ToggleSwitch } from "../../settings/components/FormControls";
 import { DEFAULT_SCENE_FIELD_VISIBILITY } from "../constants";
 
@@ -233,29 +234,35 @@ export function SceneControlsEditor({
   const resolvedError = localError || errorText;
 
   return (
-    <div
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/45 p-4 overlay-animate"
-      onClick={onClose}
-    >
-      <div
-        className="modal-pop w-full max-w-4xl rounded-2xl border border-border bg-bg-secondary shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-4">
-          <div className="min-w-0">
-            <div className="text-lg font-semibold text-text-primary">{t("chat.sceneControlsEdit")}</div>
-            <div className="mt-1 text-xs text-text-tertiary">{t("chat.sceneControlsDesc")}</div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover"
-          >
-            {t("common.close")}
+    <ModalShell
+      title={t("chat.sceneControlsEdit")}
+      description={t("chat.sceneControlsDesc")}
+      closeLabel={t("common.close")}
+      onClose={onClose}
+      closeDisabled={saving}
+      size="xl"
+      originId="scene-controls"
+      surfaceClassName="scene-controls-modal"
+      layerClassName="vellium-modal-layer-elevated"
+      bodyClassName="scene-controls-modal-body"
+      icon={(
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6" />
+        </svg>
+      )}
+      footer={(
+        <>
+          <span className="vellium-modal-footer-note mr-auto">{sceneCustomFields.length} {t("chat.sceneControlsCustom")}</span>
+          <button type="button" onClick={onClose} disabled={saving} className="vellium-button vellium-button-secondary">
+            {t("chat.cancel")}
           </button>
-        </div>
-
-        <div className="max-h-[72vh] space-y-4 overflow-auto px-5 py-4">
+          <button type="button" onClick={handleSave} disabled={saving} className="vellium-button vellium-button-primary">
+            {saving ? t("settings.autosaveSaving") : t("chat.save")}
+          </button>
+        </>
+      )}
+    >
+        <div className="scene-controls-sections">
           <div className="rounded-xl border border-border-subtle bg-bg-primary p-4">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
@@ -523,26 +530,6 @@ export function SceneControlsEditor({
             </div>
           )}
         </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-border-subtle px-5 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-60"
-          >
-            {t("chat.cancel")}
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-60"
-          >
-            {saving ? t("settings.autosaveSaving") : t("chat.save")}
-          </button>
-        </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }

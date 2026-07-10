@@ -8,8 +8,26 @@ import { normalizeCustomEndpointAdapters, normalizeCustomInspectorFields } from 
 import { normalizeManagedBackends } from "../../src/shared/managedBackends.js";
 
 const router = Router();
+const TTS_DISCOVERY_TIMEOUT_MS = 12_000;
 
 const PROMPT_BLOCK_KINDS = new Set(["system", "jailbreak", "character", "author_note", "lore", "scene", "history"]);
+
+function normalizeSimpleModeWallpaper(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const value = raw.trim();
+  if (!value) return "";
+  if (!/^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(value)) return "";
+  return value.length <= 16_000_000 ? value : "";
+}
+
+function normalizeWallpaperPosition(raw: unknown): "center" | "top" | "bottom" {
+  return raw === "top" || raw === "bottom" ? raw : "center";
+}
+
+function clampWallpaperNumber(raw: unknown, fallback: number, min: number, max: number): number {
+  const value = Number(raw);
+  return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+}
 
 function normalizeSecuritySettings(raw: unknown) {
   const patch = raw && typeof raw === "object" && !Array.isArray(raw)
@@ -143,6 +161,20 @@ function getSettings() {
     agentToolContextChars: Number.isFinite(Number(stored.agentToolContextChars))
       ? Math.max(400, Math.min(12000, Math.floor(Number(stored.agentToolContextChars))))
       : DEFAULT_SETTINGS.agentToolContextChars,
+    simpleModeWallpaper: normalizeSimpleModeWallpaper(stored.simpleModeWallpaper),
+    simpleModeWallpaperDim: clampWallpaperNumber(
+      stored.simpleModeWallpaperDim,
+      DEFAULT_SETTINGS.simpleModeWallpaperDim,
+      0.15,
+      0.9
+    ),
+    simpleModeWallpaperBlur: clampWallpaperNumber(
+      stored.simpleModeWallpaperBlur,
+      DEFAULT_SETTINGS.simpleModeWallpaperBlur,
+      0,
+      24
+    ),
+    simpleModeWallpaperPosition: normalizeWallpaperPosition(stored.simpleModeWallpaperPosition),
     samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
     apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) },
@@ -176,11 +208,20 @@ async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string
   const baseUrl = normalizeOpenAiBaseUrl(baseUrlRaw);
   if (!baseUrl) return [];
   const apiKey = String(apiKeyRaw || "").trim();
-  const response = await fetch(`${baseUrl}/models`, {
-    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined
-  });
-  if (!response.ok) return [];
-  const body = await response.json() as { data?: Array<{ id?: unknown }>; models?: Array<{ id?: unknown }>; };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error(`TTS model discovery timed out after ${TTS_DISCOVERY_TIMEOUT_MS}ms`)), TTS_DISCOVERY_TIMEOUT_MS);
+  let body: { data?: Array<{ id?: unknown }>; models?: Array<{ id?: unknown }>; };
+  try {
+    const response = await fetch(`${baseUrl}/models`, {
+      headers: { Connection: "close", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+      cache: "no-store",
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`TTS model endpoint returned HTTP ${response.status}`);
+    body = await response.json() as typeof body;
+  } finally {
+    clearTimeout(timeout);
+  }
   const out: Array<{ id: string }> = [];
   if (Array.isArray(body.data)) {
     for (const item of body.data) {
@@ -228,24 +269,31 @@ async function fetchOpenAiCompatibleVoices(baseUrlRaw: string, apiKeyRaw: string
   const baseUrl = normalizeOpenAiBaseUrl(baseUrlRaw);
   if (!baseUrl) return [];
   const apiKey = String(apiKeyRaw || "").trim();
-  const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
+  const headers = { Connection: "close", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error(`TTS voice discovery timed out after ${TTS_DISCOVERY_TIMEOUT_MS}ms`)), TTS_DISCOVERY_TIMEOUT_MS);
   const candidates = [
     `${baseUrl}/audio/voices`,
     `${baseUrl}/voices`,
     `${baseUrl}/audio/speech/voices`
   ];
-  for (const url of candidates) {
-    try {
-      const response = await fetch(url, { headers });
-      if (!response.ok) continue;
-      const body = await response.json().catch(() => null);
-      const voices = extractVoiceIds(body);
-      if (voices.length > 0) return voices;
-    } catch {
-      // try next candidate endpoint
+  try {
+    for (const url of candidates) {
+      try {
+        const response = await fetch(url, { headers, cache: "no-store", signal: controller.signal });
+        if (!response.ok) continue;
+        const body = await response.json().catch(() => null);
+        const voices = extractVoiceIds(body);
+        if (voices.length > 0) return voices;
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        // try next candidate endpoint
+      }
     }
+    return [];
+  } finally {
+    clearTimeout(timeout);
   }
-  return [];
 }
 
 function normalizeMcpServer(raw: unknown, fallbackIndex = 1): McpServerConfig | null {
@@ -420,6 +468,18 @@ router.patch("/", (req, res) => {
     agentToolContextChars: patchData.agentToolContextChars === undefined
       ? current.agentToolContextChars
       : Math.max(400, Math.min(12000, Math.floor(Number(patchData.agentToolContextChars) || current.agentToolContextChars))),
+    simpleModeWallpaper: patchData.simpleModeWallpaper === undefined
+      ? current.simpleModeWallpaper
+      : normalizeSimpleModeWallpaper(patchData.simpleModeWallpaper),
+    simpleModeWallpaperDim: patchData.simpleModeWallpaperDim === undefined
+      ? current.simpleModeWallpaperDim
+      : clampWallpaperNumber(patchData.simpleModeWallpaperDim, current.simpleModeWallpaperDim, 0.15, 0.9),
+    simpleModeWallpaperBlur: patchData.simpleModeWallpaperBlur === undefined
+      ? current.simpleModeWallpaperBlur
+      : clampWallpaperNumber(patchData.simpleModeWallpaperBlur, current.simpleModeWallpaperBlur, 0, 24),
+    simpleModeWallpaperPosition: patchData.simpleModeWallpaperPosition === undefined
+      ? current.simpleModeWallpaperPosition
+      : normalizeWallpaperPosition(patchData.simpleModeWallpaperPosition),
     samplerConfig: { ...current.samplerConfig, ...(patchData.samplerConfig ?? {}) },
     apiParamPolicy: normalizeApiParamPolicy({
       ...(current.apiParamPolicy ?? {}),
@@ -486,8 +546,9 @@ router.post("/tts/models", async (req, res) => {
     }
     const models = await fetchOpenAiCompatibleModels(baseUrl, apiKey);
     res.json(models);
-  } catch {
-    res.json([]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json({ error: `TTS model endpoint unreachable: ${baseUrl} (${message || "request failed"})` });
   }
 });
 
@@ -516,8 +577,9 @@ router.post("/tts/voices", async (req, res) => {
     }
     const voices = await fetchOpenAiCompatibleVoices(baseUrl, apiKey);
     res.json(voices);
-  } catch {
-    res.json([]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json({ error: `TTS voice endpoint unreachable: ${baseUrl} (${message || "request failed"})` });
   }
 });
 

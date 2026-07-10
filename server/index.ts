@@ -5,6 +5,7 @@ import { createApp } from "./app/createApp.js";
 const runtimeOptions = parseServerRuntimeOptions();
 applyServerRuntimeEnv(runtimeOptions);
 const app = createApp();
+const PORT_RETRY_DELAYS_MS = [0, 120, 260, 520, 900];
 
 export { app };
 
@@ -13,11 +14,30 @@ export function startServer(
   host: string = runtimeOptions.host
 ): Promise<number> {
   return new Promise((resolve, reject) => {
-    const server = app.listen(port, host, () => {
-      console.log(`Server running on ${formatServerUrl({ host, port })}`);
-      resolve(port);
-    });
-    server.on("error", reject);
+    let settled = false;
+
+    const attemptListen = (attempt: number) => {
+      const server = app.listen(port, host);
+      server.once("listening", () => {
+        if (settled) return;
+        settled = true;
+        console.log(`Server running on ${formatServerUrl({ host, port })}`);
+        resolve(port);
+      });
+      server.once("error", (error: NodeJS.ErrnoException) => {
+        if (settled) return;
+        const nextAttempt = attempt + 1;
+        if (error.code === "EADDRINUSE" && nextAttempt < PORT_RETRY_DELAYS_MS.length) {
+          const delay = PORT_RETRY_DELAYS_MS[nextAttempt] ?? 0;
+          setTimeout(() => attemptListen(nextAttempt), delay);
+          return;
+        }
+        settled = true;
+        reject(error);
+      });
+    };
+
+    attemptListen(0);
   });
 }
 

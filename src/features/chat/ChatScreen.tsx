@@ -65,6 +65,7 @@ import { PersonaModal } from "./components/PersonaModal";
 import { CustomSceneFieldInput } from "./components/CustomSceneFieldInput";
 import { AttachmentCard } from "./components/AttachmentCard";
 import { SceneControlsEditor } from "./components/SceneControlsEditor";
+import { ModalShell } from "../../components/ModalShell";
 import {
   failBackgroundTask,
   finishBackgroundTask,
@@ -216,6 +217,7 @@ export function ChatScreen() {
   const [deletingMessageIds, setDeletingMessageIds] = useState<Record<string, boolean>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatSearchInputRef = useRef<HTMLInputElement>(null);
   const modelSelectorRef = useRef<HTMLDivElement>(null);
@@ -311,7 +313,9 @@ export function ChatScreen() {
   }, [samplerConfig.koboldBannedPhrases]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const scroller = chatScrollRef.current;
+    if (!scroller) return;
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
   }, [messages, streamText]);
 
   useEffect(() => {
@@ -1616,30 +1620,31 @@ export function ChatScreen() {
       />
 
       {simpleModeActive && simpleSceneOpen && (
-        <>
-          <div className="chat-simple-scene-modal" role="dialog" aria-modal="true">
-            <div className="chat-simple-scene-modal-header">
-              <div>
-                <h3 className="text-sm font-semibold text-text-primary">{t("inspector.sceneState")}</h3>
-                <p className="mt-0.5 text-[11px] text-text-tertiary">{t("chat.sceneControlsDesc")}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={openSceneControlsEditor}
-                  className="rounded-md border border-border-subtle bg-bg-primary px-2.5 py-1 text-[10px] text-text-secondary hover:bg-bg-hover"
-                >
-                  {t("chat.sceneControlsEdit")}
-                </button>
-                <button
-                  onClick={() => setSimpleSceneOpen(false)}
-                  className="rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-secondary"
-                >
-                  {t("chat.cancel")}
-                </button>
-              </div>
-            </div>
-            <div className="chat-simple-scene-modal-body">
+        <ModalShell
+          title={t("inspector.sceneState")}
+          description={t("chat.sceneControlsDesc")}
+          closeLabel={t("chat.cancel")}
+          onClose={() => setSimpleSceneOpen(false)}
+          size="lg"
+          originId="scene-state"
+          surfaceClassName="scene-state-modal"
+          bodyClassName="scene-state-modal-body"
+          icon={(
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h10m4 0h2M4 17h2m4 0h10M14 4v6M6 14v6" />
+            </svg>
+          )}
+          headerActions={(
+            <button
+              type="button"
+              data-modal-trigger="scene-controls"
+              onClick={openSceneControlsEditor}
+              className="vellium-button vellium-button-secondary"
+            >
+              {t("chat.sceneControlsEdit")}
+            </button>
+          )}
+        >
               <fieldset disabled={pureChatMode} className="space-y-2 disabled:opacity-50">
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div>
@@ -1741,9 +1746,7 @@ export function ChatScreen() {
               {pureChatMode && (
                 <p className="text-[10px] text-text-tertiary">{t("inspector.pureChatSceneDisabled")}</p>
               )}
-            </div>
-          </div>
-        </>
+        </ModalShell>
       )}
 
       <ThreePanelLayout
@@ -2164,7 +2167,7 @@ export function ChatScreen() {
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.userPersona")}:</span>
               <span className="flex-1 truncate text-xs font-medium text-text-primary">{activePersona?.name || t("chat.user")}</span>
-              <button onClick={() => setShowPersonaModal(true)}
+              <button data-modal-trigger="persona" onClick={() => setShowPersonaModal(true)}
                 className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary">
                 {t("chat.edit")}
               </button>
@@ -2549,9 +2552,17 @@ export function ChatScreen() {
 
             {simpleModeActive && simpleHomeState && (
               <div className="chat-simple-hero">
+                <div className="chat-simple-hero-mark" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3.5l2.2 5.1 5.3 2.2-5.3 2.2-2.2 5.1-2.2-5.1-5.3-2.2 5.3-2.2L12 3.5z" />
+                    <path strokeLinecap="round" d="M18.5 3.5v3M20 5h-3M5.5 17v3M7 18.5H4" />
+                  </svg>
+                </div>
+                <div className="chat-simple-hero-eyebrow">{t("chat.simpleHeroEyebrow")}</div>
                 <h2 className="chat-simple-hero-title">
                   {simpleGreeting}
                 </h2>
+                <p className="chat-simple-hero-subtitle">{t("chat.simpleHeroSubtitle")}</p>
               </div>
             )}
 
@@ -2562,15 +2573,23 @@ export function ChatScreen() {
                   onClick={() => setShowModelSelector((prev) => !prev)}
                   className="chat-simple-home-control"
                 >
+                  <span className={`chat-simple-home-control-dot ${activeModelLabel ? "is-online" : ""}`} />
                   <span className="truncate">{activeModelLabel || t("chat.selectModel")}</span>
+                  <svg className="h-3 w-3 flex-shrink-0 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
                 <button
                   onClick={() => openSimpleInspector(true)}
                   className="chat-simple-home-control"
                 >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 01-8 0m-3 13a7 7 0 0114 0M12 3v1" />
+                  </svg>
                   {t("chat.contextSetup")}
                 </button>
                 <button
+                  data-modal-trigger="scene-state"
                   onClick={() => {
                     setShowModelSelector(false);
                     setSimpleSceneOpen(true);
@@ -2578,12 +2597,15 @@ export function ChatScreen() {
                   }}
                   className="chat-simple-home-control"
                 >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M7 3v8m10-8v8M5 15h14M9 12v6m6-6v6" />
+                  </svg>
                   {t("inspector.sceneState")}
                 </button>
               </div>
             )}
 
-            <div className={`chat-scroll min-w-0 flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3 ${simpleModeActive ? "chat-simple-scroll chat-simple-surface" : ""} ${simpleHomeState ? "chat-simple-scroll-home" : ""}`}>
+            <div ref={chatScrollRef} className={`chat-scroll min-w-0 flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3 ${simpleModeActive ? "chat-simple-scroll chat-simple-surface" : ""} ${simpleHomeState ? "chat-simple-scroll-home" : ""}`}>
               {messages.length === 0 && !streaming && (
                 <EmptyState title={t("chat.startConvo")} description={t("chat.startConvoDesc")} />
               )}
@@ -3035,18 +3057,40 @@ export function ChatScreen() {
                   </div>
                 )}
                 {simpleModeActive && showModelSelector && (
-                  <div ref={modelSelectorRef} className="chat-simple-model-popover">
+                  <div ref={modelSelectorRef} role="dialog" aria-label={t("chat.selectModel")} className="chat-simple-model-popover">
+                    <div className="chat-simple-popover-header">
+                      <div className="chat-simple-popover-heading">
+                        <span className="chat-simple-popover-icon">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 6h14M8 12h8M10 18h4" />
+                          </svg>
+                        </span>
+                        <div>
+                          <div className="chat-simple-popover-title">{t("chat.selectModel")}</div>
+                          <div className="chat-simple-popover-subtitle">{providers.find((provider) => provider.id === chatProviderId)?.name || t("settings.selectProvider")}</div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowModelSelector(false)}
+                        className="chat-simple-popover-close"
+                        aria-label={t("chat.cancel")}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
                     <div className="chat-simple-model-current">
+                      <div className="chat-simple-model-status-icon">
+                        <span className={activeModelLabel ? "is-online" : ""} />
+                      </div>
                       <div className="min-w-0 flex-1">
+                        <div className="chat-simple-model-current-label">{t("settings.activeModel")}</div>
                         <div className="truncate text-sm font-medium text-text-primary">
                           {activeModelLabel || t("chat.noModel")}
                         </div>
                       </div>
-                      {activeModelLabel && (
-                        <svg className="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
                     </div>
                     <div className="chat-simple-model-form">
                       <label className="chat-simple-model-label">{t("settings.provider")}</label>
@@ -3063,13 +3107,23 @@ export function ChatScreen() {
                       </select>
                     </div>
                     <div className="chat-simple-model-footer">
-                      {loadingModels && (
-                        <span className="text-[10px] text-text-tertiary">{t("chat.loading")}</span>
-                      )}
-                      <button onClick={() => { void applyModelFromChat(); }}
-                        className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover">
-                        {t("chat.ok")}
-                      </button>
+                      <span className="text-[10px] text-text-tertiary">{loadingModels ? t("chat.loading") : `${models.length} ${t("chat.model")}`}</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowModelSelector(false)}
+                          className="chat-simple-popover-secondary"
+                        >
+                          {t("chat.cancel")}
+                        </button>
+                        <button
+                          onClick={() => { void applyModelFromChat(); }}
+                          disabled={!chatProviderId || !chatModelId || loadingModels}
+                          className="chat-simple-popover-primary"
+                        >
+                          {t("chat.ok")}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -3143,18 +3197,21 @@ export function ChatScreen() {
             {simpleModeActive && simpleHomeState && (
               <div className="chat-simple-quick-row">
                 {[
-                  { label: t("chat.simpleQuickWrite"), value: "Write with clear structure and vivid detail." },
-                  { label: t("chat.simpleQuickLearn"), value: "Explain this topic step by step with examples." },
-                  { label: t("chat.simpleQuickCode"), value: "Help me implement this in code with best practices." },
-                  { label: t("chat.simpleQuickLife"), value: "Give practical advice and a short action plan." },
-                  { label: t("chat.simpleQuickChoice"), value: "Choose the best option and justify it briefly." }
+                  { label: t("chat.simpleQuickWrite"), value: t("chat.simplePromptScene"), icon: "M4 19.5V15l10.8-10.8a2.1 2.1 0 013 3L7 18H4zM13.5 5.5l3 3" },
+                  { label: t("chat.simpleQuickLearn"), value: t("chat.simplePromptCharacter"), icon: "M12 3L3 8l9 5 9-5-9-5zM5 11.5V16l7 4 7-4v-4.5" },
+                  { label: t("chat.simpleQuickCode"), value: t("chat.simplePromptDialogue"), icon: "M8 9l-3 3 3 3m8-6l3 3-3 3m-2-9l-4 12" },
+                  { label: t("chat.simpleQuickLife"), value: t("chat.simplePromptLore"), icon: "M12 3a6 6 0 00-3.5 10.9V17h7v-3.1A6 6 0 0012 3zM9 21h6M9 17h6" },
+                  { label: t("chat.simpleQuickChoice"), value: t("chat.simplePromptChapter"), icon: "M5 6h11M5 12h7M5 18h9m4-1l2 2 3-4" }
                 ].map((item) => (
                   <button
                     key={item.label}
                     onClick={() => setInput(item.value)}
                     className="chat-simple-quick-chip"
                   >
-                    {item.label}
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d={item.icon} />
+                    </svg>
+                    <span>{item.label}</span>
                   </button>
                 ))}
               </div>
@@ -3212,6 +3269,7 @@ export function ChatScreen() {
                     <div className="mt-0.5 text-[11px] text-text-tertiary">{t("chat.userPersona")} / {t("chat.lorebook")} / RAG</div>
                   </div>
                   <button
+                    data-modal-trigger="persona"
                     onClick={() => setShowPersonaModal(true)}
                     className="rounded-md border border-border px-2.5 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
                   >
@@ -3339,6 +3397,7 @@ export function ChatScreen() {
                   </button>
                   <button
                     type="button"
+                    data-modal-trigger="scene-controls"
                     onClick={openSceneControlsEditor}
                     className="rounded-md border border-border-subtle bg-bg-primary px-2.5 py-1 text-[10px] font-medium text-text-secondary hover:bg-bg-hover"
                   >

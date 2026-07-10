@@ -25,7 +25,7 @@ export function TitleBar({ children }: TitleBarProps) {
 
   return (
     <div
-      className="relative z-[80] flex h-12 flex-shrink-0 items-center overflow-visible border-b border-border bg-bg-primary"
+      className="app-header relative z-[80] flex h-12 flex-shrink-0 items-center overflow-visible border-b border-border bg-bg-primary"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
       {/* macOS: spacer for native traffic lights */}

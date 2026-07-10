@@ -1,6 +1,7 @@
 import { getCustomEndpointAdapter, type CustomEndpointAdapter, type CustomEndpointAdapterEndpoint } from "./extensions.js";
 
 type UnknownRecord = Record<string, unknown>;
+const CUSTOM_ADAPTER_TIMEOUT_MS = 15_000;
 
 interface CustomProviderLike {
   base_url: string;
@@ -99,21 +100,30 @@ async function requestEndpoint(provider: CustomProviderLike, adapter: CustomEndp
   if (body !== undefined && method !== "GET" && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
-  const response = await fetch(url, {
-    method,
-    headers: Object.keys(headers).length > 0 ? headers : undefined,
-    body: body === undefined || method === "GET" ? undefined : JSON.stringify(body),
-    signal
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(text || `Custom adapter request failed (${response.status})`);
+  const timeoutController = signal ? null : new AbortController();
+  const timeout = timeoutController
+    ? setTimeout(() => timeoutController.abort(new Error(`Custom adapter timed out after ${CUSTOM_ADAPTER_TIMEOUT_MS}ms`)), CUSTOM_ADAPTER_TIMEOUT_MS)
+    : null;
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: Object.keys(headers).length > 0 ? { Connection: "close", ...headers } : { Connection: "close" },
+      body: body === undefined || method === "GET" ? undefined : JSON.stringify(body),
+      cache: "no-store",
+      signal: signal ?? timeoutController?.signal
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Custom adapter request failed (${response.status})`);
+    }
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      return response.json();
+    }
+    return response.text();
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
-  const contentType = response.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    return response.json();
-  }
-  return response.text();
 }
 
 function extractStrings(raw: unknown): string[] {

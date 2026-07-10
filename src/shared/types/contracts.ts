@@ -723,6 +723,10 @@ export interface AppSettings {
   pluginThemeId?: string | null;
   fontScale: number;
   density: "comfortable" | "compact";
+  simpleModeWallpaper: string;
+  simpleModeWallpaperDim: number;
+  simpleModeWallpaperBlur: number;
+  simpleModeWallpaperPosition: "center" | "top" | "bottom";
   censorshipMode: CensorshipMode;
   fullLocalMode: boolean;
   useAlternateGreetings: boolean;
