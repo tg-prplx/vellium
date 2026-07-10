@@ -6,8 +6,7 @@
 
 Desktop app built with Electron, React, a local Express API, and SQLite.
 
-![Uploading image.png…]()
-
+<img width="1440" height="911" alt="image" src="https://github.com/user-attachments/assets/54f90253-b51a-4652-bd6e-5023f078f9a8" />
 
 ## Current Release
 
