@@ -1,7 +1,7 @@
 {
   "name": "vellium",
   "private": true,
-  "version": "0.9.9-rd",
+  "version": "0.9.9",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -12,7 +12,12 @@
     "dev:electron": "npm run build:electron-main && npm run build:electron-preload && concurrently -n server,vite,electron -c blue,green,magenta \"npm run dev:server\" \"npm run dev:frontend\" \"wait-on -t 120000 http-get://localhost:1420 http-get://127.0.0.1:3002/api/health && electron .\"",
     "rebuild:native": "npm rebuild better-sqlite3",
     "rebuild:native:electron": "npx electron-rebuild -f -w better-sqlite3 -v 41.2.0",
-    "build": "tsc -b && vite build",
+    "check:architecture": "node scripts/check-architecture.cjs",
+    "typecheck:app": "tsc -b",
+    "typecheck:server": "tsc -p tsconfig.server.json --noEmit",
+    "typecheck:electron": "tsc -p tsconfig.electron.json --noEmit",
+    "typecheck": "npm run typecheck:app && npm run typecheck:server && npm run typecheck:electron",
+    "build": "npm run check:architecture && npm run typecheck && vite build",
     "build:icons": "node scripts/run-build-icons.cjs",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --outfile=server-bundle.mjs --external:better-sqlite3 --packages=external",
     "build:electron-main": "esbuild electron/main.ts --bundle --platform=node --format=cjs --outfile=dist-electron/main.cjs --external:electron",

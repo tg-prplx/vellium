@@ -353,21 +353,19 @@ interface ToolMediaItem {
 
 function normalizeToolMediaItems(raw: unknown): ToolMediaItem[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
+  return raw.flatMap((item): ToolMediaItem[] => {
+      if (!item || typeof item !== "object") return [];
       const row = item as { type?: unknown; url?: unknown; markdown?: unknown; alt?: unknown; text?: unknown };
       const type = String(row.type || "image").trim();
       const url = String(row.url || "").trim();
-      if (type !== "image" || !url) return null;
-      return {
+      if (type !== "image" || !url) return [];
+      return [{
         type: "image" as const,
         url,
         markdown: String(row.markdown || "").trim() || undefined,
         alt: String(row.alt || row.text || "").trim() || undefined
-      };
-    })
-    .filter((item): item is ToolMediaItem => item !== null);
+      }];
+    });
 }
 
 function extractSpecialToolExecutionResult(result: unknown): { modelText: string; traceText: string } | null {
@@ -686,7 +684,7 @@ async function connectMcpClient(server: McpServerConfig, signal?: AbortSignal): 
 
 export interface PreparedMcpTools {
   tools: OpenAIToolDefinition[];
-  diagnostics: PreparedMcpServerDiagnostic[];
+  diagnostics?: PreparedMcpServerDiagnostic[];
   executeToolCall: (callName: string, rawArgs: string | undefined, signal?: AbortSignal) => Promise<{
     modelText: string;
     traceText: string;

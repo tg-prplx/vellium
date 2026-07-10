@@ -56,7 +56,7 @@ On first launch Vellium shows an onboarding screen. This is where you define the
 - `Theme`
 - `Censorship`
 - `Enable local-only mode`
-- `Enable Simple Mode` for the simplified `Chat` and `Writing` UI
+- `Simple Mode`, the supported `Chat` and `Writing` interface
 - `Quick Presets` for creating a provider profile immediately
 
 ![Welcome / onboarding screen](./assets/welcome-onboarding.png)
@@ -70,7 +70,7 @@ If you are unsure:
 - theme: whatever matches your daily workflow
 - censorship: your own usage policy
 - local-only mode: enable it if you only use local models or self-hosted endpoints
-- simple mode: usually keep it enabled first
+- Simple Mode is the default; the deprecated workspace can be enabled from `Settings → Legacy`
 
 ## Built-In Provider Presets
 
@@ -122,9 +122,9 @@ If your goal is only to confirm that the app works:
 
 Do not enable it if you plan to use public endpoints such as OpenAI or OpenRouter.
 
-## When to enable Simple Mode immediately
+## Simple Mode
 
-`Simple Mode` is worth enabling if:
+`Simple Mode` is now the supported interface. The legacy Chat and Writing workspace remains available from `Settings → Legacy`.
 
 - you want a cleaner, more modern Chat and Writing UI
 - you want to learn the main flows before dealing with every advanced side panel

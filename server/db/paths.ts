@@ -16,6 +16,7 @@ function resolveDefaultDataDir() {
 }
 
 function resolveBundledPluginsDir() {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
   if (process.env.SLV_BUNDLED_PLUGINS_DIR) {
     return process.env.SLV_BUNDLED_PLUGINS_DIR;
   }
@@ -26,7 +27,7 @@ function resolveBundledPluginsDir() {
   }
 
   const candidates = [
-    process.resourcesPath ? resolve(process.resourcesPath, "data", "bundled-plugins") : null,
+    resourcesPath ? resolve(resourcesPath, "data", "bundled-plugins") : null,
     resolve(__dirname, "data", "bundled-plugins"),
     resolve(__dirname, "..", "data", "bundled-plugins"),
     resolve(__dirname, "..", "..", "data", "bundled-plugins")

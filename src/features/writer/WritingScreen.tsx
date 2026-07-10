@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ThreePanelLayout, Badge, EmptyState } from "../../components/Panels";
 import { PluginActionBar, PluginSlotMount } from "../plugins/PluginHost";
-import { api } from "../../shared/api";
+import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
+import { AvatarBadge } from "../../components/AvatarBadge";
 import { triggerBlobDownload } from "../../shared/download";
 import { CollapsibleSection } from "./components/CollapsibleSection";
 import { WritingWorkspaceModeSwitch } from "./components/WritingWorkspaceModeSwitch";
@@ -38,7 +39,12 @@ import { EMPTY_CHARACTER_EDIT_DRAFT_TYPED } from "./types";
 import { clamp01 } from "./utils";
 import { useBackgroundTasks } from "../../shared/backgroundTasks";
 
-export function WritingScreen() {
+interface WritingScreenProps {
+  initialWorkspaceMode?: WritingWorkspaceMode;
+  lockWorkspaceMode?: boolean;
+}
+
+export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMode = false }: WritingScreenProps = {}) {
   const { t } = useI18n();
   const [projects, setProjects] = useState<BookProject[]>([]);
   const [activeProject, setActiveProject] = useState<BookProject | null>(null);
@@ -96,15 +102,17 @@ export function WritingScreen() {
   const [characterAdvanced, setCharacterAdvanced] = useState<WriterCharacterAdvancedOptions>({ ...DEFAULT_WRITER_CHARACTER_ADVANCED });
   const [characterBusy, setCharacterBusy] = useState(false);
   const [characterError, setCharacterError] = useState("");
-  const [workspaceMode, setWorkspaceMode] = useState<WritingWorkspaceMode>("books");
+  const [workspaceMode, setWorkspaceMode] = useState<WritingWorkspaceMode>(initialWorkspaceMode);
   const [characterEditorId, setCharacterEditorId] = useState<string | null>(null);
+  const [characterForgeQuery, setCharacterForgeQuery] = useState("");
+  const [characterEditorSection, setCharacterEditorSection] = useState<"core" | "voice" | "meta">("core");
   const [characterEditDraft, setCharacterEditDraft] = useState<CharacterEditDraft>({ ...EMPTY_CHARACTER_EDIT_DRAFT_TYPED });
   const [characterEditBusy, setCharacterEditBusy] = useState(false);
   const [characterEditStatus, setCharacterEditStatus] = useState<CharacterEditStatus | null>(null);
   const [characterAiInstruction, setCharacterAiInstruction] = useState("");
   const [characterAiFields, setCharacterAiFields] = useState<WriterCharacterEditField[]>([]);
   const [characterAiBusy, setCharacterAiBusy] = useState(false);
-  const [alternateSimpleMode, setAlternateSimpleMode] = useState(false);
+  const [alternateSimpleMode, setAlternateSimpleMode] = useState(true);
   const [simpleWritingLibraryOpen, setSimpleWritingLibraryOpen] = useState(false);
   const [simpleWritingInspectorOpen, setSimpleWritingInspectorOpen] = useState(false);
   const [simpleWritingControlsOpen, setSimpleWritingControlsOpen] = useState(false);
@@ -930,6 +938,19 @@ export function WritingScreen() {
     () => characters.find((character) => character.id === characterEditorId) ?? null,
     [characters, characterEditorId]
   );
+  const filteredForgeCharacters = useMemo(() => {
+    const query = characterForgeQuery.trim().toLowerCase();
+    if (!query) return characters;
+    return characters.filter((character) => [character.name, character.description, character.personality, ...(character.tags || [])]
+      .some((value) => String(value || "").toLowerCase().includes(query)));
+  }, [characters, characterForgeQuery]);
+
+  function resetCharacterGenerator() {
+    setCharacterPrompt("");
+    setCharacterAdvanced({ ...DEFAULT_WRITER_CHARACTER_ADVANCED });
+    setCharacterAdvancedMode(false);
+    setCharacterError("");
+  }
 
   useEffect(() => {
     if (characters.length === 0) {
@@ -962,6 +983,7 @@ export function WritingScreen() {
     setCharacterEditStatus(null);
     setCharacterAiInstruction("");
     setCharacterAiFields([]);
+    setCharacterEditorSection("core");
   }, [selectedCharacterToEdit?.id, selectedCharacterToEdit]);
 
   async function saveCharacterEditor() {
@@ -1161,6 +1183,7 @@ export function WritingScreen() {
   const runningTasks = bgTasks.filter((t) => t.status === "running");
 
   function renderWorkspaceModeSwitch() {
+    if (lockWorkspaceMode) return null;
     return (
       <WritingWorkspaceModeSwitch
         workspaceMode={workspaceMode}
@@ -2386,10 +2409,10 @@ export function WritingScreen() {
       }
     />
       ) : (
-        <section className={`mx-auto flex h-full w-full max-w-[1500px] flex-col rounded-xl border border-border bg-bg-secondary p-4 ${writingSimpleModeActive ? "writing-simple-character-shell" : ""}`}>
-          <div className="flex w-full flex-1 flex-col gap-4 overflow-y-auto">
+        <section className={`charforge-shell mx-auto flex h-full w-full max-w-[1500px] flex-col rounded-xl border border-border bg-bg-secondary p-4 ${writingSimpleModeActive ? "writing-simple-character-shell" : ""}`}>
+          <div className="charforge-workspace flex w-full flex-1 flex-col gap-4 overflow-y-auto">
             {/* Header */}
-            <div className="flex items-center justify-between gap-3">
+            <div className="charforge-hero flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-subtle">
                   <svg className="h-4 w-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2402,7 +2425,7 @@ export function WritingScreen() {
             </div>
 
             {/* Generate card */}
-            <div className="charforge-card rounded-xl border border-border-subtle bg-bg-primary p-4">
+            <div className="charforge-card charforge-generate rounded-xl border border-border-subtle bg-bg-primary p-4">
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <svg className="h-4 w-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2412,8 +2435,11 @@ export function WritingScreen() {
                 </div>
                 <button
                   onClick={() => setCharacterAdvancedMode((prev) => !prev)}
-                  className="rounded-lg border border-border-subtle px-2.5 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:border-accent-border hover:bg-accent-subtle hover:text-accent"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1 text-[10px] font-medium text-text-secondary transition-colors hover:border-accent-border hover:bg-accent-subtle hover:text-accent"
                 >
+                  <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h10m4 0h2M4 12h2m4 0h10M4 17h7m4 0h5M14 5v4M6 10v4m5 1v4" />
+                  </svg>
                   {characterAdvancedMode ? t("writing.characterBasic") : t("writing.characterAdvanced")}
                 </button>
               </div>
@@ -2456,16 +2482,26 @@ export function WritingScreen() {
               )}
               <div className="mt-3 flex items-center gap-2">
                 <button onClick={generateCharacterFromDescription} disabled={characterBusy}
-                  className="charforge-btn-primary rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-text-inverse shadow-sm hover:bg-accent-hover disabled:opacity-40">
+                  className="charforge-btn-primary inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-text-inverse shadow-sm hover:bg-accent-hover disabled:opacity-40">
                   {characterBusy ? (
                     <span className="flex items-center gap-1.5">
                       <svg className="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                       {t("writing.characterGenerating")}
                     </span>
-                  ) : t("writing.characterGenerate")}
+                  ) : (
+                    <>
+                      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7L12 3zm6 11l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8L18 14z" />
+                      </svg>
+                      {t("writing.characterGenerate")}
+                    </>
+                  )}
                 </button>
-                <button onClick={() => setCharacterAdvanced({ ...DEFAULT_WRITER_CHARACTER_ADVANCED })}
-                  className="rounded-lg border border-border-subtle px-3 py-2 text-xs text-text-secondary hover:bg-bg-hover">
+                <button onClick={resetCharacterGenerator}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-2 text-xs text-text-secondary hover:bg-bg-hover">
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6M20 20v-6h-6M5.1 15a7 7 0 0011.5 2.4L20 14M4 10l3.4-3.4A7 7 0 0118.9 9" />
+                  </svg>
                   {t("writing.characterReset")}
                 </button>
               </div>
@@ -2480,19 +2516,36 @@ export function WritingScreen() {
             </div>
 
             {/* Character list + editor grid */}
-            <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 md:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="charforge-workbench grid flex-1 min-h-0 grid-cols-1 gap-4 md:grid-cols-[300px_minmax(0,1fr)]">
               {/* Character list */}
               <div className="charforge-list min-h-0 rounded-xl border border-border-subtle bg-bg-primary">
-                <div className="border-b border-border-subtle px-3 py-2.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chars.characters")} ({characters.length})</div>
+                <div className="charforge-list-header border-b border-border-subtle px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chars.characters")}</div>
+                    <span className="charforge-count">{filteredForgeCharacters.length}/{characters.length}</span>
+                  </div>
+                  <label className="charforge-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.1-5.15a6.25 6.25 0 11-12.5 0 6.25 6.25 0 0112.5 0z" />
+                    </svg>
+                    <input
+                      value={characterForgeQuery}
+                      onChange={(event) => setCharacterForgeQuery(event.target.value)}
+                      placeholder={t("writing.searchCharacters")}
+                    />
+                  </label>
                 </div>
                 {characters.length === 0 ? (
                   <div className="p-3">
                     <EmptyState title={t("chars.noChars")} description={t("chars.noCharsDesc")} />
                   </div>
+                ) : filteredForgeCharacters.length === 0 ? (
+                  <div className="p-3">
+                    <EmptyState title={t("chat.noSearchResults")} description={t("chat.noSearchResultsDesc")} />
+                  </div>
                 ) : (
                   <div className="max-h-full space-y-0.5 overflow-y-auto p-1.5">
-                    {characters.map((character) => (
+                    {filteredForgeCharacters.map((character) => (
                       <button
                         key={character.id}
                         onClick={() => setCharacterEditorId(character.id)}
@@ -2503,11 +2556,15 @@ export function WritingScreen() {
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                            characterEditorId === character.id
-                              ? "bg-accent text-text-inverse"
-                              : "bg-bg-tertiary text-text-tertiary"
-                          }`}>{character.name.charAt(0).toUpperCase()}</span>
+                          <AvatarBadge
+                            name={character.name}
+                            src={resolveApiAssetUrl(character.avatarUrl)}
+                            className="h-8 w-8 flex-shrink-0 rounded-full"
+                            imageClassName={characterEditorId === character.id ? "ring-2 ring-accent" : "ring-1 ring-border-subtle"}
+                            fallbackClassName={characterEditorId === character.id
+                              ? "bg-accent text-[10px] font-bold text-text-inverse"
+                              : "bg-bg-tertiary text-[10px] font-bold text-text-tertiary"}
+                          />
                           <div className="min-w-0 flex-1">
                             <div className="truncate font-medium">{character.name}</div>
                             {(character.tags || []).length > 0 && (
@@ -2528,13 +2585,22 @@ export function WritingScreen() {
                     {/* Editor header */}
                     <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3">
                       <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-text-inverse">
-                          {selectedCharacterToEdit.name.charAt(0).toUpperCase()}
-                        </span>
+                        <AvatarBadge
+                          name={selectedCharacterToEdit.name}
+                          src={resolveApiAssetUrl(selectedCharacterToEdit.avatarUrl)}
+                          className="h-9 w-9 flex-shrink-0 rounded-full"
+                          imageClassName="ring-2 ring-accent-border"
+                          fallbackClassName="bg-accent text-xs font-bold text-text-inverse"
+                        />
                         <span className="truncate text-sm font-semibold text-text-primary">{selectedCharacterToEdit.name}</span>
                       </div>
                       <button onClick={saveCharacterEditor} disabled={characterEditBusy || characterAiBusy}
-                        className="charforge-btn-primary flex-shrink-0 rounded-lg bg-accent px-3.5 py-1.5 text-[11px] font-semibold text-text-inverse shadow-sm hover:bg-accent-hover disabled:opacity-40">
+                        className="charforge-btn-primary inline-flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3.5 py-1.5 text-[11px] font-semibold text-text-inverse shadow-sm hover:bg-accent-hover disabled:opacity-40">
+                        {!characterEditBusy && (
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 4h12l2 2v14H5V4zm3 0v6h8V4M8 20v-6h8v6" />
+                          </svg>
+                        )}
                         {characterEditBusy ? t("writing.working") : t("chat.save")}
                       </button>
                     </div>
@@ -2583,22 +2649,32 @@ export function WritingScreen() {
                         <button
                           onClick={applyCharacterAiEdit}
                           disabled={characterAiBusy || characterEditBusy}
-                          className="rounded-lg border border-accent-border bg-accent-subtle px-3 py-1.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:opacity-40"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-accent-border bg-accent-subtle px-3 py-1.5 text-[11px] font-semibold text-accent hover:bg-accent/10 disabled:opacity-40"
                         >
                           {characterAiBusy ? (
                             <span className="flex items-center gap-1.5">
                               <svg className="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
                               {t("writing.characterAiEditing")}
                             </span>
-                          ) : t("writing.characterAiApply")}
+                          ) : (
+                            <>
+                              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3zm6 12l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8L18 15z" />
+                              </svg>
+                              {t("writing.characterAiApply")}
+                            </>
+                          )}
                         </button>
                         <button
                           onClick={() => {
                             setCharacterAiInstruction("");
                             setCharacterAiFields([]);
                           }}
-                          className="rounded-lg border border-border-subtle px-2.5 py-1.5 text-[10px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-[10px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
                         >
+                          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                           {t("writing.characterAiClear")}
                         </button>
                       </div>
@@ -2606,21 +2682,44 @@ export function WritingScreen() {
 
                     {/* Fields */}
                     <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+                      <div className="charforge-editor-tabs" role="tablist" aria-label={t("writing.characterForge")}>
+                        {([
+                          ["core", t("writing.characterSectionCore"), "M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4z"],
+                          ["voice", t("writing.characterSectionVoice"), "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4-4 7-9 7a11 11 0 01-4-.75L3 19l1.2-3.2A7 7 0 013 12c0-4 4-7 9-7s9 3 9 7z"],
+                          ["meta", t("writing.characterSectionMeta"), "M12 15.5A3.5 3.5 0 1012 8a3.5 3.5 0 000 7.5zM19.4 15a1.7 1.7 0 00.34 1.88l.06.06-2 3.46-.09-.03a1.7 1.7 0 00-1.8.22l-.34.2a1.7 1.7 0 00-.82 1.7V22h-4v-.1a1.7 1.7 0 00-.82-1.7l-.34-.2a1.7 1.7 0 00-1.8-.22l-.09.03-2-3.46.06-.06A1.7 1.7 0 006.6 15v-.4a1.7 1.7 0 00-.94-1.53L5.6 13v-4l.09-.03A1.7 1.7 0 006.6 7.4V7a1.7 1.7 0 00-.34-1.88l-.06-.06 2-3.46.09.03a1.7 1.7 0 001.8-.22l.34-.2A1.7 1.7 0 0011.25 0H15v.1a1.7 1.7 0 00.82 1.7l.34.2a1.7 1.7 0 001.8.22l.09-.03 2 3.46-.06.06A1.7 1.7 0 0019.4 7v.4a1.7 1.7 0 00.94 1.53l.06.03v4l-.09.03a1.7 1.7 0 00-.91 1.61v.4z"]
+                        ] as const).map(([section, label, icon]) => (
+                          <button
+                            key={section}
+                            type="button"
+                            role="tab"
+                            aria-selected={characterEditorSection === section}
+                            onClick={() => setCharacterEditorSection(section)}
+                            className={characterEditorSection === section ? "is-active" : ""}
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d={icon} />
+                            </svg>
+                            <span>{label}</span>
+                          </button>
+                        ))}
+                      </div>
                       <div className="grid grid-cols-1 gap-3">
-                        <div>
+                        {characterEditorSection === "core" && <div>
                           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.06em] text-text-tertiary">{t("chars.name")}</label>
                           <input value={characterEditDraft.name} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, name: e.target.value }))}
                             placeholder={t("chars.name")}
                             className="charforge-input w-full rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle" />
-                        </div>
-                        {([
-                          ["description", t("chars.description"), "h-20"],
-                          ["personality", t("chars.personality"), "h-16"],
-                          ["scenario", t("chars.scenario"), "h-16"],
-                          ["greeting", t("chars.firstMessage"), "h-20"],
-                          ["systemPrompt", t("chars.systemPrompt"), "h-16"],
-                          ["mesExample", t("chars.exampleMessages"), "h-16"],
-                          ["creatorNotes", t("chars.creatorNotes"), "h-16"],
+                        </div>}
+                        {(characterEditorSection === "core" ? [
+                          ["description", t("chars.description"), "h-24"],
+                          ["personality", t("chars.personality"), "h-20"],
+                          ["scenario", t("chars.scenario"), "h-20"]
+                        ] as const : characterEditorSection === "voice" ? [
+                          ["greeting", t("chars.firstMessage"), "h-28"],
+                          ["systemPrompt", t("chars.systemPrompt"), "h-24"],
+                          ["mesExample", t("chars.exampleMessages"), "h-28"]
+                        ] as const : [
+                          ["creatorNotes", t("chars.creatorNotes"), "h-32"]
                         ] as const).map(([field, label, heightClass]) => (
                           <div key={field}>
                             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.06em] text-text-tertiary">{label}</label>
@@ -2629,12 +2728,12 @@ export function WritingScreen() {
                               className={`charforge-textarea ${heightClass} w-full rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs leading-relaxed text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle`} />
                           </div>
                         ))}
-                        <div>
+                        {characterEditorSection === "meta" && <div>
                           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.06em] text-text-tertiary">{t("chars.tagsPlaceholder")}</label>
                           <input value={characterEditDraft.tagsText} onChange={(e) => setCharacterEditDraft((prev) => ({ ...prev, tagsText: e.target.value }))}
                             placeholder={t("chars.tagsPlaceholder")}
                             className="charforge-input w-full rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary/60 focus:border-accent focus:ring-1 focus:ring-accent-subtle" />
-                        </div>
+                        </div>}
                       </div>
                     </div>
 

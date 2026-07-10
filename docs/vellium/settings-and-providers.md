@@ -102,7 +102,7 @@ The `Interface` section usually contains:
 - response language
 - theme
 - plugin theme
-- Simple Mode / workspace mode
+- Simple Mode status; the deprecated workspace toggle lives under `Settings → Legacy`
 
 If several people use Vellium on the same machine, it is worth defining these early.
 
@@ -231,7 +231,7 @@ Use it only when:
 
 - provider: `LM Studio`, `Ollama`, or `KoboldCpp`
 - local-only: enabled
-- Simple Mode: personal preference
+- Simple Mode: recommended; the old interface is available under `Settings → Legacy`
 - RAG: only if you actually use collections
 - tool calling: only if you need it and the provider supports it
 

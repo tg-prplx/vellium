@@ -4,7 +4,7 @@ import { useI18n } from "../../shared/i18n";
 import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../components/Panels";
-import { ToggleSwitch } from "../settings/components/FormControls";
+import { ToggleSwitch } from "../../components/FormControls";
 import type { AgentHeroProfile, AgentHeroSkill, AppSettings, CharacterDetail } from "../../shared/types/contracts";
 import {
   failBackgroundTask,
@@ -187,10 +187,11 @@ function formatObjectJson(value: unknown): string {
 export function CharactersScreen() {
   const { t } = useI18n();
   const backgroundTasks = useBackgroundTasks();
-  const [appSettings, setAppSettings] = useState<Pick<AppSettings, "agentsEnabled">>({ agentsEnabled: false });
   const [characters, setCharacters] = useState<CharacterDetail[]>([]);
   const [selected, setSelected] = useState<CharacterDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [agentsUiEnabled, setAgentsUiEnabled] = useState(false);
+  const [creatingAgentThread, setCreatingAgentThread] = useState(false);
 
   // GUI editor fields
   const [name, setName] = useState("");
@@ -223,7 +224,6 @@ export function CharactersScreen() {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarVersion, setAvatarVersion] = useState<Record<string, number>>({});
   const [translateCopyLoading, setTranslateCopyLoading] = useState(false);
-  const [creatingAgentThread, setCreatingAgentThread] = useState(false);
 
   // File import
   const jsonFileRef = useRef<HTMLInputElement>(null);
@@ -273,8 +273,7 @@ export function CharactersScreen() {
     let cancelled = false;
     api.settingsGet()
       .then((settings) => {
-        if (cancelled) return;
-        setAppSettings({ agentsEnabled: settings.agentsEnabled === true });
+        if (!cancelled) setAgentsUiEnabled(settings.agentsEnabled === true);
       })
       .catch(() => undefined);
     return () => {
@@ -285,8 +284,7 @@ export function CharactersScreen() {
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<AppSettings>).detail;
-      if (!detail || typeof detail !== "object") return;
-      setAppSettings({ agentsEnabled: detail.agentsEnabled === true });
+      if (detail) setAgentsUiEnabled(detail.agentsEnabled === true);
     };
     window.addEventListener("settings-change", handler);
     return () => window.removeEventListener("settings-change", handler);
@@ -463,7 +461,7 @@ export function CharactersScreen() {
   }
 
   async function handleCreateAgentThread() {
-    if (!selected || !appSettings.agentsEnabled || creatingAgentThread) return;
+    if (!selected || !agentsUiEnabled || creatingAgentThread) return;
     setCreatingAgentThread(true);
     setSaveStatus("");
     setSaveStatusType(null);
@@ -779,17 +777,17 @@ export function CharactersScreen() {
                 </button>
                 <button
                   onClick={() => { void handleCreateBlank("agent"); }}
-                  disabled={!appSettings.agentsEnabled}
+                  disabled={!agentsUiEnabled}
                   className="group rounded-2xl border border-border-subtle bg-bg-secondary/80 px-3 py-3 text-left transition-colors hover:border-border hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <div className="text-sm font-semibold text-text-primary">{t("chars.agentCharacter")}</div>
-                        {appSettings.agentsEnabled ? <Badge variant="accent">{t("tab.agents")}</Badge> : null}
+                        {agentsUiEnabled ? <Badge variant="accent">{t("tab.agents")}</Badge> : null}
                       </div>
                       <div className="mt-1 text-xs leading-5 text-text-tertiary">
-                        {appSettings.agentsEnabled ? t("chars.agentCharacterDesc") : t("chars.agentCharacterDisabled")}
+                        {agentsUiEnabled ? t("chars.agentCharacterDesc") : t("chars.agentCharacterDisabled")}
                       </div>
                     </div>
                     <div className="rounded-xl border border-border-subtle bg-bg-primary p-2 text-text-secondary transition-colors group-hover:text-text-primary">
@@ -938,7 +936,7 @@ export function CharactersScreen() {
                   </div>
                 </div>
               </div>
-              {appSettings.agentsEnabled ? (
+              {agentsUiEnabled ? (
                 <div className="rounded-2xl border border-border-subtle bg-bg-primary/70 px-3 py-3">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
@@ -974,7 +972,7 @@ export function CharactersScreen() {
               ) : null}
               <div className="char-editor-actions">
                 <button onClick={handleSave} className="char-editor-btn is-primary">{t("chat.save")}</button>
-                {appSettings.agentsEnabled && (
+                {agentsUiEnabled && (
                   <button
                     onClick={handleCreateAgentThread}
                     disabled={creatingAgentThread || !agentProfileDraft.enabled}
@@ -1118,7 +1116,7 @@ export function CharactersScreen() {
               </div>
 
               {/* Section: Metadata */}
-              {appSettings.agentsEnabled && (
+              {agentsUiEnabled && (
                 <div className="char-editor-section">
                   <button onClick={() => toggleEditorSection("agent")} className="char-editor-section-toggle">
                     <span>{t("chars.agentHero")}</span>

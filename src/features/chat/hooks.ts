@@ -299,13 +299,14 @@ interface TimelineLoaderParams {
   activeChatId: string | null | undefined;
   activeBranchId: string | null;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  paused?: boolean;
 }
 
 export function useTimelineLoader(params: TimelineLoaderParams) {
-  const { activeChatId, activeBranchId, setMessages } = params;
+  const { activeChatId, activeBranchId, setMessages, paused = false } = params;
 
   useEffect(() => {
-    if (!activeChatId) return;
+    if (!activeChatId || paused) return;
     let cancelled = false;
     api.chatTimeline(activeChatId, activeBranchId || undefined).then((timeline) => {
       if (cancelled) return;
@@ -317,5 +318,5 @@ export function useTimelineLoader(params: TimelineLoaderParams) {
     return () => {
       cancelled = true;
     };
-  }, [activeChatId, activeBranchId]);
+  }, [activeChatId, activeBranchId, paused]);
 }

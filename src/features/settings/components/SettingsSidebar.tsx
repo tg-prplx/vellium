@@ -83,13 +83,17 @@ export function SettingsSidebar({
         <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
           {t("settings.quickJump")}
         </div>
-        <input
-          type="text"
-          value={quickJumpFilter}
-          onChange={(event) => onQuickJumpFilterChange(event.target.value)}
-          placeholder={t("settings.searchSections")}
-          className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
-        />
+        <div className="settings-quick-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.1-5.15a6.25 6.25 0 11-12.5 0 6.25 6.25 0 0112.5 0z" />
+          </svg>
+          <input
+            type="text"
+            value={quickJumpFilter}
+            onChange={(event) => onQuickJumpFilterChange(event.target.value)}
+            placeholder={t("settings.searchSections")}
+          />
+        </div>
         <div className="mt-2 max-h-[220px] space-y-1 overflow-y-auto pr-1">
           {visibleQuickSections.length > 0 ? (
             visibleQuickSections.map((section) => (
@@ -99,6 +103,9 @@ export function SettingsSidebar({
                 className="settings-quick-jump-item"
               >
                 <span className="truncate">{section.label}</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
               </button>
             ))
           ) : (

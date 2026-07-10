@@ -1,13 +1,13 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PluginActionBar, PluginActionModalHost, PluginActionToastHost, PluginFrame, PluginProvider, usePlugins } from "./features/plugins/PluginHost";
 import { I18nContext, translations, useI18n, type Locale } from "./shared/i18n";
 import { api } from "./shared/api";
 import { TitleBar } from "./components/TitleBar";
 import { TaskManager } from "./components/TaskManager";
 import type { AppSettings, PluginCatalog, PluginDescriptor } from "./shared/types/contracts";
+import { hasCompletedWelcomeTour, resetWelcomeTourProgress, WelcomeTour, WELCOME_TOUR_START_EVENT } from "./features/welcome/WelcomeTour";
 
 const ChatScreen = lazy(() => import("./features/chat/ChatScreen").then((module) => ({ default: module.ChatScreen })));
-const AgentsScreen = lazy(() => import("./features/agents/AgentsScreen").then((module) => ({ default: module.AgentsScreen })));
 const WritingScreen = lazy(() => import("./features/writer/WritingScreen").then((module) => ({ default: module.WritingScreen })));
 const CharactersScreen = lazy(() => import("./features/characters/CharactersScreen").then((module) => ({ default: module.CharactersScreen })));
 const PetsScreen = lazy(() => import("./features/pets/PetsScreen").then((module) => ({ default: module.PetsScreen })));
@@ -44,13 +44,11 @@ function ScreenFallback() {
 function AppContent({
   locale,
   activeTab,
-  setActiveTab,
-  settings
+  setActiveTab
 }: {
   locale: Locale;
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  settings: Pick<AppSettings, "agentsEnabled">;
 }) {
   const { t } = useI18n();
   const { pluginTabs, catalogRevision } = usePlugins();
@@ -60,25 +58,17 @@ function AppContent({
   const navRef = useRef<HTMLElement | null>(null);
 
   const coreTabs = useMemo<AppTab[]>(() => {
-    const tabs: AppTab[] = [
+    return [
       { id: "chat", label: t("tab.chat"), icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z", kind: "core" },
       { id: "writing", label: t("tab.writing"), icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z", kind: "core" },
       { id: "characters", label: t("tab.characters"), icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z", kind: "core" },
+      { id: "character-forge", label: t("writing.characterForge"), icon: "M12 3v2m6.364.636l-1.414 1.414M21 12h-2M5 12H3m4.05-4.95L5.636 5.636M9 18h6m-5 3h4m-5.5-7.5a5 5 0 117 0c-.9.7-1.5 1.65-1.5 2.5h-4c0-.85-.6-1.8-1.5-2.5z", kind: "core" },
       { id: "pets", label: t("tab.pets"), icon: "M7.5 9.5C5.6 9.2 4 7.8 4 6.1c0-1.2.8-2.1 1.9-2.1 1.4 0 2.4 1.5 2.8 3.2M16.5 9.5c1.9-.3 3.5-1.7 3.5-3.4 0-1.2-.8-2.1-1.9-2.1-1.4 0-2.4 1.5-2.8 3.2M5.5 13.6C5.5 9.9 8.4 7 12 7s6.5 2.9 6.5 6.6c0 3.4-2.4 5.9-6.5 5.9s-6.5-2.5-6.5-5.9z", kind: "core" },
       { id: "lorebooks", label: t("tab.lorebooks"), icon: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5A4.5 4.5 0 003 9.5v9A4.5 4.5 0 017.5 14c1.746 0 3.332.477 4.5 1.253m0-9c1.168-.776 2.754-1.253 4.5-1.253A4.5 4.5 0 0121 9.5v9a4.5 4.5 0 00-4.5-4.5c-1.746 0-3.332.477-4.5 1.253", kind: "core" },
       { id: "knowledge", label: t("tab.knowledge"), icon: "M3 7a2 2 0 012-2h4.5a2 2 0 011.6.8l1.8 2.4H19a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V7z", kind: "core" },
       { id: "settings", label: t("tab.settings"), icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z", kind: "core" }
     ];
-    if (settings.agentsEnabled) {
-      tabs.splice(1, 0, {
-        id: "agents",
-        label: t("tab.agents"),
-        icon: "M4.5 6.75A2.25 2.25 0 016.75 4.5h4.5A2.25 2.25 0 0113.5 6.75v4.5a2.25 2.25 0 01-2.25 2.25h-4.5A2.25 2.25 0 014.5 11.25v-4.5zM10.5 16.5h6.75A2.25 2.25 0 0119.5 18.75v.75H8.25v-.75A2.25 2.25 0 0110.5 16.5zM15 4.875a1.125 1.125 0 011.125-1.125h2.25A1.125 1.125 0 0119.5 4.875v2.25A1.125 1.125 0 0118.375 8.25h-2.25A1.125 1.125 0 0115 7.125v-2.25z",
-        kind: "core"
-      });
-    }
-    return tabs;
-  }, [t, settings.agentsEnabled]);
+  }, [t]);
 
   const tabs = useMemo<AppTab[]>(() => {
     const pluginTabDefs = pluginTabs.map(({ plugin, tab }) => ({
@@ -120,22 +110,26 @@ function AppContent({
 
   useEffect(() => {
     const handler = (event: Event) => {
-      if (!settings.agentsEnabled) return;
       const detail = (event as CustomEvent<{ threadId?: string }>).detail;
-      const threadId = typeof detail?.threadId === "string" && detail.threadId.trim()
-        ? detail.threadId.trim()
-        : "";
+      const threadId = typeof detail?.threadId === "string" ? detail.threadId.trim() : "";
       if (!threadId) return;
       setPendingAgentThreadId(threadId);
-      setActiveTab("agents");
+      setPendingSettingsView({ category: "legacy", sectionId: "settings-legacy" });
+      setActiveTab("settings");
     };
     window.addEventListener("open-agents-thread", handler);
     return () => window.removeEventListener("open-agents-thread", handler);
-  }, [setActiveTab, settings.agentsEnabled]);
+  }, [setActiveTab]);
 
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ category?: string; sectionId?: string }>).detail;
+      if (detail?.category === "agents") {
+        setPendingSettingsView({ category: "legacy", sectionId: "settings-legacy" });
+        setActiveTab("settings");
+        window.setTimeout(() => window.dispatchEvent(new CustomEvent("open-legacy-view")), 0);
+        return;
+      }
       setPendingSettingsView({
         category: typeof detail?.category === "string" ? detail.category : undefined,
         sectionId: typeof detail?.sectionId === "string" ? detail.sectionId : undefined
@@ -147,17 +141,10 @@ function AppContent({
   }, [setActiveTab]);
 
   const content = useMemo(() => {
-    if (activeTab === "chat") return <ChatScreen />;
-    if (activeTab === "agents") {
-      return (
-        <AgentsScreen
-          initialThreadId={pendingAgentThreadId}
-          onInitialThreadHandled={() => setPendingAgentThreadId(null)}
-        />
-      );
-    }
-    if (activeTab === "writing") return <WritingScreen />;
+    if (activeTab === "chat") return null;
+    if (activeTab === "writing") return <WritingScreen key="writing-books" initialWorkspaceMode="books" lockWorkspaceMode />;
     if (activeTab === "characters") return <CharactersScreen />;
+    if (activeTab === "character-forge") return <WritingScreen key="character-forge" initialWorkspaceMode="characters" lockWorkspaceMode />;
     if (activeTab === "pets") return <PetsScreen />;
     if (activeTab === "lorebooks") return <LorebooksScreen />;
     if (activeTab === "knowledge") return <KnowledgeScreen />;
@@ -167,6 +154,8 @@ function AppContent({
           initialCategory={pendingSettingsView?.category}
           initialSectionId={pendingSettingsView?.sectionId}
           onInitialViewHandled={() => setPendingSettingsView(null)}
+          initialLegacyAgentThreadId={pendingAgentThreadId}
+          onInitialLegacyAgentThreadHandled={() => setPendingAgentThreadId(null)}
         />
       );
     }
@@ -183,7 +172,7 @@ function AppContent({
         className="plugin-tab-frame"
       />
     );
-  }, [activeTab, tabs, locale, pendingAgentThreadId]);
+  }, [activeTab, tabs, locale, pendingAgentThreadId, pendingSettingsView]);
 
   const isElectron = !!window.electronAPI;
 
@@ -209,8 +198,8 @@ function AppContent({
       return tab ? [tab] : [];
     });
     return [
-      { id: "work", label: t("tab.groupWork"), tabs: pick(["agents", "chat", "writing"]) },
-      { id: "characters", label: t("tab.groupCharacters"), tabs: pick(["characters", "pets"]) },
+      { id: "work", label: t("tab.groupWork"), tabs: pick(["chat", "writing"]) },
+      { id: "characters", label: t("tab.groupCharacters"), tabs: pick(["characters", "character-forge", "pets"]) },
       { id: "knowledge", label: t("tab.groupKnowledge"), tabs: pick(["knowledge", "lorebooks"]) },
       { id: "settings", label: t("tab.settings"), tabs: pick(["settings"]) },
       { id: "plugins", label: t("tab.groupPlugins"), tabs: tabs.filter((tab) => tab.kind === "plugin") }
@@ -324,7 +313,13 @@ function AppContent({
       <main className="app-main w-full flex-1 overflow-hidden p-4">
         <div className="tab-content-enter h-full">
           <Suspense fallback={<ScreenFallback />}>
-            {content}
+            <div
+              className={`app-screen-keepalive h-full ${activeTab === "chat" ? "is-active" : "is-hidden"}`}
+              aria-hidden={activeTab === "chat" ? undefined : true}
+            >
+              <ChatScreen />
+            </div>
+            {activeTab !== "chat" ? content : null}
           </Suspense>
         </div>
       </main>
@@ -332,29 +327,40 @@ function AppContent({
   );
 }
 
-function AppWorkspace({ locale, settings }: { locale: Locale; settings: Pick<AppSettings, "agentsEnabled"> }) {
+function AppWorkspace({ locale }: { locale: Locale }) {
   const [activeTab, setActiveTab] = useState<string>("chat");
-  const [appSettings, setAppSettings] = useState<Pick<AppSettings, "agentsEnabled">>({
-    agentsEnabled: settings.agentsEnabled === true
-  });
+  const [welcomeTourOpen, setWelcomeTourOpen] = useState(() => !hasCompletedWelcomeTour());
 
   useEffect(() => {
-    setAppSettings({ agentsEnabled: settings.agentsEnabled === true });
-  }, [settings]);
+    const startTour = () => setWelcomeTourOpen(true);
+    window.addEventListener(WELCOME_TOUR_START_EVENT, startTour);
+    return () => window.removeEventListener(WELCOME_TOUR_START_EVENT, startTour);
+  }, []);
 
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<AppSettings>).detail;
-      if (!detail || typeof detail !== "object") return;
-      setAppSettings({ agentsEnabled: detail.agentsEnabled === true });
-    };
-    window.addEventListener("settings-change", handler);
-    return () => window.removeEventListener("settings-change", handler);
+  const handleTourNavigate = useCallback((navigation: {
+    tab?: string;
+    settingsCategory?: string;
+    settingsSectionId?: string;
+  }) => {
+    if (navigation.tab) setActiveTab(navigation.tab);
+    if (navigation.settingsCategory || navigation.settingsSectionId) {
+      window.dispatchEvent(new CustomEvent("open-settings-view", {
+        detail: {
+          category: navigation.settingsCategory,
+          sectionId: navigation.settingsSectionId
+        }
+      }));
+    }
   }, []);
 
   return (
     <PluginProvider locale={locale} activeTab={activeTab}>
-      <AppContent locale={locale} activeTab={activeTab} setActiveTab={setActiveTab} settings={appSettings} />
+      <AppContent locale={locale} activeTab={activeTab} setActiveTab={setActiveTab} />
+      <WelcomeTour
+        open={welcomeTourOpen}
+        onClose={() => setWelcomeTourOpen(false)}
+        onNavigate={handleTourNavigate}
+      />
       <PluginActionModalHost />
       <PluginActionToastHost />
     </PluginProvider>
@@ -488,6 +494,7 @@ export function App() {
     const onboardingResetHandler = (e: Event) => {
       const next = (e as CustomEvent<AppSettings>).detail;
       if (!next) return;
+      resetWelcomeTourProgress();
       setInitialSettings(next);
       void applyThemeFromSettings(next);
       applyDisplaySettings(next);
@@ -560,10 +567,7 @@ export function App() {
           </main>
         </div>
       ) : (
-        <AppWorkspace
-          locale={locale}
-          settings={{ agentsEnabled: initialSettings?.agentsEnabled === true }}
-        />
+        <AppWorkspace locale={locale} />
       )}
     </I18nContext.Provider>
   );

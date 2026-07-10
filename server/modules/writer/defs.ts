@@ -365,7 +365,7 @@ export function filterWriterCharacterPatch(patch: WriterCharacterPatch, fields: 
   const filtered: WriterCharacterPatch = {};
   for (const key of WRITER_CHARACTER_PATCH_FIELDS) {
     if (allowed.has(key) && patch[key] !== undefined) {
-      filtered[key] = patch[key];
+      Object.assign(filtered, { [key]: patch[key] });
     }
   }
   return filtered;

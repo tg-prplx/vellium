@@ -30,7 +30,7 @@ async function withServerTimeout<T>(
 }
 
 export async function compressChat(req: Request, res: Response) {
-  const chatId = req.params.id;
+  const chatId = String(req.params.id || "");
   const { branchId: reqBranchId } = req.body ?? {};
   const branchId = resolveBranch(chatId, reqBranchId);
 
