@@ -5115,7 +5115,7 @@ body > .vellium-modal-layer {
   position: relative;
   z-index: 1;
   align-self: center;
-  width: calc(100% - clamp(42px, 5vw, 92px));
+  width: calc(100% - clamp(28px, 3vw, 56px));
   min-height: 36px;
   margin: -3px auto 10px !important;
   padding: 5px 9px;
@@ -5181,6 +5181,19 @@ body > .vellium-modal-layer {
 
   .chat-simple-thread-chrome .chat-multi-bar-auto {
     margin-left: auto;
+  }
+}
+
+/* Browser/system scaling can push the app below the desktop breakpoint. Keep the overlay usable. */
+@media (max-width: 1279px) {
+  .chat-simple-layout.is-sidebar-open .chat-simple-sidebar-panel,
+  .chat-simple-layout.is-sidebar-closed .chat-simple-sidebar-panel {
+    width: min(320px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    padding: 12px !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }
 
