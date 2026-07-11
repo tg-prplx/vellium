@@ -249,6 +249,10 @@ export function LorebooksScreen() {
 
   return (
     <ThreePanelLayout
+      className="lore-workspace"
+      leftClassName="lore-library-panel"
+      centerClassName="lore-editor-panel"
+      rightClassName="lore-help-panel"
       left={
         <>
           <PanelTitle
@@ -300,10 +304,10 @@ export function LorebooksScreen() {
                 <button
                   key={book.id}
                   onClick={() => setSelectedId(book.id)}
-                  className={`w-full rounded-xl border px-3 py-2.5 text-left transition-all ${
+                  className={`lore-library-item ${
                     selectedId === book.id
-                      ? "border-accent-border bg-accent-subtle shadow-sm"
-                      : "border-transparent hover:border-border-subtle hover:bg-bg-hover"
+                      ? "is-active"
+                      : ""
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
@@ -329,9 +333,9 @@ export function LorebooksScreen() {
       }
       center={
         draft ? (
-          <div className="flex h-full flex-col gap-4 overflow-y-auto">
+          <div className="lore-editor-scroll">
             {/* Book info card */}
-            <div className="rounded-xl border border-border-subtle bg-bg-primary p-4">
+            <div className="lore-editor-section lore-book-section">
               <div className="mb-3 flex items-center gap-2">
                 <svg className="h-4 w-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
@@ -352,7 +356,7 @@ export function LorebooksScreen() {
             </div>
 
             {/* Entries */}
-            <div className="rounded-xl border border-border-subtle bg-bg-primary">
+            <div className="lore-editor-section lore-entries-section">
               <div className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("lore.entries")}</span>
@@ -366,9 +370,9 @@ export function LorebooksScreen() {
                 </button>
               </div>
 
-              <div className="divide-y divide-border-subtle">
+              <div className="lore-entries-list divide-y divide-border-subtle">
                 {draft.entries.map((entry, index) => (
-                  <div key={entry.id} className="px-4 py-3">
+                  <div key={entry.id} className="lore-entry-row px-4 py-3">
                     <div className="mb-2.5 flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className={`flex h-5 w-5 items-center justify-center rounded-md text-[10px] font-bold ${
@@ -462,7 +466,7 @@ export function LorebooksScreen() {
             </div>
 
             {/* Action bar */}
-            <div className="sticky bottom-0 flex flex-wrap items-center gap-2 rounded-xl border border-border-subtle bg-bg-primary/95 px-4 py-3 backdrop-blur-sm">
+            <div className="lore-action-bar">
               <button
                 onClick={() => { void saveLorebook(); }}
                 disabled={saving}
@@ -509,9 +513,9 @@ export function LorebooksScreen() {
         )
       }
       right={
-        <div className="space-y-3 text-xs text-text-secondary">
+        <div className="lore-help-content space-y-3 text-xs text-text-secondary">
           <PanelTitle>{t("lore.howItWorks")}</PanelTitle>
-          <div className="rounded-xl border border-border-subtle bg-bg-primary p-3.5 leading-relaxed">
+          <div className="lore-help-card rounded-xl border border-border-subtle bg-bg-primary p-3.5 leading-relaxed">
             <div className="mb-1 flex items-center gap-1.5 font-medium text-text-primary">
               <svg className="h-3.5 w-3.5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -520,7 +524,7 @@ export function LorebooksScreen() {
             </div>
             <div className="text-text-tertiary">{t("lore.supportedFieldsDesc")}</div>
           </div>
-          <div className="rounded-xl border border-border-subtle bg-bg-primary p-3.5 leading-relaxed">
+          <div className="lore-help-card rounded-xl border border-border-subtle bg-bg-primary p-3.5 leading-relaxed">
             <div className="mb-1 flex items-center gap-1.5 font-medium text-text-primary">
               <svg className="h-3.5 w-3.5 text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -529,7 +533,7 @@ export function LorebooksScreen() {
             </div>
             <div className="text-text-tertiary">{t("lore.triggerLogicDesc")}</div>
           </div>
-          <div className="rounded-xl border border-border-subtle bg-bg-primary p-3.5 leading-relaxed">
+          <div className="lore-help-card rounded-xl border border-border-subtle bg-bg-primary p-3.5 leading-relaxed">
             <div className="mb-1 flex items-center gap-1.5 font-medium text-text-primary">
               <svg className="h-3.5 w-3.5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />

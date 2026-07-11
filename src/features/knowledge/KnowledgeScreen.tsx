@@ -170,13 +170,17 @@ export function KnowledgeScreen() {
 
   return (
     <ThreePanelLayout
+      className="knowledge-workspace"
+      leftClassName="knowledge-library-panel"
+      centerClassName="knowledge-editor-panel"
+      rightClassName="knowledge-help-panel"
       left={
         <>
           <PanelTitle
             action={(
               <button
                 onClick={() => { void createCollection(); }}
-                className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover"
+                className="knowledge-primary-action rounded-md bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover"
               >
                 + {t("chat.new")}
               </button>
@@ -194,10 +198,10 @@ export function KnowledgeScreen() {
                 <button
                   key={collection.id}
                   onClick={() => setSelectedId(collection.id)}
-                  className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                  className={`knowledge-collection-item ${
                     selectedId === collection.id
-                      ? "border-accent-border bg-accent-subtle"
-                      : "border-border-subtle bg-bg-primary hover:bg-bg-hover"
+                      ? "is-active"
+                      : ""
                   }`}
                 >
                   <div className="truncate text-sm font-medium text-text-primary">{collection.name}</div>
@@ -210,8 +214,8 @@ export function KnowledgeScreen() {
       }
       center={
         selectedCollection ? (
-          <div className="flex h-full flex-col gap-3 overflow-y-auto">
-            <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+          <div className="knowledge-editor-scroll">
+            <div className="knowledge-editor-section knowledge-collection-section">
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("knowledge.collectionName")}</label>
               <input
                 value={draftName}
@@ -234,7 +238,7 @@ export function KnowledgeScreen() {
                 <option value="chat">{t("knowledge.scopeChat")}</option>
                 <option value="writer">{t("knowledge.scopeWriter")}</option>
               </select>
-              <div className="mt-3 flex items-center gap-2">
+              <div className="knowledge-section-actions mt-3 flex items-center gap-2">
                 <button
                   onClick={() => { void saveCollection(); }}
                   disabled={savingCollection}
@@ -251,7 +255,7 @@ export function KnowledgeScreen() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+            <div className="knowledge-editor-section knowledge-ingest-section">
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("knowledge.ingestText")}</div>
               <input
                 value={docTitle}
@@ -276,14 +280,14 @@ export function KnowledgeScreen() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+            <div className="knowledge-editor-section knowledge-documents-section">
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("knowledge.documents")}</div>
               {documents.length === 0 ? (
                 <div className="text-xs text-text-tertiary">{t("knowledge.noDocuments")}</div>
               ) : (
                 <div className="space-y-2">
                   {documents.map((document) => (
-                    <div key={document.id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-bg-secondary px-2 py-1.5">
+                    <div key={document.id} className="knowledge-document-row flex items-center justify-between gap-3 rounded-md border border-border bg-bg-secondary px-2 py-1.5">
                       <div className="min-w-0">
                         <div className="truncate text-xs font-medium text-text-primary">{document.title}</div>
                         <div className="text-[10px] text-text-tertiary">{document.status}</div>
@@ -305,13 +309,13 @@ export function KnowledgeScreen() {
         )
       }
       right={
-        <div className="space-y-3 text-xs text-text-secondary">
+        <div className="knowledge-help-content space-y-3 text-xs text-text-secondary">
           <PanelTitle>{t("knowledge.howItWorks")}</PanelTitle>
-          <div className="rounded-lg border border-border-subtle bg-bg-primary p-3 leading-relaxed">
+          <div className="knowledge-help-card rounded-lg border border-border-subtle bg-bg-primary p-3 leading-relaxed">
             <div className="font-medium text-text-primary">{t("knowledge.howItWorksLexical")}</div>
             <div className="mt-1">{t("knowledge.howItWorksLexicalDesc")}</div>
           </div>
-          <div className="rounded-lg border border-border-subtle bg-bg-primary p-3 leading-relaxed">
+          <div className="knowledge-help-card rounded-lg border border-border-subtle bg-bg-primary p-3 leading-relaxed">
             <div className="font-medium text-text-primary">{t("knowledge.howItWorksVector")}</div>
             <div className="mt-1">{t("knowledge.howItWorksVectorDesc")}</div>
           </div>

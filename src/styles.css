@@ -8532,3 +8532,485 @@ body > .vellium-modal-layer {
     transition: none !important;
   }
 }
+
+/* ── Remaining workspaces: shared visual language ── */
+.knowledge-workspace,
+.lore-workspace,
+.pets-workspace {
+  gap: 12px !important;
+}
+
+.knowledge-workspace > .panel-shell,
+.lore-workspace > .panel-shell,
+.pets-workspace > .panel-shell {
+  border-color: color-mix(in srgb, var(--color-border) 82%, transparent);
+  background: color-mix(in srgb, var(--color-bg-secondary) 78%, transparent);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.12), inset 0 1px rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.knowledge-library-panel,
+.lore-library-panel,
+.pets-library-panel {
+  padding: 14px !important;
+}
+
+.knowledge-editor-panel,
+.lore-editor-panel,
+.pets-editor-panel {
+  padding: 16px !important;
+}
+
+.knowledge-help-panel,
+.lore-help-panel,
+.pets-desktop-panel {
+  padding: 14px !important;
+  background: color-mix(in srgb, var(--color-bg-secondary) 68%, transparent) !important;
+}
+
+.knowledge-collection-item,
+.lore-library-item,
+.pets-library-item {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: var(--color-text-secondary);
+  background: transparent;
+  padding: 10px 11px;
+  text-align: left;
+  transition: color var(--motion-fast) ease, border-color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease, transform var(--motion-fast) var(--motion-soft);
+}
+
+.knowledge-collection-item:hover,
+.lore-library-item:hover,
+.pets-library-item:hover {
+  border-color: var(--color-border-subtle);
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-bg-hover) 70%, transparent);
+  transform: translateX(2px);
+}
+
+.knowledge-collection-item.is-active,
+.lore-library-item.is-active,
+.pets-library-item.is-active {
+  border-color: var(--color-accent-border);
+  color: var(--color-text-primary);
+  background: linear-gradient(90deg, var(--color-accent-subtle), color-mix(in srgb, var(--color-accent-subtle) 34%, transparent));
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.knowledge-editor-scroll,
+.lore-editor-scroll {
+  display: grid;
+  min-height: 0;
+  height: 100%;
+  align-content: start;
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.lore-editor-scroll {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.knowledge-editor-section,
+.lore-editor-section {
+  min-width: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-bg-primary) 70%, transparent);
+  padding: 14px;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.02);
+}
+
+.knowledge-editor-section input,
+.knowledge-editor-section textarea,
+.knowledge-editor-section select,
+.lore-editor-section input,
+.lore-editor-section textarea,
+.lore-editor-section select {
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease,
+    background-color var(--motion-fast) ease;
+}
+
+.knowledge-editor-section input:focus,
+.knowledge-editor-section textarea:focus,
+.knowledge-editor-section select:focus,
+.lore-editor-section input:focus,
+.lore-editor-section textarea:focus,
+.lore-editor-section select:focus {
+  outline: none;
+  border-color: var(--color-accent-border);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.knowledge-documents-section,
+.lore-entries-section {
+  padding: 0;
+  overflow: hidden;
+}
+
+.lore-entries-section {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.lore-entries-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.knowledge-documents-section > :first-child {
+  margin: 0;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.knowledge-documents-section > :not(:first-child) {
+  margin: 10px 12px 12px;
+}
+
+.knowledge-document-row {
+  border-color: transparent !important;
+  background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent) !important;
+  padding: 9px 10px !important;
+}
+
+.knowledge-document-row:hover {
+  border-color: var(--color-border-subtle) !important;
+  background: var(--color-bg-hover) !important;
+}
+
+.knowledge-help-card,
+.lore-help-card {
+  border-color: transparent !important;
+  background: color-mix(in srgb, var(--color-bg-primary) 55%, transparent) !important;
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.knowledge-help-content,
+.lore-help-content {
+  opacity: 0.88;
+}
+
+.lore-entry-row {
+  transition: background-color var(--motion-fast) ease;
+}
+
+.lore-entry-row:hover {
+  background: color-mix(in srgb, var(--color-bg-hover) 48%, transparent);
+}
+
+.lore-action-bar {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--color-bg-secondary) 88%, transparent);
+  padding: 9px 10px;
+  box-shadow: 0 -12px 26px color-mix(in srgb, var(--color-bg-primary) 38%, transparent), var(--shadow-panel);
+  backdrop-filter: blur(18px) saturate(1.1);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+}
+
+/* Pets */
+.pets-library-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pets-toolbar-button {
+  display: inline-flex;
+  min-width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 9px;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg-primary) 72%, transparent);
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  transition: color var(--motion-fast) ease, border-color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease, transform var(--motion-fast) var(--motion-soft);
+}
+
+.pets-toolbar-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pets-toolbar-button:hover:not(:disabled) {
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+  transform: translateY(-1px);
+}
+
+.pets-toolbar-button.is-primary {
+  border-color: transparent;
+  color: var(--color-text-inverse);
+  background: var(--color-accent);
+  padding-inline: 10px;
+}
+
+.pets-toolbar-button.is-primary:hover:not(:disabled) {
+  color: var(--color-text-inverse);
+  background: var(--color-accent-hover);
+}
+
+.pets-toolbar-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pets-editor-shell {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+}
+
+.pets-editor-header {
+  margin: -2px -2px 14px !important;
+  padding: 2px 2px 14px !important;
+}
+
+.pets-editor-scroll {
+  scrollbar-gutter: stable;
+}
+
+.pets-editor-section {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-bg-primary) 58%, transparent);
+  padding: 14px;
+}
+
+.pets-editor-actions {
+  margin-top: 12px !important;
+  padding-top: 12px !important;
+}
+
+.pets-desktop-content .pets-preview {
+  background: radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 40%),
+    color-mix(in srgb, var(--color-bg-primary) 62%, transparent);
+}
+
+.pets-config-tabs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: color-mix(in srgb, var(--color-bg-primary) 66%, transparent);
+}
+
+.pets-config-tabs button {
+  padding-inline: 3px;
+  font-size: 10px;
+}
+
+/* Settings: calmer surfaces and scale-safe navigation */
+.settings-root {
+  background: color-mix(in srgb, var(--color-bg-secondary) 80%, transparent);
+  box-shadow: var(--shadow-panel);
+}
+
+.settings-sidebar {
+  background: color-mix(in srgb, var(--color-bg-secondary) 82%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.settings-content-area {
+  background: color-mix(in srgb, var(--color-bg-primary) 76%, transparent);
+}
+
+.settings-workbench-header {
+  background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.025);
+}
+
+.settings-card {
+  border-color: var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-secondary) 68%, transparent);
+}
+
+.settings-row {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-bg-primary) 58%, transparent);
+}
+
+.settings-row:hover {
+  border-color: var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-hover) 64%, transparent);
+}
+
+@media (min-width: 1280px) {
+  .knowledge-workspace {
+    grid-template-columns: 244px minmax(430px, 1fr) 270px !important;
+  }
+
+  .lore-workspace {
+    grid-template-columns: 244px minmax(470px, 1fr) 282px !important;
+  }
+
+  .pets-workspace {
+    grid-template-columns: 260px minmax(470px, 1fr) 300px !important;
+  }
+}
+
+@media (min-width: 1500px) {
+  .knowledge-editor-scroll {
+    grid-template-columns: minmax(260px, 0.78fr) minmax(320px, 1.22fr);
+  }
+
+  .knowledge-documents-section {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 980px) and (max-width: 1279px) {
+  .knowledge-workspace,
+  .lore-workspace {
+    grid-template-columns: 224px minmax(0, 1fr) !important;
+  }
+
+  .knowledge-help-panel,
+  .lore-help-panel {
+    display: none !important;
+  }
+
+  .pets-workspace {
+    grid-template-columns: 220px minmax(410px, 1fr) 264px !important;
+  }
+
+  .pets-library-panel,
+  .pets-editor-panel,
+  .pets-desktop-panel {
+    padding: 12px !important;
+  }
+}
+
+@media (max-width: 1120px) {
+  .settings-root {
+    grid-template-columns: 214px minmax(0, 1fr);
+  }
+
+  .settings-content-inner {
+    padding: 18px 20px 26px;
+  }
+
+  .settings-sidebar-jump {
+    padding-inline: 9px;
+  }
+
+  .settings-workbench-header {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 979px) {
+  .knowledge-workspace,
+  .lore-workspace,
+  .pets-workspace {
+    grid-template-columns: 210px minmax(0, 1fr) !important;
+  }
+
+  .knowledge-help-panel,
+  .lore-help-panel,
+  .pets-desktop-panel {
+    display: none !important;
+  }
+
+  .knowledge-library-panel,
+  .lore-library-panel,
+  .pets-library-panel,
+  .knowledge-editor-panel,
+  .lore-editor-panel,
+  .pets-editor-panel {
+    padding: 12px !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .settings-root {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-sidebar {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+    padding: 8px;
+  }
+
+  .settings-sidebar-status,
+  .settings-sidebar-jump,
+  .settings-nav-group-label {
+    display: none;
+  }
+
+  .settings-nav-item {
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .settings-content-inner {
+    padding: 14px;
+  }
+
+  .settings-workbench-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-workbench-meta {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .knowledge-workspace,
+  .lore-workspace,
+  .pets-workspace {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: minmax(150px, 28vh) minmax(0, 1fr);
+  }
+
+  .knowledge-library-panel,
+  .lore-library-panel,
+  .pets-library-panel {
+    overflow-y: auto;
+  }
+
+  .knowledge-section-actions,
+  .lore-action-bar,
+  .pets-editor-actions {
+    align-items: stretch;
+  }
+
+  .lore-action-bar > button,
+  .pets-editor-actions > button {
+    flex: 1 1 auto;
+  }
+}
