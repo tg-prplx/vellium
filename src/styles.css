@@ -5172,6 +5172,22 @@ body > .vellium-modal-layer {
 
 .chat-simple-layout.is-thread .chat-simple-scroll {
   padding-top: calc(var(--chat-simple-thread-chrome-height, 0px) + 8px) !important;
+  padding-bottom: calc(var(--chat-simple-bottom-chrome-height, 0px) + 8px) !important;
+}
+
+.chat-composer-stack {
+  display: contents;
+}
+
+.chat-simple-bottom-chrome {
+  position: absolute;
+  z-index: 7;
+  right: clamp(12px, 1.7vw, 26px);
+  bottom: 18px;
+  left: clamp(12px, 1.7vw, 26px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 @media (max-width: 720px) {
