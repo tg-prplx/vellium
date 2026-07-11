@@ -5466,6 +5466,21 @@ body > .vellium-modal-layer {
   animation: modelPopoverIn 190ms var(--motion-soft) both;
 }
 
+.chat-simple-layout.is-home .chat-simple-composer:has(.chat-simple-model-popover) {
+  z-index: 40 !important;
+  isolation: isolate;
+}
+
+.chat-simple-layout.is-home .chat-simple-composer-shell:has(.chat-simple-model-popover) {
+  position: relative;
+  z-index: 1;
+}
+
+.chat-simple-layout.is-home .chat-simple-model-popover {
+  z-index: 60;
+  background: color-mix(in srgb, var(--color-bg-secondary) 99%, var(--color-bg-primary));
+}
+
 .chat-simple-popover-header,
 .chat-simple-popover-heading {
   display: flex;
