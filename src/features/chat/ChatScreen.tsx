@@ -217,6 +217,7 @@ export function ChatScreen() {
   const [simpleInspectorOpen, setSimpleInspectorOpen] = useState(false);
   const [simpleGreetingIndex, setSimpleGreetingIndex] = useState(0);
   const [simpleThreadChromeHeight, setSimpleThreadChromeHeight] = useState(0);
+  const [simpleBottomChromeHeight, setSimpleBottomChromeHeight] = useState(0);
   const [sceneControlsOpen, setSceneControlsOpen] = useState(false);
   const [sceneControlsSaving, setSceneControlsSaving] = useState(false);
   const [sceneControlsError, setSceneControlsError] = useState("");
@@ -232,6 +233,7 @@ export function ChatScreen() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const simpleThreadChromeRef = useRef<HTMLDivElement>(null);
+  const simpleBottomChromeRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatSearchModalInputRef = useRef<HTMLInputElement>(null);
   const modelSelectorRef = useRef<HTMLDivElement>(null);
@@ -355,6 +357,25 @@ export function ChatScreen() {
 
     const updateHeight = () => {
       setSimpleThreadChromeHeight(Math.ceil(chrome.getBoundingClientRect().height));
+    };
+    updateHeight();
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(chrome);
+    return () => observer.disconnect();
+  }, [simpleHomeState, simpleModeActive]);
+
+  useLayoutEffect(() => {
+    if (!simpleModeActive || simpleHomeState) {
+      setSimpleBottomChromeHeight(0);
+      return;
+    }
+
+    const chrome = simpleBottomChromeRef.current;
+    if (!chrome) return;
+
+    const updateHeight = () => {
+      setSimpleBottomChromeHeight(Math.ceil(chrome.getBoundingClientRect().height));
     };
     updateHeight();
 
@@ -2715,7 +2736,10 @@ export function ChatScreen() {
                 const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
                 shouldStickToBottomRef.current = distanceFromBottom < 120;
               }}
-              style={{ "--chat-simple-thread-chrome-height": `${simpleThreadChromeHeight}px` } as CSSProperties}
+              style={{
+                "--chat-simple-thread-chrome-height": `${simpleThreadChromeHeight}px`,
+                "--chat-simple-bottom-chrome-height": `${simpleBottomChromeHeight}px`
+              } as CSSProperties}
               className={`chat-scroll min-w-0 flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3 ${simpleModeActive ? "chat-simple-scroll chat-simple-surface" : ""} ${simpleHomeState ? "chat-simple-scroll-home" : ""}`}
             >
               {messages.length === 0 && !streamingActiveChat && (
@@ -3106,6 +3130,10 @@ export function ChatScreen() {
               <div ref={messagesEndRef} />
             </div>
 
+            <div
+              ref={simpleBottomChromeRef}
+              className={simpleModeActive && !simpleHomeState ? "chat-simple-bottom-chrome" : "chat-composer-stack"}
+            >
             {attachments.length > 0 && (
               <div
                 className={`list-animate mt-2 flex flex-wrap gap-1.5 ${simpleModeActive ? "chat-simple-attachments" : ""} ${simpleHomeState ? "is-home" : "is-docked"}`}
@@ -3327,6 +3355,7 @@ export function ChatScreen() {
                 attachmentCount: attachments.length
               }}
             />
+            </div>
             {simpleModeActive && simpleHomeState && (
               <div className="chat-simple-quick-row">
                 {[
