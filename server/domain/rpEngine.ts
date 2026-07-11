@@ -43,17 +43,45 @@ export interface PromptContext {
   userName?: string;
 }
 
-/** Replace {{char}} and {{user}} placeholders */
-function replacePlaceholders(text: string, charName?: string, userName?: string): string {
-  let result = text;
-  if (charName) result = result.replace(/\{\{char\}\}/gi, charName);
-  if (userName) result = result.replace(/\{\{user\}\}/gi, userName || "User");
-  return result;
+/** Replace {{char}} and {{user}} placeholders without leaving template tokens in provider prompts. */
+export function replacePromptPlaceholders(text: string, charName?: string, userName?: string): string {
+  const resolvedCharacter = String(charName || "").trim() || "Character";
+  const resolvedUser = String(userName || "").trim() || "User";
+  return text
+    .replace(/\{\{char\}\}/gi, resolvedCharacter)
+    .replace(/\{\{user\}\}/gi, resolvedUser);
 }
 
 export interface ChatCompletionMessage {
   role: "system" | "user" | "assistant";
   content: string | ChatCompletionContentPart[];
+}
+
+function systemContentToText(content: unknown): string {
+  if (typeof content === "string") return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (!part || typeof part !== "object") return "";
+        const row = part as { text?: unknown };
+        return typeof row.text === "string" ? row.text.trim() : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return content == null ? "" : String(content).trim();
+}
+
+/** Collapse every system instruction into one leading message for strict chat templates. */
+export function coalesceSystemMessages<T extends { role: string; content: unknown }>(messages: T[]): T[] {
+  const systemMessages = messages.filter((message) => message.role === "system");
+  if (systemMessages.length === 0) return messages.map((message) => ({ ...message }));
+  const content = systemMessages
+    .map((message) => systemContentToText(message.content))
+    .filter(Boolean)
+    .join("\n\n");
+  const leadingSystem = { ...systemMessages[0], content } as T;
+  return [leadingSystem, ...messages.filter((message) => message.role !== "system").map((message) => ({ ...message }))];
 }
 
 export interface ChatAttachment {
@@ -166,7 +194,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   }
 
   const raw = parts.filter(Boolean).join("\n\n");
-  return replacePlaceholders(raw, ctx.characterCard?.name, ctx.userName);
+  return replacePromptPlaceholders(raw, ctx.characterCard?.name, ctx.userName);
 }
 
 export function buildMessageArray(
@@ -193,7 +221,7 @@ export function buildMessageArray(
 
   // Build message array — replace placeholders in message content
   const timelineMessages: ChatCompletionMessage[] = timeline.map((m) => {
-    const text = replacePlaceholders(m.content, charName, userName);
+    const text = replacePromptPlaceholders(m.content, charName, userName);
     const visionParts = extractVisionParts(m.attachments);
     return {
       role: m.role as "user" | "assistant",
@@ -207,18 +235,18 @@ export function buildMessageArray(
     const insertIndex = Math.max(0, timelineMessages.length - depth);
     timelineMessages.splice(insertIndex, 0, {
       role: "system",
-      content: `[Author's Note: ${replacePlaceholders(authorNote, charName, userName)}]`
+      content: `[Author's Note: ${replacePromptPlaceholders(authorNote, charName, userName)}]`
     });
   }
 
   messages.push(...timelineMessages);
 
-  const postHistory = replacePlaceholders(String(postHistoryInstructions || ""), charName, userName).trim();
+  const postHistory = replacePromptPlaceholders(String(postHistoryInstructions || ""), charName, userName).trim();
   if (postHistory) {
     messages.push({ role: "system", content: `[Post-History Instructions]\n${postHistory}` });
   }
 
-  return messages;
+  return coalesceSystemMessages(messages);
 }
 
 export function mergeConsecutiveRoles(messages: ChatCompletionMessage[]): ChatCompletionMessage[] {
@@ -262,7 +290,7 @@ export function buildMultiCharMessageArray(
   // Remap roles from the perspective of currentCharacterName
   const remapped: ChatCompletionMessage[] = [];
   for (const m of timeline) {
-    const content = replacePlaceholders(m.content, currentCharacterName, userName);
+    const content = replacePromptPlaceholders(m.content, currentCharacterName, userName);
     const visionParts = extractVisionParts(m.attachments);
     if (m.role === "assistant" && m.characterName === currentCharacterName) {
       // This character's own messages → assistant
@@ -281,17 +309,17 @@ export function buildMultiCharMessageArray(
     const insertIndex = Math.max(0, remapped.length - depth);
     remapped.splice(insertIndex, 0, {
       role: "system",
-      content: `[Author's Note: ${replacePlaceholders(authorNote, currentCharacterName, userName)}]`
+      content: `[Author's Note: ${replacePromptPlaceholders(authorNote, currentCharacterName, userName)}]`
     });
   }
 
   messages.push(...remapped);
 
-  const postHistory = replacePlaceholders(String(postHistoryInstructions || ""), currentCharacterName, userName).trim();
+  const postHistory = replacePromptPlaceholders(String(postHistoryInstructions || ""), currentCharacterName, userName).trim();
   if (postHistory) {
     messages.push({ role: "system", content: `[Post-History Instructions]\n${postHistory}` });
   }
-  return messages;
+  return coalesceSystemMessages(messages);
 }
 
 export function buildMultiCharSystemPrompt(
@@ -359,7 +387,7 @@ export function buildMultiCharSystemPrompt(
   }
 
   const raw = parts.filter(Boolean).join("\n\n");
-  return replacePlaceholders(raw, currentCharacterName, ctx.userName);
+  return replacePromptPlaceholders(raw, currentCharacterName, ctx.userName);
 }
 
 function formatCharacterCard(card: CharacterCardData): string {

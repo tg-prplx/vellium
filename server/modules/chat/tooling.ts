@@ -1,4 +1,5 @@
 import { buildOpenAiSamplingPayload } from "../../services/apiParamPolicy.js";
+import { coalesceSystemMessages } from "../../domain/rpEngine.js";
 import { prepareMcpTools, type McpServerConfig } from "../../services/mcp.js";
 import type { ProviderRow } from "./routeHelpers.js";
 import {
@@ -989,7 +990,7 @@ export async function runToolCallingCompletion(params: {
   signal: AbortSignal;
   onToolEvent?: (event: ToolCallStreamEvent) => void;
   onAssistantDelta?: (delta: string) => void;
-}): Promise<{ content: string; toolCalls: ToolCallTrace[]; streamMessages?: Array<Record<string, unknown>>; assistantWasStreamed?: boolean } | null> {
+}): Promise<{ content: string; toolCalls: ToolCallTrace[]; streamMessages?: OpenAICompletionMessage[]; assistantWasStreamed?: boolean } | null> {
   const autoAttach = params.settings.mcpAutoAttachTools !== false;
   if (!autoAttach) return null;
 
@@ -1014,13 +1015,13 @@ export async function runToolCallingCompletion(params: {
       : policy === "aggressive"
         ? "Prefer using tools when they can improve accuracy, freshness, or completeness of the answer."
         : "Use tools only when they clearly help produce a better answer.";
-    const workingMessages = [
+    const workingMessages = coalesceSystemMessages([
       ...params.apiMessages,
       {
         role: "system",
         content: policyInstruction
       }
-    ] as Array<Record<string, unknown>>;
+    ] as Array<OpenAICompletionMessage>);
     const sc = params.samplerConfig;
     const openAiSampling = buildOpenAiSamplingPayload({
       samplerConfig: sc,

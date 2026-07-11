@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { DEFAULT_SETTINGS } from "./db/defaultSettings.js";
+import { DEFAULT_SETTINGS, migrateDefaultSystemPrompt } from "./db/defaultSettings.js";
 import { applyMigrations } from "./db/migrations.js";
 import { ensureDataDirs, resolveDbPath, DATA_DIR, AVATARS_DIR, UPLOADS_DIR, PLUGINS_DIR, BUNDLED_PLUGINS_DIR } from "./db/paths.js";
 import { applySchema, applySchemaIndexes } from "./db/schema.js";
@@ -65,8 +65,17 @@ function ensureDefaultSettingsRow() {
 
   try {
     const parsed = JSON.parse(existingSettings.payload) as Record<string, unknown>;
+    let changed = false;
     if (typeof parsed.onboardingCompleted !== "boolean") {
       parsed.onboardingCompleted = true;
+      changed = true;
+    }
+    const migratedSystemPrompt = migrateDefaultSystemPrompt(parsed.defaultSystemPrompt);
+    if (migratedSystemPrompt !== parsed.defaultSystemPrompt) {
+      parsed.defaultSystemPrompt = migratedSystemPrompt;
+      changed = true;
+    }
+    if (changed) {
       db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(parsed));
     }
   } catch {

@@ -1,6 +1,6 @@
 import type { Response } from "express";
 import { db, newId, now, roughTokenCount, isLocalhostUrl, nextSortOrder } from "../../db.js";
-import { buildSystemPrompt, buildMessageArray, buildMultiCharSystemPrompt, buildMultiCharMessageArray, mergeConsecutiveRoles } from "../../domain/rpEngine.js";
+import { buildSystemPrompt, buildMessageArray, buildMultiCharSystemPrompt, buildMultiCharMessageArray, coalesceSystemMessages, mergeConsecutiveRoles } from "../../domain/rpEngine.js";
 import type { CharacterCardData, ChatCompletionMessage } from "../../domain/rpEngine.js";
 import { getTriggeredLoreEntries, injectLoreBlocks } from "../../domain/lorebooks.js";
 import { normalizeProviderType } from "../../services/providerApi.js";
@@ -411,6 +411,7 @@ export async function streamLlmResponse(params: {
   if (settings.mergeConsecutiveRoles) {
     apiMessages = mergeConsecutiveRoles(apiMessages);
   }
+  apiMessages = coalesceSystemMessages(apiMessages);
 
   if (!providerId || !modelId) {
     const lastUser = timeline.filter((message) => message.role === "user").pop();

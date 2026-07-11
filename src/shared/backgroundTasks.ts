@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 export type BackgroundTaskStatus = "running" | "done" | "error" | "cancelled";
 export type BackgroundTaskScope = "chat" | "writing" | "characters" | "lorebooks" | "knowledge" | "agents";
-export type BackgroundTaskType = "generate" | "expand" | "rewrite" | "summarize" | "consistency" | "character" | "translate" | "ingest" | "agent";
+export type BackgroundTaskType = "generate" | "expand" | "rewrite" | "summarize" | "consistency" | "character" | "translate" | "export" | "ingest" | "agent";
 export type BackgroundTaskCancelAction = (() => Promise<void> | void) | null;
 
 export interface BackgroundTask {
