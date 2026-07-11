@@ -5101,8 +5101,87 @@ body > .vellium-modal-layer {
   min-width: 0;
 }
 
+.chat-simple-thread-chrome .chat-simple-thread-header,
+.chat-simple-thread-chrome .chat-simple-thread-bar {
+  margin-bottom: 0;
+}
+
+.chat-simple-thread-chrome .chat-simple-thread-header {
+  position: relative;
+  z-index: 2;
+}
+
+.chat-simple-thread-chrome .chat-multi-bar {
+  position: relative;
+  z-index: 1;
+  align-self: center;
+  width: calc(100% - clamp(42px, 5vw, 92px));
+  min-height: 36px;
+  margin: -3px auto 10px !important;
+  padding: 5px 9px;
+  border-top-color: transparent;
+  border-radius: 0 0 13px 13px;
+  box-shadow:
+    0 12px 24px rgb(0 0 0 / 0.16),
+    inset 0 -1px 0 color-mix(in srgb, #fff 3%, transparent);
+}
+
+.chat-simple-thread-chrome .chat-multi-bar:hover {
+  box-shadow:
+    0 14px 28px rgb(0 0 0 / 0.19),
+    inset 0 -1px 0 color-mix(in srgb, #fff 4%, transparent);
+}
+
+.chat-simple-thread-chrome .chat-multi-bar-row {
+  min-height: 26px;
+  flex-flow: row nowrap;
+  gap: 8px;
+}
+
+.chat-simple-thread-chrome .chat-multi-bar-chars {
+  gap: 5px;
+  padding-bottom: 0;
+}
+
+.chat-simple-thread-chrome .chat-multi-bar-chip {
+  gap: 4px;
+  min-height: 26px;
+  padding: 2px 7px 2px 3px;
+  font-size: 10px;
+}
+
+.chat-simple-thread-chrome .chat-multi-bar-add {
+  width: 25px;
+  height: 25px;
+}
+
+.chat-simple-thread-chrome .chat-multi-bar-auto {
+  gap: 5px;
+}
+
+.chat-simple-thread-chrome .chat-multi-bar-turns-input {
+  width: 34px;
+  height: 24px;
+  padding: 2px 3px;
+}
+
+.chat-simple-thread-chrome .chat-multi-bar-auto-btn {
+  min-height: 25px;
+  padding: 3px 9px;
+}
+
 .chat-simple-layout.is-thread .chat-simple-scroll {
   padding-top: calc(var(--chat-simple-thread-chrome-height, 0px) + 8px) !important;
+}
+
+@media (max-width: 720px) {
+  .chat-simple-thread-chrome .chat-multi-bar {
+    width: calc(100% - 18px);
+  }
+
+  .chat-simple-thread-chrome .chat-multi-bar-auto {
+    margin-left: auto;
+  }
 }
 
 .chat-simple-hero {
