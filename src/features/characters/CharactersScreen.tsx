@@ -220,6 +220,8 @@ export function CharactersScreen() {
   const [importJson, setImportJson] = useState("");
   const [importError, setImportError] = useState("");
   const [importSuccess, setImportSuccess] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [libraryQuery, setLibraryQuery] = useState("");
 
   // Avatar
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -662,6 +664,16 @@ export function CharactersScreen() {
     }
   }, [rawJson]);
 
+  const filteredCharacters = useMemo(() => {
+    const query = libraryQuery.trim().toLowerCase();
+    if (!query) return characters;
+    return characters.filter((character) => (
+      character.name.toLowerCase().includes(query)
+      || character.description.toLowerCase().includes(query)
+      || character.tags.some((tag) => tag.toLowerCase().includes(query))
+    ));
+  }, [characters, libraryQuery]);
+
   function avatarSrc(url: string | null, characterId?: string) {
     const resolved = resolveApiAssetUrl(url);
     if (!resolved || !characterId) return resolved;
@@ -737,6 +749,10 @@ export function CharactersScreen() {
 
   return (
     <ThreePanelLayout
+      className="characters-workspace"
+      leftClassName="characters-library-panel"
+      centerClassName="characters-editor-panel"
+      rightClassName="characters-inspector-panel"
       left={
         <>
           <PanelTitle
@@ -757,9 +773,25 @@ export function CharactersScreen() {
           </PanelTitle>
 
           <div className="mb-3 flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
-            <span>{characters.length} {t("chars.countSuffix")}</span>
+            <span>{filteredCharacters.length}/{characters.length} {t("chars.countSuffix")}</span>
             <span>{t("chars.createChooseHint")}</span>
           </div>
+
+          <label className="characters-library-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.1-5.15a6.25 6.25 0 11-12.5 0 6.25 6.25 0 0112.5 0z" />
+            </svg>
+            <input
+              value={libraryQuery}
+              onChange={(event) => setLibraryQuery(event.target.value)}
+              placeholder={t("chars.searchCharacters")}
+            />
+            {libraryQuery ? (
+              <button type="button" onClick={() => setLibraryQuery("")} aria-label={t("chat.cancel")}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            ) : null}
+          </label>
 
           {createPickerOpen ? (
             <div className="mb-3 rounded-[22px] border border-accent-border/45 bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.16),transparent_55%),var(--color-bg-primary)] p-3">
@@ -810,13 +842,22 @@ export function CharactersScreen() {
           ) : null}
 
           {/* Import section */}
-          <div className="float-card mb-3 space-y-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.import")}</span>
-              <button onClick={loadSample} className="text-[10px] text-accent hover:underline">
+          <div className={`characters-import ${importOpen ? "is-open" : ""}`}>
+            <button type="button" className="characters-import-trigger" onClick={() => setImportOpen((current) => !current)}>
+              <span className="inline-flex items-center gap-2">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" />
+                </svg>
+                {t("chars.import")}
+              </span>
+              <svg className={importOpen ? "rotate-180" : ""} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {importOpen ? <div className="characters-import-body">
+              <button onClick={loadSample} className="characters-import-sample">
                 {t("chars.loadSample")}
               </button>
-            </div>
             <textarea
               value={importJson}
               onChange={(e) => setImportJson(e.target.value)}
@@ -848,6 +889,7 @@ export function CharactersScreen() {
             {importSuccess && (
               <div className="rounded-md border border-success-border bg-success-subtle px-2 py-1 text-[10px] text-success">{importSuccess}</div>
             )}
+            </div> : null}
           </div>
 
           {/* Character list */}
@@ -856,18 +898,20 @@ export function CharactersScreen() {
               <div className="py-8 text-center text-xs text-text-tertiary">{t("chars.loading")}</div>
             ) : characters.length === 0 ? (
               <EmptyState title={t("chars.noChars")} description={t("chars.noCharsDesc")} />
+            ) : filteredCharacters.length === 0 ? (
+              <EmptyState title={t("chars.noSearchResults")} description={t("chars.noSearchResultsDesc")} />
             ) : (
-              characters.map((char) => (
+              filteredCharacters.map((char) => (
                 <button
                   key={char.id}
                   onClick={() => {
                     setCreatePickerOpen(false);
                     setSelected(char);
                   }}
-                  className={`float-card flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${
+                  className={`character-library-item ${
                     selected?.id === char.id
-                      ? "bg-accent-subtle text-text-primary"
-                      : "text-text-secondary hover:bg-bg-hover"
+                      ? "is-active"
+                      : ""
                   }`}
                 >
                   <AvatarBadge
@@ -979,7 +1023,10 @@ export function CharactersScreen() {
                 </div>
               ) : null}
               <div className="char-editor-actions">
-                <button onClick={handleSave} className="char-editor-btn is-primary">{t("chat.save")}</button>
+                <button onClick={handleSave} className="char-editor-btn is-primary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 4h12l2 2v14H5V4zm3 0v6h8V4M8 20v-6h8v6" /></svg>
+                  {t("chat.save")}
+                </button>
                 {agentsUiEnabled && (
                   <button
                     onClick={handleCreateAgentThread}
@@ -995,6 +1042,7 @@ export function CharactersScreen() {
                   disabled={translateCopyBusy}
                   className="char-editor-btn"
                 >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 5h9M8.5 3v2m-2 0c.7 3.2 2.8 5.8 6.5 7M6 12c2.4-1.2 4.3-3.2 5.4-6M14 14h6m-3-3l4 9m-8 0l4-9" /></svg>
                   {translateCopyBusy ? t("chars.translatingCopy") : t("chars.translateCopy")}
                 </button>
                 <button
@@ -1007,7 +1055,10 @@ export function CharactersScreen() {
                   </svg>
                   {t("chars.exportJson")}
                 </button>
-                <button onClick={handleDelete} className="char-editor-btn is-danger">{t("chat.delete")}</button>
+                <button onClick={handleDelete} className="char-editor-btn is-danger">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 7h14M9 7V4h6v3m-8 0l1 13h8l1-13M10 11v5m4-5v5" /></svg>
+                  {t("chat.delete")}
+                </button>
               </div>
             </div>
 

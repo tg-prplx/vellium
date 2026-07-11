@@ -1241,11 +1241,11 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
               value={bookSearchQuery}
               onChange={(e) => setBookSearchQuery(e.target.value)}
               placeholder={t("writing.searchBooks")}
-              className="w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-[11px] text-text-primary placeholder:text-text-tertiary"
+              className="writing-library-search"
             />
           </div>
 
-          <div className="rounded-lg border border-border-subtle bg-bg-primary p-2.5">
+          <div className="writing-library-import">
             <button
               onClick={openDocxPicker}
               disabled={busy || (!docxImportAsBook && !activeProject)}
@@ -1306,10 +1306,10 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
                 return (
                   <div
                     key={project.id}
-                    className={`group relative flex items-start gap-2 rounded-lg px-3 py-2 transition-colors ${
+                    className={`writing-library-item group ${
                       activeProject?.id === project.id
-                        ? "bg-accent-subtle text-text-primary"
-                        : "text-text-secondary hover:bg-bg-hover"
+                        ? "is-active"
+                        : ""
                     }`}
                   >
                     {isRenaming ? (
@@ -1541,6 +1541,7 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
                 onClick={() => setSimpleWritingLibraryOpen((prev) => !prev)}
                 className={`writing-simple-top-button ${simpleWritingLibraryOpen ? "is-active" : ""}`}
               >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 5h6l2 2h8v12H4V5z" /></svg>
                 {t("writing.projects")}
               </button>
               <button
@@ -1548,6 +1549,7 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
                 onClick={() => setSimpleWritingInspectorOpen((prev) => !prev)}
                 className={`writing-simple-top-button ${simpleWritingInspectorOpen ? "is-active" : ""}`}
               >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 4h14v16H5V4zm4 4h6M9 12h6M9 16h4" /></svg>
                 {t("writing.outline")}
               </button>
               <button
@@ -1555,11 +1557,12 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
                 onClick={() => setSimpleWritingControlsOpen((prev) => !prev)}
                 className={`writing-simple-top-button ${simpleWritingControlsOpen ? "is-active" : ""}`}
               >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M10.3 4.3c.4-1.8 2.9-1.8 3.4 0a1.7 1.7 0 002.6 1.1c1.5-.9 3.3.8 2.3 2.3a1.7 1.7 0 001.1 2.6c1.8.4 1.8 2.9 0 3.4a1.7 1.7 0 00-1.1 2.6c.9 1.5-.8 3.3-2.3 2.3a1.7 1.7 0 00-2.6 1.1c-.4 1.8-2.9 1.8-3.4 0a1.7 1.7 0 00-2.6-1.1c-1.5.9-3.3-.8-2.3-2.3a1.7 1.7 0 00-1.1-2.6c-1.8-.4-1.8-2.9 0-3.4a1.7 1.7 0 001.1-2.6c-.9-1.5.8-3.3 2.3-2.3a1.7 1.7 0 002.6-1.1zM12 15a3 3 0 100-6 3 3 0 000 6z" /></svg>
                 {t("tab.settings")}
               </button>
             </div>
           )}
-          <div className="flex items-center justify-between gap-3">
+          <div className="writing-workspace-heading">
             <h2 className="min-w-0 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
               <span className="block truncate">{activeProject ? activeProject.name : t("writing.creativeWriting")}</span>
             </h2>
@@ -1588,7 +1591,7 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
 
           {(!writingSimpleModeActive || simpleWritingControlsOpen) && (
           <>
-          <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-2.5">
+          <div className="writing-control-panel">
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.model")}</span>
               <span className="truncate text-xs text-text-secondary">{activeModelLabel || t("chat.noModel")}</span>
@@ -1627,7 +1630,7 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
             </div>
           </div>
 
-          <div className="float-card rounded-lg border border-border-subtle bg-bg-primary p-2.5">
+          <div className="writing-control-panel">
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.ragEnabled")}</span>
               <span className="text-[10px] text-text-tertiary">{t("chat.ragTopK")}</span>
