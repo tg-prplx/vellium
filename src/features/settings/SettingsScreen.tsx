@@ -11,9 +11,18 @@ import { ModalShell } from "../../components/ModalShell";
 import { IconButton } from "../../components/IconButton";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { ManagedBackendsSettings } from "./components/ManagedBackendsSettings";
+import { WallpaperThemePanel } from "./components/WallpaperThemePanel";
 import { LegacyScreen } from "../legacy/public";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
 import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue } from "./utils";
+import {
+  applyWallpaperThemePalette,
+  clearWallpaperTheme,
+  generateWallpaperThemePalette,
+  isWallpaperThemeEnabled,
+  readWallpaperThemePalette,
+  setWallpaperThemeEnabled, storeWallpaperThemePalette
+} from "../../shared/wallpaperTheme";
 
 function isLocalProviderEndpoint(url: string): boolean {
   try {
@@ -258,6 +267,9 @@ export function SettingsScreen({
   const [pluginPermissionsSaving, setPluginPermissionsSaving] = useState(false);
   const [pluginPermissionsEnableAfterSave, setPluginPermissionsEnableAfterSave] = useState(false);
   const [pluginInstallBusy, setPluginInstallBusy] = useState(false);
+  const [wallpaperThemeEnabled, setWallpaperThemeEnabledState] = useState(isWallpaperThemeEnabled);
+  const [wallpaperThemePalette, setWallpaperThemePalette] = useState(readWallpaperThemePalette);
+  const [wallpaperThemeGenerating, setWallpaperThemeGenerating] = useState(false);
   const pluginInstallInputRef = useRef<HTMLInputElement | null>(null);
   const wallpaperInputRef = useRef<HTMLInputElement | null>(null);
   const [managedBackendImportCommands, setManagedBackendImportCommands] = useState<Record<string, string>>({});
@@ -561,6 +573,9 @@ export function SettingsScreen({
     try {
       const dataUrl = await prepareSimpleModeWallpaper(file, t);
       await patch({ simpleModeWallpaper: dataUrl });
+      if (wallpaperThemeEnabled) {
+        await regenerateWallpaperTheme(dataUrl, false);
+      }
       showResult(t("settings.wallpaperApplied"), "success");
     } catch (error) {
       setSettingsSaveState("error");
@@ -568,6 +583,39 @@ export function SettingsScreen({
     } finally {
       if (wallpaperInputRef.current) wallpaperInputRef.current.value = "";
     }
+  }
+
+  async function regenerateWallpaperTheme(source = settings?.simpleModeWallpaper || "", announce = true) {
+    if (!source || wallpaperThemeGenerating) return;
+    setWallpaperThemeGenerating(true);
+    try {
+      const palette = await generateWallpaperThemePalette(source);
+      storeWallpaperThemePalette(palette);
+      applyWallpaperThemePalette(palette);
+      setWallpaperThemePalette(palette);
+      if (announce) showResult(t("settings.wallpaperThemeGenerated"), "success");
+    } catch {
+      showResult(t("settings.wallpaperThemeError"), "error");
+    } finally {
+      setWallpaperThemeGenerating(false);
+    }
+  }
+
+  function handleWallpaperThemeToggle(enabled: boolean) {
+    setWallpaperThemeEnabled(enabled);
+    setWallpaperThemeEnabledState(enabled);
+    if (!enabled) {
+      clearWallpaperTheme();
+      return;
+    }
+    if (settings?.simpleModeWallpaper) {
+      void regenerateWallpaperTheme(settings.simpleModeWallpaper);
+    }
+  }
+
+  async function handleWallpaperRemove() {
+    await patch({ simpleModeWallpaper: "" });
+    clearWallpaperTheme();
   }
 
   function handleThemeModeChange(nextValue: string) {
@@ -1905,7 +1953,7 @@ export function SettingsScreen({
                       {settings.simpleModeWallpaper ? (
                         <IconButton
                           label={t("settings.wallpaperRemove")}
-                          onClick={() => void patch({ simpleModeWallpaper: "" })}
+                          onClick={() => { void handleWallpaperRemove(); }}
                           tone="danger"
                           icon={(
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
@@ -1924,6 +1972,16 @@ export function SettingsScreen({
                     </div>
 
                     {settings.simpleModeWallpaper ? (
+                      <>
+                      <WallpaperThemePanel
+                        enabled={wallpaperThemeEnabled}
+                        generating={wallpaperThemeGenerating}
+                        palette={wallpaperThemePalette}
+                        secondaryActionClass={secondaryActionClass}
+                        onToggle={handleWallpaperThemeToggle}
+                        onRegenerate={() => { void regenerateWallpaperTheme(); }}
+                        t={t}
+                      />
                       <div className="settings-wallpaper-controls">
                         <div>
                           <div className="mb-1.5 flex items-center justify-between">
@@ -1967,6 +2025,7 @@ export function SettingsScreen({
                           </SelectField>
                         </div>
                       </div>
+                      </>
                     ) : null}
                   </div>
                   <div>
