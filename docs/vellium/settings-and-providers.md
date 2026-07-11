@@ -164,6 +164,7 @@ Important:
 
 - tool calling is disabled for `KoboldCpp`
 - it can be enabled for OpenAI-compatible providers
+- image-producing MCP tools can return structured media; see [tool-calls-and-media.md](./tool-calls-and-media.md) for the payload contract and UI behavior
 
 ### Security
 
