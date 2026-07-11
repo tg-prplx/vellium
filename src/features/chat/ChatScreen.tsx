@@ -67,6 +67,7 @@ import { AttachmentPreviewModal, type AttachmentViewerState } from "./components
 import { PersonaModal } from "./components/PersonaModal";
 import { CustomSceneFieldInput } from "./components/CustomSceneFieldInput";
 import { AttachmentCard } from "./components/AttachmentCard";
+import { ToolResultPreview, type ToolResultMediaItem } from "./components/ToolResultPreview";
 import { SceneControlsEditor } from "./components/SceneControlsEditor";
 import { SimpleSceneModal } from "./components/SimpleSceneModal";
 import {
@@ -1028,45 +1029,15 @@ export function ChatScreen() {
     void uploadComposerFiles(imageFiles);
   }
 
-  function renderToolResultPreview(result: string, summary?: string, media?: Array<{
-    type: "image";
-    url: string;
-    markdown?: string;
-    alt?: string;
-  }>) {
-    const hasMedia = Array.isArray(media) && media.length > 0;
-    if (!hasMedia) {
-      return (
-        <pre className="mt-0.5 max-h-28 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">
-          {result || t("chat.empty")}
-        </pre>
-      );
-    }
-
+  function renderToolResultPreview(result: string, summary?: string, media?: ToolResultMediaItem[]) {
     return (
-      <div className="mt-0.5 rounded border border-border-subtle bg-bg-secondary p-2">
-        <div className="text-[10px] text-text-secondary">{summary || "Image created and shown to the user."}</div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {media.map((item, index) => (
-            <a
-              key={`${item.url}-${index}`}
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group block overflow-hidden rounded-md border border-border-subtle bg-bg-primary"
-              title={item.alt || `Image ${index + 1}`}
-            >
-              <img
-                src={item.url}
-                alt={item.alt || `Image ${index + 1}`}
-                className="h-24 w-24 object-cover transition-transform group-hover:scale-[1.03]"
-                loading="lazy"
-                referrerPolicy="no-referrer"
-              />
-            </a>
-          ))}
-        </div>
-      </div>
+      <ToolResultPreview
+        result={result}
+        summary={summary}
+        media={media}
+        onPreview={previewAttachment}
+        t={t}
+      />
     );
   }
 
@@ -2862,12 +2833,12 @@ export function ChatScreen() {
                           </div>
                         )}
                         {!zenMode && relatedToolMessages.length > 0 && (
-                          <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">
+                          <div className="chat-tool-stack mt-2">
                             <button
                               onClick={() => {
                                 setToolPanelsExpanded((prev) => ({ ...prev, [msg.id]: !toolPanelOpen }));
                               }}
-                              className="flex w-full items-center justify-between px-2 py-1.5 text-left"
+                              className="chat-tool-stack-trigger"
                             >
                               <span className="text-[11px] font-semibold text-text-secondary">
                                 {t("chat.toolCall")} ({relatedToolMessages.length})
@@ -2877,15 +2848,15 @@ export function ChatScreen() {
                               </svg>
                             </button>
                             {toolPanelOpen && (
-                              <div className="space-y-1.5 border-t border-warning-border/60 px-2 py-2">
+                              <div className="chat-tool-stack-body">
                                 {relatedToolMessages.map((item) => {
                                   const payload = item.payload;
                                   return (
-                                    <div key={item.id} className="rounded-md border border-warning-border/60 bg-bg-primary px-2 py-1.5">
-                                      <div className="text-[11px] font-semibold text-text-primary">{payload.name}</div>
-                                      <div className="mt-1 text-[10px] text-text-tertiary">{t("chat.args")}</div>
-                                      <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">{payload.args || "{}"}</pre>
-                                      <div className="mt-1 text-[10px] text-text-tertiary">{t("chat.result")}</div>
+                                    <div key={item.id} className="chat-tool-entry">
+                                      <div className="chat-tool-entry-title">{payload.name}</div>
+                                      <div className="chat-tool-entry-label">{t("chat.args")}</div>
+                                      <pre className="tool-result-code is-compact">{payload.args || "{}"}</pre>
+                                      <div className="chat-tool-entry-label">{t("chat.result")}</div>
                                       {renderToolResultPreview(payload.result, payload.resultSummary, payload.media)}
                                     </div>
                                   );
@@ -3050,10 +3021,10 @@ export function ChatScreen() {
                     )}
                   </div>
                   {!zenMode && streamingToolCalls.length > 0 && (
-                    <div className="mt-2 rounded-md border border-warning-border bg-warning-subtle">
+                    <div className="chat-tool-stack is-streaming mt-2">
                       <button
                         onClick={() => setStreamingToolsExpanded((prev) => !prev)}
-                        className="flex w-full items-center justify-between px-2 py-1.5 text-left"
+                        className="chat-tool-stack-trigger"
                       >
                         <span className="flex items-center gap-1 text-[11px] font-semibold text-text-secondary">
                           {streamingToolCalls.some((call) => call.status === "running") && (
@@ -3069,12 +3040,12 @@ export function ChatScreen() {
                         </svg>
                       </button>
                       {streamingToolsExpanded && (
-                        <div className="space-y-1.5 border-t border-warning-border/60 px-2 py-2">
+                        <div className="chat-tool-stack-body">
                           {streamingToolCalls.map((call) => (
                             (() => {
                               const parsedResult = parseToolResultDisplay(String(call.result || ""));
                               return (
-                                <div key={call.callId} className="rounded-md border border-warning-border/60 bg-bg-primary px-2 py-1.5">
+                                <div key={call.callId} className="chat-tool-entry">
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="truncate text-[11px] font-semibold text-text-primary">{call.name}</span>
                                     {call.status === "running" ? (
@@ -3089,7 +3060,7 @@ export function ChatScreen() {
                                       <span className="text-[10px] text-success">{t("chat.done")}</span>
                                     )}
                                   </div>
-                                  <pre className="mt-1 max-h-16 overflow-auto whitespace-pre-wrap rounded border border-border-subtle bg-bg-secondary px-1.5 py-1 text-[10px] text-text-secondary">{call.args || "{}"}</pre>
+                                  <pre className="tool-result-code is-compact">{call.args || "{}"}</pre>
                                   {call.result && renderToolResultPreview(parsedResult.result, parsedResult.resultSummary, parsedResult.media)}
                                 </div>
                               );

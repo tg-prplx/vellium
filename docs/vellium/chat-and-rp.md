@@ -197,6 +197,8 @@ Important:
 
 Inside the chat, tool calls and tool results appear as part of the response flow.
 
+Image-producing tools return a generated-media surface with loading, preview, and unavailable states. Clicking a ready image opens Vellium's regular attachment preview. For the complete user flow and MCP payload contract, see [tool-calls-and-media.md](./tool-calls-and-media.md).
+
 ## When Simple Mode is the better choice
 
 Simple Mode is a strong default if you:

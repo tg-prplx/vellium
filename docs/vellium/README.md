@@ -24,6 +24,7 @@ The screenshots in this guide are local captures from the current app build. Whe
 | --- | --- |
 | [getting-started.md](./getting-started.md) | First launch, provider presets, basic setup, and the shortest path to a working chat |
 | [chat-and-rp.md](./chat-and-rp.md) | Chat, RP flows, character usage, inspector controls, RAG, TTS, translation, and multi-character scenes |
+| [tool-calls-and-media.md](./tool-calls-and-media.md) | MCP tool calls, generated-image UI, structured media payloads, preview states, and troubleshooting |
 | [characters-and-lorebooks.md](./characters-and-lorebooks.md) | Character cards, import/export, GUI vs raw JSON editing, LoreBooks, and world info |
 | [writing.md](./writing.md) | Projects, chapters, scenes, Character Forge, summary lenses, DOCX / Markdown workflows |
 | [knowledge-and-rag.md](./knowledge-and-rag.md) | Knowledge collections, ingestion, scope, and how RAG plugs into chat and writing |
