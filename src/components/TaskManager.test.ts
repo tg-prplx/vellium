@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { syncTaskManagerOpenState } from "./TaskManager";
+import { syncTaskManagerOpenState } from "./taskManagerState";
 
 describe("syncTaskManagerOpenState", () => {
   it("keeps the panel collapsed when tasks appear", () => {

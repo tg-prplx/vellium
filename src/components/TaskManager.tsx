@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  cancelBackgroundTask,
   clearFinishedBackgroundTasks,
   removeBackgroundTask,
   type BackgroundTask,
@@ -7,15 +8,7 @@ import {
   useBackgroundTasks
 } from "../shared/backgroundTasks";
 import { useI18n } from "../shared/i18n";
-
-const TASK_SCOPE_TABS: Record<BackgroundTaskScope, string> = {
-  chat: "chat",
-  writing: "writing",
-  characters: "characters",
-  lorebooks: "lorebooks",
-  knowledge: "knowledge",
-  agents: "agents"
-};
+import { syncTaskManagerOpenState } from "./taskManagerState";
 
 function formatTaskDuration(startedAt: number, now: number, finishedAt?: number) {
   const totalSeconds = Math.max(0, Math.floor(((finishedAt ?? now) - startedAt) / 1000));
@@ -52,11 +45,9 @@ function taskScopeLabel(t: TaskTranslator, scope: BackgroundTaskScope) {
 function taskStatusLabel(t: TaskTranslator, task: BackgroundTask) {
   if (task.status === "done") return t("taskManager.done");
   if (task.status === "error") return t("taskManager.error");
+  if (task.status === "cancelled") return t("taskManager.cancelled");
+  if (task.cancelRequested) return t("taskManager.cancelling");
   return t("taskManager.running");
-}
-
-export function syncTaskManagerOpenState(isOpen: boolean, taskCount: number) {
-  return taskCount === 0 ? false : isOpen;
 }
 
 function TaskProgress({ task }: { task: BackgroundTask }) {
@@ -70,6 +61,8 @@ function TaskProgress({ task }: { task: BackgroundTask }) {
     ? "bg-danger"
     : task.status === "done"
       ? "bg-success"
+      : task.status === "cancelled"
+        ? "bg-text-tertiary"
       : "bg-accent";
 
   return (
@@ -99,6 +92,8 @@ function TaskCard({
     ? "border-success-border bg-success-subtle text-success"
     : task.status === "error"
       ? "border-danger-border bg-danger-subtle text-danger"
+      : task.status === "cancelled"
+        ? "border-border-subtle bg-bg-secondary text-text-tertiary"
       : "border-accent-border bg-accent-subtle text-accent";
 
   const summary = task.result?.trim()
@@ -145,12 +140,11 @@ function TaskCard({
 
         {task.status === "running" && task.cancellable && task.onCancel ? (
           <button
-            onClick={() => {
-              void task.onCancel?.();
-            }}
-            className="rounded-lg border border-danger-border px-2.5 py-1 text-[11px] font-medium text-danger hover:bg-danger-subtle"
+            onClick={() => void cancelBackgroundTask(task.id, t("taskManager.cancelled"))}
+            disabled={task.cancelRequested}
+            className="rounded-lg border border-danger-border px-2.5 py-1 text-[11px] font-medium text-danger hover:bg-danger-subtle disabled:cursor-wait disabled:opacity-60"
           >
-            {task.cancelLabel || t("taskManager.stop")}
+            {task.cancelRequested ? t("taskManager.cancelling") : (task.cancelLabel || t("taskManager.stop"))}
           </button>
         ) : (
           <button
@@ -167,10 +161,10 @@ function TaskCard({
 
 export function TaskManager({
   isElectron,
-  onOpenTab
+  onOpenScope
 }: {
   isElectron: boolean;
-  onOpenTab: (tab: string) => void;
+  onOpenScope: (scope: BackgroundTaskScope) => void;
 }) {
   const { t } = useI18n();
   const tasks = useBackgroundTasks();
@@ -297,7 +291,7 @@ export function TaskManager({
                     key={task.id}
                     task={task}
                     now={now}
-                    onOpenScope={(scope) => onOpenTab(TASK_SCOPE_TABS[scope])}
+                    onOpenScope={onOpenScope}
                     onClose={() => setIsOpen(false)}
                   />
                 ))}
@@ -314,7 +308,7 @@ export function TaskManager({
                     key={task.id}
                     task={task}
                     now={now}
-                    onOpenScope={(scope) => onOpenTab(TASK_SCOPE_TABS[scope])}
+                    onOpenScope={onOpenScope}
                     onClose={() => setIsOpen(false)}
                   />
                 ))}

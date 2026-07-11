@@ -85,6 +85,8 @@ export const ru = {
   "taskManager.running": "В работе",
   "taskManager.done": "Готово",
   "taskManager.error": "Ошибка",
+  "taskManager.cancelled": "Отменено",
+  "taskManager.cancelling": "Останавливается...",
   "taskManager.scope.chat": "Чат",
   "taskManager.scope.agents": "Агенты",
   "taskManager.scope.writing": "Писательство",

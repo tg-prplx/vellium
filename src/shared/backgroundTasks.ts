@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-export type BackgroundTaskStatus = "running" | "done" | "error";
+export type BackgroundTaskStatus = "running" | "done" | "error" | "cancelled";
 export type BackgroundTaskScope = "chat" | "writing" | "characters" | "lorebooks" | "knowledge" | "agents";
 export type BackgroundTaskType = "generate" | "expand" | "rewrite" | "summarize" | "consistency" | "character" | "translate" | "ingest" | "agent";
 export type BackgroundTaskCancelAction = (() => Promise<void> | void) | null;
@@ -19,6 +19,7 @@ export interface BackgroundTask {
   cancellable?: boolean;
   cancelLabel?: string;
   onCancel?: BackgroundTaskCancelAction;
+  cancelRequested?: boolean;
 }
 
 const MAX_BACKGROUND_TASKS = 60;
@@ -54,11 +55,15 @@ export function getBackgroundTasks(): BackgroundTask[] {
 }
 
 export function addBackgroundTask(task: BackgroundTask) {
-  backgroundTasks = [{
+  const nextTasks = [{
     ...task,
     progress: normalizeProgress(task.progress),
-    onCancel: task.onCancel ?? null
-  }, ...backgroundTasks].slice(0, MAX_BACKGROUND_TASKS);
+    onCancel: task.onCancel ?? null,
+    cancelRequested: task.cancelRequested ?? false
+  }, ...backgroundTasks.filter((item) => item.id !== task.id)];
+  const runningTasks = nextTasks.filter((item) => item.status === "running");
+  const finishedTasks = nextTasks.filter((item) => item.status !== "running");
+  backgroundTasks = [...runningTasks, ...finishedTasks.slice(0, Math.max(0, MAX_BACKGROUND_TASKS - runningTasks.length))];
   emitBackgroundTasks();
 }
 
@@ -85,6 +90,9 @@ export function updateBackgroundTask(id: string, update: Partial<BackgroundTask>
       cancellable: nextCancelable,
       cancelLabel: nextCancelLabel,
       onCancel: nextCancelAction,
+      cancelRequested: nextStatus === "running"
+        ? (update.cancelRequested ?? task.cancelRequested ?? false)
+        : false,
       finishedAt: nextStatus === "running" ? task.finishedAt : (update.finishedAt ?? task.finishedAt ?? Date.now())
     };
   });
@@ -110,11 +118,38 @@ export function startBackgroundTask(input: Omit<BackgroundTask, "id" | "startedA
 }
 
 export function finishBackgroundTask(id: string, result?: string) {
-  updateBackgroundTask(id, { status: "done", result, progress: 100, finishedAt: Date.now() });
+  updateBackgroundTask(id, {
+    status: "done",
+    result,
+    progress: 100,
+    progressLabel: undefined,
+    finishedAt: Date.now()
+  });
 }
 
 export function failBackgroundTask(id: string, result?: string) {
+  if (backgroundTasks.some((task) => task.id === id && task.status === "cancelled")) return;
   updateBackgroundTask(id, { status: "error", result, finishedAt: Date.now() });
+}
+
+export async function cancelBackgroundTask(id: string, result?: string) {
+  const task = backgroundTasks.find((item) => item.id === id);
+  if (!task || task.status !== "running" || task.cancelRequested || !task.onCancel) return false;
+
+  const cancelAction = task.onCancel;
+  updateBackgroundTask(id, { cancelRequested: true });
+  try {
+    await cancelAction();
+    updateBackgroundTask(id, {
+      status: "cancelled",
+      result,
+      finishedAt: Date.now()
+    });
+    return true;
+  } catch (error) {
+    failBackgroundTask(id, error instanceof Error ? error.message : String(error));
+    return false;
+  }
 }
 
 export function removeBackgroundTask(id: string) {

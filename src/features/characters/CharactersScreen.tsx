@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
+import { isAbortError } from "../../shared/errors";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../components/Panels";
 import { ToggleSwitch } from "../../components/FormControls";
@@ -511,13 +512,18 @@ export function CharactersScreen() {
     setSaveStatus("");
     setSaveStatusType(null);
     setTranslateCopyLoading(true);
+    const controller = new AbortController();
     const taskId = startBackgroundTask({
       scope: "characters",
       type: "translate",
-      label: t("chars.translateCopy")
+      label: t("chars.translateCopy"),
+      progressLabel: t("chars.translatingCopy"),
+      cancellable: true,
+      cancelLabel: t("taskManager.stop"),
+      onCancel: () => controller.abort()
     });
     try {
-      const copied = await api.characterTranslateCopy(selected.id);
+      const copied = await api.characterTranslateCopy(selected.id, undefined, controller.signal);
       setCharacters((prev) => [copied, ...prev]);
       setSelected(copied);
       setSaveStatus(`${t("chars.translatedCopyCreated")}: ${copied.name}`);
@@ -528,9 +534,11 @@ export function CharactersScreen() {
         setSaveStatusType(null);
       }, 2500);
     } catch (error) {
-      failBackgroundTask(taskId, String(error));
-      setSaveStatus(`${t("chars.errorPrefix")}: ${String(error)}`);
-      setSaveStatusType("error");
+      if (!isAbortError(error)) {
+        failBackgroundTask(taskId, String(error));
+        setSaveStatus(`${t("chars.errorPrefix")}: ${String(error)}`);
+        setSaveStatusType("error");
+      }
     } finally {
       setTranslateCopyLoading(false);
     }

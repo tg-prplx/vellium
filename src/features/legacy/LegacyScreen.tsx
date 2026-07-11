@@ -32,7 +32,10 @@ export function LegacyScreen({
   }, [initialAgentThreadId]);
 
   useEffect(() => {
-    const handler = () => setView("overview");
+    const handler = (event: Event) => {
+      const requestedView = (event as CustomEvent<{ view?: LegacyView }>).detail?.view;
+      setView(requestedView === "agents" ? "agents" : "overview");
+    };
     window.addEventListener("open-legacy-view", handler);
     return () => window.removeEventListener("open-legacy-view", handler);
   }, []);

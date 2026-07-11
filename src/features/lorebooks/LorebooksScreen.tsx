@@ -3,6 +3,7 @@ import { ThreePanelLayout, PanelTitle, EmptyState } from "../../components/Panel
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
+import { isAbortError } from "../../shared/errors";
 import type { LoreBook, LoreBookEntry } from "../../shared/types/contracts";
 import {
   failBackgroundTask,
@@ -173,19 +174,26 @@ export function LorebooksScreen() {
   async function translateLorebookCopy() {
     if (!selected || translateCopyBusy) return;
     setTranslatingCopy(true);
+    const controller = new AbortController();
     const taskId = startBackgroundTask({
       scope: "lorebooks",
       type: "translate",
-      label: t("lore.translateKeysCopy")
+      label: t("lore.translateKeysCopy"),
+      progressLabel: t("lore.translating"),
+      cancellable: true,
+      cancelLabel: t("taskManager.stop"),
+      onCancel: () => controller.abort()
     });
     try {
-      const copied = await api.lorebookTranslateCopy(selected.id);
+      const copied = await api.lorebookTranslateCopy(selected.id, undefined, controller.signal);
       await refreshLorebooks(copied.id);
       setStatus(`${t("lore.statusTranslated")}: ${copied.name}`);
       finishBackgroundTask(taskId, copied.name);
     } catch (error) {
-      failBackgroundTask(taskId, String(error));
-      setStatus(`${t("lore.statusTranslateFailed")} ${error instanceof Error ? error.message : ""}`.trim());
+      if (!isAbortError(error)) {
+        failBackgroundTask(taskId, String(error));
+        setStatus(`${t("lore.statusTranslateFailed")} ${error instanceof Error ? error.message : ""}`.trim());
+      }
     } finally {
       setTranslatingCopy(false);
     }

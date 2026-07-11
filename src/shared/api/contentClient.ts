@@ -5,8 +5,8 @@ export const contentClient = {
   characterList: () => get<CharacterDetail[]>("/characters"),
   characterGet: (id: string) => get<CharacterDetail>(`/characters/${id}`),
   characterImportV2: (rawJson: string) => post<CharacterDetail>("/characters/import", { rawJson }),
-  characterTranslateCopy: (id: string, targetLanguage?: string) =>
-    post<CharacterDetail>(`/characters/${id}/translate-copy`, { targetLanguage }, { timeoutMs: 0 }),
+  characterTranslateCopy: (id: string, targetLanguage?: string, signal?: AbortSignal) =>
+    post<CharacterDetail>(`/characters/${id}/translate-copy`, { targetLanguage }, { timeoutMs: 0, signal }),
   characterValidateV2: (rawJson: string) => post<{ valid: boolean; errors: string[] }>("/characters/validate", { rawJson }),
   characterUpdate: (id: string, data: Partial<CharacterDetail>) => put<CharacterDetail>(`/characters/${id}`, data),
   characterDelete: (id: string) => del<void>(`/characters/${id}`),
@@ -16,8 +16,8 @@ export const contentClient = {
   lorebookGet: (id: string) => get<LoreBook>(`/lorebooks/${id}`),
   lorebookCreate: (data: Partial<LoreBook>) => post<LoreBook>("/lorebooks", data),
   lorebookImportWorldInfo: (data: unknown) => post<LoreBook>("/lorebooks/import/world-info", { data }),
-  lorebookTranslateCopy: (id: string, targetLanguage?: string) =>
-    post<LoreBook>(`/lorebooks/${id}/translate-copy`, { targetLanguage }, { timeoutMs: 0 }),
+  lorebookTranslateCopy: (id: string, targetLanguage?: string, signal?: AbortSignal) =>
+    post<LoreBook>(`/lorebooks/${id}/translate-copy`, { targetLanguage }, { timeoutMs: 0, signal }),
   lorebookUpdate: (id: string, data: Partial<LoreBook>) => put<LoreBook>(`/lorebooks/${id}`, data),
   lorebookDelete: (id: string) => del<{ ok: boolean }>(`/lorebooks/${id}`),
   lorebookExportWorldInfo: (id: string) => requestBlob("GET", `/lorebooks/${id}/export/world-info`),

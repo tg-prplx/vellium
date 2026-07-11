@@ -33,11 +33,15 @@ import type {
   WriterSummaryLens,
   WriterSummaryLensScope
 } from "../../shared/types/contracts";
-import { addBackgroundTask, updateBackgroundTask } from "./taskStore";
 import type { BackgroundTask, CharacterEditDraft, CharacterEditStatus, LensPresetId, WritingWorkspaceMode } from "./types";
 import { EMPTY_CHARACTER_EDIT_DRAFT_TYPED } from "./types";
 import { clamp01 } from "./utils";
-import { useBackgroundTasks } from "../../shared/backgroundTasks";
+import {
+  failBackgroundTask,
+  finishBackgroundTask,
+  startBackgroundTask,
+  useBackgroundTasks
+} from "../../shared/backgroundTasks";
 
 interface WritingScreenProps {
   initialWorkspaceMode?: WritingWorkspaceMode;
@@ -192,14 +196,12 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
   }
 
   function startBgTask(type: BackgroundTask["type"], label: string): string {
-    const id = `task-${Date.now()}`;
-    const task: BackgroundTask = { id, scope: "writing", type, label, startedAt: Date.now(), status: "running" };
-    addBackgroundTask(task);
-    return id;
+    return startBackgroundTask({ scope: "writing", type, label });
   }
 
   function finishBgTask(id: string, status: "done" | "error", result?: string) {
-    updateBackgroundTask(id, { status, result });
+    if (status === "done") finishBackgroundTask(id, result);
+    else failBackgroundTask(id, result);
   }
 
   async function createProject() {
@@ -472,10 +474,15 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
   async function runConsistency() {
     if (!activeProject) return;
     const taskId = startBgTask("consistency", t("writing.taskConsistency"));
-    const report = await api.writerConsistencyRun(activeProject.id);
-    setIssues(report);
-    log(`${t("writing.logConsistencyFound")}: ${report.length}`);
-    finishBgTask(taskId, "done", `${report.length} ${t("writing.issuesCount")}`);
+    try {
+      const report = await api.writerConsistencyRun(activeProject.id);
+      setIssues(report);
+      log(`${t("writing.logConsistencyFound")}: ${report.length}`);
+      finishBgTask(taskId, "done", `${report.length} ${t("writing.issuesCount")}`);
+    } catch (error) {
+      log(`${t("writing.logError")}: ${String(error)}`);
+      finishBgTask(taskId, "error", String(error));
+    }
   }
 
   async function expandScene() {

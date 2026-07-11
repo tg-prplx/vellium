@@ -4,6 +4,7 @@ const REQUEST_TIMEOUT_MS = 6000;
 
 type RequestOptions = {
   timeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 function requestBases(): string[] {
@@ -81,6 +82,9 @@ export async function request<T>(method: string, path: string, body?: unknown, o
   for (const base of bases) {
     try {
       const controller = new AbortController();
+      const abortFromCaller = () => controller.abort(options?.signal?.reason);
+      if (options?.signal?.aborted) abortFromCaller();
+      else options?.signal?.addEventListener("abort", abortFromCaller, { once: true });
       const timeout = timeoutMs > 0
         ? window.setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs)
         : null;
@@ -100,6 +104,7 @@ export async function request<T>(method: string, path: string, body?: unknown, o
         return res.json();
       } finally {
         if (timeout !== null) window.clearTimeout(timeout);
+        options?.signal?.removeEventListener("abort", abortFromCaller);
       }
     } catch (err) {
       lastErr = err;
@@ -126,6 +131,9 @@ export async function requestBlob(method: string, path: string, body?: unknown, 
   for (const base of bases) {
     try {
       const controller = new AbortController();
+      const abortFromCaller = () => controller.abort(options?.signal?.reason);
+      if (options?.signal?.aborted) abortFromCaller();
+      else options?.signal?.addEventListener("abort", abortFromCaller, { once: true });
       const timeout = timeoutMs > 0
         ? window.setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs)
         : null;
@@ -145,6 +153,7 @@ export async function requestBlob(method: string, path: string, body?: unknown, 
         return await res.blob();
       } finally {
         if (timeout !== null) window.clearTimeout(timeout);
+        options?.signal?.removeEventListener("abort", abortFromCaller);
       }
     } catch (err) {
       lastErr = err;

@@ -4,6 +4,7 @@ import { I18nContext, translations, useI18n, type Locale } from "./shared/i18n";
 import { api } from "./shared/api";
 import { TitleBar } from "./components/TitleBar";
 import { TaskManager } from "./components/TaskManager";
+import type { BackgroundTaskScope } from "./shared/backgroundTasks";
 import type { AppSettings, PluginCatalog, PluginDescriptor } from "./shared/types/contracts";
 import { hasCompletedWelcomeTour, resetWelcomeTourProgress, WelcomeTour, WELCOME_TOUR_START_EVENT } from "./features/welcome/WelcomeTour";
 
@@ -176,6 +177,18 @@ function AppContent({
 
   const isElectron = !!window.electronAPI;
 
+  function openTaskScope(scope: BackgroundTaskScope) {
+    if (scope === "agents") {
+      setPendingSettingsView({ category: "legacy", sectionId: "settings-legacy" });
+      setActiveTab("settings");
+      window.setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("open-legacy-view", { detail: { view: "agents" } }));
+      }, 0);
+      return;
+    }
+    setActiveTab(scope);
+  }
+
   const noDrag = isElectron
     ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties)
     : undefined;
@@ -275,7 +288,7 @@ function AppContent({
 
   const toolbarNode = (
     <div className="flex items-center gap-2" style={noDrag}>
-      <TaskManager isElectron={isElectron} onOpenTab={setActiveTab} />
+      <TaskManager isElectron={isElectron} onOpenScope={openTaskScope} />
       <PluginActionBar location="app.toolbar" />
     </div>
   );

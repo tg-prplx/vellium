@@ -85,6 +85,8 @@ export const en = {
   "taskManager.running": "Running",
   "taskManager.done": "Done",
   "taskManager.error": "Error",
+  "taskManager.cancelled": "Cancelled",
+  "taskManager.cancelling": "Stopping...",
   "taskManager.scope.chat": "Chat",
   "taskManager.scope.agents": "Agents",
   "taskManager.scope.writing": "Writing",
