@@ -2528,9 +2528,11 @@ export function ChatScreen() {
                       disabled={exportingChat || !activeChat}
                       className="chat-simple-thread-action-btn"
                       title={exportingChat ? t("chat.exporting") : t("chat.exportJson")}
+                      aria-label={exportingChat ? t("chat.exporting") : t("chat.exportJson")}
                     >
-                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" />
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 3.75h7.25L18 8v12.25H6.5V3.75Z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.75 3.75V8H18M10.25 11c-.9 0-1.25.55-1.25 1.5S8.65 14 7.75 14m6-3c.9 0 1.25.55 1.25 1.5s.35 1.5 1.25 1.5" />
                       </svg>
                     </button>
                     <span className="chat-simple-thread-divider" />
