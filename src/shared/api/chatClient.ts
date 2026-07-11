@@ -66,8 +66,8 @@ export const chatClient = {
   chatFork: (chatId: string, parentMessageId: string, name: string) => post<BranchNode>(`/chats/${chatId}/fork`, { parentMessageId, name }),
   chatEditMessage: (messageId: string, content: string) => patchReq<{ ok: boolean; timeline: ChatMessage[] }>(`/messages/${messageId}`, { content }),
   chatDeleteMessage: (messageId: string) => del<{ ok: boolean; timeline: ChatMessage[] }>(`/messages/${messageId}`),
-  chatTranslateMessage: (messageId: string, targetLanguage?: string) =>
-    post<{ translation: string }>(`/chats/messages/${messageId}/translate`, { targetLanguage }, { timeoutMs: 0 }),
+  chatTranslateMessage: (messageId: string, targetLanguage?: string, signal?: AbortSignal) =>
+    post<{ translation: string }>(`/chats/messages/${messageId}/translate`, { targetLanguage }, { timeoutMs: 0, signal }),
   chatTtsMessage: (messageId: string) => requestBlob("POST", `/chats/messages/${messageId}/tts`),
   chatSaveSampler: (chatId: string, samplerConfig: SamplerConfig) => patchReq<{ ok: boolean }>(`/chats/${chatId}/sampler`, { samplerConfig }),
   chatGetSampler: (chatId: string) => get<SamplerConfig | null>(`/chats/${chatId}/sampler`),

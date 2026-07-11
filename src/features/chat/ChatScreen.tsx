@@ -77,6 +77,7 @@ import {
   useBackgroundTasks
 } from "../../shared/backgroundTasks";
 import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
+import { useMessageTranslation } from "./hooks/useMessageTranslation";
 
 interface StreamingToolCall {
   callId: string;
@@ -116,6 +117,13 @@ export function ChatScreen() {
   const [streamingToolsExpanded, setStreamingToolsExpanded] = useState(false);
   const [streamingReasoningExpanded, setStreamingReasoningExpanded] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
+  const {
+    translatingId,
+    translatedTexts,
+    inPlaceTranslations,
+    setInPlaceTranslations,
+    translateMessage: handleTranslate
+  } = useMessageTranslation(setErrorText);
   const [activeModelLabel, setActiveModelLabel] = useState<string>("");
   const [chatSearchQuery, setChatSearchQuery] = useState("");
   const [showChatSearchModal, setShowChatSearchModal] = useState(false);
@@ -167,10 +175,6 @@ export function ChatScreen() {
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
 
-  // Translate state
-  const [translatingId, setTranslatingId] = useState<string | null>(null);
-  const [translatedTexts, setTranslatedTexts] = useState<Record<string, string>>({});
-  const [inPlaceTranslations, setInPlaceTranslations] = useState<Record<string, string>>({});
   const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null);
   const [ttsPlayingId, setTtsPlayingId] = useState<string | null>(null);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -911,26 +915,6 @@ export function ChatScreen() {
     } finally {
       setExportingChat(false);
     }
-  }
-
-  async function handleTranslate(msgId: string, inPlace?: boolean) {
-    if (translatingId) return;
-    setTranslatingId(msgId);
-    try {
-      const result = await api.chatTranslateMessage(msgId);
-      if (inPlace) {
-        setInPlaceTranslations((prev) => ({ ...prev, [msgId]: result.translation }));
-        // Clear side translation if exists
-        setTranslatedTexts((prev) => { const n = { ...prev }; delete n[msgId]; return n; });
-      } else {
-        setTranslatedTexts((prev) => ({ ...prev, [msgId]: result.translation }));
-        // Clear in-place if exists
-        setInPlaceTranslations((prev) => { const n = { ...prev }; delete n[msgId]; return n; });
-      }
-    } catch (error) {
-      setErrorText(String(error));
-    }
-    setTranslatingId(null);
   }
 
   async function handleTts(msgId: string) {

@@ -65,6 +65,9 @@ export const zh = {
   "tab.lorebooks": "LoreBooks",
   "tab.settings": "设置",
 
+  "taskManager.cancelled": "已取消",
+  "taskManager.cancelling": "正在停止...",
+
   // Chat screen
   "chat.title": "聊天会话",
   "chat.pickCharacter": "选择角色",

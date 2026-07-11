@@ -65,6 +65,9 @@ export const ja = {
   "tab.lorebooks": "LoreBooks",
   "tab.settings": "設定",
 
+  "taskManager.cancelled": "キャンセル済み",
+  "taskManager.cancelling": "停止中...",
+
   // Chat screen
   "chat.title": "チャット",
   "chat.new": "新規",
