@@ -7110,6 +7110,90 @@ select:focus-visible {
   justify-content: flex-start;
 }
 
+.settings-wallpaper-theme {
+  display: grid;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 24%, var(--color-border-subtle));
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 8% 20%, color-mix(in srgb, var(--color-accent) 13%, transparent), transparent 34%),
+    color-mix(in srgb, var(--color-bg-secondary) 74%, transparent);
+  transition: border-color var(--motion-base) ease, background-color var(--motion-base) ease;
+}
+
+.settings-wallpaper-theme-main,
+.settings-wallpaper-theme-footer {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.settings-wallpaper-theme-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-accent-border);
+  border-radius: 11px;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.settings-wallpaper-theme-icon > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.settings-wallpaper-theme-title {
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.settings-wallpaper-theme-desc {
+  margin: 2px 0 0;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.settings-wallpaper-theme-footer {
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.settings-wallpaper-swatches {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg-primary) 78%, transparent);
+}
+
+.settings-wallpaper-swatches > span {
+  width: 22px;
+  height: 22px;
+  margin-left: -3px;
+  border: 2px solid var(--color-bg-primary);
+  border-radius: 999px;
+  box-shadow: 0 3px 9px rgb(0 0 0 / 0.18);
+}
+
+.settings-wallpaper-swatches > span:first-child {
+  width: 26px;
+  height: 26px;
+  margin-left: 0;
+}
+
+:root[data-wallpaper-theme="active"] .app-shell {
+  transition: color 220ms ease, background-color 320ms ease;
+}
+
 .settings-wallpaper-title {
   color: var(--color-text-primary);
   font-size: 13px;
@@ -8360,6 +8444,11 @@ body > .vellium-modal-layer {
 
   .settings-wallpaper-controls {
     grid-template-columns: 1fr;
+  }
+
+  .settings-wallpaper-theme-footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

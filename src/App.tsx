@@ -7,6 +7,15 @@ import { TaskManager } from "./components/TaskManager";
 import type { BackgroundTaskScope } from "./shared/backgroundTasks";
 import type { AppSettings, PluginCatalog, PluginDescriptor } from "./shared/types/contracts";
 import { hasCompletedWelcomeTour, resetWelcomeTourProgress, WelcomeTour, WELCOME_TOUR_START_EVENT } from "./features/welcome/WelcomeTour";
+import {
+  applyStoredWallpaperTheme,
+  applyWallpaperThemePalette,
+  clearWallpaperTheme,
+  generateWallpaperThemePalette,
+  isWallpaperThemeEnabled,
+  readWallpaperThemePalette,
+  storeWallpaperThemePalette
+} from "./shared/wallpaperTheme";
 
 const ChatScreen = lazy(() => import("./features/chat/ChatScreen").then((module) => ({ default: module.ChatScreen })));
 const WritingScreen = lazy(() => import("./features/writer/WritingScreen").then((module) => ({ default: module.WritingScreen })));
@@ -392,6 +401,8 @@ function clearCustomThemeVariables() {
 
 function applyTheme(theme: string, customTheme?: { base: "dark" | "light"; variables: Record<string, string> } | null) {
   const root = document.documentElement;
+  const wallpaperPresent = root.dataset.simpleWallpaper === "active";
+  clearWallpaperTheme(root);
   clearCustomThemeVariables();
   root.classList.remove("theme-light");
   const effectiveTheme = theme === "custom" ? customTheme?.base ?? "dark" : theme;
@@ -404,6 +415,7 @@ function applyTheme(theme: string, customTheme?: { base: "dark" | "light"; varia
       activeCustomThemeKeys.push(key);
     }
   }
+  applyStoredWallpaperTheme(wallpaperPresent, root);
 }
 
 function findPluginTheme(catalog: PluginCatalog | null, pluginThemeId: string | null | undefined) {
@@ -447,6 +459,7 @@ function applyDisplaySettings(settings: DisplaySettings) {
   root.style.setProperty("--simple-wallpaper-blur", `${Number.isFinite(blur) ? Math.max(0, Math.min(24, blur)) : 0}px`);
   root.style.setProperty("--simple-wallpaper-position", position);
   root.dataset.simpleWallpaper = wallpaper ? "active" : "none";
+  applyStoredWallpaperTheme(Boolean(wallpaper), root);
   root.dataset.density = settings.density === "compact" ? "compact" : "comfortable";
 }
 
@@ -478,6 +491,12 @@ export function App() {
       setInitialSettings(s);
       applyTheme(s.theme ?? "dark", findPluginTheme(catalog, s.pluginThemeId));
       applyDisplaySettings(s);
+      if (s.simpleModeWallpaper && isWallpaperThemeEnabled() && !readWallpaperThemePalette()) {
+        void generateWallpaperThemePalette(s.simpleModeWallpaper).then((palette) => {
+          storeWallpaperThemePalette(palette);
+          applyWallpaperThemePalette(palette);
+        }).catch(() => {});
+      }
       if (isSupportedLocale(s.interfaceLanguage)) {
         setLocale(s.interfaceLanguage);
       }

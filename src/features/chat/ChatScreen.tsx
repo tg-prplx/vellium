@@ -2527,8 +2527,7 @@ export function ChatScreen() {
                       onClick={() => { void handleExportChatJson(); }}
                       disabled={exportingChat || !activeChat}
                       className="chat-simple-thread-action-btn"
-                      title={exportingChat ? t("chat.exporting") : t("chat.exportJson")}
-                      aria-label={exportingChat ? t("chat.exporting") : t("chat.exportJson")}
+                      title={exportingChat ? t("chat.exporting") : t("chat.exportJson")} aria-label={exportingChat ? t("chat.exporting") : t("chat.exportJson")}
                     >
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 3.75h7.25L18 8v12.25H6.5V3.75Z" />
