@@ -5089,6 +5089,22 @@ body > .vellium-modal-layer {
   padding-right: clamp(12px, 1.7vw, 26px) !important;
 }
 
+/* Keep thread controls above the conversation canvas so messages scroll beneath them. */
+.chat-simple-thread-chrome {
+  position: absolute;
+  z-index: 7;
+  top: 16px;
+  left: clamp(12px, 1.7vw, 26px);
+  right: clamp(12px, 1.7vw, 26px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.chat-simple-layout.is-thread .chat-simple-scroll {
+  padding-top: calc(var(--chat-simple-thread-chrome-height, 0px) + 8px) !important;
+}
+
 .chat-simple-hero {
   width: min(960px, 100%);
 }

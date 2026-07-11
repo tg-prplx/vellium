@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { ModalShell } from "../../components/ModalShell";
 import { IconButton } from "../../components/IconButton";
@@ -216,6 +216,7 @@ export function ChatScreen() {
   const [simpleSceneOpen, setSimpleSceneOpen] = useState(false);
   const [simpleInspectorOpen, setSimpleInspectorOpen] = useState(false);
   const [simpleGreetingIndex, setSimpleGreetingIndex] = useState(0);
+  const [simpleThreadChromeHeight, setSimpleThreadChromeHeight] = useState(0);
   const [sceneControlsOpen, setSceneControlsOpen] = useState(false);
   const [sceneControlsSaving, setSceneControlsSaving] = useState(false);
   const [sceneControlsError, setSceneControlsError] = useState("");
@@ -230,6 +231,7 @@ export function ChatScreen() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const simpleThreadChromeRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatSearchModalInputRef = useRef<HTMLInputElement>(null);
   const modelSelectorRef = useRef<HTMLDivElement>(null);
@@ -341,6 +343,25 @@ export function ChatScreen() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [messages.length, streamText]);
+
+  useLayoutEffect(() => {
+    if (!simpleModeActive || simpleHomeState) {
+      setSimpleThreadChromeHeight(0);
+      return;
+    }
+
+    const chrome = simpleThreadChromeRef.current;
+    if (!chrome) return;
+
+    const updateHeight = () => {
+      setSimpleThreadChromeHeight(Math.ceil(chrome.getBoundingClientRect().height));
+    };
+    updateHeight();
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(chrome);
+    return () => observer.disconnect();
+  }, [simpleHomeState, simpleModeActive]);
 
   useEffect(() => {
     activeChatIdRef.current = activeChat?.id || null;
@@ -2284,6 +2305,10 @@ export function ChatScreen() {
               </div>
             )}
 
+            <div
+              ref={simpleThreadChromeRef}
+              className={simpleModeActive && !simpleHomeState ? "chat-simple-thread-chrome" : "chat-thread-chrome"}
+            >
             {(!simpleModeActive || !simpleHomeState) && (
             <div className={`mb-3 ${simpleModeActive ? "chat-simple-thread-header" : ""}`}>
               {!simpleModeActive ? (
@@ -2626,6 +2651,7 @@ export function ChatScreen() {
                 </div>
               </div>
             )}
+            </div>
 
             {simpleModeActive && simpleHomeState && (
               <div className="chat-simple-hero">
@@ -2689,6 +2715,7 @@ export function ChatScreen() {
                 const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
                 shouldStickToBottomRef.current = distanceFromBottom < 120;
               }}
+              style={{ "--chat-simple-thread-chrome-height": `${simpleThreadChromeHeight}px` } as CSSProperties}
               className={`chat-scroll min-w-0 flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3 ${simpleModeActive ? "chat-simple-scroll chat-simple-surface" : ""} ${simpleHomeState ? "chat-simple-scroll-home" : ""}`}
             >
               {messages.length === 0 && !streamingActiveChat && (
