@@ -1136,33 +1136,41 @@ export function PetsScreen() {
 
   return (
     <ThreePanelLayout
-      threeColumnLayoutClassName="xl:grid-cols-[300px_minmax(520px,1fr)_340px]"
+      className="pets-workspace"
+      leftClassName="pets-library-panel"
+      centerClassName="pets-editor-panel"
+      rightClassName="pets-desktop-panel"
+      threeColumnLayoutClassName="xl:grid-cols-[276px_minmax(500px,1fr)_320px]"
       left={(
         <>
           <PanelTitle
             action={(
-              <div className="flex items-center gap-1.5">
+              <div className="pets-library-actions">
                 <button
                   type="button"
                   onClick={() => importPetFileRef.current?.click()}
                   disabled={creating}
-                  className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  className="pets-toolbar-button"
+                  aria-label={t("pets.importPet")}
+                  title={t("pets.importPet")}
                 >
-                  {t("pets.importPet")}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0 4-4m-4 4-4-4M5 17v2h14v-2" /></svg>
                 </button>
                 <button
                   type="button"
                   onClick={() => importPetFolderRef.current?.click()}
                   disabled={creating}
-                  className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  className="pets-toolbar-button"
+                  aria-label={t("pets.importFolder")}
+                  title={t("pets.importFolder")}
                 >
-                  {t("pets.importFolder")}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M3 7h7l2 2h9v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 12v5m0 0 2-2m-2 2-2-2" /></svg>
                 </button>
                 <button
                   type="button"
                   onClick={() => void createPet()}
                   disabled={creating}
-                  className="rounded-lg bg-accent px-3 py-1.5 text-[11px] font-semibold text-text-inverse transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  className="pets-toolbar-button is-primary"
                 >
                   + {t("pets.newPet")}
                 </button>
@@ -1218,10 +1226,10 @@ export function PetsScreen() {
                     key={character.id}
                     type="button"
                     onClick={() => selectCharacter(character)}
-                    className={`float-card flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${
+                    className={`pets-library-item float-card ${
                       selectedId === character.id
-                        ? "bg-accent-subtle text-text-primary"
-                        : "text-text-secondary hover:bg-bg-hover"
+                        ? "is-active"
+                        : ""
                     }`}
                   >
                     <AvatarBadge
@@ -1249,8 +1257,8 @@ export function PetsScreen() {
       )}
       center={(
         selected && draft ? (
-          <div className="flex h-full min-h-0 flex-col">
-            <div className="mb-4 flex items-start gap-4 border-b border-border-subtle pb-4">
+          <div className="pets-editor-shell">
+            <div className="pets-editor-header mb-4 flex items-start gap-4 border-b border-border-subtle pb-4">
               <PetAssetPreview
                 name={draft.name || selected.name}
                 src={draft.spriteUrl || selected.avatarUrl}
@@ -1272,7 +1280,7 @@ export function PetsScreen() {
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className="pets-editor-scroll min-h-0 flex-1 overflow-y-auto pr-1">
               <div className="grid gap-4">
                 <section className="pets-editor-section">
                   <div className="pets-section-title">{t("pets.identity")}</div>
@@ -1312,7 +1320,7 @@ export function PetsScreen() {
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-border-subtle pt-4">
+            <div className="pets-editor-actions mt-4 flex flex-wrap justify-end gap-2 border-t border-border-subtle pt-4">
               <button
                 type="button"
                 onClick={() => void savePet()}
@@ -1344,7 +1352,7 @@ export function PetsScreen() {
         )
       )}
       right={(
-        <div className="flex h-full min-h-0 flex-col">
+        <div className="pets-desktop-content flex h-full min-h-0 flex-col">
           <PanelTitle>{t("pets.desktop")}</PanelTitle>
           <div className="pets-preview pets-preview-compact">
             <div className="pets-preview-bubble">
