@@ -77,8 +77,8 @@ import {
   updateBackgroundTask,
   useBackgroundTasks
 } from "../../shared/backgroundTasks";
-import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
 import { useMessageTranslation } from "./hooks/useMessageTranslation";
+import { useChatJsonExport } from "./hooks/useChatJsonExport";
 
 interface StreamingToolCall {
   callId: string;
@@ -118,6 +118,7 @@ export function ChatScreen() {
   const [streamingToolsExpanded, setStreamingToolsExpanded] = useState(false);
   const [streamingReasoningExpanded, setStreamingReasoningExpanded] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
+  const { exportingChat, exportChat: exportChatJson } = useChatJsonExport(setErrorText);
   const {
     translatingId,
     translatedTexts,
@@ -160,12 +161,10 @@ export function ChatScreen() {
     koboldUseDefaultBadwords: false
   });
 
-  // File attachments
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [compressing, setCompressing] = useState(false);
-  const [exportingChat, setExportingChat] = useState(false);
   const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerState | null>(null);
 
   // Model selector in chat — auto-loading
@@ -947,17 +946,7 @@ export function ChatScreen() {
 
   async function handleExportChatJson() {
     if (!activeChat || exportingChat) return;
-    setErrorText("");
-    setExportingChat(true);
-    try {
-      const blob = await api.chatExportJson(activeChat.id, activeBranchId || undefined);
-      const filenameBase = buildFilenameBase(activeChat.title, "vellium-chat");
-      await triggerBlobDownload(blob, `${filenameBase}.vellium-chat.json`);
-    } catch (error) {
-      setErrorText(String(error));
-    } finally {
-      setExportingChat(false);
-    }
+    setErrorText(""); return exportChatJson(activeChat.id, activeChat.title, activeBranchId || undefined);
   }
 
   async function handleTts(msgId: string) {

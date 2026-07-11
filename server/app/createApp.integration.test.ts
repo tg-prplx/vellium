@@ -20,6 +20,7 @@ describe.sequential("createApp integration", () => {
   let lastAgentPromptStackText = "";
   let lastBuildDirectToolChoice = "";
   let lastPlannerResponseFormat: unknown = null;
+  let lastChatTemplateMessages: Array<{ role?: unknown; content?: unknown }> = [];
   let createApp: typeof import("./createApp.js").createApp;
   let db: typeof import("../db.js").db;
   let newId: typeof import("../db.js").newId;
@@ -203,6 +204,9 @@ process.stdin.on("data", (chunk) => {
             return flattenMockContent((message as { content?: unknown }).content);
           })
           .join("\n\n");
+        if (promptText.includes("single-system-template-check")) {
+          lastChatTemplateMessages = messages as Array<{ role?: unknown; content?: unknown }>;
+        }
         const hasPriorAssistantCapabilityContext = messages.some((message) => (
           message
           && typeof message === "object"
@@ -1607,7 +1611,7 @@ process.stdin.on("data", (chunk) => {
       messagesByBranch?: Record<string, Array<{ role: string; content: string }>>;
     };
     expect(exported.format).toBe("vellium.chat.export");
-    expect(exported.version).toBe(1);
+    expect(exported.version).toBe(2);
     expect(exported.chat).toMatchObject({ id: created.id, title: "Exportable Chat" });
     expect(exported.activeBranchId).toBe(branchId);
     expect(exported.branches).toEqual(expect.arrayContaining([expect.objectContaining({ id: branchId, name: "main" })]));
@@ -1616,6 +1620,90 @@ process.stdin.on("data", (chunk) => {
       expect.objectContaining({ role: "assistant", content: "[No provider configured] Echo: Export this conversation", branchId })
     ]));
     expect(exported.messagesByBranch?.[branchId]).toHaveLength(2);
+  });
+
+  it("sends exactly one combined system message before chat history", async () => {
+    await updateSettings({
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      toolCallingEnabled: false,
+      defaultSystemPrompt: "Base template instruction"
+    });
+    lastChatTemplateMessages = [];
+    const created = await postJson("/api/chats", { title: "Single System Template" });
+    db.prepare("UPDATE chats SET context_summary = ? WHERE id = ?")
+      .run("Persisted summary context", created.id);
+    await postJson("/api/rp/author-note", {
+      chatId: created.id,
+      authorNote: "Keep the reply grounded"
+    });
+    const sendResponse = await fetch(`${baseUrl}/api/chats/${created.id}/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "single-system-template-check" })
+    });
+    expect(sendResponse.ok).toBe(true);
+    await sendResponse.text();
+
+    const systemMessages = lastChatTemplateMessages.filter((message) => message.role === "system");
+    expect(lastChatTemplateMessages[0]?.role).toBe("system");
+    expect(systemMessages).toHaveLength(1);
+    expect(String(systemMessages[0]?.content || "")).toContain("Base template instruction");
+    expect(String(systemMessages[0]?.content || "")).toContain("Persisted summary context");
+    expect(String(systemMessages[0]?.content || "")).toContain("Keep the reply grounded");
+    expect(lastChatTemplateMessages.slice(1).some((message) => message.role === "system")).toBe(false);
+  });
+
+  it("exports multi-character chats with explicit participants and speakers", async () => {
+    await updateSettings({ activeProviderId: null, activeModel: null });
+    const importCharacter = (name: string, greeting: string) => postJson("/api/characters/import", {
+      rawJson: JSON.stringify({
+        spec: "chara_card_v2",
+        spec_version: "2.0",
+        data: { name, first_mes: greeting }
+      })
+    });
+    const [alice, bob] = await Promise.all([
+      importCharacter("Alice Export", "Alice joined the room."),
+      importCharacter("Bob Export", "Bob joined the room.")
+    ]);
+    const created = await postJson("/api/chats", {
+      title: "Multi Character Export",
+      characterIds: [alice.id, bob.id]
+    });
+    const timeline = await postJson(`/api/chats/${created.id}/send`, {
+      content: "Hello, everyone.",
+      userPersona: { name: "Reader" }
+    });
+    const branchId = timeline[0]?.branchId;
+    const response = await fetch(`${baseUrl}/api/chats/${created.id}/export/json?branchId=${encodeURIComponent(branchId)}`);
+    expect(response.ok).toBe(true);
+
+    const exported = await response.json() as {
+      version: number;
+      chat: { characterId: string | null; characterIds: string[] };
+      participants: Array<{ kind: string; name: string; characterId: string | null }>;
+      conversation: {
+        multiCharacter: boolean;
+        branchId: string;
+        messages: Array<{ sequence: number; speakerName: string; characterId: string | null; content: string }>;
+      };
+    };
+    expect(exported.version).toBe(2);
+    expect(exported.chat).toMatchObject({
+      characterId: alice.id,
+      characterIds: [alice.id, bob.id]
+    });
+    expect(exported.participants).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "character", name: "Alice Export", characterId: alice.id }),
+      expect.objectContaining({ kind: "character", name: "Bob Export", characterId: bob.id }),
+      expect.objectContaining({ kind: "user", name: "Reader", characterId: null })
+    ]));
+    expect(exported.conversation).toMatchObject({ multiCharacter: true, branchId });
+    expect(exported.conversation.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sequence: 1, speakerName: "Alice Export", characterId: alice.id, content: "Alice joined the room." }),
+      expect.objectContaining({ speakerName: "Reader", characterId: null, content: "Hello, everyone." })
+    ]));
   });
 
   it("translates messages and synthesizes TTS against a local mock provider", async () => {

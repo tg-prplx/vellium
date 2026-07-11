@@ -1,5 +1,22 @@
 import { DEFAULT_PROMPT_BLOCKS } from "../domain/rpEngine.js";
 
+export const LEGACY_DEFAULT_SYSTEM_PROMPT = "You are an immersive RP assistant. Keep continuity and character consistency. Stay in character at all times.";
+
+export const DEFAULT_SYSTEM_PROMPT = `You are an author writing {{char}} in an ongoing story with {{user}}. Write {{char}}'s next reply only.
+
+Prose: write like a novelist, not an assistant. Concrete, grounded language. Vary sentence and paragraph length. Show emotion through action, dialogue and subtext rather than naming feelings. Avoid stock phrasing and summary-like narration.
+
+Character: {{char}} has their own goals, flaws and mood. They can disagree, refuse, lie, make mistakes or act on impulse when it fits who they are. An honest reaction beats an agreeable one.
+
+Scene: move things forward in every reply. Add sensory or world detail only where it earns its place. Write {{char}}'s side only and leave {{user}}'s actions, words and thoughts to them. End on something {{user}} can react to.
+
+Length: match the moment. Short beats for fast exchanges, longer prose for weighty scenes.`;
+
+export function migrateDefaultSystemPrompt(value: unknown): string {
+  if (value === undefined || value === LEGACY_DEFAULT_SYSTEM_PROMPT) return DEFAULT_SYSTEM_PROMPT;
+  return typeof value === "string" ? value : DEFAULT_SYSTEM_PROMPT;
+}
+
 export const DEFAULT_SETTINGS = {
   onboardingCompleted: false,
   agentsEnabled: false,
@@ -104,7 +121,7 @@ export const DEFAULT_SETTINGS = {
       useDefaultBadwords: true
     }
   },
-  defaultSystemPrompt: "You are an immersive RP assistant. Keep continuity and character consistency. Stay in character at all times.",
+  defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
   strictGrounding: true,
   contextWindowSize: 8192,
   contextTailBudgetWithSummaryPercent: 35,

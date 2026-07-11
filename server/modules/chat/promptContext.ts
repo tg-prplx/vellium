@@ -1,6 +1,6 @@
 import { db } from "../../db.js";
 import { normalizeLoreBookEntries, type LoreBookEntryData } from "../../domain/lorebooks.js";
-import type { CharacterCardData } from "../../domain/rpEngine.js";
+import { replacePromptPlaceholders, type CharacterCardData } from "../../domain/rpEngine.js";
 import {
   buildCompactContextPolicy,
   parseCardData,
@@ -32,12 +32,12 @@ export function buildSillyTavernCompatiblePurePrompt(params: {
   strictGrounding?: boolean;
 }): string {
   const sections: string[] = [];
+  const current = params.currentCharacter;
+  const charName = params.currentCharacterName || current?.name || "Character";
   const base = String(params.baseSystemPrompt || "").trim();
   if (base) sections.push(base);
 
-  const current = params.currentCharacter;
   if (current) {
-    const charName = params.currentCharacterName || current.name || "Character";
     sections.push("[SillyTavern-Compatible Character Context]");
     sections.push(`<char_name>${charName}</char_name>`);
     if (current.description.trim()) sections.push(`<description>${current.description.trim()}</description>`);
@@ -84,7 +84,7 @@ export function buildSillyTavernCompatiblePurePrompt(params: {
   const rag = String(params.ragAppendix || "").trim();
   if (rag) sections.push(rag);
 
-  return sections.filter(Boolean).join("\n\n");
+  return replacePromptPlaceholders(sections.filter(Boolean).join("\n\n"), charName, params.userName);
 }
 
 export function buildSillyTavernCompatibleLightPrompt(params: {
@@ -144,7 +144,11 @@ export function buildSillyTavernCompatibleLightPrompt(params: {
   if (!params.currentCharacter && params.strictGrounding !== false) {
     sections.push(buildCompactContextPolicy({ userName: params.userName }));
   }
-  return sections.filter(Boolean).join("\n\n");
+  return replacePromptPlaceholders(
+    sections.filter(Boolean).join("\n\n"),
+    params.currentCharacterName || params.currentCharacter?.name,
+    params.userName
+  );
 }
 
 export function getCharacterCard(characterId: string | null): CharacterCardData | null {

@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { roughTokenCount } from "../../db.js";
+import { coalesceSystemMessages } from "../../domain/rpEngine.js";
 import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../../services/apiParamPolicy.js";
 import { completeCustomAdapter } from "../../services/customProviderAdapters.js";
 import {
@@ -85,6 +86,7 @@ async function sendSseText(res: Response, chatId: string, text: string, paceMs =
 export async function streamProviderCompletion(
   params: StreamProviderCompletionParams
 ): Promise<StreamProviderCompletionResult> {
+  const normalizedMessages = coalesceSystemMessages(params.messages);
   const generationStartedMs = Date.now();
   const generationStartedAt = new Date(generationStartedMs).toISOString();
   const finalizeGenerationMeta = () => {
@@ -153,7 +155,7 @@ export async function streamProviderCompletion(
       samplerConfig: sc,
       apiParamPolicy: params.apiParamPolicy
     });
-    const { prompt, memory } = buildKoboldPromptFromMessages(params.messages, koboldSamplerConfig);
+    const { prompt, memory } = buildKoboldPromptFromMessages(normalizedMessages, koboldSamplerConfig);
     const body = buildKoboldGenerateBody({
       prompt,
       memory,
@@ -245,7 +247,7 @@ export async function streamProviderCompletion(
       systemPrompt: "",
       userPrompt: "",
       samplerConfig: sc,
-      messages: params.messages,
+      messages: normalizedMessages,
       signal: params.signal
     });
     const split = splitThinkContent(generated);
@@ -277,7 +279,7 @@ export async function streamProviderCompletion(
     },
     body: JSON.stringify({
       model: params.modelId,
-      messages: params.messages,
+      messages: normalizedMessages,
       stream: true,
       ...openAiSampling
     }),
