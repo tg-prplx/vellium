@@ -364,6 +364,7 @@ export function PetsScreen() {
   const [creating, setCreating] = useState(false);
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const [visible, setVisible] = useState(false);
+  const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [rightView, setRightView] = useState<PetPanelView>("asset");
   const [petChats, setPetChats] = useState<PetChatHistory[]>([]);
   const [activePetChatId, setActivePetChatId] = useState("");
@@ -595,22 +596,37 @@ export function PetsScreen() {
   }
 
   async function showPet() {
-    if (!selected || !draft || !isElectron) return;
-    const updated = await savePet();
-    if (!updated) return;
-    const nextConfig = petConfigFromDraft(updated, draft);
-    const result = await window.electronAPI!.showDesktopPet(nextConfig);
-    setVisible(result.visible);
+    if (!selected || !draft || !isElectron || visibilityBusy) return;
+    setVisibilityBusy(true);
+    try {
+      const updated = await savePet();
+      if (!updated) return;
+      const nextConfig = petConfigFromDraft(updated, draft);
+      const result = await window.electronAPI!.showDesktopPet(nextConfig);
+      setVisible(result.visible);
+    } catch (error) {
+      setStatus({ kind: "error", text: String(error) });
+    } finally {
+      setVisibilityBusy(false);
+    }
   }
 
   async function hidePet() {
-    if (!isElectron) return;
-    const result = await window.electronAPI!.hideDesktopPet();
-    setVisible(result.visible);
+    if (!isElectron || visibilityBusy) return;
+    setVisibilityBusy(true);
+    try {
+      const result = await window.electronAPI!.hideDesktopPet();
+      setVisible(result.visible);
+    } catch (error) {
+      setStatus({ kind: "error", text: String(error) });
+    } finally {
+      setVisibilityBusy(false);
+    }
   }
 
   async function selectPetChat(chatId: string) {
     if (!selected || !draft || !isElectron) return;
+    const previousChatId = activePetChatId;
     setActivePetChatId(chatId);
     try {
       const payload = await window.electronAPI!.selectDesktopPetChat(chatId, petConfigFromDraft(selected, draft));
@@ -618,6 +634,7 @@ export function PetsScreen() {
       setPetChats(history);
       setActivePetChatId(payload.activeChatId || chatId);
     } catch (error) {
+      setActivePetChatId(previousChatId);
       setStatus({ kind: "error", text: `${t("pets.chatsLoadFailed")}: ${String(error)}` });
     }
   }
@@ -1340,7 +1357,7 @@ export function PetsScreen() {
               <button
                 type="button"
                 onClick={() => void showPet()}
-                disabled={!isElectron || saving}
+                disabled={!isElectron || saving || visibilityBusy}
                 className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {t("pets.showOnDesktop")}
@@ -1392,7 +1409,7 @@ export function PetsScreen() {
             <button
               type="button"
               onClick={() => void showPet()}
-              disabled={!selected || !draft || !isElectron}
+              disabled={!selected || !draft || !isElectron || visibilityBusy}
               className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {visible ? t("pets.applyToDesktop") : t("pets.showOnDesktop")}
@@ -1400,7 +1417,7 @@ export function PetsScreen() {
             <button
               type="button"
               onClick={() => void hidePet()}
-              disabled={!isElectron || !visible}
+              disabled={!isElectron || !visible || visibilityBusy}
               className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t("pets.hideFromDesktop")}

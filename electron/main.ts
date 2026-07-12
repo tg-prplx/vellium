@@ -1129,6 +1129,17 @@ ipcMain.handle("window:getPlatform", () => {
   return process.platform;
 });
 
+ipcMain.handle("window:setZoomFactor", (event, requestedFactor: unknown) => {
+  const target = BrowserWindow.fromWebContents(event.sender);
+  if (!target || target.isDestroyed()) return 1;
+  const numericFactor = Number(requestedFactor);
+  const safeFactor = Number.isFinite(numericFactor)
+    ? Math.max(0.65, Math.min(1.5, numericFactor))
+    : 1;
+  target.webContents.setZoomFactor(safeFactor);
+  return safeFactor;
+});
+
 ipcMain.handle("file:save", async (_event, payload: { filename?: unknown; base64Data?: unknown }) => {
   if (!payload || typeof payload !== "object") {
     return { ok: false, canceled: true };

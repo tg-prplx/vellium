@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   close: () => ipcRenderer.invoke("window:close"),
   isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
   getPlatform: () => ipcRenderer.invoke("window:getPlatform"),
+  setZoomFactor: (factor: number) => ipcRenderer.invoke("window:setZoomFactor", factor) as Promise<number>,
   saveFile: (filename: string, base64Data: string) => ipcRenderer.invoke("file:save", { filename, base64Data }),
   openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
   showDesktopPet: (config?: unknown) => ipcRenderer.invoke("desktop-pet:show", config) as Promise<{ ok: boolean; visible: boolean }>,

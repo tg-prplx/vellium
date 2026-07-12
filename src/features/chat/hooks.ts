@@ -58,6 +58,9 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
     api.chatList().then((list) => {
       params.setChats(list);
       if (list[0]) params.setActiveChat(list[0]);
+    }).catch(() => {
+      params.setChats([]);
+      params.setActiveChat(null);
     });
     api.settingsGet().then((settings) => {
       if (settings.activeProviderId) {
@@ -86,7 +89,7 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
       if (Number.isFinite(Number(settings.ragTopK))) {
         params.setChatRagTopK(Math.max(1, Math.min(12, Math.floor(Number(settings.ragTopK)))));
       }
-    });
+    }).catch(() => {});
     api.characterList().then(params.setCharacters).catch(() => {});
     api.lorebookList().then(params.setLorebooks).catch(() => {});
     api.ragCollectionList().then(params.setRagCollections).catch(() => {});

@@ -193,6 +193,8 @@ export function CharactersScreen() {
   const [loading, setLoading] = useState(true);
   const [agentsUiEnabled, setAgentsUiEnabled] = useState(false);
   const [creatingAgentThread, setCreatingAgentThread] = useState(false);
+  const [savingCharacter, setSavingCharacter] = useState(false);
+  const [deletingCharacter, setDeletingCharacter] = useState(false);
 
   // GUI editor fields
   const [name, setName] = useState("");
@@ -262,11 +264,13 @@ export function CharactersScreen() {
     try {
       const list = await api.characterList();
       setCharacters(list);
-    } catch {
-      // ignore
+    } catch (error) {
+      setSaveStatus(`${t("chars.errorPrefix")}: ${String(error)}`);
+      setSaveStatusType("error");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadCharacters();
@@ -453,14 +457,20 @@ export function CharactersScreen() {
   }
 
   async function handleSave() {
-    const updated = await saveCharacter();
-    if (!updated) return;
-    setSaveStatus(t("chars.saved"));
-    setSaveStatusType("success");
-    setTimeout(() => {
-      setSaveStatus("");
-      setSaveStatusType(null);
-    }, 2000);
+    if (savingCharacter) return;
+    setSavingCharacter(true);
+    try {
+      const updated = await saveCharacter();
+      if (!updated) return;
+      setSaveStatus(t("chars.saved"));
+      setSaveStatusType("success");
+      setTimeout(() => {
+        setSaveStatus("");
+        setSaveStatusType(null);
+      }, 2000);
+    } finally {
+      setSavingCharacter(false);
+    }
   }
 
   async function handleCreateAgentThread() {
@@ -503,10 +513,19 @@ export function CharactersScreen() {
   }
 
   async function handleDelete() {
-    if (!selected) return;
-    await api.characterDelete(selected.id);
-    setCharacters((prev) => prev.filter((c) => c.id !== selected.id));
-    setSelected(null);
+    if (!selected || deletingCharacter) return;
+    const id = selected.id;
+    setDeletingCharacter(true);
+    try {
+      await api.characterDelete(id);
+      setCharacters((prev) => prev.filter((c) => c.id !== id));
+      setSelected(null);
+    } catch (error) {
+      setSaveStatus(`${t("chars.errorPrefix")}: ${String(error)}`);
+      setSaveStatusType("error");
+    } finally {
+      setDeletingCharacter(false);
+    }
   }
 
   async function handleTranslateCopy() {
@@ -1023,7 +1042,7 @@ export function CharactersScreen() {
                 </div>
               ) : null}
               <div className="char-editor-actions">
-                <button onClick={handleSave} className="char-editor-btn is-primary">
+                <button onClick={handleSave} disabled={savingCharacter || deletingCharacter} className="char-editor-btn is-primary">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 4h12l2 2v14H5V4zm3 0v6h8V4M8 20v-6h8v6" /></svg>
                   {t("chat.save")}
                 </button>
@@ -1055,7 +1074,7 @@ export function CharactersScreen() {
                   </svg>
                   {t("chars.exportJson")}
                 </button>
-                <button onClick={handleDelete} className="char-editor-btn is-danger">
+                <button onClick={handleDelete} disabled={deletingCharacter || savingCharacter} className="char-editor-btn is-danger">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 7h14M9 7V4h6v3m-8 0l1 13h8l1-13M10 11v5m4-5v5" /></svg>
                   {t("chat.delete")}
                 </button>

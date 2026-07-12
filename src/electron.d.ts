@@ -6,6 +6,7 @@ export interface ElectronAPI {
   close: () => Promise<void>;
   isMaximized: () => Promise<boolean>;
   getPlatform: () => Promise<string>;
+  setZoomFactor: (factor: number) => Promise<number>;
   saveFile: (filename: string, base64Data: string) => Promise<{ ok: boolean; canceled: boolean; filePath?: string }>;
   openExternal: (url: string) => Promise<{ ok: boolean }>;
   showDesktopPet: (config?: unknown) => Promise<{ ok: boolean; visible: boolean }>;

@@ -1231,8 +1231,8 @@ select {
   border: 1px solid var(--color-border-subtle) !important;
   border-radius: 16px !important;
   background: var(--simple-ui-glass-strong) !important;
-  backdrop-filter: blur(20px) saturate(1.12) !important;
   -webkit-backdrop-filter: blur(20px) saturate(1.12) !important;
+  backdrop-filter: blur(20px) saturate(1.12) !important;
   z-index: 52;
   opacity: 0;
   pointer-events: none;
@@ -1280,8 +1280,8 @@ select {
   padding: 4px;
   border-radius: 13px;
   background: var(--simple-ui-glass);
-  backdrop-filter: blur(14px) saturate(1.1);
   -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: blur(14px) saturate(1.1);
   border: 1px solid var(--color-border-subtle);
 }
 
@@ -1702,8 +1702,8 @@ select {
   margin-bottom: 0;
   background: var(--color-bg-secondary);
   border-color: var(--color-border-subtle);
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   box-shadow: none;
 }
 
@@ -2275,8 +2275,8 @@ select {
   border: 1px solid var(--color-border-subtle);
   border-radius: 16px;
   background: color-mix(in srgb, var(--color-bg-secondary) 55%, transparent);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   flex-wrap: wrap;
   transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
 }
@@ -4533,8 +4533,8 @@ select:focus {
   background:
     radial-gradient(circle at var(--modal-origin-x, 50%) var(--modal-origin-y, 50%), color-mix(in srgb, var(--color-accent) 8%, transparent), transparent 34%),
     rgb(5 5 10 / 0.76);
-  backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   animation: velliumBackdropIn 180ms ease-out both;
 }
 
@@ -5271,8 +5271,8 @@ body > .vellium-modal-layer {
   opacity: 1;
   pointer-events: auto;
   transform: translateX(-50%) translateY(0) scale(1);
-  backdrop-filter: blur(24px) saturate(1.18);
   -webkit-backdrop-filter: blur(24px) saturate(1.18);
+  backdrop-filter: blur(24px) saturate(1.18);
   animation: navMenuIn 180ms var(--motion-soft) both;
 }
 
@@ -5363,8 +5363,8 @@ body > .vellium-modal-layer {
 .plugin-action-modal-backdrop {
   padding: clamp(14px, 3vw, 32px) !important;
   background: rgb(5 5 9 / 0.7) !important;
-  backdrop-filter: blur(10px) saturate(0.9);
   -webkit-backdrop-filter: blur(10px) saturate(0.9);
+  backdrop-filter: blur(10px) saturate(0.9);
 }
 
 .modal-pop,
@@ -5376,8 +5376,8 @@ body > .vellium-modal-layer {
   box-shadow:
     0 32px 100px rgb(0 0 0 / 0.48),
     inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent) !important;
-  backdrop-filter: blur(26px) saturate(1.16);
   -webkit-backdrop-filter: blur(26px) saturate(1.16);
+  backdrop-filter: blur(26px) saturate(1.16);
 }
 
 .persona-modal {
@@ -5410,8 +5410,8 @@ body > .vellium-modal-layer {
   border-radius: 18px !important;
   background: color-mix(in srgb, var(--color-bg-secondary) 94%, transparent) !important;
   box-shadow: 0 28px 80px rgb(0 0 0 / 0.4) !important;
-  backdrop-filter: blur(24px) saturate(1.14) !important;
   -webkit-backdrop-filter: blur(24px) saturate(1.14) !important;
+  backdrop-filter: blur(24px) saturate(1.14) !important;
   animation: sidePopoverIn 200ms var(--motion-soft) both;
 }
 
@@ -5422,8 +5422,8 @@ body > .vellium-modal-layer {
   border: 0;
   border-radius: 0;
   background: rgb(5 5 9 / 0.64);
-  backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   animation: overlayFade 180ms ease both;
 }
 
@@ -5439,8 +5439,8 @@ body > .vellium-modal-layer {
   box-shadow:
     0 32px 100px rgb(0 0 0 / 0.5),
     inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
-  backdrop-filter: blur(26px) saturate(1.16);
   -webkit-backdrop-filter: blur(26px) saturate(1.16);
+  backdrop-filter: blur(26px) saturate(1.16);
   animation: sceneDialogIn 220ms var(--motion-spring) both;
 }
 
@@ -5461,8 +5461,8 @@ body > .vellium-modal-layer {
   box-shadow:
     0 28px 80px rgb(0 0 0 / 0.44),
     inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
-  backdrop-filter: blur(26px) saturate(1.16);
   -webkit-backdrop-filter: blur(26px) saturate(1.16);
+  backdrop-filter: blur(26px) saturate(1.16);
   animation: modelPopoverIn 190ms var(--motion-soft) both;
 }
 
@@ -6088,8 +6088,8 @@ select:hover:not(:disabled) {
   border: 1px solid var(--color-border-subtle);
   border-radius: 16px;
   background: color-mix(in srgb, var(--color-bg-secondary) 88%, transparent);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .settings-workbench-kicker {
@@ -6684,8 +6684,8 @@ body {
   border-color: color-mix(in srgb, var(--color-border) 76%, transparent) !important;
   background: color-mix(in srgb, var(--color-bg-primary) 90%, transparent) !important;
   box-shadow: 0 1px 0 color-mix(in srgb, #fff 3%, transparent);
-  backdrop-filter: blur(20px) saturate(1.15);
   -webkit-backdrop-filter: blur(20px) saturate(1.15);
+  backdrop-filter: blur(20px) saturate(1.15);
 }
 
 .app-brand {
@@ -6908,8 +6908,8 @@ select:focus-visible {
   border-color: color-mix(in srgb, var(--color-border) 76%, transparent);
   background: var(--simple-glass);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent);
-  backdrop-filter: blur(14px) saturate(1.15);
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(14px) saturate(1.15);
 }
 
 .chat-simple-home-control-dot {
@@ -6945,8 +6945,8 @@ select:focus-visible {
   box-shadow:
     0 20px 60px rgb(0 0 0 / 0.18),
     inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
-  backdrop-filter: blur(22px) saturate(1.18);
   -webkit-backdrop-filter: blur(22px) saturate(1.18);
+  backdrop-filter: blur(22px) saturate(1.18);
 }
 
 .chat-simple-composer.is-home .chat-simple-composer-shell {
@@ -7012,8 +7012,8 @@ select:focus-visible {
   font-size: 11px;
   font-weight: 600;
   animation: simpleQuickIn var(--motion-base) var(--motion-soft) both;
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .chat-simple-quick-chip svg {
@@ -7052,8 +7052,8 @@ select:focus-visible {
   border-radius: 14px;
   background: var(--simple-glass);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent);
-  backdrop-filter: blur(18px) saturate(1.15);
   -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  backdrop-filter: blur(18px) saturate(1.15);
 }
 
 .chat-simple-scroll {
@@ -7074,16 +7074,16 @@ select:focus-visible {
   border-color: color-mix(in srgb, var(--color-border) 70%, transparent) !important;
   background: color-mix(in srgb, var(--color-bg-secondary) 74%, transparent) !important;
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 3%, transparent);
-  backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 
 .chat-simple-layout .chat-message-user {
   border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
   background: color-mix(in srgb, var(--color-accent-subtle) 86%, transparent) !important;
   box-shadow: 0 10px 26px color-mix(in srgb, var(--color-accent) 8%, transparent);
-  backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 
 :root[data-simple-wallpaper="active"] .chat-simple-thread-bar,
@@ -7099,8 +7099,8 @@ select:focus-visible {
   border-color: color-mix(in srgb, var(--color-border) 76%, transparent) !important;
   background: color-mix(in srgb, var(--color-bg-primary) 88%, transparent) !important;
   box-shadow: -20px 0 60px rgb(0 0 0 / 0.22) !important;
-  backdrop-filter: blur(24px) saturate(1.15) !important;
   -webkit-backdrop-filter: blur(24px) saturate(1.15) !important;
+  backdrop-filter: blur(24px) saturate(1.15) !important;
 }
 
 .settings-wallpaper-studio {
@@ -7299,8 +7299,8 @@ select:focus-visible {
   border-radius: 14px;
   background: rgb(8 8 13 / 0.48);
   box-shadow: 0 24px 60px rgb(0 0 0 / 0.28);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .settings-wallpaper-preview-ui > span {
@@ -7692,8 +7692,8 @@ body > .vellium-modal-layer {
   border: 1px solid color-mix(in srgb, var(--color-border) 78%, transparent);
   border-radius: 12px;
   background: var(--simple-ui-glass);
-  backdrop-filter: blur(16px) saturate(1.12);
   -webkit-backdrop-filter: blur(16px) saturate(1.12);
+  backdrop-filter: blur(16px) saturate(1.12);
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent),
     0 1px 2px rgb(0 0 0 / 0.08);
@@ -7740,8 +7740,8 @@ body > .vellium-modal-layer {
 .chat-sidebar-item {
   border: 1px solid transparent;
   background: var(--simple-ui-glass-row);
-  backdrop-filter: blur(14px) saturate(1.1);
   -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: blur(14px) saturate(1.1);
 }
 
 .chat-sidebar-item:hover {
@@ -7764,8 +7764,8 @@ body > .vellium-modal-layer {
   border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
   border-radius: 15px;
   background: var(--simple-ui-glass-strong);
-  backdrop-filter: blur(20px) saturate(1.14);
   -webkit-backdrop-filter: blur(20px) saturate(1.14);
+  backdrop-filter: blur(20px) saturate(1.14);
   box-shadow:
     0 14px 34px rgb(0 0 0 / 0.16),
     inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent);
@@ -8073,8 +8073,8 @@ body > .vellium-modal-layer {
 /* Shared transparent hierarchy: same opacity and blur across Simple Mode surfaces. */
 .chat-simple-layout .chat-simple-sidebar-panel {
   background: var(--simple-ui-glass-strong) !important;
-  backdrop-filter: blur(20px) saturate(1.14) !important;
   -webkit-backdrop-filter: blur(20px) saturate(1.14) !important;
+  backdrop-filter: blur(20px) saturate(1.14) !important;
 }
 
 .chat-simple-thread-bar,
@@ -8084,14 +8084,14 @@ body > .vellium-modal-layer {
 .chat-multi-bar,
 .chat-simple-layout .chat-message-assistant {
   background: var(--simple-ui-glass-strong) !important;
-  backdrop-filter: blur(18px) saturate(1.12) !important;
   -webkit-backdrop-filter: blur(18px) saturate(1.12) !important;
+  backdrop-filter: blur(18px) saturate(1.12) !important;
 }
 
 .chat-simple-layout .chat-message-user {
   background: color-mix(in srgb, var(--color-accent) 14%, var(--simple-ui-glass-strong)) !important;
-  backdrop-filter: blur(18px) saturate(1.12) !important;
   -webkit-backdrop-filter: blur(18px) saturate(1.12) !important;
+  backdrop-filter: blur(18px) saturate(1.12) !important;
 }
 
 .chat-character-picker,
@@ -8100,8 +8100,8 @@ body > .vellium-modal-layer {
 .chat-multi-selected-item,
 .chat-multi-available-item,
 .chat-character-option {
-  backdrop-filter: blur(14px) saturate(1.1);
   -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: blur(14px) saturate(1.1);
 }
 
 /* Chat search lives in a focused modal instead of consuming permanent sidebar space. */
@@ -8120,8 +8120,8 @@ body > .vellium-modal-layer {
   border: 1px solid var(--color-border);
   border-radius: 13px;
   background: color-mix(in srgb, var(--color-bg-primary) 72%, transparent);
-  backdrop-filter: blur(16px) saturate(1.12);
   -webkit-backdrop-filter: blur(16px) saturate(1.12);
+  backdrop-filter: blur(16px) saturate(1.12);
 }
 
 .chat-search-modal-field:focus-within {
@@ -8230,8 +8230,8 @@ body > .vellium-modal-layer {
   box-shadow:
     0 24px 70px rgb(0 0 0 / 0.22),
     inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
-  backdrop-filter: blur(22px) saturate(1.14);
   -webkit-backdrop-filter: blur(22px) saturate(1.14);
+  backdrop-filter: blur(22px) saturate(1.14);
 }
 
 .charforge-workspace {
@@ -8249,8 +8249,8 @@ body > .vellium-modal-layer {
   border-radius: 15px;
   background: color-mix(in srgb, var(--color-bg-secondary) 82%, transparent);
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.13);
-  backdrop-filter: blur(18px) saturate(1.12);
   -webkit-backdrop-filter: blur(18px) saturate(1.12);
+  backdrop-filter: blur(18px) saturate(1.12);
 }
 
 .charforge-generate,
@@ -8262,8 +8262,8 @@ body > .vellium-modal-layer {
   box-shadow:
     0 14px 36px rgb(0 0 0 / 0.14),
     inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent);
-  backdrop-filter: blur(18px) saturate(1.12);
   -webkit-backdrop-filter: blur(18px) saturate(1.12);
+  backdrop-filter: blur(18px) saturate(1.12);
 }
 
 .charforge-generate {
@@ -8363,8 +8363,8 @@ body > .vellium-modal-layer {
   border: 1px solid var(--color-border-subtle);
   border-radius: 12px;
   background: color-mix(in srgb, var(--color-bg-secondary) 88%, transparent);
-  backdrop-filter: blur(14px) saturate(1.1);
   -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: blur(14px) saturate(1.1);
 }
 
 .charforge-editor-tabs > button {
@@ -8410,8 +8410,8 @@ body > .vellium-modal-layer {
 .charforge-textarea {
   border-color: color-mix(in srgb, var(--color-border) 76%, transparent) !important;
   background: color-mix(in srgb, var(--color-bg-secondary) 62%, transparent) !important;
-  backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
 }
 
 .charforge-input:hover,
@@ -8546,8 +8546,8 @@ body > .vellium-modal-layer {
   border-color: color-mix(in srgb, var(--color-border) 82%, transparent);
   background: color-mix(in srgb, var(--color-bg-secondary) 78%, transparent);
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.12), inset 0 1px rgba(255, 255, 255, 0.025);
-  backdrop-filter: blur(14px) saturate(1.08);
   -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
 }
 
 .knowledge-library-panel,
@@ -8725,8 +8725,8 @@ body > .vellium-modal-layer {
   background: color-mix(in srgb, var(--color-bg-secondary) 88%, transparent);
   padding: 9px 10px;
   box-shadow: 0 -12px 26px color-mix(in srgb, var(--color-bg-primary) 38%, transparent), var(--shadow-panel);
-  backdrop-filter: blur(18px) saturate(1.1);
   -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.1);
 }
 
 /* Pets */
@@ -8834,8 +8834,8 @@ body > .vellium-modal-layer {
 
 .settings-sidebar {
   background: color-mix(in srgb, var(--color-bg-secondary) 82%, transparent);
-  backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 
 .settings-content-area {
