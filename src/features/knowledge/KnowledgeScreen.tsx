@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ThreePanelLayout, PanelTitle, EmptyState } from "../../components/Panels";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
@@ -18,6 +18,7 @@ export function KnowledgeScreen() {
   const [documents, setDocuments] = useState<RagDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingCollection, setSavingCollection] = useState(false);
+  const [mutatingCollection, setMutatingCollection] = useState(false);
   const [ingesting, setIngesting] = useState(false);
   const [status, setStatus] = useState("");
 
@@ -26,6 +27,7 @@ export function KnowledgeScreen() {
   const [draftScope, setDraftScope] = useState<"global" | "chat" | "writer">("global");
   const [docTitle, setDocTitle] = useState("");
   const [docText, setDocText] = useState("");
+  const documentsRequestIdRef = useRef(0);
 
   const selectedCollection = useMemo(
     () => collections.find((item) => item.id === selectedId) || null,
@@ -57,6 +59,7 @@ export function KnowledgeScreen() {
 
   useEffect(() => {
     if (!selectedCollection) {
+      documentsRequestIdRef.current += 1;
       setDraftName("");
       setDraftDescription("");
       setDraftScope("global");
@@ -66,27 +69,31 @@ export function KnowledgeScreen() {
     setDraftName(selectedCollection.name);
     setDraftDescription(selectedCollection.description || "");
     setDraftScope(selectedCollection.scope || "global");
-    void refreshDocuments(selectedCollection.id);
+    setDocuments([]);
+    void refreshDocuments(selectedCollection.id).catch(setErrorStatus);
   }, [selectedCollection?.id]);
 
   async function refreshCollections(nextSelectedId?: string | null) {
     const list = await api.ragCollectionList();
     setCollections(list);
-    if (nextSelectedId !== undefined) {
-      setSelectedId(nextSelectedId);
-    } else if (!selectedId && list[0]) {
-      setSelectedId(list[0].id);
-    } else if (selectedId && !list.some((item) => item.id === selectedId)) {
-      setSelectedId(list[0]?.id || null);
-    }
+    setSelectedId((current) => {
+      if (typeof nextSelectedId === "string" && list.some((item) => item.id === nextSelectedId)) {
+        return nextSelectedId;
+      }
+      if (current && list.some((item) => item.id === current)) return current;
+      return list[0]?.id || null;
+    });
   }
 
   async function refreshDocuments(collectionId: string) {
+    const requestId = ++documentsRequestIdRef.current;
     const list = await api.ragDocumentList(collectionId);
-    setDocuments(list);
+    if (requestId === documentsRequestIdRef.current) setDocuments(list);
   }
 
   async function createCollection() {
+    if (mutatingCollection) return;
+    setMutatingCollection(true);
     try {
       const created = await api.ragCollectionCreate({
         name: t("knowledge.newCollectionDefault"),
@@ -97,6 +104,8 @@ export function KnowledgeScreen() {
       setStatus(t("knowledge.collectionCreated"));
     } catch (error) {
       setErrorStatus(error);
+    } finally {
+      setMutatingCollection(false);
     }
   }
 
@@ -119,14 +128,17 @@ export function KnowledgeScreen() {
   }
 
   async function removeCollection() {
-    if (!selectedCollection) return;
+    if (!selectedCollection || mutatingCollection) return;
     if (!confirm(t("knowledge.confirmDeleteCollection"))) return;
+    setMutatingCollection(true);
     try {
       await api.ragCollectionDelete(selectedCollection.id);
       await refreshCollections(null);
       setStatus(t("knowledge.collectionDeleted"));
     } catch (error) {
       setErrorStatus(error);
+    } finally {
+      setMutatingCollection(false);
     }
   }
 
@@ -180,6 +192,7 @@ export function KnowledgeScreen() {
             action={(
               <button
                 onClick={() => { void createCollection(); }}
+                disabled={mutatingCollection}
                 className="knowledge-primary-action rounded-md bg-accent px-2.5 py-1 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover"
               >
                 + {t("chat.new")}
@@ -241,13 +254,14 @@ export function KnowledgeScreen() {
               <div className="knowledge-section-actions mt-3 flex items-center gap-2">
                 <button
                   onClick={() => { void saveCollection(); }}
-                  disabled={savingCollection}
+                  disabled={savingCollection || mutatingCollection}
                   className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-60"
                 >
                   {t("knowledge.saveCollection")}
                 </button>
                 <button
                   onClick={() => { void removeCollection(); }}
+                  disabled={mutatingCollection || savingCollection}
                   className="rounded-lg border border-danger-border px-3 py-2 text-xs font-medium text-danger hover:bg-danger-subtle"
                 >
                   {t("knowledge.deleteCollection")}

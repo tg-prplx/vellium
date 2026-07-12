@@ -453,7 +453,14 @@ function applyDisplaySettings(settings: DisplaySettings) {
     ? settings.simpleModeWallpaperPosition
     : "center";
   root.style.setProperty("--app-font-scale", String(safeFontScale));
-  root.style.setProperty("--app-ui-scale", String(safeFontScale));
+  if (window.electronAPI?.setZoomFactor) {
+    root.style.setProperty("--app-ui-scale", "1");
+    void window.electronAPI.setZoomFactor(safeFontScale).catch(() => {
+      root.style.setProperty("--app-ui-scale", String(safeFontScale));
+    });
+  } else {
+    root.style.setProperty("--app-ui-scale", String(safeFontScale));
+  }
   root.style.setProperty("--simple-wallpaper-image", wallpaper ? `url(${JSON.stringify(wallpaper)})` : "none");
   root.style.setProperty("--simple-wallpaper-dim", String(Number.isFinite(dim) ? Math.max(0.15, Math.min(0.9, dim)) : 0.6));
   root.style.setProperty("--simple-wallpaper-blur", `${Number.isFinite(blur) ? Math.max(0, Math.min(24, blur)) : 0}px`);

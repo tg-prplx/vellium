@@ -33,6 +33,12 @@ try {
     return;
   }
 
+  exitCode = run(npmBin, ["run", "rebuild:native:electron"]);
+  if (exitCode !== 0) {
+    process.exitCode = exitCode;
+    return;
+  }
+
   exitCode = run(npxBin, ["electron-builder", ...builderArgs]);
   process.exitCode = exitCode;
 } finally {

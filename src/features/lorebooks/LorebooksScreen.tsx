@@ -55,6 +55,7 @@ export function LorebooksScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<LoreBook | null>(null);
   const [saving, setSaving] = useState(false);
+  const [mutating, setMutating] = useState(false);
   const [translatingCopy, setTranslatingCopy] = useState(false);
   const [status, setStatus] = useState("");
   const [entryKeysInput, setEntryKeysInput] = useState<Record<string, string>>({});
@@ -72,6 +73,8 @@ export function LorebooksScreen() {
         if (list[0]) {
           setSelectedId(list[0].id);
         }
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : String(error));
       } finally {
         setLoading(false);
       }
@@ -122,13 +125,21 @@ export function LorebooksScreen() {
   }
 
   async function createLorebook() {
-    const created = await api.lorebookCreate({
-      name: t("lore.newBookName"),
-      description: "",
-      entries: [newEntry(0)]
-    });
-    await refreshLorebooks(created.id);
-    setStatus(t("lore.statusCreated"));
+    if (mutating) return;
+    setMutating(true);
+    try {
+      const created = await api.lorebookCreate({
+        name: t("lore.newBookName"),
+        description: "",
+        entries: [newEntry(0)]
+      });
+      await refreshLorebooks(created.id);
+      setStatus(t("lore.statusCreated"));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMutating(false);
+    }
   }
 
   async function importWorldInfoFile(file: File) {
@@ -160,15 +171,25 @@ export function LorebooksScreen() {
       setLorebooks((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
       setDraft(updated);
       setStatus(t("lore.statusSaved"));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
     }
   }
 
   async function deleteLorebook(id: string) {
-    await api.lorebookDelete(id);
-    await refreshLorebooks(null);
-    setStatus(t("lore.statusDeleted"));
+    if (mutating) return;
+    setMutating(true);
+    try {
+      await api.lorebookDelete(id);
+      await refreshLorebooks(null);
+      setStatus(t("lore.statusDeleted"));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMutating(false);
+    }
   }
 
   async function translateLorebookCopy() {
@@ -281,6 +302,7 @@ export function LorebooksScreen() {
                 </button>
                 <button
                   onClick={() => { void createLorebook(); }}
+                  disabled={mutating}
                   className="rounded-lg bg-accent px-3 py-1.5 text-[11px] font-semibold text-text-inverse shadow-sm hover:bg-accent-hover"
                 >
                   + {t("chat.new")}
@@ -469,7 +491,7 @@ export function LorebooksScreen() {
             <div className="lore-action-bar">
               <button
                 onClick={() => { void saveLorebook(); }}
-                disabled={saving}
+                disabled={saving || mutating}
                 className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-text-inverse shadow-sm hover:bg-accent-hover disabled:opacity-60"
               >
                 {saving ? (
@@ -500,6 +522,7 @@ export function LorebooksScreen() {
               {selected && (
                 <button
                   onClick={() => { void deleteLorebook(selected.id); }}
+                  disabled={mutating || saving}
                   className="rounded-lg border border-danger-border/50 px-3 py-2 text-xs font-medium text-danger/70 transition-colors hover:border-danger-border hover:bg-danger-subtle hover:text-danger"
                 >
                   {t("lore.deleteBook")}

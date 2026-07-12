@@ -274,27 +274,26 @@ export function SettingsScreen({
   const wallpaperInputRef = useRef<HTMLInputElement | null>(null);
   const [managedBackendImportCommands, setManagedBackendImportCommands] = useState<Record<string, string>>({});
   const [settingsSaveState, setSettingsSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [settingsActionBusy, setSettingsActionBusy] = useState(false);
   const settingsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settingsRequestIdRef = useRef(0);
   const wallpaperPatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wallpaperPatchDraftRef = useRef<Partial<AppSettings>>({});
   const managedBackendsSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const managedBackendsDraftRef = useRef<ManagedBackendConfig[]>([]);
-
   useEffect(() => {
-    void (async () => {
-      const s = await api.settingsGet();
-      setSettings(s);
-      setMcpServersDraft(Array.isArray(s.mcpServers) ? s.mcpServers : []);
-      setMcpDiscoveredTools(Array.isArray(s.mcpDiscoveredTools) ? s.mcpDiscoveredTools : []);
-      setMcpDirty(false);
-      const p = await api.providerList();
-      setProviders(p);
-      if (s.activeProviderId) setSelectedProviderId(s.activeProviderId);
-      if (s.activeModel) setSelectedModelId(s.activeModel);
-    })();
+    void Promise.all([api.settingsGet(), api.providerList()])
+      .then(([s, p]) => {
+        setSettings(s);
+        setMcpServersDraft(Array.isArray(s.mcpServers) ? s.mcpServers : []);
+        setMcpDiscoveredTools(Array.isArray(s.mcpDiscoveredTools) ? s.mcpDiscoveredTools : []);
+        setMcpDirty(false);
+        setProviders(p);
+        if (s.activeProviderId) setSelectedProviderId(s.activeProviderId);
+        if (s.activeModel) setSelectedModelId(s.activeModel);
+      })
+      .catch((error) => showResult(error instanceof Error ? error.message : String(error), "error"));
   }, []);
-
   useEffect(() => {
     if (!window.electronAPI?.listManagedBackends) return;
     let active = true;
@@ -363,6 +362,13 @@ export function SettingsScreen({
     setResultVariant(variant);
   }
 
+  async function runSettingsAction(action: () => Promise<void>) {
+    if (settingsActionBusy) return;
+    setSettingsActionBusy(true);
+    try { await action(); } catch (error) {
+      showResult(error instanceof Error ? error.message : String(error), "error");
+    } finally { setSettingsActionBusy(false); }
+  }
   function getProviderTypeLabel(type?: ProviderProfile["providerType"] | "openai" | "koboldcpp" | "custom") {
     if (type === "koboldcpp") return t("settings.providerTypeKobold");
     if (type === "custom") return t("settings.providerTypeCustom");
@@ -779,22 +785,19 @@ export function SettingsScreen({
   }
 
   async function reset() {
-    if (!window.confirm(t("settings.confirmResetAll"))) {
-      return;
-    }
-    const defaults = await api.settingsReset();
-    setSettings(defaults);
-    window.dispatchEvent(new CustomEvent("settings-change", { detail: defaults }));
-    window.dispatchEvent(new CustomEvent("onboarding-reset", { detail: defaults }));
-    showResult(t("settings.settingsResetDone"), "success");
+    if (!window.confirm(t("settings.confirmResetAll"))) return;
+    await runSettingsAction(async () => {
+      const defaults = await api.settingsReset();
+      setSettings(defaults);
+      ["settings-change", "onboarding-reset"].forEach((name) => {
+        window.dispatchEvent(new CustomEvent(name, { detail: defaults }));
+      });
+      showResult(t("settings.settingsResetDone"), "success");
+    });
   }
-
-  async function refreshProviders() {
-    const p = await api.providerList();
-    setProviders(p);
-  }
-
+  function refreshProviders() { void runSettingsAction(async () => setProviders(await api.providerList())); }
   async function saveProvider() {
+    if (settingsActionBusy) return;
     if (!providerId.trim() || !providerName.trim() || !providerBaseUrl.trim()) {
       showResult(t("settings.fillProviderRequired"), "error");
       return;
@@ -803,20 +806,17 @@ export function SettingsScreen({
       showResult(t("settings.fillAdapterRequired"), "error");
       return;
     }
-    const saved = await api.providerUpsert({
-      id: providerId.trim(), name: providerName.trim(), baseUrl: providerBaseUrl.trim(),
-      apiKey: providerApiKey.trim() || "local-key",
-      proxyUrl: providerProxyUrl.trim() || null,
-      fullLocalOnly: providerLocalOnly,
-      providerType,
-      adapterId: providerType === "custom" ? providerAdapterId.trim() || null : null,
-      manualModels: draftManualModels
+    await runSettingsAction(async () => {
+      const saved = await api.providerUpsert({ id: providerId.trim(), name: providerName.trim(), baseUrl: providerBaseUrl.trim(),
+        apiKey: providerApiKey.trim() || "local-key", proxyUrl: providerProxyUrl.trim() || null,
+        fullLocalOnly: providerLocalOnly, providerType,
+        adapterId: providerType === "custom" ? providerAdapterId.trim() || null : null, manualModels: draftManualModels
+      });
+      setProviders(await api.providerList());
+      setSelectedProviderId(saved.id);
+      showResult(`${t("settings.providerSaved")}: ${saved.name}`, "success");
     });
-    showResult(`${t("settings.providerSaved")}: ${saved.name}`, "success");
-    await refreshProviders();
-    setSelectedProviderId(saved.id);
   }
-
   function buildProviderDraftPayload() {
     return {
       baseUrl: providerBaseUrl.trim(),
@@ -829,18 +829,16 @@ export function SettingsScreen({
   }
 
   async function quickAddPreset() {
+    if (settingsActionBusy) return;
     applyPresetToForm(selectedPreset);
-    await api.providerUpsert({
-      id: selectedPreset.defaultId, name: selectedPreset.defaultName, baseUrl: selectedPreset.baseUrl,
-      apiKey: providerApiKey.trim() || (selectedPreset.localOnly ? "local-key" : ""),
-      proxyUrl: null,
-      fullLocalOnly: selectedPreset.localOnly,
-      providerType: selectedPreset.providerType,
-      adapterId: null
+    await runSettingsAction(async () => {
+      await api.providerUpsert({ id: selectedPreset.defaultId, name: selectedPreset.defaultName, baseUrl: selectedPreset.baseUrl,
+        apiKey: providerApiKey.trim() || (selectedPreset.localOnly ? "local-key" : ""),
+        proxyUrl: null, fullLocalOnly: selectedPreset.localOnly, providerType: selectedPreset.providerType, adapterId: null
+      });
+      setProviders(await api.providerList()); setSelectedProviderId(selectedPreset.defaultId);
+      showResult(`${t("settings.presetProviderAdded")}: ${selectedPreset.label}`, "success");
     });
-    await refreshProviders();
-    setSelectedProviderId(selectedPreset.defaultId);
-    showResult(`${t("settings.presetProviderAdded")}: ${selectedPreset.label}`, "success");
   }
 
   async function testProvider() {
@@ -975,12 +973,13 @@ export function SettingsScreen({
   }
 
   async function applyActiveModel() {
+    if (settingsActionBusy) return;
     if (!selectedProviderId || !selectedModelId) { showResult(t("settings.selectProviderAndModelFirst"), "error"); return; }
-    const result = await api.providerActivateModel(selectedProviderId, selectedModelId);
-    const updated = result.settings;
-    setSettings(updated);
-    setSelectedModelId(result.actualModelId || selectedModelId);
-    showResult(`${t("settings.activeModelSet")}: ${selectedProviderId} / ${result.activeModelLabel || result.actualModelId || selectedModelId}`, "success");
+    await runSettingsAction(async () => {
+      const result = await api.providerActivateModel(selectedProviderId, selectedModelId);
+      setSettings(result.settings); setSelectedModelId(result.actualModelId || selectedModelId);
+      showResult(`${t("settings.activeModelSet")}: ${selectedProviderId} / ${result.activeModelLabel || result.actualModelId || selectedModelId}`, "success");
+    });
   }
 
   async function patchSampler(samplerPatch: Partial<SamplerConfig>) {
@@ -1400,11 +1399,11 @@ export function SettingsScreen({
                       ))}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <button onClick={quickAddPreset} className={primaryActionClass}>
+                      <button onClick={quickAddPreset} disabled={settingsActionBusy} className={primaryActionClass}>
                         <SettingsActionIcon name="add" />
                         {t("settings.quickAdd")}
                       </button>
-                      <button onClick={refreshProviders} className={secondaryActionClass}>
+                      <button onClick={refreshProviders} disabled={settingsActionBusy} className={secondaryActionClass}>
                         <SettingsActionIcon name="refresh" />
                         {t("settings.refresh")}
                       </button>
@@ -1534,7 +1533,7 @@ export function SettingsScreen({
                       </div>
                     )}
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={saveProvider} className={primaryActionClass}><SettingsActionIcon name="save" />{t("settings.saveProvider")}</button>
+                      <button onClick={saveProvider} disabled={settingsActionBusy} className={primaryActionClass}><SettingsActionIcon name="save" />{t("settings.saveProvider")}</button>
                       <button onClick={testProvider} disabled={!canTestProvider} className={secondaryActionClass}><SettingsActionIcon name="test" />{t("settings.test")}</button>
                       <button onClick={loadDraftModels} disabled={!canTestProvider} className={secondaryActionClass}><SettingsActionIcon name="refresh" />{t("settings.refresh")}</button>
                     </div>
@@ -1647,7 +1646,7 @@ export function SettingsScreen({
                       {models.length ? `${t("settings.modelsLoaded")}: ${models.length}` : t("settings.noModelsReturned")}
                       {selectedProviderProfile?.baseUrl ? ` • ${selectedProviderProfile.baseUrl}` : ""}
                     </div>
-                    <button onClick={applyActiveModel} disabled={!canActivateSelectedModel} className={primaryActionClass}>
+                    <button onClick={applyActiveModel} disabled={!canActivateSelectedModel || settingsActionBusy} className={primaryActionClass}>
                       <SettingsActionIcon name="activate" />
                       {t("settings.useModel")}
                     </button>
@@ -2784,6 +2783,7 @@ export function SettingsScreen({
                 <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.dangerZoneDesc")}</p>
                 <button
                   onClick={() => void reset()}
+                  disabled={settingsActionBusy}
                   className="w-full rounded-lg border border-danger-border px-3 py-2 text-sm font-medium text-danger hover:bg-danger-subtle"
                 >
                   {t("settings.resetAll")}
