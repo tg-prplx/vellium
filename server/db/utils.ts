@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { v4 as uuidv4 } from "uuid";
 
 export function newId(): string {
@@ -10,7 +10,46 @@ export function now(): string {
 }
 
 export function hashSecret(secret: string): string {
-  return createHash("sha256").update(secret).digest("hex");
+  const normalized = normalizeSecret(secret);
+  const salt = randomBytes(16);
+  const derived = scryptSync(normalized, salt, 64);
+  return `scrypt$${salt.toString("base64")}$${derived.toString("base64")}`;
+}
+
+export function verifySecret(secret: string, storedHash: string): boolean {
+  let normalized: string;
+  try {
+    normalized = normalizeSecret(secret);
+  } catch {
+    return false;
+  }
+  const stored = String(storedHash || "").trim();
+  if (/^[a-f0-9]{64}$/i.test(stored)) {
+    const legacy = Buffer.from(createHash("sha256").update(normalized).digest("hex"), "utf8");
+    const expected = Buffer.from(stored.toLowerCase(), "utf8");
+    return legacy.length === expected.length && timingSafeEqual(legacy, expected);
+  }
+  const [scheme, saltRaw, hashRaw, extra] = stored.split("$");
+  if (scheme !== "scrypt" || !saltRaw || !hashRaw || extra !== undefined) return false;
+  try {
+    const salt = Buffer.from(saltRaw, "base64");
+    const expected = Buffer.from(hashRaw, "base64");
+    if (salt.length !== 16 || expected.length !== 64) return false;
+    const actual = scryptSync(normalized, salt, expected.length);
+    return timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
+
+export function needsSecretRehash(storedHash: string): boolean {
+  return !String(storedHash || "").startsWith("scrypt$");
+}
+
+function normalizeSecret(secret: string): string {
+  const value = typeof secret === "string" ? secret : "";
+  if (!value || value.length > 1024) throw new Error("Secret must contain between 1 and 1024 characters");
+  return value;
 }
 
 export function roughTokenCount(text: string): number {

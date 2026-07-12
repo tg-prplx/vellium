@@ -22,6 +22,7 @@ import ragRoutes from "../routes/rag.js";
 import rpRoutes from "../routes/rp.js";
 import settingsRoutes from "../routes/settings.js";
 import writerRoutes from "../routes/writer.js";
+import { isAllowedRequestOrigin } from "./requestOrigin.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const INLINE_ATTACHMENT_TEXT_LIMIT = 240_000;
@@ -39,46 +40,15 @@ const SAFE_AUDIO_UPLOAD_EXTENSIONS = new Set(["mp3", "wav", "ogg", "oga", "m4a",
 const SAFE_MEDIA_UPLOAD_EXTENSIONS = new Set([...SAFE_IMAGE_UPLOAD_EXTENSIONS, "mp4", "webm", "mov", "m4v", ...SAFE_AUDIO_UPLOAD_EXTENSIONS]);
 const UNSAFE_UPLOAD_EXTENSIONS = new Set(["svg", "html", "htm", "xml", "js", "mjs", "css", "xhtml"]);
 
-function isAllowedLocalOrigin(origin: string | undefined): boolean {
-  if (!origin) return true;
-  try {
-    const parsed = new URL(origin);
-    const isLocalHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1";
-    const isHttp = parsed.protocol === "http:" || parsed.protocol === "https:";
-    return isLocalHost && isHttp;
-  } catch {
-    return false;
-  }
-}
-
 function isHeadlessPublicModeEnabled() {
   return process.env.SLV_SERVER_PUBLIC === "1";
 }
 
-function resolveRequestOrigin(req: express.Request): string | null {
-  const forwardedProto = typeof req.headers["x-forwarded-proto"] === "string"
-    ? req.headers["x-forwarded-proto"].split(",")[0]?.trim()
-    : null;
-  const forwardedHost = typeof req.headers["x-forwarded-host"] === "string"
-    ? req.headers["x-forwarded-host"].split(",")[0]?.trim()
-    : null;
-  const protocol = forwardedProto || req.protocol || "http";
-  const host = forwardedHost || req.headers.host;
-  if (!host) return null;
-  return `${protocol}://${host}`;
-}
-
-function isAllowedRequestOrigin(req: express.Request, origin: string | undefined): boolean {
-  if (!origin) return true;
-  if (isAllowedLocalOrigin(origin)) return true;
-  if (!isHeadlessPublicModeEnabled()) return false;
-  try {
-    const requestOrigin = resolveRequestOrigin(req);
-    if (!requestOrigin) return false;
-    return new URL(origin).origin === new URL(requestOrigin).origin;
-  } catch {
-    return false;
-  }
+function requestOriginAllowed(req: express.Request, origin: string | undefined): boolean {
+  return isAllowedRequestOrigin(req, origin, {
+    publicMode: isHeadlessPublicModeEnabled(),
+    serveStatic: process.env.SLV_SERVE_STATIC === "1" || process.env.ELECTRON_SERVE_STATIC === "1"
+  });
 }
 
 function buildContentSecurityPolicy() {
@@ -349,7 +319,7 @@ export function createApp() {
   app.use(cors((req, callback) => {
     const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
     callback(null, {
-      origin: origin && isAllowedRequestOrigin(req, origin) ? origin : false
+      origin: origin && requestOriginAllowed(req, origin) ? origin : false
     });
   }));
   app.use((req, res, next) => {
@@ -362,7 +332,7 @@ export function createApp() {
   });
   app.use((req, res, next) => {
     const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-    if (req.path.startsWith("/api") && !isAllowedRequestOrigin(req, origin)) {
+    if (req.path.startsWith("/api") && !requestOriginAllowed(req, origin)) {
       res.status(403).json({ error: "Origin blocked by security policy" });
       return;
     }
