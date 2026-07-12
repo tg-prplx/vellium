@@ -1,19 +1,41 @@
-# Vellium
+# Vellium — local-first AI workbench for chat, roleplay and writing
+
+[![Latest release](https://img.shields.io/github/v/release/tg-prplx/vellium?display_name=tag&sort=semver)](https://github.com/tg-prplx/vellium/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/tg-prplx/vellium/total)](https://github.com/tg-prplx/vellium/releases)
+[![Stars](https://img.shields.io/github/stars/tg-prplx/vellium?style=flat)](https://github.com/tg-prplx/vellium/stargazers)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 <img width="1440" height="913" alt="image" src="https://github.com/user-attachments/assets/b81aeaa9-7f40-44e0-b739-deb6d91b8edf" />
 
-<p align="center"><strong>Desktop AI chat, RP, writing, RAG, agent, and plugin workbench.</strong></p>
+<p align="center"><strong>One desktop app for character chat, multi-character roleplay, long-form writing, RAG, MCP tools, plugins and local models.</strong></p>
 
-Desktop app built with Electron, React, a local Express API, and SQLite.
+Vellium is a free, open-source desktop AI workspace that works with OpenAI-compatible APIs, OpenRouter, LM Studio, Ollama, KoboldCpp and custom endpoints. Your chats, characters, projects and knowledge stay in a local SQLite database.
+
+<p align="center">
+  <a href="https://github.com/tg-prplx/vellium/releases/latest"><strong>Download for macOS, Windows or Linux</strong></a>
+  ·
+  <a href="./docs/vellium/getting-started.md">Quick start</a>
+  ·
+  <a href="./docs/vellium/README.md">User guide</a>
+</p>
 
 <img width="1440" height="911" alt="image" src="https://github.com/user-attachments/assets/54f90253-b51a-4652-bd6e-5023f078f9a8" />
 
 ## Current Release
 
-- Latest release: [`v0.9.9`](https://github.com/tg-prplx/vellium/releases/tag/v0.9.9)
+- Latest release: [`v1.0.0`](https://github.com/tg-prplx/vellium/releases/tag/v1.0.0)
 - Desktop builds: macOS (`arm64`, `x64`), Windows (`x64`), Linux (`x64` AppImage).
 - Release builds are unsigned. macOS and Windows may require manual confirmation on first launch.
 - The app is usable day to day, but still moving quickly. Expect active iteration around Agents, tool calling, and provider compatibility.
+
+## Why Vellium?
+
+- **Bring your own model.** Use cloud APIs or local models without locking the workspace to one provider.
+- **Built for stories, not just prompts.** Characters, personas, LoreBooks, scene state, branching conversations and automatic multi-character turns live together.
+- **Write beyond chat.** Organize projects, chapters and scenes; rewrite, expand, summarize and export to DOCX or Markdown.
+- **Give models useful context.** Connect knowledge collections through RAG and scripted world facts through LoreBooks.
+- **Extend it locally.** Add MCP tools, plugin tabs, widgets, themes, endpoint adapters and desktop pets.
+- **Keep control.** Local storage, local-only networking mode and explicit security gates for powerful tools.
 
 ## User Documentation
 
