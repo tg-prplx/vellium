@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS, migrateDefaultSystemPrompt } from "./db/defaultSettin
 import { applyMigrations } from "./db/migrations.js";
 import { ensureDataDirs, resolveDbPath, DATA_DIR, AVATARS_DIR, UPLOADS_DIR, PLUGINS_DIR, BUNDLED_PLUGINS_DIR } from "./db/paths.js";
 import { applySchema, applySchemaIndexes } from "./db/schema.js";
-import { hashSecret, isLocalhostUrl, maskApiKey, newId, now, roughTokenCount } from "./db/utils.js";
+import { hashSecret, isLocalhostUrl, maskApiKey, needsSecretRehash, newId, now, roughTokenCount, verifySecret } from "./db/utils.js";
 
 ensureDataDirs();
 
@@ -101,6 +101,8 @@ export {
   newId,
   now,
   hashSecret,
+  verifySecret,
+  needsSecretRehash,
   roughTokenCount,
   maskApiKey,
   isLocalhostUrl

@@ -4,6 +4,7 @@ import { existsSync } from "fs";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { pathToFileURL } from "url";
 import { ManagedBackendManager } from "./managedBackends";
+import { createIpcSenderGuard, decodeBoundedBase64, isAllowedExternalUrl } from "./security";
 import { buildDesktopPetHtml } from "./desktopPet/html";
 import type {
   DesktopPetAnimation,
@@ -84,23 +85,20 @@ let creatingWindow = false;
 let embeddedServerStart: Promise<void> | null = null;
 const desktopPetPeerSeenAt = new Map<string, number>();
 const managedBackendManager = new ManagedBackendManager();
+const assertTrustedIpcSender = createIpcSenderGuard({
+  getMainWindow: () => mainWindow,
+  getDesktopPetWindow: (sender) => getDesktopPetInstanceForSender(sender)?.window || null,
+  isAllowedMainUrl: (url) => isAllowedAppNavigation(url)
+});
 
 const SERVER_PORT = runtimeOptions.port;
 const SERVER_HOST = runtimeOptions.host;
 const SERVER_START_TIMEOUT_MS = 20000;
+const MAX_IPC_SAVE_BYTES = 128 * 1024 * 1024;
 function sanitizeFilename(name: string, fallback = "export.txt"): string {
   const trimmed = String(name || "").trim();
   const normalized = trimmed.replace(/[\/\\?%*:|"<>]/g, "-").replace(/\s+/g, " ").trim();
   return normalized || fallback;
-}
-
-function isAllowedExternalUrl(rawUrl: string): boolean {
-  try {
-    const parsed = new URL(rawUrl);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" || parsed.protocol === "mailto:";
-  } catch {
-    return false;
-  }
 }
 
 function isAllowedAppNavigation(rawUrl: string): boolean {
@@ -1105,11 +1103,13 @@ async function createWindow() {
 }
 
 // IPC handlers for window controls
-ipcMain.handle("window:minimize", () => {
+ipcMain.handle("window:minimize", (event) => {
+  assertTrustedIpcSender(event);
   mainWindow?.minimize();
 });
 
-ipcMain.handle("window:maximize", () => {
+ipcMain.handle("window:maximize", (event) => {
+  assertTrustedIpcSender(event);
   if (mainWindow?.isMaximized()) {
     mainWindow.unmaximize();
   } else {
@@ -1117,19 +1117,23 @@ ipcMain.handle("window:maximize", () => {
   }
 });
 
-ipcMain.handle("window:close", () => {
+ipcMain.handle("window:close", (event) => {
+  assertTrustedIpcSender(event);
   mainWindow?.close();
 });
 
-ipcMain.handle("window:isMaximized", () => {
+ipcMain.handle("window:isMaximized", (event) => {
+  assertTrustedIpcSender(event);
   return mainWindow?.isMaximized() ?? false;
 });
 
-ipcMain.handle("window:getPlatform", () => {
+ipcMain.handle("window:getPlatform", (event) => {
+  assertTrustedIpcSender(event);
   return process.platform;
 });
 
 ipcMain.handle("window:setZoomFactor", (event, requestedFactor: unknown) => {
+  assertTrustedIpcSender(event);
   const target = BrowserWindow.fromWebContents(event.sender);
   if (!target || target.isDestroyed()) return 1;
   const numericFactor = Number(requestedFactor);
@@ -1140,15 +1144,13 @@ ipcMain.handle("window:setZoomFactor", (event, requestedFactor: unknown) => {
   return safeFactor;
 });
 
-ipcMain.handle("file:save", async (_event, payload: { filename?: unknown; base64Data?: unknown }) => {
+ipcMain.handle("file:save", async (event, payload: { filename?: unknown; base64Data?: unknown }) => {
+  assertTrustedIpcSender(event);
   if (!payload || typeof payload !== "object") {
     return { ok: false, canceled: true };
   }
   const filename = sanitizeFilename(String(payload.filename || "export.txt"), "export.txt");
-  const base64Data = String(payload.base64Data || "").trim();
-  if (!base64Data) {
-    throw new Error("Missing file payload");
-  }
+  const buffer = decodeBoundedBase64(String(payload.base64Data || ""), MAX_IPC_SAVE_BYTES);
 
   const saveDialogOptions = {
     defaultPath: filename,
@@ -1161,12 +1163,12 @@ ipcMain.handle("file:save", async (_event, payload: { filename?: unknown; base64
     return { ok: false, canceled: true };
   }
 
-  const buffer = Buffer.from(base64Data, "base64");
   await writeFile(result.filePath, buffer);
   return { ok: true, canceled: false, filePath: result.filePath };
 });
 
-ipcMain.handle("shell:openExternal", async (_event, rawUrl: unknown) => {
+ipcMain.handle("shell:openExternal", async (event, rawUrl: unknown) => {
+  assertTrustedIpcSender(event);
   const url = String(rawUrl || "").trim();
   if (!isAllowedExternalUrl(url)) {
     return { ok: false };
@@ -1175,12 +1177,14 @@ ipcMain.handle("shell:openExternal", async (_event, rawUrl: unknown) => {
   return { ok: true };
 });
 
-ipcMain.handle("desktop-pet:show", async (_event, rawConfig: unknown) => {
+ipcMain.handle("desktop-pet:show", async (event, rawConfig: unknown) => {
+  assertTrustedIpcSender(event);
   const window = await ensureDesktopPetWindow(rawConfig);
   return { ok: true, visible: Boolean(window && !window.isDestroyed() && window.isVisible()) };
 });
 
 ipcMain.handle("desktop-pet:hide", (event) => {
+  assertTrustedIpcSender(event, true);
   const instance = getDesktopPetInstanceForSender(event.sender) || (desktopPetWindow ? getDesktopPetInstanceForWindow(desktopPetWindow) : null);
   if (instance) {
     instance.window.hide();
@@ -1190,7 +1194,8 @@ ipcMain.handle("desktop-pet:hide", (event) => {
   return { ok: true, visible: false };
 });
 
-ipcMain.handle("desktop-pet:toggle", async (_event, rawConfig: unknown) => {
+ipcMain.handle("desktop-pet:toggle", async (event, rawConfig: unknown) => {
+  assertTrustedIpcSender(event);
   const nextConfig = sanitizeDesktopPetConfig(rawConfig);
   const existing = desktopPetInstances.get(desktopPetKey(nextConfig));
   if (existing && !existing.window.isDestroyed() && existing.window.isVisible()) {
@@ -1202,7 +1207,8 @@ ipcMain.handle("desktop-pet:toggle", async (_event, rawConfig: unknown) => {
   return { ok: true, visible: Boolean(window && !window.isDestroyed() && window.isVisible()) };
 });
 
-ipcMain.handle("desktop-pet:configure", async (_event, rawConfig: unknown) => {
+ipcMain.handle("desktop-pet:configure", async (event, rawConfig: unknown) => {
+  assertTrustedIpcSender(event);
   const nextConfig = sanitizeDesktopPetConfig(rawConfig);
   const key = desktopPetKey(nextConfig);
   const instance = desktopPetInstances.get(key) || (desktopPetWindow ? getDesktopPetInstanceForWindow(desktopPetWindow) : null);
@@ -1224,11 +1230,13 @@ ipcMain.handle("desktop-pet:configure", async (_event, rawConfig: unknown) => {
   return { ok: true, visible: shouldShow };
 });
 
-ipcMain.handle("desktop-pet:isVisible", () => {
+ipcMain.handle("desktop-pet:isVisible", (event) => {
+  assertTrustedIpcSender(event);
   return [...desktopPetInstances.values()].some((instance) => !instance.window.isDestroyed() && instance.window.isVisible());
 });
 
 ipcMain.handle("desktop-pet:drag-start", (event, point: { screenX?: unknown; screenY?: unknown }) => {
+  assertTrustedIpcSender(event, true);
   const target = BrowserWindow.fromWebContents(event.sender);
   const instance = getDesktopPetInstanceForSender(event.sender);
   if (!target || !instance || target !== instance.window) return { ok: false };
@@ -1242,6 +1250,7 @@ ipcMain.handle("desktop-pet:drag-start", (event, point: { screenX?: unknown; scr
 });
 
 ipcMain.handle("desktop-pet:drag-move", (event, point: { screenX?: unknown; screenY?: unknown }) => {
+  assertTrustedIpcSender(event, true);
   const target = BrowserWindow.fromWebContents(event.sender);
   const instance = getDesktopPetInstanceForSender(event.sender);
   const drag = desktopPetDragState.get(event.sender.id);
@@ -1269,6 +1278,7 @@ ipcMain.handle("desktop-pet:drag-move", (event, point: { screenX?: unknown; scre
 });
 
 ipcMain.handle("desktop-pet:ui-expanded", (event, expanded: unknown) => {
+  assertTrustedIpcSender(event, true);
   const target = BrowserWindow.fromWebContents(event.sender);
   const instance = getDesktopPetInstanceForSender(event.sender);
   if (!target || !instance || target !== instance.window) return { ok: false };
@@ -1278,6 +1288,7 @@ ipcMain.handle("desktop-pet:ui-expanded", (event, expanded: unknown) => {
 });
 
 ipcMain.handle("desktop-pet:autonomy-step", (event, delta: { dx?: unknown; dy?: unknown }) => {
+  assertTrustedIpcSender(event, true);
   const target = BrowserWindow.fromWebContents(event.sender);
   const instance = getDesktopPetInstanceForSender(event.sender);
   if (!target || !instance || target !== instance.window) return { ok: false };
@@ -1298,6 +1309,7 @@ ipcMain.handle("desktop-pet:autonomy-step", (event, delta: { dx?: unknown; dy?: 
 });
 
 ipcMain.handle("desktop-pet:chats", async (event, rawConfig?: unknown) => {
+  assertTrustedIpcSender(event, true);
   const config = resolveDesktopPetConfigForRequest(event.sender, rawConfig);
   await syncDesktopPetRuntimeState(config);
   const state = await getDesktopPetRuntimeState(config);
@@ -1311,6 +1323,7 @@ ipcMain.handle("desktop-pet:chats", async (event, rawConfig?: unknown) => {
 });
 
 ipcMain.handle("desktop-pet:new-chat", async (event, rawTitle: unknown, rawConfig?: unknown) => {
+  assertTrustedIpcSender(event, true);
   const config = resolveDesktopPetConfigForRequest(event.sender, rawConfig);
   await syncDesktopPetRuntimeState(config);
   const state = await getDesktopPetRuntimeState(config);
@@ -1323,6 +1336,7 @@ ipcMain.handle("desktop-pet:new-chat", async (event, rawTitle: unknown, rawConfi
 });
 
 ipcMain.handle("desktop-pet:select-chat", async (event, rawChatId: unknown, rawConfig?: unknown) => {
+  assertTrustedIpcSender(event, true);
   const config = resolveDesktopPetConfigForRequest(event.sender, rawConfig);
   await syncDesktopPetRuntimeState(config);
   const state = await getDesktopPetRuntimeState(config);
@@ -1335,6 +1349,7 @@ ipcMain.handle("desktop-pet:select-chat", async (event, rawChatId: unknown, rawC
 });
 
 ipcMain.handle("desktop-pet:message", async (event, message: unknown, rawScreenContext?: unknown) => {
+  assertTrustedIpcSender(event, true);
   try {
     const instance = getDesktopPetInstanceForSender(event.sender);
     const screenContext = rawScreenContext && typeof rawScreenContext === "object" && !Array.isArray(rawScreenContext)
@@ -1358,6 +1373,7 @@ ipcMain.handle("desktop-pet:message", async (event, message: unknown, rawScreenC
 });
 
 ipcMain.handle("desktop-pet:screen-context", async (event) => {
+  assertTrustedIpcSender(event, true);
   try {
     const instance = getDesktopPetInstanceForSender(event.sender) || (desktopPetWindow ? getDesktopPetInstanceForWindow(desktopPetWindow) : null);
     if (!instance) return { ok: false, error: "Desktop pet is unavailable" };
@@ -1372,6 +1388,7 @@ ipcMain.handle("desktop-pet:screen-context", async (event) => {
 });
 
 ipcMain.handle("desktop-pet:tts", async (event, text: unknown) => {
+  assertTrustedIpcSender(event, true);
   try {
     const instance = getDesktopPetInstanceForSender(event.sender);
     return await synthesizeDesktopPetSpeech(String(text || ""), instance?.config || desktopPetConfig);
@@ -1383,24 +1400,29 @@ ipcMain.handle("desktop-pet:tts", async (event, text: unknown) => {
   }
 });
 
-ipcMain.handle("managed-backends:list", () => {
+ipcMain.handle("managed-backends:list", (event) => {
+  assertTrustedIpcSender(event);
   return managedBackendManager.listRuntimeStates();
 });
 
-ipcMain.handle("managed-backends:start", async (_event, rawConfig: unknown) => {
+ipcMain.handle("managed-backends:start", async (event, rawConfig: unknown) => {
+  assertTrustedIpcSender(event);
   return managedBackendManager.start(rawConfig as ManagedBackendConfig);
 });
 
-ipcMain.handle("managed-backends:stop", async (_event, backendId: unknown) => {
+ipcMain.handle("managed-backends:stop", async (event, backendId: unknown) => {
+  assertTrustedIpcSender(event);
   return managedBackendManager.stop(String(backendId || "").trim());
 });
 
-ipcMain.handle("managed-backends:stop-active", async () => {
+ipcMain.handle("managed-backends:stop-active", async (event) => {
+  assertTrustedIpcSender(event);
   await managedBackendManager.stopActive();
   return { ok: true };
 });
 
-ipcMain.handle("managed-backends:logs", (_event, backendId: unknown) => {
+ipcMain.handle("managed-backends:logs", (event, backendId: unknown) => {
+  assertTrustedIpcSender(event);
   return managedBackendManager.getLogs(String(backendId || "").trim());
 });
 

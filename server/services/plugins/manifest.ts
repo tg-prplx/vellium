@@ -19,6 +19,7 @@ const THEME_VARIABLE_PREFIXES = ["--color-", "--scrollbar-", "--range-", "--chec
 const MAX_PLUGINFILE_FILES = 64;
 const MAX_PLUGINFILE_FILE_BYTES = 256 * 1024;
 const MAX_PLUGINFILE_TOTAL_BYTES = 2 * 1024 * 1024;
+const RESERVED_PLUGINFILE_PATHS = new Set(["plugin.json", "pluginfile.json"]);
 
 export function encodeAssetPath(assetPath: string): string {
   return assetPath
@@ -30,15 +31,16 @@ export function encodeAssetPath(assetPath: string): string {
 
 export function sanitizeRelativeAssetPath(raw: unknown): string | null {
   const trimmed = String(raw || "").trim().replace(/\\/g, "/");
-  if (!trimmed || trimmed.startsWith("/") || trimmed.includes("../") || trimmed === "..") {
-    return null;
-  }
-  return trimmed.replace(/^\.\//, "");
+  if (!trimmed || trimmed.startsWith("/") || /^[a-z]:\//i.test(trimmed)) return null;
+  const normalized = trimmed.replace(/^\.\//, "");
+  const segments = normalized.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === ".." || /[\u0000-\u001f\u007f]/.test(segment))) return null;
+  return normalized;
 }
 
 export function sanitizePluginDirSegment(raw: unknown): string {
   const value = String(raw || "").trim().toLowerCase();
-  return value.replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "plugin";
+  return value.replace(/[^a-z0-9._-]+/g, "-").replace(/^[.-]+|[.-]+$/g, "") || "plugin";
 }
 
 export function normalizePluginId(raw: unknown, fallback: string): string {
@@ -302,6 +304,7 @@ export function normalizePluginfile(raw: unknown): PluginfileDocument | null {
   for (const [keyRaw, valueRaw] of Object.entries(filesRaw)) {
     const key = sanitizeRelativeAssetPath(keyRaw);
     if (!key) continue;
+    if (RESERVED_PLUGINFILE_PATHS.has(key.toLowerCase())) return null;
     if (Object.keys(files).length >= MAX_PLUGINFILE_FILES) return null;
     const content = String(valueRaw ?? "");
     if (content.length > MAX_PLUGINFILE_FILE_BYTES) return null;
