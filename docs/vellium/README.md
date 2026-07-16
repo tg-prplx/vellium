@@ -30,6 +30,7 @@ The screenshots in this guide are local captures from the current app build. Whe
 | [knowledge-and-rag.md](./knowledge-and-rag.md) | Knowledge collections, ingestion, scope, and how RAG plugs into chat and writing |
 | [settings-and-providers.md](./settings-and-providers.md) | Providers, models, UI settings, generation, context, security, plugins, and MCP |
 | [plugins-and-security.md](./plugins-and-security.md) | Plugin management, permissions, Pluginfile, themes, and safe usage guidelines |
+| [runtime-and-integration-reference.md](./runtime-and-integration-reference.md) | Headless mode, runtime flags, MCP lifecycle, and integration helper functions |
 | [troubleshooting.md](./troubleshooting.md) | Common failures, diagnostics, and a practical fallback plan |
 
 ## How Vellium Fits Together

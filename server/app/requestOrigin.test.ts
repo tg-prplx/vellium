@@ -1,41 +1,44 @@
 import { describe, expect, it } from "vitest";
 import { isAllowedRequestOrigin } from "./requestOrigin.js";
 
-const localRequest = {
-  protocol: "http",
-  headers: { host: "127.0.0.1:3002" }
+const packagedPolicy = {
+  publicMode: false,
+  serveStatic: true,
+  serverHost: "127.0.0.1",
+  serverPort: 3002
 };
 
 describe("isAllowedRequestOrigin", () => {
   it("allows the exact application origin and non-browser clients", () => {
-    const policy = { publicMode: false, serveStatic: true };
-    expect(isAllowedRequestOrigin(localRequest, "http://127.0.0.1:3002", policy)).toBe(true);
-    expect(isAllowedRequestOrigin(localRequest, undefined, policy)).toBe(true);
+    expect(isAllowedRequestOrigin("http://127.0.0.1:3002", packagedPolicy)).toBe(true);
+    expect(isAllowedRequestOrigin(undefined, packagedPolicy)).toBe(true);
   });
 
   it("blocks unrelated localhost ports in packaged mode", () => {
-    const policy = { publicMode: false, serveStatic: true };
-    expect(isAllowedRequestOrigin(localRequest, "http://localhost:8080", policy)).toBe(false);
-    expect(isAllowedRequestOrigin(localRequest, "http://127.0.0.1:1420", policy)).toBe(false);
+    expect(isAllowedRequestOrigin("http://localhost:8080", packagedPolicy)).toBe(false);
+    expect(isAllowedRequestOrigin("http://127.0.0.1:1420", packagedPolicy)).toBe(false);
   });
 
   it("allows only the Vite origin in local development", () => {
-    const policy = { publicMode: false, serveStatic: false };
-    expect(isAllowedRequestOrigin(localRequest, "http://localhost:1420", policy)).toBe(true);
-    expect(isAllowedRequestOrigin(localRequest, "http://127.0.0.1:1420", policy)).toBe(true);
-    expect(isAllowedRequestOrigin(localRequest, "http://localhost:5173", policy)).toBe(false);
+    const policy = { ...packagedPolicy, serveStatic: false };
+    expect(isAllowedRequestOrigin("http://localhost:1420", policy)).toBe(true);
+    expect(isAllowedRequestOrigin("http://127.0.0.1:1420", policy)).toBe(true);
+    expect(isAllowedRequestOrigin("http://localhost:5173", policy)).toBe(false);
   });
 
-  it("ignores spoofed forwarded headers outside public proxy mode", () => {
-    const request = {
-      ...localRequest,
-      headers: {
-        ...localRequest.headers,
-        "x-forwarded-host": "attacker.example",
-        "x-forwarded-proto": "https"
-      }
+  it("never derives trust from an attacker-controlled request host", () => {
+    expect(isAllowedRequestOrigin("https://attacker.example", packagedPolicy)).toBe(false);
+    expect(isAllowedRequestOrigin("https://attacker.example", { ...packagedPolicy, publicMode: true })).toBe(false);
+  });
+
+  it("allows a public reverse-proxy origin only when it is explicitly configured", () => {
+    const policy = {
+      ...packagedPolicy,
+      publicMode: true,
+      serverHost: "0.0.0.0",
+      allowedOrigins: ["https://vellium.example"]
     };
-    expect(isAllowedRequestOrigin(request, "https://attacker.example", { publicMode: false, serveStatic: true })).toBe(false);
-    expect(isAllowedRequestOrigin(request, "https://attacker.example", { publicMode: true, serveStatic: true })).toBe(true);
+    expect(isAllowedRequestOrigin("https://vellium.example", policy)).toBe(true);
+    expect(isAllowedRequestOrigin("https://attacker.example", policy)).toBe(false);
   });
 });

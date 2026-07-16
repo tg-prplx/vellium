@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SYSTEM_PROMPT,
   LEGACY_DEFAULT_SYSTEM_PROMPT,
+  PREVIOUS_DEFAULT_SYSTEM_PROMPT,
   migrateDefaultSystemPrompt
 } from "../db/defaultSettings.js";
 import {
@@ -51,6 +52,8 @@ describe("default roleplay system prompt", () => {
   it("migrates only the previous untouched default", () => {
     expect(migrateDefaultSystemPrompt(undefined)).toBe(DEFAULT_SYSTEM_PROMPT);
     expect(migrateDefaultSystemPrompt(LEGACY_DEFAULT_SYSTEM_PROMPT)).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(migrateDefaultSystemPrompt(PREVIOUS_DEFAULT_SYSTEM_PROMPT)).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(migrateDefaultSystemPrompt(DEFAULT_SYSTEM_PROMPT)).toBe(DEFAULT_SYSTEM_PROMPT);
     expect(migrateDefaultSystemPrompt("My edited prompt for {{char}}")).toBe("My edited prompt for {{char}}");
     expect(migrateDefaultSystemPrompt("")).toBe("");
   });

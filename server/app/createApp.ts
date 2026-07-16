@@ -44,10 +44,21 @@ function isHeadlessPublicModeEnabled() {
   return process.env.SLV_SERVER_PUBLIC === "1";
 }
 
-function requestOriginAllowed(req: express.Request, origin: string | undefined): boolean {
-  return isAllowedRequestOrigin(req, origin, {
+function requestOriginAllowed(origin: string | undefined): boolean {
+  const serveStatic = process.env.SLV_SERVE_STATIC === "1" || process.env.ELECTRON_SERVE_STATIC === "1";
+  const defaultPort = serveStatic ? 3001 : 3002;
+  const configuredPort = Number(process.env.SLV_SERVER_PORT || defaultPort);
+  return isAllowedRequestOrigin(origin, {
     publicMode: isHeadlessPublicModeEnabled(),
-    serveStatic: process.env.SLV_SERVE_STATIC === "1" || process.env.ELECTRON_SERVE_STATIC === "1"
+    serveStatic,
+    serverHost: String(process.env.SLV_SERVER_HOST || "127.0.0.1"),
+    serverPort: Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535
+      ? configuredPort
+      : defaultPort,
+    allowedOrigins: String(process.env.SLV_ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
   });
 }
 
@@ -319,7 +330,7 @@ export function createApp() {
   app.use(cors((req, callback) => {
     const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
     callback(null, {
-      origin: origin && requestOriginAllowed(req, origin) ? origin : false
+      origin: origin && requestOriginAllowed(origin) ? origin : false
     });
   }));
   app.use((req, res, next) => {
@@ -332,7 +343,7 @@ export function createApp() {
   });
   app.use((req, res, next) => {
     const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
-    if (req.path.startsWith("/api") && !requestOriginAllowed(req, origin)) {
+    if (req.path.startsWith("/api") && !requestOriginAllowed(origin)) {
       res.status(403).json({ error: "Origin blocked by security policy" });
       return;
     }
