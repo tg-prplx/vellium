@@ -40,6 +40,7 @@ Vellium is a free, open-source desktop AI workspace that works with OpenAI-compa
 ## User Documentation
 
 - Detailed user guide: [`docs/vellium/README.md`](./docs/vellium/README.md)
+- Runtime and integration reference: [`docs/vellium/runtime-and-integration-reference.md`](./docs/vellium/runtime-and-integration-reference.md)
 
 
 ## Important
@@ -305,6 +306,7 @@ Generated files:
 - `npm run dev:electron` — Electron + frontend + server.
 - `npm run build` — frontend production build.
 - `npm run build:server` — bundled server build.
+- `npm run headless` — build and run the API plus built frontend without Electron; see [`runtime-and-integration-reference.md`](./docs/vellium/runtime-and-integration-reference.md).
 - `npm run build:desktop` — full desktop build pipeline without publishing.
 - `npm run dist` — package all desktop targets supported by the current host/CI runner.
 - `npm run dist:mac` / `npm run dist:win` / `npm run dist:linux` — package a specific desktop target.

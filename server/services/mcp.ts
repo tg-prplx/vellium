@@ -97,7 +97,14 @@ export function describeBlockedMcpLaunch(commandRaw: unknown, argsRaw: unknown):
   const normalizedArgs = args.map((arg) => arg.toLowerCase());
   const firstArg = normalizedArgs[0] || "";
 
-  if ((base === "node" || base === "deno") && normalizedArgs.some((arg) => arg === "-e" || arg === "--eval")) {
+  const hasOption = (...options: string[]) => normalizedArgs.some((arg) =>
+    options.some((option) => arg === option || arg.startsWith(`${option}=`))
+  );
+
+  if (base === "node" && hasOption("-e", "--eval")) {
+    return `Inline eval for ${base} is not allowed in MCP server commands.`;
+  }
+  if (base === "deno" && (firstArg === "eval" || hasOption("-e", "--eval"))) {
     return `Inline eval for ${base} is not allowed in MCP server commands.`;
   }
   if ((base === "python" || base === "python3") && normalizedArgs.some((arg) => arg === "-c" || arg === "-m" && normalizedArgs[normalizedArgs.indexOf(arg) + 1] === "pip")) {
