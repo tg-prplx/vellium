@@ -31,6 +31,7 @@ export interface CharacterRow {
   scenario: string | null;
   mes_example: string | null;
   creator_notes: string | null;
+  sort_order: number;
   created_at: string;
 }
 
@@ -205,6 +206,7 @@ export function characterToJson(row: CharacterRow) {
     scenario: row.scenario || "",
     mesExample: row.mes_example || "",
     creatorNotes: row.creator_notes || "",
+    sortOrder: row.sort_order,
     alternateGreetings: parseStringArray(cardData.alternate_greetings),
     postHistoryInstructions: typeof cardData.post_history_instructions === "string" ? cardData.post_history_instructions : "",
     creator: typeof cardData.creator === "string" ? cardData.creator : "",

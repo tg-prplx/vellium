@@ -815,6 +815,7 @@ export interface CharacterListItem {
   tags: string[];
   greeting: string;
   systemPrompt: string;
+  sortOrder: number;
   createdAt: string;
 }
 

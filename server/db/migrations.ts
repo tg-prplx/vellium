@@ -10,6 +10,7 @@ const MIGRATIONS = [
   "ALTER TABLE characters ADD COLUMN scenario TEXT DEFAULT ''",
   "ALTER TABLE characters ADD COLUMN mes_example TEXT DEFAULT ''",
   "ALTER TABLE characters ADD COLUMN creator_notes TEXT DEFAULT ''",
+  "ALTER TABLE characters ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE chats ADD COLUMN character_id TEXT",
   "ALTER TABLE chats ADD COLUMN sampler_config TEXT",
   "ALTER TABLE chats ADD COLUMN context_summary TEXT DEFAULT ''",
