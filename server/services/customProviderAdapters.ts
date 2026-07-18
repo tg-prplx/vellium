@@ -202,7 +202,7 @@ export async function completeCustomAdapter(params: {
   systemPrompt: string;
   userPrompt: string;
   samplerConfig?: Record<string, unknown>;
-  messages?: Array<{ role: string; content: unknown }>;
+  messages?: Array<{ role: string; content: unknown; reasoning_content?: string }>;
   signal?: AbortSignal;
 }) {
   const adapter = getCustomAdapterForProvider(params.provider);

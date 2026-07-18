@@ -13,6 +13,7 @@ import {
   requestKoboldGenerateStream
 } from "../../services/providerApi.js";
 import { consumeThinkChunk, createThinkStreamState, flushThinkState, splitThinkContent } from "./reasoning.js";
+import { prepareOpenAiCompatibleMessages } from "./providerMessages.js";
 import type { ProviderRow } from "./routeHelpers.js";
 import {
   consumeSseEventBlocks,
@@ -32,7 +33,7 @@ import {
 export interface StreamProviderCompletionParams {
   provider: ProviderRow;
   modelId: string;
-  messages: Array<{ role: string; content: unknown }>;
+  messages: Array<{ role: string; content: unknown; reasoning_content?: string }>;
   samplerConfig: Record<string, unknown>;
   apiParamPolicy?: unknown;
   chatId: string;
@@ -259,6 +260,7 @@ export async function streamProviderCompletion(
   }
 
   const baseUrl = String(params.provider.base_url || "").replace(/\/+$/, "");
+  const openAiMessages = prepareOpenAiCompatibleMessages(baseUrl, normalizedMessages);
   const openAiSampling = buildOpenAiSamplingPayload({
     samplerConfig: sc,
     apiParamPolicy: params.apiParamPolicy,
@@ -279,7 +281,7 @@ export async function streamProviderCompletion(
     },
     body: JSON.stringify({
       model: params.modelId,
-      messages: normalizedMessages,
+      messages: openAiMessages,
       stream: true,
       ...openAiSampling
     }),

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as mcpService from "../../services/mcp.js";
 import {
   appendMissingToolImageMarkdown,
+  buildKoboldPromptFromMessages,
   extractOpenAIReasoningDelta,
   extractOpenAiStreamToolCallDeltas,
   extractTextToolCalls,
@@ -73,6 +74,18 @@ describe("appendMissingToolImageMarkdown", () => {
 
     expect(augmented.content).toContain("![generated image 1](http://127.0.0.1:8188/view?filename=test.png&type=output)");
     expect(augmented.appended).toBe("\n\n![generated image 1](http://127.0.0.1:8188/view?filename=test.png&type=output)");
+  });
+});
+
+describe("buildKoboldPromptFromMessages", () => {
+  it("adapts structured assistant reasoning to think tags", () => {
+    const { prompt } = buildKoboldPromptFromMessages([
+      { role: "user", content: "Question" },
+      { role: "assistant", content: "Answer", reasoning_content: "Consider the evidence." }
+    ], {});
+
+    expect(prompt).toContain("<think>\nConsider the evidence.\n</think>\n\nAnswer");
+    expect(prompt).not.toContain("reasoning_content");
   });
 });
 

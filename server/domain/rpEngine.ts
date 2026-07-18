@@ -55,6 +55,7 @@ export function replacePromptPlaceholders(text: string, charName?: string, userN
 export interface ChatCompletionMessage {
   role: "system" | "user" | "assistant";
   content: string | ChatCompletionContentPart[];
+  reasoning_content?: string;
 }
 
 function systemContentToText(content: unknown): string {
@@ -199,7 +200,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 
 export function buildMessageArray(
   systemPrompt: string,
-  timeline: { role: string; content: string; attachments?: ChatAttachment[] }[],
+  timeline: { role: string; content: string; reasoningContent?: string; attachments?: ChatAttachment[] }[],
   authorNote: string,
   contextSummary: string,
   charName?: string,
@@ -223,10 +224,14 @@ export function buildMessageArray(
   const timelineMessages: ChatCompletionMessage[] = timeline.map((m) => {
     const text = replacePromptPlaceholders(m.content, charName, userName);
     const visionParts = extractVisionParts(m.attachments);
-    return {
+    const message: ChatCompletionMessage = {
       role: m.role as "user" | "assistant",
       content: buildMessageContent(text, visionParts)
     };
+    if (message.role === "assistant" && m.reasoningContent?.trim()) {
+      message.reasoning_content = replacePromptPlaceholders(m.reasoningContent, charName, userName);
+    }
+    return message;
   });
 
   // Inject author's note 4 messages from the end
@@ -256,6 +261,9 @@ export function mergeConsecutiveRoles(messages: ChatCompletionMessage[]): ChatCo
     const last = merged[merged.length - 1];
     if (last && last.role === msg.role && typeof last.content === "string" && typeof msg.content === "string") {
       last.content += "\n\n" + msg.content;
+      if (msg.role === "assistant" && msg.reasoning_content) {
+        last.reasoning_content = [last.reasoning_content, msg.reasoning_content].filter(Boolean).join("\n\n");
+      }
     } else {
       merged.push({ ...msg });
     }
@@ -269,7 +277,7 @@ export function mergeConsecutiveRoles(messages: ChatCompletionMessage[]): ChatCo
 // - All other messages (other bots + real user) → "user" with speaker name prefix
 export function buildMultiCharMessageArray(
   systemPrompt: string,
-  timeline: { role: string; content: string; characterName?: string; attachments?: ChatAttachment[] }[],
+  timeline: { role: string; content: string; reasoningContent?: string; characterName?: string; attachments?: ChatAttachment[] }[],
   currentCharacterName: string,
   authorNote: string,
   contextSummary: string,
@@ -294,7 +302,13 @@ export function buildMultiCharMessageArray(
     const visionParts = extractVisionParts(m.attachments);
     if (m.role === "assistant" && m.characterName === currentCharacterName) {
       // This character's own messages → assistant
-      remapped.push({ role: "assistant", content: buildMessageContent(content, visionParts) });
+      remapped.push({
+        role: "assistant",
+        content: buildMessageContent(content, visionParts),
+        ...(m.reasoningContent?.trim()
+          ? { reasoning_content: replacePromptPlaceholders(m.reasoningContent, currentCharacterName, userName) }
+          : {})
+      });
     } else {
       // All other messages (other bots, real user) → user with speaker prefix
       const speaker = m.characterName || (m.role === "user" ? userName || "User" : "Unknown");

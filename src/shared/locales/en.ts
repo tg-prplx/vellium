@@ -1315,6 +1315,8 @@ export const en = {
   "settings.compressProvider": "Compress Provider",
   "settings.mergeRoles": "Merge Consecutive Roles",
   "settings.mergeRolesDesc": "Fix 'roles must alternate user/assistant' error by merging consecutive same-role messages",
+  "settings.includeReasoningInContext": "Keep reasoning in context",
+  "settings.includeReasoningInContextDesc": "Send saved reasoning with its matching assistant reply when the provider supports it. Reasoning counts toward the context budget.",
   "settings.tools": "Tools & MCP",
   "settings.toolCallingEnabled": "Enable Tool Calling",
   "settings.toolCallingDesc": "Allow model to call MCP tools during chat generation.",

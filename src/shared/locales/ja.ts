@@ -845,6 +845,8 @@ export const ja = {
   "settings.compressProvider": "圧縮プロバイダー",
   "settings.mergeRoles": "連続する同一ロールを結合",
   "settings.mergeRolesDesc": "同一ロール連続メッセージを結合して 'roles must alternate user/assistant' エラーを回避します。",
+  "settings.includeReasoningInContext": "推論をコンテキストに保持",
+  "settings.includeReasoningInContextDesc": "プロバイダーが対応している場合、保存した推論を対応するアシスタント応答と一緒に送信し、コンテキスト予算に含めます。",
   "settings.tools": "ツールと MCP",
   "settings.toolCallingEnabled": "Tool Calling を有効化",
   "settings.toolCallingDesc": "チャット生成時に MCP ツール呼び出しを許可します。",

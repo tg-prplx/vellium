@@ -147,6 +147,7 @@ function getSettings() {
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
+    includeReasoningInContext: stored.includeReasoningInContext !== false,
     agentsEnabled: stored.agentsEnabled === true,
     agentWorkspaceToolsEnabled: stored.agentWorkspaceToolsEnabled !== false,
     agentCommandToolEnabled: stored.agentCommandToolEnabled !== false,
@@ -440,6 +441,9 @@ router.patch("/", (req, res) => {
   const updated = {
     ...current,
     ...patchData,
+    includeReasoningInContext: patchData.includeReasoningInContext === undefined
+      ? current.includeReasoningInContext
+      : patchData.includeReasoningInContext !== false,
     agentsEnabled: patchData.agentsEnabled === undefined ? current.agentsEnabled : patchData.agentsEnabled === true,
     agentWorkspaceToolsEnabled: patchData.agentWorkspaceToolsEnabled === undefined
       ? current.agentWorkspaceToolsEnabled

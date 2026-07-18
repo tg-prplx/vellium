@@ -138,6 +138,7 @@ export const DEFAULT_SETTINGS = {
   },
   defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
   strictGrounding: true,
+  includeReasoningInContext: true,
   contextWindowSize: 8192,
   contextTailBudgetWithSummaryPercent: 35,
   contextTailBudgetWithoutSummaryPercent: 75,

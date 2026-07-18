@@ -1315,6 +1315,8 @@ export const ru = {
   "settings.compressProvider": "Провайдер сжатия",
   "settings.mergeRoles": "Объединять одинаковые роли",
   "settings.mergeRolesDesc": "Исправляет ошибку 'roles must alternate user/assistant' объединением подряд идущих сообщений одной роли",
+  "settings.includeReasoningInContext": "Сохранять reasoning в контексте",
+  "settings.includeReasoningInContextDesc": "Передаёт сохранённый reasoning вместе с соответствующим ответом ассистента, если провайдер это поддерживает. Он учитывается в бюджете контекста.",
   "settings.tools": "Инструменты и MCP",
   "settings.toolCallingEnabled": "Включить Tool Calling",
   "settings.toolCallingDesc": "Разрешить модели вызывать MCP-инструменты во время генерации в чате.",
