@@ -8,11 +8,19 @@ import {
   extractTextToolCalls,
   REASONING_CALL_NAME,
   runToolCallingCompletion,
+  serializeToolTrace,
   type ToolCallTrace
 } from "./tooling.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("serializeToolTrace", () => {
+  it("uses the configurable result limit", () => {
+    const serialized = serializeToolTrace({ callId: "r", name: REASONING_CALL_NAME, args: "{}", result: "x".repeat(2000) }, 1000);
+    expect((JSON.parse(serialized) as { result: string }).result).toHaveLength(1000);
+  });
 });
 
 describe("appendMissingToolImageMarkdown", () => {

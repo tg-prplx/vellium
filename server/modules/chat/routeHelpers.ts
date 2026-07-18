@@ -2,6 +2,7 @@ import { db, DEFAULT_SETTINGS, newId, now } from "../../db.js";
 import { DEFAULT_PROMPT_BLOCKS, type CharacterCardData, type PromptBlock } from "../../domain/rpEngine.js";
 import { normalizeApiParamPolicy } from "../../services/apiParamPolicy.js";
 import type { RagContextSource } from "../../services/rag.js";
+import { normalizeRuntimeTuningSettings } from "../../services/runtimeTuning.js";
 
 const PROMPT_BLOCK_KINDS = new Set(["system", "jailbreak", "character", "author_note", "lore", "scene", "history"]);
 
@@ -153,6 +154,7 @@ export function getSettings() {
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
+    ...normalizeRuntimeTuningSettings(stored),
     includeReasoningInContext: stored.includeReasoningInContext !== false,
     agentsEnabled: stored.agentsEnabled === true,
     agentWorkspaceToolsEnabled: stored.agentWorkspaceToolsEnabled !== false,

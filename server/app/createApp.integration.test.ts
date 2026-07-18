@@ -1875,6 +1875,45 @@ process.stdin.on("data", (chunk) => {
     });
   });
 
+  it("normalizes advanced runtime settings and keeps old payload defaults", async () => {
+    const initialResponse = await fetch(`${baseUrl}/api/settings`);
+    expect(initialResponse.ok).toBe(true);
+    expect(await initialResponse.json()).toMatchObject({
+      reasoningMaxChars: 12000,
+      contextMaxMessages: 0,
+      translationTimeoutSeconds: 120,
+      compressionMaxTokens: 1024,
+      autoConversationDefaultTurns: 5
+    });
+
+    const updateResponse = await requestJson("/api/settings", {
+      method: "PATCH",
+      body: {
+        reasoningMaxChars: 500000,
+        contextMaxMessages: -10,
+        translationTimeoutSeconds: 1,
+        compressionTemperature: 8,
+        autoConversationDefaultTurns: 100
+      }
+    });
+    expect(updateResponse.ok).toBe(true);
+    expect(await updateResponse.json()).toMatchObject({
+      reasoningMaxChars: 100000,
+      contextMaxMessages: 0,
+      translationTimeoutSeconds: 5,
+      compressionTemperature: 2,
+      autoConversationDefaultTurns: 50
+    });
+
+    await updateSettings({
+      reasoningMaxChars: 12000,
+      contextMaxMessages: 0,
+      translationTimeoutSeconds: 120,
+      compressionTemperature: 0.3,
+      autoConversationDefaultTurns: 5
+    });
+  });
+
   it("keeps agent routes disabled until the feature flag is enabled", async () => {
     await updateSettings({
       agentsEnabled: false

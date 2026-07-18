@@ -6,6 +6,7 @@ import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { fetchCustomAdapterModels, fetchCustomAdapterVoices } from "../services/customProviderAdapters.js";
 import { normalizeCustomEndpointAdapters, normalizeCustomInspectorFields } from "../services/extensions.js";
 import { normalizeManagedBackends } from "../../src/shared/managedBackends.js";
+import { normalizeRuntimeTuningSettings } from "../services/runtimeTuning.js";
 
 const router = Router();
 const TTS_DISCOVERY_TIMEOUT_MS = 12_000;
@@ -147,6 +148,7 @@ function getSettings() {
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
+    ...normalizeRuntimeTuningSettings(stored),
     includeReasoningInContext: stored.includeReasoningInContext !== false,
     agentsEnabled: stored.agentsEnabled === true,
     agentWorkspaceToolsEnabled: stored.agentWorkspaceToolsEnabled !== false,
@@ -438,9 +440,11 @@ router.patch("/", (req, res) => {
   const patch = req.body as Record<string, unknown> | undefined;
   const patchData = patch && typeof patch === "object" && !Array.isArray(patch) ? patch : {};
   const current = getSettings();
+  const runtimeTuning = normalizeRuntimeTuningSettings({ ...current, ...patchData });
   const updated = {
     ...current,
     ...patchData,
+    ...runtimeTuning,
     includeReasoningInContext: patchData.includeReasoningInContext === undefined
       ? current.includeReasoningInContext
       : patchData.includeReasoningInContext !== false,

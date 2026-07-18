@@ -34,6 +34,7 @@ interface ChatBootstrapParams {
   setSamplerConfig: Dispatch<SetStateAction<SamplerConfig>>;
   setPromptStack: Dispatch<SetStateAction<PromptBlock[]>>;
   setAlternateSimpleMode: Dispatch<SetStateAction<boolean>>;
+  setAutoConversationConfig: Dispatch<SetStateAction<{ turns: number; delayMs: number }>>;
   setSimpleSidebarOpen: Dispatch<SetStateAction<boolean>>;
   setSceneFieldVisibility: Dispatch<SetStateAction<{
     dialogueStyle: boolean;
@@ -76,6 +77,7 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
       if (settings.samplerConfig) params.setSamplerConfig(settings.samplerConfig);
       params.setPromptStack(normalizePromptStack(settings.promptStack));
       params.setAlternateSimpleMode(settings.alternateSimpleMode === true);
+      params.setAutoConversationConfig({ turns: settings.autoConversationDefaultTurns, delayMs: settings.autoConversationDelayMs });
       params.setSimpleSidebarOpen(settings.alternateSimpleMode !== true);
       params.setSceneFieldVisibility({
         ...DEFAULT_SCENE_FIELD_VISIBILITY,

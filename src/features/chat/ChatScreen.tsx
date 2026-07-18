@@ -136,18 +136,16 @@ export function ChatScreen() {
   const [characters, setCharacters] = useState<CharacterDetail[]>([]);
   const [showCharacterPicker, setShowCharacterPicker] = useState(false);
   const [characterQuery, setCharacterQuery] = useState("");
-
   // Multi-character state
   const [chatCharacterIds, setChatCharacterIds] = useState<string[]>([]);
   const [showMultiCharPanel, setShowMultiCharPanel] = useState(false);
   const [multiCharPickerMode, setMultiCharPickerMode] = useState<"new" | "edit">("new");
   const [multiCharDraftIds, setMultiCharDraftIds] = useState<string[]>([]);
   const [autoConvoRunning, setAutoConvoRunning] = useState(false);
-  const [autoTurnsCount, setAutoTurnsCount] = useState(5);
+  const [autoConversationConfig, setAutoConversationConfig] = useState({ turns: 5, delayMs: 500 });
   const [multiCharCollapsed, setMultiCharCollapsed] = useState(false);
   const autoConvoRef = useRef(false);
   const [draggingCharacterId, setDraggingCharacterId] = useState<string | null>(null);
-
   // Sampler state
   const [samplerConfig, setSamplerConfig] = useState<SamplerConfig>({
     temperature: 0.9, topP: 1.0, frequencyPenalty: 0.0,
@@ -485,6 +483,7 @@ export function ChatScreen() {
     setSamplerConfig,
     setPromptStack,
     setAlternateSimpleMode,
+    setAutoConversationConfig,
     setSimpleSidebarOpen,
     setSceneFieldVisibility,
     setSecuritySettings,
@@ -503,6 +502,7 @@ export function ChatScreen() {
       const detail = (event as CustomEvent<AppSettings>).detail;
       if (!detail || typeof detail !== "object") return;
       setAlternateSimpleMode(detail.alternateSimpleMode === true);
+      setAutoConversationConfig({ turns: detail.autoConversationDefaultTurns, delayMs: detail.autoConversationDelayMs });
       if (detail.alternateSimpleMode !== true) {
         setSimpleSidebarOpen(true);
       }
@@ -1411,7 +1411,7 @@ export function ChatScreen() {
     const startIndex = lastAssistantChar
       ? (Math.max(0, charNames.indexOf(lastAssistantChar)) + 1) % charNames.length
       : 0;
-    const turns = Number.isFinite(autoTurnsCount) ? Math.max(1, Math.min(50, Math.floor(autoTurnsCount))) : 1;
+    const turns = Number.isFinite(autoConversationConfig.turns) ? Math.max(1, Math.min(50, Math.floor(autoConversationConfig.turns))) : 1;
     updateBackgroundTask(taskId, {
       progress: 0,
       progressLabel: `0 / ${turns} ${t("chat.turns")}`
@@ -1451,7 +1451,7 @@ export function ChatScreen() {
       });
 
       if (autoConvoRef.current && turn < turns - 1) {
-        await new Promise((r) => setTimeout(r, 500));
+        await new Promise((r) => setTimeout(r, autoConversationConfig.delayMs));
       }
     }
 
@@ -2638,11 +2638,11 @@ export function ChatScreen() {
                   </div>
                   {chatCharacters.length > 1 && (
                     <div className="chat-multi-bar-auto">
-                      <input type="number" min={1} max={50} value={autoTurnsCount}
+                      <input type="number" min={1} max={50} value={autoConversationConfig.turns}
                         onChange={(e) => {
                           const parsed = Number(e.target.value);
                           const next = Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 1;
-                          setAutoTurnsCount(next);
+                          setAutoConversationConfig((current) => ({ ...current, turns: next }));
                         }}
                         className="chat-multi-bar-turns-input" />
                       <span className="text-[9px] text-text-tertiary">{t("chat.turns")}</span>

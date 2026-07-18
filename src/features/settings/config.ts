@@ -106,12 +106,14 @@ export function buildSettingsNavigation(t: (key: any) => string) {
     ],
     generation: [
       { id: "settings-output-behaviour", label: t("settings.outputBehaviour") },
+      { id: "settings-runtime-tuning", label: t("settings.runtimeTuning") },
       { id: "settings-sampler-defaults", label: t("settings.samplerDefaults") },
       { id: "settings-api-param-forwarding", label: t("settings.apiParamForwarding") }
     ],
     context: [
       { id: "settings-context-window", label: t("settings.contextWindow") },
       { id: "settings-chat-behaviour", label: t("settings.conversationBehaviour") },
+      { id: "settings-context-tuning", label: t("settings.contextTuning") },
       { id: "settings-scene-fields", label: t("settings.sceneFields") },
       { id: "settings-rag-model", label: t("settings.ragModel") },
       { id: "settings-rag-reranker", label: t("settings.ragReranker") },

@@ -36,6 +36,7 @@ export interface StreamProviderCompletionParams {
   messages: Array<{ role: string; content: unknown; reasoning_content?: string }>;
   samplerConfig: Record<string, unknown>;
   apiParamPolicy?: unknown;
+  reasoningMaxChars?: number;
   chatId: string;
   res: Response;
   signal: AbortSignal;
@@ -99,6 +100,7 @@ export async function streamProviderCompletion(
     };
   };
   const providerType = normalizeProviderType(params.provider.provider_type);
+  const reasoningMaxChars = Math.max(1000, Math.min(100000, Math.floor(Number(params.reasoningMaxChars) || 12000)));
   const sc = params.samplerConfig;
   const reasoningTrace: ToolCallTrace = {
     callId: `reasoning_${Date.now()}`,
@@ -125,7 +127,9 @@ export async function streamProviderCompletion(
   const appendReasoningDelta = (delta: string) => {
     if (!delta) return;
     startReasoning();
-    reasoningTrace.result += delta;
+    if (reasoningTrace.result.length < reasoningMaxChars) {
+      reasoningTrace.result += delta.slice(0, reasoningMaxChars - reasoningTrace.result.length);
+    }
     params.res.write(`data: ${JSON.stringify({
       type: "tool",
       chatId: params.chatId,
@@ -138,16 +142,17 @@ export async function streamProviderCompletion(
 
   const finalizeReasoning = (): ToolCallTrace[] => {
     if (!reasoningStarted) return [];
+    const persistedReasoning = reasoningTrace.result.slice(0, reasoningMaxChars);
     params.res.write(`data: ${JSON.stringify({
       type: "tool",
       chatId: params.chatId,
       phase: "done",
       callId: reasoningTrace.callId,
       name: REASONING_CALL_NAME,
-      result: reasoningTrace.result.slice(0, 12000)
+      result: persistedReasoning
     })}\n\n`);
     if (!reasoningTrace.result.trim()) return [];
-    return [reasoningTrace];
+    return [{ ...reasoningTrace, result: persistedReasoning }];
   };
 
   if (providerType === "koboldcpp") {
