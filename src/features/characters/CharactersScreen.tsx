@@ -13,6 +13,7 @@ import {
   startBackgroundTask,
   useBackgroundTasks
 } from "../../shared/backgroundTasks";
+import { CharacterLibraryList } from "./components/CharacterLibraryList";
 
 const ALT_GREETING_SEPARATOR = "\n\n---\n\n";
 const HERO_AGENT_EXTENSION_KEY = "vellium_agent";
@@ -195,6 +196,7 @@ export function CharactersScreen() {
   const [creatingAgentThread, setCreatingAgentThread] = useState(false);
   const [savingCharacter, setSavingCharacter] = useState(false);
   const [deletingCharacter, setDeletingCharacter] = useState(false);
+  const [reorderingCharacters, setReorderingCharacters] = useState(false);
 
   // GUI editor fields
   const [name, setName] = useState("");
@@ -545,7 +547,7 @@ export function CharactersScreen() {
     });
     try {
       const copied = await api.characterTranslateCopy(selected.id, undefined, controller.signal);
-      setCharacters((prev) => [copied, ...prev]);
+      setCharacters((prev) => [...prev, copied]);
       setSelected(copied);
       setSaveStatus(`${t("chars.translatedCopyCreated")}: ${copied.name}`);
       setSaveStatusType("success");
@@ -574,7 +576,7 @@ export function CharactersScreen() {
     }
     try {
       const result = await api.characterImportV2(importJson);
-      setCharacters((prev) => [result, ...prev]);
+      setCharacters((prev) => [...prev, result]);
       setSelected(result);
       setImportJson("");
       setImportSuccess(`${t("chars.imported")}: ${result.name}`);
@@ -592,7 +594,7 @@ export function CharactersScreen() {
       const file = e.target.files[0];
       const text = await file.text();
       const result = await api.characterImportV2(text);
-      setCharacters((prev) => [result, ...prev]);
+      setCharacters((prev) => [...prev, result]);
       setSelected(result);
       setImportSuccess(`${t("chars.importedFromFile")}: ${result.name}`);
       setTimeout(() => setImportSuccess(""), 3000);
@@ -607,7 +609,7 @@ export function CharactersScreen() {
     setImportSuccess("");
     try {
       const result = await api.characterImportV2(buildBlankCard(kind));
-      setCharacters((prev) => [result, ...prev]);
+      setCharacters((prev) => [...prev, result]);
       setSelected(result);
       setCreatePickerOpen(false);
       setImportSuccess(kind === "agent" ? t("chars.agentBlankCreated") : t("chars.blankCreated"));
@@ -692,6 +694,29 @@ export function CharactersScreen() {
       || character.tags.some((tag) => tag.toLowerCase().includes(query))
     ));
   }, [characters, libraryQuery]);
+
+  async function reorderCharacters(sourceId: string, targetId: string) {
+    if (reorderingCharacters || libraryQuery.trim() || sourceId === targetId) return;
+    const sourceIndex = characters.findIndex((character) => character.id === sourceId);
+    const targetIndex = characters.findIndex((character) => character.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const previous = characters;
+    const next = [...characters];
+    const [moved] = next.splice(sourceIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    setCharacters(next);
+    setReorderingCharacters(true);
+    try {
+      const persisted = await api.characterReorder(next.map((character) => character.id));
+      setCharacters(persisted);
+    } catch (error) {
+      setCharacters(previous);
+      setSaveStatus(`${t("chars.errorPrefix")}: ${String(error)}`);
+      setSaveStatusType("error");
+    } finally {
+      setReorderingCharacters(false);
+    }
+  }
 
   function avatarSrc(url: string | null, characterId?: string) {
     const resolved = resolveApiAssetUrl(url);
@@ -793,7 +818,7 @@ export function CharactersScreen() {
 
           <div className="mb-3 flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
             <span>{filteredCharacters.length}/{characters.length} {t("chars.countSuffix")}</span>
-            <span>{t("chars.createChooseHint")}</span>
+            <span>{libraryQuery ? t("chars.reorderSearchDisabled") : reorderingCharacters ? t("chars.reorderSaving") : t("chars.reorderHint")}</span>
           </div>
 
           <label className="characters-library-search">
@@ -911,51 +936,7 @@ export function CharactersScreen() {
             </div> : null}
           </div>
 
-          {/* Character list */}
-          <div className="list-animate flex-1 space-y-1.5 overflow-y-auto">
-            {loading ? (
-              <div className="py-8 text-center text-xs text-text-tertiary">{t("chars.loading")}</div>
-            ) : characters.length === 0 ? (
-              <EmptyState title={t("chars.noChars")} description={t("chars.noCharsDesc")} />
-            ) : filteredCharacters.length === 0 ? (
-              <EmptyState title={t("chars.noSearchResults")} description={t("chars.noSearchResultsDesc")} />
-            ) : (
-              filteredCharacters.map((char) => (
-                <button
-                  key={char.id}
-                  onClick={() => {
-                    setCreatePickerOpen(false);
-                    setSelected(char);
-                  }}
-                  className={`character-library-item ${
-                    selected?.id === char.id
-                      ? "is-active"
-                      : ""
-                  }`}
-                >
-                  <AvatarBadge
-                    name={char.name}
-                    src={avatarSrc(char.avatarUrl, char.id)}
-                    className="h-8 w-8 flex-shrink-0 rounded-full"
-                    fallbackClassName="bg-accent-subtle text-xs font-bold text-accent"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{char.name}</div>
-                    {(char.agentProfile?.enabled || char.tags.length > 0) && (
-                      <div className="mt-0.5 flex flex-wrap gap-1">
-                        {char.agentProfile?.enabled ? (
-                          <Badge variant="accent">{t("chars.agentCharacter")}</Badge>
-                        ) : null}
-                        {char.tags.slice(0, 3).map((tag) => (
-                          <Badge key={tag}>{tag}</Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
+          <CharacterLibraryList characters={characters} visibleCharacters={filteredCharacters} selectedId={selected?.id} loading={loading} queryActive={Boolean(libraryQuery.trim())} reordering={reorderingCharacters} avatarSrc={avatarSrc} onSelect={(character) => { setCreatePickerOpen(false); setSelected(character); }} onReorder={(sourceId, targetId) => { void reorderCharacters(sourceId, targetId); }} t={t} />
         </>
       }
       center={

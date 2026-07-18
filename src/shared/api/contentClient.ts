@@ -3,6 +3,7 @@ import { del, get, patchReq, post, put, requestBlob } from "./core";
 
 export const contentClient = {
   characterList: () => get<CharacterDetail[]>("/characters"),
+  characterReorder: (characterIds: string[]) => patchReq<CharacterDetail[]>("/characters/reorder", { characterIds }),
   characterGet: (id: string) => get<CharacterDetail>(`/characters/${id}`),
   characterImportV2: (rawJson: string) => post<CharacterDetail>("/characters/import", { rawJson }),
   characterTranslateCopy: (id: string, targetLanguage?: string, signal?: AbortSignal) =>

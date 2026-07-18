@@ -3068,6 +3068,41 @@ select {
   box-shadow: inset 3px 0 0 var(--color-accent);
 }
 
+.character-library-item[draggable="true"] {
+  cursor: grab;
+}
+
+.character-library-item.is-dragging {
+  cursor: grabbing;
+  opacity: 0.45;
+  transform: scale(0.985);
+}
+
+.character-library-item.is-drop-target {
+  border-color: var(--color-accent);
+  box-shadow: 0 -2px 0 var(--color-accent);
+}
+
+.character-library-drag-handle {
+  display: grid;
+  width: 24px;
+  height: 30px;
+  flex: 0 0 24px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--color-text-tertiary);
+}
+
+.character-library-drag-handle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.character-library-item:hover .character-library-drag-handle {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-primary);
+}
+
 /* Character editor */
 .char-editor-header {
   display: flex;

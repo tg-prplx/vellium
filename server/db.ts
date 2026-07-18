@@ -17,6 +17,7 @@ applyMigrations(db);
 
 reconcileKoboldProviderLocalMode();
 backfillMessageSortOrder();
+backfillCharacterSortOrder();
 ensureDefaultSettingsRow();
 
 function reconcileKoboldProviderLocalMode() {
@@ -56,6 +57,27 @@ function backfillMessageSortOrder() {
   }
 }
 
+function backfillCharacterSortOrder() {
+  try {
+    const pending = db.prepare(
+      "SELECT id FROM characters WHERE sort_order <= 0 ORDER BY created_at DESC, id ASC"
+    ).all() as Array<{ id: string }>;
+    if (pending.length === 0) return;
+    const current = db.prepare("SELECT MAX(sort_order) as mx FROM characters WHERE sort_order > 0")
+      .get() as { mx: number | null };
+    const update = db.prepare("UPDATE characters SET sort_order = ? WHERE id = ?");
+    db.transaction(() => {
+      let position = (current.mx ?? 0) + 1;
+      for (const row of pending) {
+        update.run(position, row.id);
+        position += 1;
+      }
+    })();
+  } catch {
+    // Ignore if the characters table is unavailable during first boot.
+  }
+}
+
 function ensureDefaultSettingsRow() {
   const existingSettings = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string } | undefined;
   if (!existingSettings) {
@@ -87,6 +109,11 @@ export function nextSortOrder(chatId: string, branchId: string): number {
   const row = db.prepare(
     "SELECT MAX(sort_order) as mx FROM messages WHERE chat_id = ? AND branch_id = ?"
   ).get(chatId, branchId) as { mx: number | null };
+  return (row?.mx ?? 0) + 1;
+}
+
+export function nextCharacterSortOrder(): number {
+  const row = db.prepare("SELECT MAX(sort_order) as mx FROM characters").get() as { mx: number | null };
   return (row?.mx ?? 0) + 1;
 }
 

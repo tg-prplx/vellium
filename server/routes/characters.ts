@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { existsSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
-import { db, newId, now, AVATARS_DIR, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
+import { db, newId, now, nextCharacterSortOrder, AVATARS_DIR, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
 import { parseCharacterLoreBook } from "../domain/lorebooks.js";
 import { buildOpenAiSamplingPayload, buildKoboldSamplerConfig, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
@@ -23,6 +23,7 @@ interface CharacterRow {
   scenario: string | null;
   mes_example: string | null;
   creator_notes: string | null;
+  sort_order: number;
   created_at: string;
 }
 
@@ -354,6 +355,7 @@ function characterToJson(row: CharacterRow) {
     extensions,
     agentProfile: parseAgentProfile(extensions.vellium_agent),
     cardJson: row.card_json,
+    sortOrder: row.sort_order,
     createdAt: row.created_at
   };
 }
@@ -361,8 +363,31 @@ function characterToJson(row: CharacterRow) {
 // List all characters
 router.get("/", (_req, res) => {
   const rows = db.prepare(
-    "SELECT * FROM characters ORDER BY created_at DESC"
+    "SELECT * FROM characters ORDER BY sort_order ASC, created_at DESC, id ASC"
   ).all() as CharacterRow[];
+  res.json(rows.map(characterToJson));
+});
+
+router.patch("/reorder", (req, res) => {
+  const rawIds: unknown[] = Array.isArray(req.body?.characterIds) ? req.body.characterIds : [];
+  const characterIds: string[] = rawIds.map((value) => String(value || "").trim()).filter(Boolean);
+  if (characterIds.length === 0 || characterIds.length > 10000 || new Set(characterIds).size !== characterIds.length) {
+    res.status(400).json({ error: "characterIds must be a non-empty list of unique character IDs" });
+    return;
+  }
+
+  const existing = db.prepare("SELECT id FROM characters").all() as Array<{ id: string }>;
+  const existingIds = new Set(existing.map((row) => row.id));
+  if (characterIds.length !== existingIds.size || characterIds.some((id) => !existingIds.has(id))) {
+    res.status(400).json({ error: "characterIds must contain every character exactly once" });
+    return;
+  }
+
+  const update = db.prepare("UPDATE characters SET sort_order = ? WHERE id = ?");
+  db.transaction(() => {
+    characterIds.forEach((id, index) => update.run(index + 1, id));
+  })();
+  const rows = db.prepare("SELECT * FROM characters ORDER BY sort_order ASC, created_at DESC, id ASC").all() as CharacterRow[];
   res.json(rows.map(characterToJson));
 });
 
@@ -404,6 +429,7 @@ router.post("/import", (req, res) => {
     const creatorNotes = String(data.creator_notes || "");
     const avatarPath = data.avatar ? String(data.avatar) : null;
     const ts = now();
+    const sortOrder = nextCharacterSortOrder();
 
     const parsedLorebook = parseCharacterLoreBook(data);
     let lorebookId: string | null = null;
@@ -425,8 +451,8 @@ router.post("/import", (req, res) => {
       }
 
       db.prepare(
-        `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, sort_order, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         id,
         name,
@@ -441,6 +467,7 @@ router.post("/import", (req, res) => {
         scenario,
         mesExample,
         creatorNotes,
+        sortOrder,
         ts
       );
     });
@@ -675,10 +702,11 @@ router.post("/:id/translate-copy", async (req, res) => {
     const translatedCreatorNotes = String(translatedCardData.creator_notes || source.creator_notes || "");
     const translatedId = newId();
     const ts = now();
+    const sortOrder = nextCharacterSortOrder();
 
     db.prepare(
-      `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, sort_order, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       translatedId,
       finalName,
@@ -693,6 +721,7 @@ router.post("/:id/translate-copy", async (req, res) => {
       translatedScenario,
       translatedMesExample,
       translatedCreatorNotes,
+      sortOrder,
       ts
     );
 

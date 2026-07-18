@@ -1654,6 +1654,44 @@ process.stdin.on("data", (chunk) => {
     expect(lastChatTemplateMessages.slice(1).some((message) => message.role === "system")).toBe(false);
   });
 
+  it("persists manual character ordering and appends new characters to the end", async () => {
+    const importCharacter = (name: string) => postJson("/api/characters/import", {
+      rawJson: JSON.stringify({
+        spec: "chara_card_v2",
+        spec_version: "2.0",
+        data: { name, first_mes: "Hello" }
+      })
+    });
+    const first = await importCharacter("Manual Order First");
+    const second = await importCharacter("Manual Order Second");
+    const before = await parseJsonResponse(
+      "/api/characters",
+      await fetch(`${baseUrl}/api/characters`)
+    ) as Array<{ id: string; sortOrder: number }>;
+    expect(before.slice(-2).map((character) => character.id)).toEqual([first.id, second.id]);
+
+    const originalIds = before.map((character) => character.id);
+    const reversedIds = [...originalIds].reverse();
+    const reorderResponse = await requestJson("/api/characters/reorder", {
+      method: "PATCH",
+      body: { characterIds: reversedIds }
+    });
+    expect(reorderResponse.ok).toBe(true);
+    expect((await reorderResponse.json() as Array<{ id: string }>).map((character) => character.id)).toEqual(reversedIds);
+
+    const persisted = await parseJsonResponse(
+      "/api/characters",
+      await fetch(`${baseUrl}/api/characters`)
+    ) as Array<{ id: string }>;
+    expect(persisted.map((character) => character.id)).toEqual(reversedIds);
+
+    const restoreResponse = await requestJson("/api/characters/reorder", {
+      method: "PATCH",
+      body: { characterIds: originalIds }
+    });
+    expect(restoreResponse.ok).toBe(true);
+  });
+
   it("exports multi-character chats with explicit participants and speakers", async () => {
     await updateSettings({ activeProviderId: null, activeModel: null });
     const importCharacter = (name: string, greeting: string) => postJson("/api/characters/import", {

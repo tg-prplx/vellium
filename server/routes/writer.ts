@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { writeFileSync } from "fs";
 import { join } from "path";
-import { db, newId, now, DATA_DIR } from "../db.js";
+import { db, newId, now, nextCharacterSortOrder, DATA_DIR } from "../db.js";
 import { runConsistency } from "../domain/writerEngine.js";
 import { getWriterRagBinding, setWriterRagBinding } from "../services/rag.js";
 import {
@@ -177,8 +177,8 @@ router.post("/characters/generate", async (req, res) => {
   }, null, 2);
 
   db.prepare(
-    `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, sort_order, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     draft.name,
@@ -193,6 +193,7 @@ router.post("/characters/generate", async (req, res) => {
     draft.scenario,
     draft.mesExample,
     draft.creatorNotes,
+    nextCharacterSortOrder(),
     ts
   );
 
