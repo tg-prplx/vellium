@@ -26,6 +26,7 @@ import {
   countProviderTokens,
   streamProviderCompletion
 } from "./providerExecution.js";
+import { buildReasoningAwareTimeline } from "./reasoningContext.js";
 import {
   getPromptBlocks,
   getSettings,
@@ -207,7 +208,10 @@ export async function streamLlmResponse(params: {
     ? characterCards.find((card) => card.name === params.overrideCharacterName) ?? characterCards[0] ?? null
     : characterCards[0] ?? getCharacterCard(chat?.character_id ?? null);
 
-  const timeline = getTimeline(params.chatId, params.branchId).filter((message) => message.role === "user" || message.role === "assistant");
+  const timeline = buildReasoningAwareTimeline(
+    getTimeline(params.chatId, params.branchId),
+    settings.includeReasoningInContext !== false
+  );
   const contextSummary = chat?.context_summary || "";
   const contextWindowBudget = getContextWindowBudget(settings as Record<string, unknown>);
   const withSummaryPercent = getTailBudgetPercent(settings as Record<string, unknown>, "contextTailBudgetWithSummaryPercent", 35);
@@ -254,6 +258,7 @@ export async function streamLlmResponse(params: {
       item.attachments as MessageAttachmentPayload[] | undefined || []
     ),
     characterName: item.characterName || undefined,
+    reasoningContent: item.reasoningContent,
     attachments: toChatAttachments(item.attachments as MessageAttachmentPayload[] | undefined)
   }));
 

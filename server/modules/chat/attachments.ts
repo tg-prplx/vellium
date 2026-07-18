@@ -6,6 +6,7 @@ import type { MessageAttachmentPayload } from "./routeHelpers.js";
 interface PromptTimelineItem {
   role: string;
   content: string;
+  reasoningContent?: string;
   tokenCount?: number;
   characterName?: string | null;
   attachments?: MessageAttachmentPayload[];

@@ -748,6 +748,7 @@ export interface AppSettings {
   apiParamPolicy: ApiParamPolicy;
   defaultSystemPrompt: string;
   strictGrounding: boolean;
+  includeReasoningInContext: boolean;
   contextWindowSize: number;
   contextTailBudgetWithSummaryPercent: number;
   contextTailBudgetWithoutSummaryPercent: number;

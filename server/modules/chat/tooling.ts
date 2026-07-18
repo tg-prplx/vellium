@@ -10,10 +10,12 @@ import {
   extractSseEventType
 } from "./openAiStream.js";
 import { consumeThinkChunk, createThinkStreamState, flushThinkState } from "./reasoning.js";
+import { prepareOpenAiCompatibleMessages } from "./providerMessages.js";
 
 export interface OpenAICompletionMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: unknown;
+  reasoning_content?: string;
   tool_calls?: OpenAIToolCall[];
   tool_call_id?: string;
 }
@@ -319,7 +321,7 @@ export const KOBOLD_TAGS = {
 };
 
 export function buildKoboldPromptFromMessages(
-  messages: Array<{ role: string; content: unknown }>,
+  messages: Array<{ role: string; content: unknown; reasoning_content?: string }>,
   samplerConfig: Record<string, unknown>
 ): { prompt: string; memory: string } {
   const systemParts: string[] = [];
@@ -333,7 +335,9 @@ export function buildKoboldPromptFromMessages(
       continue;
     }
     if (role === "assistant") {
-      convoParts.push(`${KOBOLD_TAGS.outputOpen}\n${text}\n${KOBOLD_TAGS.outputClose}`);
+      const reasoning = String(msg.reasoning_content || "").trim();
+      const assistantText = reasoning ? `<think>\n${reasoning}\n</think>\n\n${text}` : text;
+      convoParts.push(`${KOBOLD_TAGS.outputOpen}\n${assistantText}\n${KOBOLD_TAGS.outputClose}`);
       continue;
     }
     if (role === "tool") {
@@ -638,13 +642,16 @@ async function requestChatCompletion(
   signal: AbortSignal
 ) {
   const baseUrl = String(provider.base_url || "").replace(/\/+$/, "");
+  const requestBody = Array.isArray(body.messages)
+    ? { ...body, messages: prepareOpenAiCompatibleMessages(baseUrl, body.messages as OpenAICompletionMessage[]) }
+    : body;
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${provider.api_key_cipher}`
     },
-    body: JSON.stringify({ model: modelId, ...body }),
+    body: JSON.stringify({ model: modelId, ...requestBody }),
     signal
   });
   if (!response.ok) {
@@ -684,13 +691,16 @@ async function requestChatCompletionStream(
   }>;
 }> {
   const baseUrl = String(provider.base_url || "").replace(/\/+$/, "");
+  const requestBody = Array.isArray(body.messages)
+    ? { ...body, messages: prepareOpenAiCompatibleMessages(baseUrl, body.messages as OpenAICompletionMessage[]) }
+    : body;
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${provider.api_key_cipher}`
     },
-    body: JSON.stringify({ model: modelId, ...body, stream: true }),
+    body: JSON.stringify({ model: modelId, ...requestBody, stream: true }),
     signal
   });
   if (!response.ok || !response.body) {

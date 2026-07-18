@@ -153,6 +153,7 @@ export function getSettings() {
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
+    includeReasoningInContext: stored.includeReasoningInContext !== false,
     agentsEnabled: stored.agentsEnabled === true,
     agentWorkspaceToolsEnabled: stored.agentWorkspaceToolsEnabled !== false,
     agentCommandToolEnabled: stored.agentCommandToolEnabled !== false,

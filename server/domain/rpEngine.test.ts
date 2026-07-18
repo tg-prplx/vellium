@@ -7,9 +7,11 @@ import {
 } from "../db/defaultSettings.js";
 import {
   buildMessageArray,
+  buildMultiCharMessageArray,
   buildMultiCharSystemPrompt,
   buildSystemPrompt,
   coalesceSystemMessages,
+  mergeConsecutiveRoles,
   type CharacterCardData,
   type PromptContext
 } from "./rpEngine.js";
@@ -119,5 +121,35 @@ describe("default roleplay system prompt", () => {
       { role: "user", content: "First user turn" },
       { role: "assistant", content: "Reply" }
     ]);
+  });
+
+  it("keeps assistant reasoning structured in single and multi-character history", () => {
+    const single = buildMessageArray("System", [
+      { role: "assistant", content: "Visible answer", reasoningContent: "Private reasoning" }
+    ], "", "", "Alice", "Reader");
+    expect(single[1]).toMatchObject({
+      role: "assistant",
+      content: "Visible answer",
+      reasoning_content: "Private reasoning"
+    });
+
+    const multi = buildMultiCharMessageArray("System", [
+      { role: "assistant", characterName: "Alice", content: "Alice answer", reasoningContent: "Alice reasoning" },
+      { role: "assistant", characterName: "Bob", content: "Bob answer", reasoningContent: "Bob reasoning" }
+    ], "Alice", "", "", "Reader");
+    expect(multi[1]).toMatchObject({ role: "assistant", reasoning_content: "Alice reasoning" });
+    expect(multi[2]).toMatchObject({ role: "user" });
+    expect(multi[2]).not.toHaveProperty("reasoning_content");
+  });
+
+  it("merges reasoning only alongside consecutive assistant messages", () => {
+    expect(mergeConsecutiveRoles([
+      { role: "assistant", content: "One", reasoning_content: "Think one" },
+      { role: "assistant", content: "Two", reasoning_content: "Think two" }
+    ])).toEqual([{
+      role: "assistant",
+      content: "One\n\nTwo",
+      reasoning_content: "Think one\n\nThink two"
+    }]);
   });
 });

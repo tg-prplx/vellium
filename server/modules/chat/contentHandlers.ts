@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { db, isLocalhostUrl } from "../../db.js";
 import { synthesizeCustomAdapterSpeech } from "../../services/customProviderAdapters.js";
 import { completeProviderOnce, normalizeOpenAiBaseUrl } from "./providerExecution.js";
+import { buildReasoningAwareTimeline } from "./reasoningContext.js";
 import { getSettings, getTimeline, resolveBranch, type MessageRow, type ProviderRow } from "./routeHelpers.js";
 
 const TRANSLATION_PROVIDER_TIMEOUT_MS = 120_000;
@@ -37,10 +38,16 @@ export async function compressChat(req: Request, res: Response) {
   const settings = getSettings();
   const providerId = settings.compressProviderId || settings.activeProviderId;
   const modelId = settings.compressModel || settings.activeModel;
-  const timeline = getTimeline(chatId, branchId);
+  const timeline = buildReasoningAwareTimeline(
+    getTimeline(chatId, branchId),
+    settings.includeReasoningInContext !== false
+  );
 
   if (!providerId || !modelId || timeline.length === 0) {
-    const summary = timeline.slice(-8).map((message) => `${message.role}: ${message.content.split("\n")[0].slice(0, 80)}`).join("\n");
+    const summary = timeline.slice(-8).map((message) => {
+      const reasoning = message.reasoningContent ? ` | reasoning: ${message.reasoningContent.split("\n")[0].slice(0, 80)}` : "";
+      return `${message.role}: ${message.content.split("\n")[0].slice(0, 80)}${reasoning}`;
+    }).join("\n");
     db.prepare("UPDATE chats SET context_summary = ? WHERE id = ?").run(summary, chatId);
     res.json({ summary });
     return;
@@ -52,7 +59,10 @@ export async function compressChat(req: Request, res: Response) {
     return;
   }
 
-  const messagesToSummarize = timeline.map((message) => `[${message.role}]: ${message.content}`).join("\n\n");
+  const messagesToSummarize = timeline.map((message) => {
+    const reasoning = message.reasoningContent ? `\n[assistant reasoning]: ${message.reasoningContent}` : "";
+    return `[${message.role}]: ${message.content}${reasoning}`;
+  }).join("\n\n");
   const compressTemplate = settings.promptTemplates?.compressSummary
     || "Summarize the following roleplay conversation. Preserve key plot points, character details, relationships, and important events. Be concise but thorough.";
 

@@ -2243,7 +2243,7 @@ export function SettingsScreen({
                 <div className="space-y-2">
                   {([
                     { key: "useAlternateGreetings" as const, label: t("settings.altGreetingsRandom"), desc: t("settings.altGreetingsRandomDesc") },
-                    { key: "mergeConsecutiveRoles" as const, label: t("settings.mergeRoles"), desc: t("settings.mergeRolesDesc") }
+                    { key: "mergeConsecutiveRoles" as const, label: t("settings.mergeRoles"), desc: t("settings.mergeRolesDesc") }, { key: "includeReasoningInContext" as const, label: t("settings.includeReasoningInContext"), desc: t("settings.includeReasoningInContextDesc") }
                   ]).map((item) => (
                     <div key={item.key} className="settings-toggle-row">
                       <div className="min-w-0">

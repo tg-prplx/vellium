@@ -845,6 +845,8 @@ export const zh = {
   "settings.compressProvider": "压缩提供商",
   "settings.mergeRoles": "合并连续相同角色",
   "settings.mergeRolesDesc": "通过合并连续同角色消息，修复 roles must alternate 错误。",
+  "settings.includeReasoningInContext": "在上下文中保留推理",
+  "settings.includeReasoningInContextDesc": "在提供方支持时，将保存的推理与对应的助手回复一起发送，并计入上下文预算。",
   "settings.tools": "工具与 MCP",
   "settings.toolCallingEnabled": "启用 Tool Calling",
   "settings.toolCallingDesc": "允许模型在聊天生成中调用 MCP 工具。",
