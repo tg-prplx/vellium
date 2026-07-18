@@ -38,6 +38,7 @@ import {
 import {
   appendMissingToolImageMarkdown,
   OpenAICompletionMessage,
+  REASONING_CALL_NAME,
   runToolCallingCompletion,
   serializeToolTrace,
   type ToolCallTrace
@@ -96,6 +97,7 @@ async function persistAssistantTurn(params: {
   overrideCharacterName?: string;
   ragSources: RagContextSource[];
   toolTraces: ToolCallTrace[];
+  reasoningMaxChars: number;
   generationMeta: {
     generationStartedAt: string | null;
     generationCompletedAt: string | null;
@@ -129,7 +131,7 @@ async function persistAssistantTurn(params: {
   }
 
   for (const trace of params.toolTraces) {
-    const toolText = serializeToolTrace(trace);
+    const toolText = serializeToolTrace(trace, trace.name === REASONING_CALL_NAME ? params.reasoningMaxChars : undefined);
     db.prepare(
       "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, generation_started_at, generation_completed_at, generation_duration_ms, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)"
     ).run(
@@ -221,7 +223,8 @@ export async function streamLlmResponse(params: {
     contextSummary,
     contextWindowBudget,
     withSummaryPercent,
-    withoutSummaryPercent
+    withoutSummaryPercent,
+    settings.contextMaxMessages
   );
   const latestUserPrompt = [...promptTimeline].reverse().find((item) => item.role === "user")?.content || "";
 
@@ -533,6 +536,7 @@ export async function streamLlmResponse(params: {
             messages: toolResult.streamMessages as Array<{ role: string; content: unknown }>,
             samplerConfig: sc,
             apiParamPolicy: settings.apiParamPolicy,
+            reasoningMaxChars: settings.reasoningMaxChars,
             chatId: params.chatId,
             res: params.res,
             signal: abortController.signal
@@ -571,6 +575,7 @@ export async function streamLlmResponse(params: {
           overrideCharacterName: params.overrideCharacterName,
           ragSources: ragSourcesForAssistant,
           toolTraces: combinedToolTraces,
+          reasoningMaxChars: settings.reasoningMaxChars,
           generationMeta
         });
 
@@ -589,6 +594,7 @@ export async function streamLlmResponse(params: {
       messages: apiMessages,
       samplerConfig: sc,
       apiParamPolicy: settings.apiParamPolicy,
+      reasoningMaxChars: settings.reasoningMaxChars,
       chatId: params.chatId,
       res: params.res,
       signal: abortController.signal
@@ -603,6 +609,7 @@ export async function streamLlmResponse(params: {
       overrideCharacterName: params.overrideCharacterName,
       ragSources: ragSourcesForAssistant,
       toolTraces: streamResult.toolTraces,
+      reasoningMaxChars: settings.reasoningMaxChars,
       generationMeta: {
         generationStartedAt: streamResult.generationStartedAt,
         generationCompletedAt: streamResult.generationCompletedAt,

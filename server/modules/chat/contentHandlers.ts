@@ -5,8 +5,6 @@ import { completeProviderOnce, normalizeOpenAiBaseUrl } from "./providerExecutio
 import { buildReasoningAwareTimeline } from "./reasoningContext.js";
 import { getSettings, getTimeline, resolveBranch, type MessageRow, type ProviderRow } from "./routeHelpers.js";
 
-const TRANSLATION_PROVIDER_TIMEOUT_MS = 120_000;
-
 function isAbortLikeError(error: unknown): boolean {
   return error instanceof Error && (
     error.name === "AbortError" ||
@@ -44,7 +42,7 @@ export async function compressChat(req: Request, res: Response) {
   );
 
   if (!providerId || !modelId || timeline.length === 0) {
-    const summary = timeline.slice(-8).map((message) => {
+    const summary = timeline.slice(-settings.compressionFallbackMessages).map((message) => {
       const reasoning = message.reasoningContent ? ` | reasoning: ${message.reasoningContent.split("\n")[0].slice(0, 80)}` : "";
       return `${message.role}: ${message.content.split("\n")[0].slice(0, 80)}${reasoning}`;
     }).join("\n");
@@ -72,7 +70,10 @@ export async function compressChat(req: Request, res: Response) {
       modelId,
       systemPrompt: compressTemplate,
       userPrompt: messagesToSummarize,
-      samplerConfig: { temperature: 0.3, maxTokens: 1024 },
+      samplerConfig: {
+        temperature: settings.compressionTemperature,
+        maxTokens: settings.compressionMaxTokens
+      },
       apiParamPolicy: settings.apiParamPolicy
     });
 
@@ -122,12 +123,15 @@ export async function translateMessage(req: Request, res: Response) {
   const language = targetLanguage || settings.translateLanguage || settings.responseLanguage || "English";
 
   try {
-    const translation = await withServerTimeout(TRANSLATION_PROVIDER_TIMEOUT_MS, (signal) => completeProviderOnce({
+    const translation = await withServerTimeout(settings.translationTimeoutSeconds * 1000, (signal) => completeProviderOnce({
       provider,
       modelId,
       systemPrompt: `Translate the following message to ${language}. Output ONLY the translation, nothing else. Preserve formatting, line breaks, and markdown.`,
       userPrompt: message.content,
-      samplerConfig: { temperature: 0.2, maxTokens: 2048 },
+      samplerConfig: {
+        temperature: settings.translationTemperature,
+        maxTokens: settings.translationMaxTokens
+      },
       apiParamPolicy: settings.apiParamPolicy,
       signal
     }));

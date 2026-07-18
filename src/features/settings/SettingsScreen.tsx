@@ -12,6 +12,7 @@ import { IconButton } from "../../components/IconButton";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { ManagedBackendsSettings } from "./components/ManagedBackendsSettings";
 import { WallpaperThemePanel } from "./components/WallpaperThemePanel";
+import { RuntimeTuningSettings } from "./components/RuntimeTuningSettings";
 import { LegacyScreen } from "../legacy/public";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
 import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue } from "./utils";
@@ -23,7 +24,6 @@ import {
   readWallpaperThemePalette,
   setWallpaperThemeEnabled, storeWallpaperThemePalette
 } from "../../shared/wallpaperTheme";
-
 function isLocalProviderEndpoint(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -2096,7 +2096,7 @@ export function SettingsScreen({
                   </div>
                 </div>
               </div>
-
+              <RuntimeTuningSettings group="generation" settings={settings} onPatch={(next) => void patch(next)} t={t} />
               <div id="settings-sampler-defaults" className="settings-section scroll-mt-24">
                 <div className="settings-section-title">{t("settings.samplerDefaults")}</div>
                 <div className="space-y-4">
@@ -2255,7 +2255,7 @@ export function SettingsScreen({
                   ))}
                 </div>
               </div>
-
+              <RuntimeTuningSettings group="context" settings={settings} onPatch={(next) => void patch(next)} t={t} />
               <div id="settings-scene-fields" className="settings-section scroll-mt-24">
                 <div className="settings-section-title">{t("settings.sceneFields")}</div>
                 <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.sceneFieldsDesc")}</p>

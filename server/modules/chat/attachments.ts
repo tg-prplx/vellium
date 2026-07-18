@@ -233,7 +233,8 @@ export function selectTimelineForPrompt(
   contextSummary: string,
   contextWindowBudget: number,
   withSummaryPercent: number,
-  withoutSummaryPercent: number
+  withoutSummaryPercent: number,
+  maxMessages = 0
 ) {
   const hasSummary = Boolean(contextSummary.trim());
   // Leave headroom for system prompt, summary block, and model overhead.
@@ -244,6 +245,7 @@ export function selectTimelineForPrompt(
   const selected: PromptTimelineItem[] = [];
   let used = 0;
   for (let i = timeline.length - 1; i >= 0; i -= 1) {
+    if (maxMessages > 0 && selected.length >= Math.floor(maxMessages)) break;
     const msg = timeline[i];
     const msgTokens = Math.max(1, Number(msg.tokenCount) || roughTokenCount(msg.content));
     if (selected.length > 0 && used + msgTokens > historyTokenBudget) break;

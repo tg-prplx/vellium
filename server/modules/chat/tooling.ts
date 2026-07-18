@@ -1020,6 +1020,7 @@ export async function runToolCallingCompletion(params: {
     const policy = parseToolCallingPolicy(params.settings.toolCallingPolicy);
     const maxToolCallsRaw = clampToolIterationLimit(params.settings.maxToolCallsPerTurn);
     const maxToolCalls = policy === "conservative" ? Math.min(2, maxToolCallsRaw) : maxToolCallsRaw;
+    const reasoningMaxChars = Math.max(1000, Math.min(100000, Math.floor(Number(params.settings.reasoningMaxChars) || 12000)));
     const policyInstruction = policy === "conservative"
       ? "Use tools only when strictly necessary. If a direct answer is sufficient, do not call tools."
       : policy === "aggressive"
@@ -1064,7 +1065,9 @@ export async function runToolCallingCompletion(params: {
           args: "{}"
         });
       }
-      reasoningTrace.result += delta;
+      if (reasoningTrace.result.length < reasoningMaxChars) {
+        reasoningTrace.result += delta.slice(0, reasoningMaxChars - reasoningTrace.result.length);
+      }
       params.onToolEvent?.({
         phase: "delta",
         callId: reasoningTrace.callId,
@@ -1080,12 +1083,12 @@ export async function runToolCallingCompletion(params: {
         callId: reasoningTrace.callId,
         name: REASONING_CALL_NAME,
         args: "{}",
-        result: reasoningTrace.result.slice(0, 12000)
+        result: reasoningTrace.result.slice(0, reasoningMaxChars)
       });
       return reasoningTrace.result.trim()
         ? [{
             ...reasoningTrace,
-            result: reasoningTrace.result.slice(0, 12000)
+            result: reasoningTrace.result.slice(0, reasoningMaxChars)
           }]
         : [];
     };
@@ -1213,12 +1216,12 @@ export async function runToolCallingCompletion(params: {
   }
 }
 
-export function serializeToolTrace(trace: ToolCallTrace): string {
+export function serializeToolTrace(trace: ToolCallTrace, maxResultChars = 12000): string {
   const name = String(trace.name || "unknown_tool").trim();
   const args = String(trace.args || "").trim();
   const result = String(trace.result || "").trim();
   const safeArgs = args ? args.slice(0, 5000) : "{}";
-  const safeResult = result ? result.slice(0, 12000) : "(empty)";
+  const safeResult = result ? result.slice(0, Math.max(1000, Math.min(100000, maxResultChars))) : "(empty)";
   return JSON.stringify({
     kind: "tool_call",
     callId: String(trace.callId || "").trim(),
