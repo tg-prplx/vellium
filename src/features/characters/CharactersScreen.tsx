@@ -797,6 +797,8 @@ export function CharactersScreen() {
       leftClassName="characters-library-panel"
       centerClassName="characters-editor-panel"
       rightClassName="characters-inspector-panel"
+      mobileTabs={{ left: t("chars.characters"), center: t("mobilePane.editor"), right: t("chars.rawJson"), ariaLabel: t("chars.characters") }}
+      mobileSelectionKey={selected?.id}
       left={
         <>
           <PanelTitle

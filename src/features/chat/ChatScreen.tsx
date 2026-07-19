@@ -7,7 +7,6 @@ import { PluginActionBar, PluginSlotMount } from "../plugins/PluginHost";
 import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import type {
-  BranchNode,
   AppSettings,
   ChatMessage,
   ChatSession,
@@ -70,6 +69,7 @@ import { AttachmentCard } from "./components/AttachmentCard";
 import { ToolResultPreview, type ToolResultMediaItem } from "./components/ToolResultPreview";
 import { SceneControlsEditor } from "./components/SceneControlsEditor";
 import { SimpleSceneModal } from "./components/SimpleSceneModal";
+import { BranchManager } from "./components/BranchManager";
 import {
   failBackgroundTask,
   finishBackgroundTask,
@@ -79,6 +79,7 @@ import {
 } from "../../shared/backgroundTasks";
 import { useMessageTranslation } from "./hooks/useMessageTranslation";
 import { useChatJsonExport } from "./hooks/useChatJsonExport";
+import { useBranchManagement } from "./hooks/useBranchManagement";
 
 interface StreamingToolCall {
   callId: string;
@@ -93,8 +94,6 @@ export function ChatScreen() {
   const backgroundTasks = useBackgroundTasks();
   const [chats, setChats] = useState<ChatSession[]>([]);
   const [activeChat, setActiveChat] = useState<ChatSession | null>(null);
-  const [branches, setBranches] = useState<BranchNode[]>([]);
-  const [activeBranchId, setActiveBranchId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [authorNote, setAuthorNote] = useState(DEFAULT_AUTHOR_NOTE);
@@ -118,6 +117,7 @@ export function ChatScreen() {
   const [streamingToolsExpanded, setStreamingToolsExpanded] = useState(false);
   const [streamingReasoningExpanded, setStreamingReasoningExpanded] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
+  const { branches, setBranches, activeBranchId, setActiveBranchId, forkBranch: handleFork, renameBranch, removeBranch } = useBranchManagement({ activeChat, setMessages, setErrorText });
   const { exportingChat, exportChat: exportChatJson } = useChatJsonExport(setErrorText);
   const {
     translatingId,
@@ -1099,19 +1099,6 @@ export function ChatScreen() {
       return;
     }
     void openAttachmentRaw(att);
-  }
-
-  async function handleFork(message: ChatMessage) {
-    if (!activeChat) return;
-    try {
-      const branch = await api.chatFork(activeChat.id, message.id, `Branch ${message.id.slice(0, 6)}`);
-      const branchList = await api.chatBranches(activeChat.id);
-      setBranches(branchList);
-      setActiveBranchId(branch.id);
-      setMessages(await api.chatTimeline(activeChat.id, branch.id));
-    } catch (error) {
-      setErrorText(String(error));
-    }
   }
 
   async function handleDelete(messageId: string) {
@@ -2330,20 +2317,7 @@ export function ChatScreen() {
                           {activeChat ? activeChat.title : t("tab.chat")}
                         </h2>
                         {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
-                        {!zenMode && branches.length > 0 && (
-                          <select
-                            value={activeBranchId || ""}
-                            onChange={(e) => setActiveBranchId(e.target.value || null)}
-                            className="rounded-md border border-border bg-bg-secondary px-2 py-0.5 text-[10px] text-text-secondary"
-                            title={t("chat.branch")}
-                          >
-                            {branches.map((branch) => (
-                              <option key={branch.id} value={branch.id}>
-                                {branch.name}
-                              </option>
-                            ))}
-                          </select>
-                        )}
+                        {!zenMode && <BranchManager branches={branches} activeBranchId={activeBranchId} disabled={chatGenerationBusy} onSelect={setActiveBranchId} onRename={renameBranch} onDelete={removeBranch} />}
                       </div>
                       <div className="mt-3 grid gap-2 xl:grid-cols-[minmax(180px,1fr)_minmax(240px,1.2fr)_160px_auto]">
                         <div>
@@ -2466,20 +2440,7 @@ export function ChatScreen() {
                     {activeChat ? activeChat.title : t("tab.chat")}
                   </h2>
                   {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
-                  {!zenMode && branches.length > 0 && (
-                    <select
-                      value={activeBranchId || ""}
-                      onChange={(e) => setActiveBranchId(e.target.value || null)}
-                      className="rounded-md border border-border bg-bg-primary px-2 py-0.5 text-[10px] text-text-secondary"
-                      title={t("chat.branch")}
-                    >
-                      {branches.map((branch) => (
-                        <option key={branch.id} value={branch.id}>
-                          {branch.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {!zenMode && <BranchManager branches={branches} activeBranchId={activeBranchId} disabled={chatGenerationBusy} simple onSelect={setActiveBranchId} onRename={renameBranch} onDelete={removeBranch} />}
                   <div className="flex-1" />
                   {activeModelLabel && (
                     <span className="chat-simple-thread-model-badge">
@@ -2926,7 +2887,7 @@ export function ChatScreen() {
                       <div className="message-actions mt-2 flex flex-wrap items-center gap-1">
                         <IconButton
                           label={t("chat.fork")}
-                          onClick={() => { void handleFork(msg); }}
+                          onClick={() => { void handleFork(msg.id); }}
                           size="sm"
                           className="message-icon-button"
                           icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M6 3v6a4 4 0 004 4h8M6 9l4-4M6 9L2 5m16 8l-4-4m4 4l-4 4" /></svg>}

@@ -1622,6 +1622,44 @@ process.stdin.on("data", (chunk) => {
     expect(exported.messagesByBranch?.[branchId]).toHaveLength(2);
   });
 
+  it("renames and safely deletes chat branches without losing the remaining timeline", async () => {
+    await updateSettings({ activeProviderId: null, activeModel: null });
+    const created = await postJson("/api/chats", { title: "Branch Manager" });
+    const timeline = await postJson(`/api/chats/${created.id}/send`, { content: "Keep this path" });
+    const rootBranchId = timeline[0].branchId as string;
+
+    const forked = await postJson(`/api/chats/${created.id}/fork`, {
+      parentMessageId: timeline[1].id,
+      name: "Alternative"
+    });
+    const renamedResponse = await requestJson(`/api/chats/${created.id}/branches/${forked.id}`, {
+      method: "PATCH",
+      body: { name: "  Better   ending  " }
+    });
+    expect(renamedResponse.status).toBe(200);
+    expect(await renamedResponse.json()).toMatchObject({ id: forked.id, name: "Better ending" });
+
+    const deletedResponse = await requestJson(`/api/chats/${created.id}/branches/${rootBranchId}`, { method: "DELETE" });
+    expect(deletedResponse.status).toBe(200);
+    const deleted = await deletedResponse.json() as { activeBranchId: string; branches: Array<{ id: string; name: string }> };
+    expect(deleted.activeBranchId).toBe(forked.id);
+    expect(deleted.branches).toEqual([{ id: forked.id, chatId: created.id, name: "Better ending", parentMessageId: timeline[1].id, createdAt: expect.any(String) }]);
+
+    const remainingTimeline = await parseJsonResponse(
+      `/api/chats/${created.id}/timeline`,
+      await fetch(`${baseUrl}/api/chats/${created.id}/timeline?branchId=${forked.id}`)
+    );
+    expect(remainingTimeline).toHaveLength(2);
+    expect(remainingTimeline.map((message: { content: string }) => message.content)).toEqual([
+      "Keep this path",
+      "[No provider configured] Echo: Keep this path"
+    ]);
+
+    const lastDeleteResponse = await requestJson(`/api/chats/${created.id}/branches/${forked.id}`, { method: "DELETE" });
+    expect(lastDeleteResponse.status).toBe(409);
+    expect(await lastDeleteResponse.json()).toMatchObject({ error: "The last branch cannot be deleted" });
+  });
+
   it("sends exactly one combined system message before chat history", async () => {
     await updateSettings({
       activeProviderId: "mock-openai",
