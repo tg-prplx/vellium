@@ -99,6 +99,46 @@ export function listBranches(chatId: string): BranchSummary[] {
   return fallback ? [mapBranchRow(fallback)] : [];
 }
 
+export function renameBranch(chatId: string, branchId: string, name: string): BranchSummary | null {
+  const result = db.prepare(
+    "UPDATE branches SET name = ? WHERE id = ? AND chat_id = ?"
+  ).run(name, branchId, chatId);
+  if (result.changes === 0) return null;
+
+  const row = db.prepare(
+    "SELECT id, chat_id, name, parent_message_id, created_at FROM branches WHERE id = ? AND chat_id = ?"
+  ).get(branchId, chatId) as {
+    id: string;
+    chat_id: string;
+    name: string;
+    parent_message_id: string | null;
+    created_at: string;
+  };
+  return mapBranchRow(row);
+}
+
+export type DeleteBranchResult =
+  | { ok: true; activeBranchId: string; branches: BranchSummary[] }
+  | { ok: false; reason: "not_found" | "last_branch" };
+
+export function deleteBranch(chatId: string, branchId: string): DeleteBranchResult {
+  const branch = db.prepare("SELECT id FROM branches WHERE id = ? AND chat_id = ?")
+    .get(branchId, chatId) as { id: string } | undefined;
+  if (!branch) return { ok: false, reason: "not_found" };
+
+  const count = db.prepare("SELECT COUNT(*) AS count FROM branches WHERE chat_id = ?")
+    .get(chatId) as { count: number };
+  if (count.count <= 1) return { ok: false, reason: "last_branch" };
+
+  db.transaction(() => {
+    db.prepare("DELETE FROM messages WHERE chat_id = ? AND branch_id = ?").run(chatId, branchId);
+    db.prepare("DELETE FROM branches WHERE id = ? AND chat_id = ?").run(branchId, chatId);
+  })();
+
+  const branches = listBranches(chatId);
+  return { ok: true, activeBranchId: branches[0].id, branches };
+}
+
 export function forkBranch(chatId: string, parentMessageId: string, name?: string): BranchSummary | null {
   const parent = db.prepare(
     "SELECT * FROM messages WHERE id = ? AND chat_id = ? AND deleted = 0"

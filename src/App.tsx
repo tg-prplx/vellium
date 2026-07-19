@@ -65,6 +65,7 @@ function AppContent({
   const [pendingAgentThreadId, setPendingAgentThreadId] = useState<string | null>(null);
   const [pendingSettingsView, setPendingSettingsView] = useState<{ category?: string; sectionId?: string } | null>(null);
   const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
+  const [compactNavigation, setCompactNavigation] = useState(() => window.matchMedia("(max-width: 480px)").matches);
   const navRef = useRef<HTMLElement | null>(null);
 
   const coreTabs = useMemo<AppTab[]>(() => {
@@ -100,6 +101,17 @@ function AppContent({
   useEffect(() => {
     setOpenNavGroup(null);
   }, [activeTab]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 480px)");
+    const syncCompactNavigation = () => {
+      setCompactNavigation(media.matches);
+      setOpenNavGroup(null);
+    };
+    syncCompactNavigation();
+    media.addEventListener("change", syncCompactNavigation);
+    return () => media.removeEventListener("change", syncCompactNavigation);
+  }, []);
 
   useEffect(() => {
     if (!openNavGroup) return;
@@ -228,11 +240,12 @@ function AppContent({
     ].filter((group) => group.tabs.length > 0);
   }, [tabs]);
 
-  const tabsNode = (
+  const renderTabsNode = (mobile = false) => (
     <nav
       ref={navRef}
-      className="app-nav my-1.5 flex items-center gap-1 rounded-lg border border-border-subtle bg-bg-secondary p-1"
+      className={`app-nav ${mobile ? "app-mobile-nav" : ""} my-1.5 flex items-center gap-1 rounded-lg border border-border-subtle bg-bg-secondary p-1`}
       style={noDrag}
+      aria-label={mobile ? t("app.name") : undefined}
     >
       {tabGroups.map((group) => {
         const activeGroupTab = group.tabs.find((tab) => tab.id === activeTab);
@@ -245,7 +258,7 @@ function AppContent({
               type="button"
               aria-haspopup={group.tabs.length > 1 ? "menu" : undefined}
               aria-expanded={group.tabs.length > 1 ? isMenuOpen : undefined}
-              aria-controls={group.tabs.length > 1 ? `app-nav-menu-${group.id}` : undefined}
+              aria-controls={group.tabs.length > 1 ? `app-nav-menu-${mobile ? "mobile-" : ""}${group.id}` : undefined}
               onClick={() => {
                 if (group.tabs.length > 1) {
                   setOpenNavGroup((current) => current === group.id ? null : group.id);
@@ -265,7 +278,7 @@ function AppContent({
               {group.tabs.length > 1 ? <span className="app-nav-chevron" aria-hidden="true">⌄</span> : null}
             </button>
             {group.tabs.length > 1 && isMenuOpen ? (
-              <div id={`app-nav-menu-${group.id}`} className="app-nav-menu" role="menu">
+              <div id={`app-nav-menu-${mobile ? "mobile-" : ""}${group.id}`} className="app-nav-menu" role="menu">
                 <div className="app-nav-menu-label">{group.label}</div>
                 {group.tabs.map((tab) => (
                   <button
@@ -306,15 +319,15 @@ function AppContent({
     <div className="app-shell flex h-full w-full flex-col overflow-hidden bg-bg-primary">
       {isElectron ? (
         <TitleBar>
-          <div className="flex w-full items-center px-7 py-1.5">
-            <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-3">
-              <div className="justify-self-start" style={noDrag}>
+          <div className="app-header-inner flex w-full min-w-0 items-center px-7 py-1.5">
+            <div className="app-header-layout grid w-full min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
+              <div className="app-header-brand justify-self-start" style={noDrag}>
                 {brandNode}
               </div>
-              <div className="justify-self-center">
-                {tabsNode}
+              <div className="app-header-nav min-w-0 justify-self-center">
+                {!compactNavigation ? renderTabsNode() : null}
               </div>
-              <div className="justify-self-end" style={noDrag}>
+              <div className="app-header-tools justify-self-end" style={noDrag}>
                 {toolbarNode}
               </div>
             </div>
@@ -322,11 +335,11 @@ function AppContent({
         </TitleBar>
       ) : (
         <header className="app-header relative z-[80] flex-shrink-0 overflow-visible border-b border-border">
-          <div className="flex w-full items-center px-7 py-4">
-            <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-3">
-              <div className="justify-self-start">{brandNode}</div>
-              <div className="justify-self-center">{tabsNode}</div>
-              <div className="justify-self-end">{toolbarNode}</div>
+          <div className="app-header-inner flex w-full min-w-0 items-center px-7 py-4">
+            <div className="app-header-layout grid w-full min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
+              <div className="app-header-brand justify-self-start">{brandNode}</div>
+              <div className="app-header-nav min-w-0 justify-self-center">{!compactNavigation ? renderTabsNode() : null}</div>
+              <div className="app-header-tools justify-self-end">{toolbarNode}</div>
             </div>
           </div>
         </header>
@@ -345,6 +358,7 @@ function AppContent({
           </Suspense>
         </div>
       </main>
+      {compactNavigation ? renderTabsNode(true) : null}
     </div>
   );
 }

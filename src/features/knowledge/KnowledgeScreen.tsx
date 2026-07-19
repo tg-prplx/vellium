@@ -186,6 +186,8 @@ export function KnowledgeScreen() {
       leftClassName="knowledge-library-panel"
       centerClassName="knowledge-editor-panel"
       rightClassName="knowledge-help-panel"
+      mobileTabs={{ left: t("knowledge.title"), center: t("mobilePane.editor"), right: t("knowledge.howItWorks"), ariaLabel: t("knowledge.title") }}
+      mobileSelectionKey={selectedId}
       left={
         <>
           <PanelTitle

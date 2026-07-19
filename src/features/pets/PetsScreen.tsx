@@ -1158,6 +1158,8 @@ export function PetsScreen() {
       centerClassName="pets-editor-panel"
       rightClassName="pets-desktop-panel"
       threeColumnLayoutClassName="xl:grid-cols-[276px_minmax(500px,1fr)_320px]"
+      mobileTabs={{ left: t("pets.library"), center: t("mobilePane.editor"), right: t("pets.desktop"), ariaLabel: t("pets.title") }}
+      mobileSelectionKey={selectedId}
       left={(
         <>
           <PanelTitle

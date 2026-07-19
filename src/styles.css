@@ -9049,3 +9049,686 @@ body > .vellium-modal-layer {
     flex: 1 1 auto;
   }
 }
+
+/* ── Compact viewport foundation ──────────────────────────────────────────
+   Keep the app itself anchored while allowing the controls that need it to
+   scroll. `overflow: hidden` still creates a programmatically scrollable box,
+   so focusing an off-screen nav item used to shift the whole UI sideways. */
+#root,
+.app-shell {
+  max-width: 100%;
+}
+
+.app-shell {
+  overflow-x: clip;
+}
+
+.three-panel-responsive-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.three-panel-responsive-shell > .three-panel-layout {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.three-panel-mobile-tabs {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .app-main {
+    min-width: 0;
+    padding: 12px !important;
+  }
+
+  .app-header-inner,
+  .app-header-layout,
+  .app-header-nav,
+  .app-header-tools {
+    min-width: 0;
+  }
+
+  .panel-shell {
+    border-radius: 14px !important;
+  }
+}
+
+@media (max-width: 720px) {
+  #root {
+    height: 100dvh;
+  }
+
+  .app-shell {
+    zoom: 1;
+    width: 100vw;
+    height: 100dvh;
+  }
+
+  .app-header-inner {
+    padding: max(7px, env(safe-area-inset-top)) 9px 7px !important;
+  }
+
+  .app-header-layout {
+    grid-template-columns: auto minmax(0, 1fr) auto !important;
+    gap: 7px !important;
+  }
+
+  .app-header-brand {
+    min-width: 0;
+  }
+
+  .app-brand {
+    min-width: 0;
+    gap: 0 !important;
+  }
+
+  .app-brand > span {
+    display: none;
+  }
+
+  .app-brand-mark {
+    width: 34px !important;
+    height: 34px !important;
+    border-radius: 11px !important;
+  }
+
+  .app-header-nav {
+    width: 100%;
+    justify-self: stretch !important;
+    overflow: hidden;
+  }
+
+  .app-nav {
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 !important;
+    gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    padding: 3px !important;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-nav-group {
+    flex: 0 0 auto;
+  }
+
+  .app-nav-group + .app-nav-group {
+    margin-left: 2px;
+    padding-left: 2px;
+  }
+
+  .app-tab-button {
+    min-height: 38px;
+    padding: 0 10px !important;
+    white-space: nowrap;
+  }
+
+  .app-nav-current {
+    display: none;
+  }
+
+  .app-nav-menu {
+    top: max(58px, calc(env(safe-area-inset-top) + 50px));
+    max-height: calc(100dvh - 70px);
+    overflow-y: auto;
+  }
+
+  .app-main {
+    padding: 8px !important;
+    padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .tab-content-enter,
+  .app-screen-keepalive {
+    min-width: 0;
+  }
+
+  /* Dense desktop workspaces become a deliberate vertical flow on phones. */
+  .three-panel-layout:not(.chat-simple-layout):not(.writing-simple-layout):not(.knowledge-workspace):not(.lore-workspace):not(.pets-workspace) {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-auto-rows: minmax(62svh, auto);
+    align-content: start;
+    gap: 8px !important;
+    overflow-x: clip;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .three-panel-layout:not(.chat-simple-layout):not(.writing-simple-layout):not(.knowledge-workspace):not(.lore-workspace):not(.pets-workspace) > .panel-shell {
+    min-height: 62svh;
+    padding: 12px !important;
+  }
+
+  .characters-workspace > .characters-library-panel {
+    min-height: 48svh;
+  }
+
+  .characters-workspace > .characters-editor-panel {
+    min-height: 78svh;
+  }
+
+  .characters-workspace > .characters-inspector-panel {
+    min-height: 64svh;
+  }
+
+  .characters-workspace {
+    grid-template-rows: minmax(48svh, auto) minmax(78svh, auto) minmax(64svh, auto) !important;
+  }
+
+  .knowledge-workspace,
+  .lore-workspace,
+  .pets-workspace {
+    gap: 8px !important;
+    grid-template-rows: minmax(132px, 24svh) minmax(72svh, auto) !important;
+    align-content: start;
+    overflow-x: clip;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .knowledge-library-panel,
+  .lore-library-panel,
+  .pets-library-panel,
+  .knowledge-editor-panel,
+  .lore-editor-panel,
+  .pets-editor-panel {
+    padding: 10px !important;
+  }
+
+  .knowledge-editor-panel,
+  .lore-editor-panel,
+  .pets-editor-panel {
+    min-height: 72svh;
+  }
+
+  /* Settings keeps its category rail available as a touch-friendly strip. */
+  .settings-root {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto minmax(0, 1fr);
+    border-radius: 12px;
+  }
+
+  .settings-sidebar {
+    display: flex !important;
+    width: auto !important;
+    min-width: 0;
+    max-width: 100%;
+    flex-direction: column !important;
+    gap: 0;
+    overflow: hidden;
+    padding: 6px !important;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 0;
+  }
+
+  .settings-sidebar-status,
+  .settings-sidebar-jump,
+  .settings-sidebar-footer,
+  .settings-nav-group-label {
+    display: none !important;
+  }
+
+  .settings-sidebar-nav {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    padding: 0;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .settings-sidebar-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-nav-item {
+    width: auto;
+    min-height: 40px;
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+
+  .settings-nav-item > span.min-w-0 {
+    max-width: 150px;
+  }
+
+  .settings-nav-divider {
+    width: 1px;
+    height: 26px;
+    flex: 0 0 1px;
+    margin: 0 2px;
+  }
+
+  .settings-content-area {
+    min-height: 0;
+    border-radius: 0 0 11px 11px;
+  }
+
+  .settings-content-inner {
+    padding: 10px 10px 18px !important;
+  }
+
+  .settings-workbench-header {
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 13px !important;
+    border-radius: 13px;
+  }
+
+  .settings-workbench-title {
+    font-size: 20px;
+  }
+
+  .settings-workbench-meta,
+  .settings-workbench-chip-row {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .settings-workbench-meta::-webkit-scrollbar,
+  .settings-workbench-chip-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-workbench-pill,
+  .settings-workbench-chip {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .settings-card {
+    padding: 12px;
+  }
+
+  .settings-content-area,
+  .settings-content-area * {
+    min-width: 0;
+  }
+
+  .settings-content-area input,
+  .settings-content-area textarea,
+  .settings-content-area select {
+    max-width: 100%;
+  }
+
+  /* Home chat must be able to breathe vertically on short phone screens. */
+  .chat-simple-layout.is-home .chat-simple-center-panel {
+    justify-content: flex-start;
+    overflow-x: clip !important;
+    overflow-y: auto !important;
+    overscroll-behavior-y: contain;
+    padding: 48px 10px max(14px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .chat-simple-hero {
+    margin-bottom: 12px;
+  }
+
+  .chat-simple-hero-mark {
+    width: 38px;
+    height: 38px;
+    margin-bottom: 10px;
+  }
+
+  .chat-simple-hero-eyebrow {
+    margin-bottom: 7px;
+    font-size: 9px;
+  }
+
+  .chat-simple-hero-title {
+    font-size: clamp(1.8rem, 9.5vw, 2.65rem);
+    line-height: 1.02;
+    text-wrap: balance;
+  }
+
+  .chat-simple-hero-subtitle {
+    max-width: 31rem;
+    margin-top: 10px;
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  .chat-simple-home-setup {
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .chat-simple-home-control {
+    min-height: 38px;
+    padding-inline: 10px;
+  }
+
+  .chat-simple-textarea {
+    min-height: 68px;
+    padding: 12px 13px;
+  }
+
+  .chat-simple-composer-bar {
+    padding: 6px 8px;
+  }
+
+  .chat-simple-bar-btn,
+  .chat-simple-send-btn {
+    width: 38px;
+    height: 38px;
+  }
+
+  .chat-simple-quick-row {
+    gap: 7px;
+    padding-bottom: 4px;
+  }
+
+  .chat-simple-quick-chip {
+    min-height: 44px;
+  }
+
+  .lore-action-bar {
+    max-height: 32svh;
+    overflow-y: auto;
+  }
+
+  /* Multi-panel workspaces use one full-size pane at a time on phones. */
+  .three-panel-mobile-tabs {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    gap: 3px;
+    margin-bottom: 8px;
+    padding: 3px;
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--color-bg-secondary) 86%, transparent);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .three-panel-mobile-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .three-panel-mobile-tabs > button {
+    position: relative;
+    min-width: 0;
+    min-height: 40px;
+    flex: 1 1 0;
+    overflow: hidden;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    padding: 0 10px;
+    color: var(--color-text-tertiary);
+    font-size: 11px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .three-panel-mobile-tabs > button.is-active {
+    border-color: var(--color-accent-border);
+    color: var(--color-accent);
+    background: var(--color-accent-subtle);
+    box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--color-accent) 68%, transparent);
+  }
+
+  .three-panel-responsive-shell > .three-panel-layout[data-mobile-panel] {
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+    grid-auto-rows: auto;
+    gap: 0 !important;
+    overflow: hidden !important;
+    padding-bottom: 0;
+  }
+
+  .three-panel-responsive-shell > .three-panel-layout[data-mobile-panel] > [data-mobile-pane] {
+    display: none !important;
+    min-height: 0 !important;
+    height: 100%;
+    padding: 10px !important;
+  }
+
+  .three-panel-responsive-shell > .three-panel-layout[data-mobile-panel="left"] > [data-mobile-pane="left"],
+  .three-panel-responsive-shell > .three-panel-layout[data-mobile-panel="center"] > [data-mobile-pane="center"],
+  .three-panel-responsive-shell > .three-panel-layout[data-mobile-panel="right"] > [data-mobile-pane="right"] {
+    display: flex !important;
+  }
+
+  .three-panel-responsive-shell > .three-panel-layout[data-mobile-panel="right"] > [data-mobile-pane="right"] {
+    overflow-y: auto;
+  }
+
+  .knowledge-library-panel > .space-y-1,
+  .lore-library-panel > .space-y-1 {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .pets-editor-header {
+    gap: 10px !important;
+    margin-bottom: 10px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .pets-editor-header .h-16.w-16 {
+    width: 52px !important;
+    height: 52px !important;
+  }
+
+  .pets-editor-section {
+    padding: 12px;
+  }
+
+  .pets-editor-actions {
+    position: sticky;
+    z-index: 5;
+    bottom: 0;
+    margin: 8px -2px -2px !important;
+    padding: 9px 2px 2px !important;
+    background: linear-gradient(180deg, transparent, var(--color-bg-secondary) 28%);
+  }
+}
+
+@media (max-width: 480px) {
+  .app-header-inner {
+    padding-inline: 10px !important;
+  }
+
+  .app-header-layout {
+    grid-template-areas: "brand tools";
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 8px !important;
+  }
+
+  .app-header {
+    height: auto !important;
+  }
+
+  .app-header-brand {
+    grid-area: brand;
+  }
+
+  .app-brand {
+    gap: 8px !important;
+  }
+
+  .app-brand > span {
+    display: inline;
+    font-size: 12px;
+  }
+
+  .app-header-nav {
+    display: none;
+  }
+
+  .app-header-tools {
+    grid-area: tools;
+  }
+
+  .app-mobile-nav {
+    position: relative;
+    z-index: 90;
+    width: 100%;
+    max-width: 100%;
+    flex: 0 0 auto;
+    justify-content: stretch;
+    overflow: visible;
+    margin: 0 !important;
+    gap: 2px;
+    padding: 5px 6px max(5px, env(safe-area-inset-bottom)) !important;
+    border: 0 !important;
+    border-top: 1px solid var(--color-border) !important;
+    border-radius: 0 !important;
+    background: color-mix(in srgb, var(--color-bg-primary) 94%, transparent) !important;
+    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.2) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(1.18);
+    backdrop-filter: blur(22px) saturate(1.18);
+  }
+
+  .app-mobile-nav .app-nav-group,
+  .app-mobile-nav .app-nav-group + .app-nav-group {
+    min-width: 0;
+    flex: 1 1 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .app-mobile-nav .app-tab-button {
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px !important;
+    padding: 4px 2px !important;
+    font-size: 9px !important;
+    line-height: 1;
+  }
+
+  .app-mobile-nav .app-tab-button > svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .app-mobile-nav .app-tab-button > span:not(.app-nav-current):not(.app-nav-chevron) {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-align: center;
+    text-overflow: ellipsis;
+  }
+
+  .app-mobile-nav .app-tab-button.is-active::after {
+    content: "";
+    position: absolute;
+    right: 50%;
+    bottom: 2px;
+    width: 18px;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--color-accent);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 46%, transparent);
+    transform: translateX(50%);
+  }
+
+  .app-mobile-nav .app-nav-chevron {
+    display: none;
+  }
+
+  .app-mobile-nav .app-nav-menu {
+    position: fixed;
+    z-index: 110;
+    top: auto;
+    right: 8px;
+    bottom: calc(64px + env(safe-area-inset-bottom));
+    left: 8px;
+    width: auto;
+    max-height: min(60dvh, 430px);
+    overflow-y: auto;
+    transform: none;
+    transform-origin: 50% 100%;
+  }
+
+  .app-mobile-nav .app-nav-group.is-open .app-nav-menu {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .settings-nav-count {
+    display: none;
+  }
+
+  .settings-nav-item > span.min-w-0 {
+    max-width: 122px;
+  }
+
+  .settings-content-area .grid-cols-2,
+  .settings-content-area .grid-cols-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-row,
+  .settings-toggle-row {
+    align-items: flex-start;
+  }
+
+  .chat-simple-home-setup {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .chat-simple-home-control:first-child {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .chat-simple-home-control {
+    justify-content: center;
+    border-radius: 12px;
+  }
+}
+
+@media (max-width: 720px) and (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+
+  button,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+}

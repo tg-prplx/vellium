@@ -34,6 +34,10 @@ export const chatClient = {
   chatAbort: (chatId: string) => post<{ ok: boolean; interrupted: boolean }>(`/chats/${chatId}/abort`),
   chatDelete: (chatId: string) => del<{ ok: boolean }>(`/chats/${chatId}`),
   chatBranches: (chatId: string) => get<BranchNode[]>(`/chats/${chatId}/branches`),
+  chatRenameBranch: (chatId: string, branchId: string, name: string) =>
+    patchReq<BranchNode>(`/chats/${chatId}/branches/${branchId}`, { name }),
+  chatDeleteBranch: (chatId: string, branchId: string) =>
+    del<{ ok: true; activeBranchId: string; branches: BranchNode[] }>(`/chats/${chatId}/branches/${branchId}`),
   chatUpdateCharacters: (chatId: string, characterIds: string[]) =>
     patchReq<{ ok: boolean; characterIds: string[]; characterId: string | null }>(`/chats/${chatId}/characters`, { characterIds }),
   chatList: () => get<ChatSession[]>("/chats"),

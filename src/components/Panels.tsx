@@ -1,4 +1,13 @@
-import type { PropsWithChildren, ReactNode } from "react";
+import { useEffect, useState, type PropsWithChildren, type ReactNode } from "react";
+
+type MobilePanel = "left" | "center" | "right";
+
+type MobilePanelTabs = {
+  left: string;
+  center: string;
+  right?: string;
+  ariaLabel?: string;
+};
 
 export function ThreePanelLayout({
   left,
@@ -11,7 +20,9 @@ export function ThreePanelLayout({
   centerClassName = "",
   rightClassName = "",
   threeColumnLayoutClassName = "xl:grid-cols-[272px_minmax(480px,1fr)_320px]",
-  twoColumnLayoutClassName = "xl:grid-cols-[272px_minmax(480px,1fr)]"
+  twoColumnLayoutClassName = "xl:grid-cols-[272px_minmax(480px,1fr)]",
+  mobileTabs,
+  mobileSelectionKey
 }: {
   left: ReactNode;
   center: ReactNode;
@@ -24,30 +35,66 @@ export function ThreePanelLayout({
   rightClassName?: string;
   threeColumnLayoutClassName?: string;
   twoColumnLayoutClassName?: string;
+  mobileTabs?: MobilePanelTabs;
+  mobileSelectionKey?: string | null;
 }) {
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("left");
+
+  useEffect(() => {
+    if (mobileTabs && mobileSelectionKey) setMobilePanel("center");
+  }, [mobileSelectionKey]);
+
   const rootClass = `three-panel-layout grid h-full min-w-0 ${className}`.trim();
-  if (layout === "center") {
+  const wrapMobileLayout = (layoutNode: ReactNode) => {
+    if (!mobileTabs) return layoutNode;
+    const tabs: Array<{ id: MobilePanel; label: string }> = [
+      { id: "left", label: mobileTabs.left },
+      { id: "center", label: mobileTabs.center }
+    ];
+    if (!hideRight && mobileTabs.right) tabs.push({ id: "right", label: mobileTabs.right });
     return (
-      <div className={`${rootClass} grid-cols-1`}>
-        <section className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${centerClassName}`.trim()}>{center}</section>
+      <div className="three-panel-responsive-shell">
+        <div className="three-panel-mobile-tabs" role="tablist" aria-label={mobileTabs.ariaLabel || mobileTabs.left}>
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={mobilePanel === tab.id}
+              className={mobilePanel === tab.id ? "is-active" : ""}
+              onClick={() => setMobilePanel(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {layoutNode}
+      </div>
+    );
+  };
+
+  if (layout === "center") {
+    return wrapMobileLayout(
+      <div className={`${rootClass} grid-cols-1`} data-mobile-panel={mobileTabs ? "center" : undefined}>
+        <section data-mobile-pane="center" className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${centerClassName}`.trim()}>{center}</section>
       </div>
     );
   }
 
   if (hideRight) {
-    return (
-      <div className={`${rootClass} grid-cols-1 gap-4 ${twoColumnLayoutClassName}`.trim()}>
-        <aside className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${leftClassName}`.trim()}>{left}</aside>
-        <section className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${centerClassName}`.trim()}>{center}</section>
+    return wrapMobileLayout(
+      <div className={`${rootClass} grid-cols-1 gap-4 ${twoColumnLayoutClassName}`.trim()} data-mobile-panel={mobileTabs ? mobilePanel : undefined}>
+        <aside data-mobile-pane="left" className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${leftClassName}`.trim()}>{left}</aside>
+        <section data-mobile-pane="center" className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${centerClassName}`.trim()}>{center}</section>
       </div>
     );
   }
 
-  return (
-    <div className={`${rootClass} grid-cols-1 gap-4 ${threeColumnLayoutClassName}`.trim()}>
-      <aside className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${leftClassName}`.trim()}>{left}</aside>
-      <section className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${centerClassName}`.trim()}>{center}</section>
-      <aside className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${rightClassName}`.trim()}>{right}</aside>
+  return wrapMobileLayout(
+    <div className={`${rootClass} grid-cols-1 gap-4 ${threeColumnLayoutClassName}`.trim()} data-mobile-panel={mobileTabs ? mobilePanel : undefined}>
+      <aside data-mobile-pane="left" className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${leftClassName}`.trim()}>{left}</aside>
+      <section data-mobile-pane="center" className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${centerClassName}`.trim()}>{center}</section>
+      <aside data-mobile-pane="right" className={`panel-shell flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-bg-secondary p-4 ${rightClassName}`.trim()}>{right}</aside>
     </div>
   );
 }

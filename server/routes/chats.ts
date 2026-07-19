@@ -33,10 +33,12 @@ import {
 } from "../modules/chat/contentHandlers.js";
 import { completeProviderOnce, countProviderTokens } from "../modules/chat/providerExecution.js";
 import {
+  deleteBranch,
   deleteChatCascade,
   deleteMessageTree,
   forkBranch,
-  listBranches
+  listBranches,
+  renameBranch
 } from "../modules/chat/repository.js";
 import {
   getChatPreset,
@@ -289,6 +291,31 @@ router.patch("/:id/rag", (req, res) => {
 
 router.get("/:id/branches", (req, res) => {
   res.json(listBranches(req.params.id));
+});
+
+router.patch("/:id/branches/:branchId", (req, res) => {
+  const name = String(req.body?.name || "").replace(/\s+/g, " ").trim();
+  if (!name || name.length > 80) {
+    res.status(400).json({ error: "Branch name must contain 1 to 80 characters" });
+    return;
+  }
+  const branch = renameBranch(req.params.id, req.params.branchId, name);
+  if (!branch) {
+    res.status(404).json({ error: "Branch not found" });
+    return;
+  }
+  res.json(branch);
+});
+
+router.delete("/:id/branches/:branchId", (req, res) => {
+  const result = deleteBranch(req.params.id, req.params.branchId);
+  if (!result.ok) {
+    res.status(result.reason === "last_branch" ? 409 : 404).json({
+      error: result.reason === "last_branch" ? "The last branch cannot be deleted" : "Branch not found"
+    });
+    return;
+  }
+  res.json(result);
 });
 
 router.get("/:id/export/json", (req, res) => {

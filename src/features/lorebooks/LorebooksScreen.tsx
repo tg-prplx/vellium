@@ -274,6 +274,8 @@ export function LorebooksScreen() {
       leftClassName="lore-library-panel"
       centerClassName="lore-editor-panel"
       rightClassName="lore-help-panel"
+      mobileTabs={{ left: t("tab.lorebooks"), center: t("mobilePane.editor"), right: t("lore.howItWorks"), ariaLabel: t("tab.lorebooks") }}
+      mobileSelectionKey={selectedId}
       left={
         <>
           <PanelTitle
