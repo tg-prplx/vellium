@@ -1076,6 +1076,8 @@ export const zh = {
   "common.delete": "删除",
   "localModels.title": "安装本地 AI",
   "localModels.description": "将独立的 LLM、语音识别和语音模型下载到 Vellium 数据目录，并自动配置；也可在此删除。",
+  "localModels.speechTitle": "安装本地语音",
+  "localModels.speechDescription": "可随时安装、配置或移除本地 Whisper STT 和 Piper TTS。",
   "localModels.desktopOnly": "本地模型自动安装仅适用于桌面应用。",
   "localModels.model": "模型",
   "localModels.runtime": "运行时",

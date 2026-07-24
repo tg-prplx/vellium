@@ -1779,9 +1779,9 @@ export function SettingsScreen({
                 </div>
               </div>
               <SpeechToTextSettings settings={settings} onPatch={patch} autosaveProps={autosaveProps} />
+              <div id="settings-local-speech" className="scroll-mt-24"><LocalModelsSetup locale={settings.interfaceLanguage || "en"} componentIds={["stt", "tts"]} /></div>
             </div>
           )}
-
           {activeCategory === "backends" && (
             <div className="space-y-4">
               <LocalModelsSetup locale={settings.interfaceLanguage || "en"} />

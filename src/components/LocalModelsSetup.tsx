@@ -13,8 +13,11 @@ import type {
 interface LocalModelsSetupProps {
   locale: "en" | "ru" | "zh" | "ja";
   compact?: boolean;
+  componentIds?: LocalModelComponentId[];
   onInstalled?: (result: LocalModelInstallResult) => void;
 }
+
+const ALL_COMPONENT_IDS: LocalModelComponentId[] = ["llm", "stt", "tts"];
 
 function formatBytes(bytes: number) {
   if (!bytes) return "—";
@@ -43,23 +46,37 @@ async function applyInstallResult(result: LocalModelInstallResult) {
   window.dispatchEvent(new CustomEvent("settings-change", { detail: updated }));
 }
 
-export function LocalModelsSetup({ locale, compact = false, onInstalled }: LocalModelsSetupProps) {
+export function LocalModelsSetup({ locale, compact = false, componentIds, onInstalled }: LocalModelsSetupProps) {
   const { t } = useI18n();
+  const componentFilterKey = componentIds?.join(",") || "all";
+  const visibleComponentIds = useMemo(
+    () => new Set<LocalModelComponentId>(componentFilterKey === "all"
+      ? ALL_COMPONENT_IDS
+      : componentFilterKey.split(",") as LocalModelComponentId[]),
+    [componentFilterKey]
+  );
+  const speechOnly = visibleComponentIds.size === 2
+    && visibleComponentIds.has("stt")
+    && visibleComponentIds.has("tts");
   const [catalog, setCatalog] = useState<LocalModelCatalog | null>(null);
-  const [selected, setSelected] = useState<Set<LocalModelComponentId>>(new Set(["llm", "stt", "tts"]));
+  const [selected, setSelected] = useState<Set<LocalModelComponentId>>(
+    new Set(componentIds || ALL_COMPONENT_IDS)
+  );
   const [progress, setProgress] = useState<Partial<Record<LocalModelComponentId, LocalModelProgress>>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const selectedBytes = useMemo(() => catalog?.items
-    .filter((item) => selected.has(item.id))
-    .reduce((total, item) => total + item.modelBytes + item.auxiliaryBytes, 0) || 0, [catalog, selected]);
+    .filter((item) => visibleComponentIds.has(item.id) && selected.has(item.id))
+    .reduce((total, item) => total + item.modelBytes + item.auxiliaryBytes, 0) || 0, [catalog, selected, visibleComponentIds]);
 
   async function refresh() {
     if (!window.electronAPI?.getLocalModelCatalog) return;
     const next = await window.electronAPI.getLocalModelCatalog();
     setCatalog(next);
-    setSelected((current) => new Set([...current].filter((id) => !next.items.find((item) => item.id === id)?.installed)));
+    setSelected((current) => new Set([...current].filter((id) =>
+      visibleComponentIds.has(id) && !next.items.find((item) => item.id === id)?.installed
+    )));
   }
 
   useEffect(() => {
@@ -125,8 +142,12 @@ export function LocalModelsSetup({ locale, compact = false, onInstalled }: Local
     <div className={`rounded-xl border border-border-subtle bg-bg-primary ${compact ? "p-3" : "p-4"}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-sm font-semibold text-text-primary">{t("localModels.title")}</div>
-          <p className="mt-1 text-[11px] text-text-tertiary">{t("localModels.description")}</p>
+          <div className="text-sm font-semibold text-text-primary">
+            {t(speechOnly ? "localModels.speechTitle" : "localModels.title")}
+          </div>
+          <p className="mt-1 text-[11px] text-text-tertiary">
+            {t(speechOnly ? "localModels.speechDescription" : "localModels.description")}
+          </p>
         </div>
         {catalog ? (
           <span className="shrink-0 rounded-md border border-border-subtle px-2 py-1 text-[10px] text-text-secondary">
@@ -136,7 +157,7 @@ export function LocalModelsSetup({ locale, compact = false, onInstalled }: Local
       </div>
 
       <div className="mt-3 grid gap-2">
-        {catalog?.items.map((item) => {
+        {catalog?.items.filter((item) => visibleComponentIds.has(item.id)).map((item) => {
           const state = progress[item.id];
           const percent = state?.totalBytes ? Math.min(100, Math.round(state.receivedBytes / state.totalBytes * 100)) : 0;
           return (
@@ -178,7 +199,9 @@ export function LocalModelsSetup({ locale, compact = false, onInstalled }: Local
         })}
       </div>
 
-      <p className="mt-2 text-[10px] text-text-tertiary">{t("localModels.lighterHint")}</p>
+      {visibleComponentIds.has("llm") ? (
+        <p className="mt-2 text-[10px] text-text-tertiary">{t("localModels.lighterHint")}</p>
+      ) : null}
       {error ? <p className="mt-2 rounded-lg border border-danger-border bg-danger-subtle px-2 py-1.5 text-[11px] text-danger">{error}</p> : null}
       <div className="mt-3 flex items-center justify-between gap-3">
         <span className="text-[11px] text-text-secondary">{t("localModels.downloadTotal")}: {formatBytes(selectedBytes)}</span>

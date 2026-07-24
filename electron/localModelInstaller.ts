@@ -16,7 +16,16 @@ import type {
 import type { ManagedBackendConfig } from "../src/shared/types/contracts";
 import { buildLocalLlamaManagedBackend, LOCAL_INFERENCE_SETTINGS_URL, LOCAL_LLAMA_PROVIDER_ID } from "../src/shared/localModelConfig";
 
-type Download = { url: string; bytes: number; digest?: string; filename: string; archive?: "zip" | "tgz" };
+type GitHubReleaseAsset = { owner: string; repo: string; tag: string };
+type Download = {
+  url: string;
+  bytes: number;
+  digest?: string;
+  filename: string;
+  archive?: "zip" | "tgz";
+  githubReleaseAsset?: GitHubReleaseAsset;
+};
+type DownloadSource = { url: string; headers?: Record<string, string> };
 type ComponentSpec = { id: LocalModelComponentId; model: Download[]; runtime: Download[] };
 type InstallManifest = {
   version: 1;
@@ -36,6 +45,15 @@ const LLM_BYTES = 17_211_235_552;
 const WHISPER_FILE = "ggml-tiny-q5_1.bin";
 const WHISPER_BYTES = 32_152_673;
 const PIPER_MODEL_BYTES = 63_201_294;
+const RETRYABLE_DOWNLOAD_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const DOWNLOAD_RETRY_DELAYS_MS = [0, 500, 1_500];
+
+class DownloadHttpError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "DownloadHttpError";
+  }
+}
 
 const VOICES = {
   en: { key: "en_US-lessac-medium", path: "en/en_US/lessac/medium", jsonBytes: 4885, modelMd5: "2fc642b535197b6305c7c8f92dc8b24f", jsonMd5: "c1f2b7bdfe113f3255ff9ef234cfd3" },
@@ -103,7 +121,8 @@ function whisperRuntime(platform: NodeJS.Platform, arch: string): Download {
       filename,
       url: `https://github.com/tg-prplx/vellium/releases/download/v${app.getVersion()}/${filename}`,
       bytes: 0,
-      archive: "tgz"
+      archive: "tgz",
+      githubReleaseAsset: { owner: "tg-prplx", repo: "vellium", tag: `v${app.getVersion()}` }
     };
   }
   const base = `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_VERSION}`;
@@ -308,8 +327,52 @@ export class LocalModelInstaller {
   }
 
   private async download(id: LocalModelComponentId, item: Download, target: string, signal: AbortSignal) {
-    const response = await fetch(item.url, { signal, redirect: "follow" });
-    if (!response.ok || !response.body) throw new Error(`Download failed (${response.status}) for ${item.filename}`);
+    const sources: DownloadSource[] = [];
+    if (item.githubReleaseAsset) {
+      try {
+        const asset = await this.resolveGitHubReleaseAsset(item.githubReleaseAsset, item.filename, signal);
+        sources.push({
+          url: asset.url,
+          headers: {
+            Accept: "application/octet-stream",
+            "X-GitHub-Api-Version": "2022-11-28"
+          }
+        });
+      } catch {
+        // The public browser URL remains available when the GitHub API is rate-limited.
+      }
+    }
+    sources.push({ url: item.url });
+
+    let lastError: unknown = new Error(`Download failed for ${item.filename}`);
+    for (const source of sources) {
+      for (const [attempt, delayMs] of DOWNLOAD_RETRY_DELAYS_MS.entries()) {
+        if (signal.aborted) throw new DOMException("Download cancelled", "AbortError");
+        if (delayMs > 0) {
+          this.emit({ componentId: id, phase: "downloading", receivedBytes: 0, totalBytes: item.bytes, label: `Retrying ${item.filename} (${attempt + 1}/${DOWNLOAD_RETRY_DELAYS_MS.length})` });
+          await this.waitForRetry(delayMs, signal);
+        }
+        await rm(target, { force: true }).catch(() => {});
+        try {
+          await this.downloadOnce(id, item, target, source, signal);
+          return;
+        } catch (error) {
+          lastError = error;
+          if (signal.aborted) throw error;
+          const status = error instanceof DownloadHttpError ? error.status : 0;
+          if (status && !RETRYABLE_DOWNLOAD_STATUSES.has(status)) break;
+        }
+      }
+    }
+    throw lastError;
+  }
+
+  private async downloadOnce(id: LocalModelComponentId, item: Download, target: string, source: DownloadSource, signal: AbortSignal) {
+    const response = await fetch(source.url, { signal, redirect: "follow", headers: source.headers });
+    if (!response.ok || !response.body) {
+      await response.body?.cancel().catch(() => {});
+      throw new DownloadHttpError(response.status, `Download failed (${response.status}) for ${item.filename}`);
+    }
     const headerBytes = Number(response.headers.get("content-length")) || item.bytes;
     if (item.bytes && headerBytes && headerBytes !== item.bytes) throw new Error(`Unexpected download size for ${item.filename}`);
     let received = 0;
@@ -331,6 +394,56 @@ export class LocalModelInstaller {
       throw error;
     }
     if (item.bytes && received !== item.bytes) throw new Error(`Incomplete download for ${item.filename}`);
+  }
+
+  private async resolveGitHubReleaseAsset(release: GitHubReleaseAsset, filename: string, signal: AbortSignal) {
+    const endpoint = `https://api.github.com/repos/${encodeURIComponent(release.owner)}/${encodeURIComponent(release.repo)}/releases/tags/${encodeURIComponent(release.tag)}`;
+    let lastError: unknown = new Error(`GitHub release metadata unavailable for ${release.tag}`);
+    for (const delayMs of DOWNLOAD_RETRY_DELAYS_MS) {
+      if (delayMs > 0) await this.waitForRetry(delayMs, signal);
+      try {
+        const response = await fetch(endpoint, {
+          signal,
+          headers: {
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+          }
+        });
+        if (!response.ok) {
+          if (!RETRYABLE_DOWNLOAD_STATUSES.has(response.status)) {
+            throw new DownloadHttpError(response.status, `GitHub release metadata failed (${response.status})`);
+          }
+          lastError = new DownloadHttpError(response.status, `GitHub release metadata failed (${response.status})`);
+          continue;
+        }
+        const payload = await response.json() as { assets?: Array<{ name?: unknown; url?: unknown }> };
+        const asset = payload.assets?.find((candidate) => candidate.name === filename);
+        const url = String(asset?.url || "").trim();
+        if (!url) throw new Error(`GitHub release asset not found: ${filename}`);
+        return { url };
+      } catch (error) {
+        lastError = error;
+        if (signal.aborted || error instanceof DownloadHttpError) throw error;
+      }
+    }
+    throw lastError;
+  }
+
+  private async waitForRetry(delayMs: number, signal: AbortSignal) {
+    await new Promise<void>((resolve, reject) => {
+      const finish = () => {
+        signal.removeEventListener("abort", abort);
+        resolve();
+      };
+      const timer = setTimeout(finish, delayMs);
+      const abort = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        reject(new DOMException("Download cancelled", "AbortError"));
+      };
+      if (signal.aborted) abort();
+      else signal.addEventListener("abort", abort, { once: true });
+    });
   }
 
   private async findExecutable(root: string, id: LocalModelComponentId) {
