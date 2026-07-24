@@ -53,6 +53,7 @@ jobs:
               -DBUILD_SHARED_LIBS=OFF \
               -DWHISPER_BUILD_TESTS=OFF \
               -DWHISPER_BUILD_EXAMPLES=ON \
+              -DGGML_NATIVE=OFF \
               -DGGML_METAL=OFF
             cmake --build "$RUNNER_TEMP/whisper-$arch" --config Release --target whisper-cli -j 3
             output_arch="$arch"

@@ -3,7 +3,7 @@ import { del, get, patchReq, post, put, requestBlob, streamNdjson, streamPost, t
 
 type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
 export type TtsStreamEvent =
-  | { type: "audio"; index: number; contentType: string; audioBase64: string }
+  | { type: "audio"; index: number; contentType: string; audioBase64: string; format?: "pcm"; sampleRate?: number }
   | { type: "done"; count: number }
   | { type: "error"; message: string };
 const STREAM_TIMELINE_TIMEOUT_MS = 15_000;
@@ -76,7 +76,8 @@ export const chatClient = {
   chatDeleteMessage: (messageId: string) => del<{ ok: boolean; timeline: ChatMessage[] }>(`/messages/${messageId}`),
   chatTranslateMessage: (messageId: string, targetLanguage?: string, signal?: AbortSignal) =>
     post<{ translation: string }>(`/chats/messages/${messageId}/translate`, { targetLanguage }, { timeoutMs: 0, signal }),
-  chatTtsMessage: (messageId: string) => requestBlob("POST", `/chats/messages/${messageId}/tts`),
+  chatTtsMessage: (messageId: string) =>
+    requestBlob("POST", `/chats/messages/${messageId}/tts`, undefined, { timeoutMs: 0 }),
   chatTtsText: (input: string) => requestBlob("POST", "/chats/tts", { input }, { timeoutMs: 0 }),
   chatTtsMessageRealtime: (messageId: string, onEvent: (event: TtsStreamEvent) => void | Promise<void>, signal?: AbortSignal) =>
     streamNdjson<TtsStreamEvent>(`/chats/messages/${messageId}/tts/realtime`, {}, onEvent, { timeoutMs: 0, signal }),
