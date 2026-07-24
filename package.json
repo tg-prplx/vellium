@@ -1,7 +1,7 @@
 {
   "name": "vellium",
   "private": true,
-  "version": "1.0.4-live-beta",
+  "version": "1.0.4-live-beta.1",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
