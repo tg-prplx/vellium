@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { api } from "../shared/api";
 import { useI18n } from "../shared/i18n";
 import { normalizeManagedBackends } from "../shared/managedBackends";
 import type { AppSettings } from "../shared/types/contracts";
 import type {
+  LocalLlmVariantId,
+  LocalLlmVariantOption,
   LocalModelCatalog,
   LocalModelComponentId,
   LocalModelInstallResult,
@@ -27,6 +29,10 @@ function formatBytes(bytes: number) {
 
 function formatExactBytes(bytes: number) {
   return `${formatBytes(bytes)} (${bytes.toLocaleString("en-US")} B)`;
+}
+
+function formatMemory(bytes: number) {
+  return `${Math.round(bytes / 1024 ** 3)} GB`;
 }
 
 async function applyInstallResult(result: LocalModelInstallResult) {
@@ -65,10 +71,21 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
   const [progress, setProgress] = useState<Partial<Record<LocalModelComponentId, LocalModelProgress>>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [preferredVariantId, setPreferredVariantId] = useState<LocalLlmVariantId | null>(null);
+  const variantSelectId = useId();
+
+  const llmVariants = catalog?.llmVariants || [];
+  const activeVariant = useMemo<LocalLlmVariantOption | null>(() => {
+    if (!llmVariants.length) return null;
+    return llmVariants.find((variant) => variant.id === preferredVariantId)
+      || llmVariants.find((variant) => variant.installed)
+      || llmVariants.find((variant) => variant.recommended)
+      || llmVariants[0];
+  }, [llmVariants, preferredVariantId]);
 
   const selectedBytes = useMemo(() => catalog?.items
     .filter((item) => visibleComponentIds.has(item.id) && selected.has(item.id))
-    .reduce((total, item) => total + item.modelBytes + item.auxiliaryBytes, 0) || 0, [catalog, selected, visibleComponentIds]);
+    .reduce((total, item) => total + (item.id === "llm" && activeVariant ? activeVariant.modelBytes : item.modelBytes) + item.auxiliaryBytes, 0) || 0, [catalog, selected, visibleComponentIds, activeVariant]);
 
   async function refresh() {
     if (!window.electronAPI?.getLocalModelCatalog) return;
@@ -91,7 +108,11 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
     setBusy(true);
     setError("");
     try {
-      const result = await window.electronAPI.installLocalModels({ componentIds: [...selected], locale });
+      const result = await window.electronAPI.installLocalModels({
+        componentIds: [...selected],
+        locale,
+        ...(activeVariant ? { llmVariantId: activeVariant.id } : {})
+      });
       await applyInstallResult(result);
       onInstalled?.(result);
       if (result.errors && Object.keys(result.errors).length) {
@@ -160,6 +181,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
         {catalog?.items.filter((item) => visibleComponentIds.has(item.id)).map((item) => {
           const state = progress[item.id];
           const percent = state?.totalBytes ? Math.min(100, Math.round(state.receivedBytes / state.totalBytes * 100)) : 0;
+          const variant = item.id === "llm" ? activeVariant : null;
           return (
             <div key={item.id} className="rounded-lg border border-border-subtle bg-bg-secondary p-3">
               <div className="flex items-start gap-3">
@@ -176,11 +198,37 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <strong className="text-xs text-text-primary">{item.name}: {item.modelName}</strong>
-                    <span className="text-[10px] text-text-tertiary">{formatExactBytes(item.modelBytes)} {t("localModels.model")} + {formatBytes(item.auxiliaryBytes)} {t("localModels.runtime")}</span>
+                    <strong className="text-xs text-text-primary">{item.name}: {variant?.modelName || item.modelName}</strong>
+                    <span className="text-[10px] text-text-tertiary">{formatExactBytes(variant?.modelBytes ?? item.modelBytes)} {t("localModels.model")} + {formatBytes(item.auxiliaryBytes)} {t("localModels.runtime")}</span>
                     {item.installed ? <span className="text-[10px] text-success">{t("localModels.installed")}</span> : null}
                   </div>
                   {item.warning ? <p className="mt-1 text-[10px] text-warning">{item.warning}</p> : null}
+                  {variant ? (
+                    <div className="mt-2">
+                      <label className="mb-1 block text-[10px] font-medium text-text-secondary" htmlFor={variantSelectId}>
+                        {t("localModels.variantLabel")}
+                      </label>
+                      <select
+                        id={variantSelectId}
+                        value={variant.id}
+                        disabled={busy || item.installed}
+                        onChange={(event) => setPreferredVariantId(event.target.value as LocalLlmVariantId)}
+                        className="w-full rounded-lg border border-border bg-bg-primary px-2 py-1.5 text-[11px] text-text-primary disabled:opacity-60"
+                      >
+                        {llmVariants.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label} · {formatBytes(option.modelBytes)} · RAM {formatMemory(option.minimumMemoryBytes)}+
+                            {option.recommended ? ` · ${t("localModels.variantRecommended")}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <p className={`mt-1 text-[10px] ${variant.fits ? "text-text-tertiary" : "text-warning"}`}>
+                        {variant.fits
+                          ? t("localModels.variantHint")
+                          : `${t("localModels.variantTooHeavy")} ${formatMemory(variant.minimumMemoryBytes)}.`}
+                      </p>
+                    </div>
+                  ) : null}
                   {state && state.phase !== "idle" ? (
                     <div className="mt-2">
                       <div className="h-1 overflow-hidden rounded-full bg-bg-hover"><div className="h-full bg-accent" style={{ width: `${state.phase === "extracting" || state.phase === "verifying" || state.phase === "installed" ? 100 : percent}%` }} /></div>
@@ -199,10 +247,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
         })}
       </div>
 
-      {visibleComponentIds.has("llm") ? (
-        <p className="mt-2 text-[10px] text-text-tertiary">{t("localModels.lighterHint")}</p>
-      ) : null}
-      {error ? <p className="mt-2 rounded-lg border border-danger-border bg-danger-subtle px-2 py-1.5 text-[11px] text-danger">{error}</p> : null}
+      {error ?<p className="mt-2 rounded-lg border border-danger-border bg-danger-subtle px-2 py-1.5 text-[11px] text-danger">{error}</p> : null}
       <div className="mt-3 flex items-center justify-between gap-3">
         <span className="text-[11px] text-text-secondary">{t("localModels.downloadTotal")}: {formatBytes(selectedBytes)}</span>
         <div className="flex gap-2">

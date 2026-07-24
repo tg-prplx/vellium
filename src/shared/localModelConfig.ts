@@ -1,5 +1,6 @@
 import type { ManagedBackendConfig } from "./types/contracts";
 import type { LocalModelHardwareProfile } from "./types/localModels";
+import type { LocalLlmVariant } from "./localLlmVariants";
 
 export const LOCAL_LLAMA_BACKEND_ID = "vellium-local-llama-backend";
 export const LOCAL_LLAMA_PROVIDER_ID = "vellium-local-llama";
@@ -14,13 +15,14 @@ export function buildLocalLlamaManagedBackend(
   executable: string,
   model: string,
   hardware: Pick<LocalModelHardwareProfile, "accelerator">,
-  threadCount: number
+  threadCount: number,
+  variant: LocalLlmVariant
 ): ManagedBackendConfig {
   const threads = Math.max(2, Math.min(16, Math.floor(threadCount)));
-  const launchArgs = `--model "${model}" --host 127.0.0.1 --port 8088 --ctx-size 8192 --threads ${threads} --threads-batch ${threads} --batch-size 512 --ubatch-size 256 --jinja --flash-attn on --n-gpu-layers ${hardware.accelerator === "cpu" ? 0 : 999}`;
+  const launchArgs = `--model "${model}" --host 127.0.0.1 --port 8088 --ctx-size ${variant.contextSize} --threads ${threads} --threads-batch ${threads} --batch-size 512 --ubatch-size 256 --jinja --flash-attn on --n-gpu-layers ${hardware.accelerator === "cpu" ? 0 : 999}`;
   return {
     id: LOCAL_LLAMA_BACKEND_ID,
-    name: "Gemma 4 26B StyleTune (llama.cpp)",
+    name: `${variant.label} (llama.cpp)`,
     enabled: true,
     providerId: LOCAL_LLAMA_PROVIDER_ID,
     providerType: "openai",
@@ -31,7 +33,7 @@ export function buildLocalLlamaManagedBackend(
     extraArgs: "",
     workingDirectory: executable.replace(/[\\/][^\\/]+$/, ""),
     envText: "",
-    defaultModel: "gemma-4-26b-a4b-styletune-v2-q4_k_m-imat.gguf",
+    defaultModel: variant.file,
     autoStopOnSwitch: true,
     statusMode: "api",
     healthPath: "/health",
