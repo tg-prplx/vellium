@@ -1,7 +1,8 @@
 import { app, type BrowserWindow } from "electron";
+import { spawn } from "child_process";
 import { createHash } from "crypto";
 import { createReadStream, createWriteStream, existsSync } from "fs";
-import { chmod, mkdir, rename, rm, statfs } from "fs/promises";
+import { chmod, mkdir, readFile, rename, rm, statfs } from "fs/promises";
 import path from "path";
 import { pipeline } from "stream/promises";
 import extractZip from "extract-zip";
@@ -14,7 +15,13 @@ import type {
   LocalModelProgress
 } from "../src/shared/types/localModels";
 import type { ManagedBackendConfig } from "../src/shared/types/contracts";
-import { buildLocalLlamaManagedBackend, LOCAL_INFERENCE_SETTINGS_URL, LOCAL_LLAMA_PROVIDER_ID } from "../src/shared/localModelConfig";
+import {
+  buildLocalLlamaManagedBackend,
+  localPiperRuntimeId,
+  LOCAL_INFERENCE_SETTINGS_URL,
+  LOCAL_LLAMA_PROVIDER_ID,
+  LOCAL_PIPER_VERSION
+} from "../src/shared/localModelConfig";
 
 type GitHubReleaseAsset = { owner: string; repo: string; tag: string };
 type Download = {
@@ -25,25 +32,31 @@ type Download = {
   archive?: "zip" | "tgz";
   githubReleaseAsset?: GitHubReleaseAsset;
 };
-type DownloadSource = { url: string; headers?: Record<string, string> };
-type ComponentSpec = { id: LocalModelComponentId; model: Download[]; runtime: Download[] };
+type DownloadSource = {
+  url: string;
+  headers?: Record<string, string>;
+  bytes?: number;
+  digest?: string;
+};
+type ComponentSpec = { id: LocalModelComponentId; model: Download[]; runtime: Download[]; runtimeId?: string };
 type InstallManifest = {
   version: 1;
   componentId: LocalModelComponentId;
   modelFiles: string[];
   executable: string;
   installedAt: string;
+  runtimeId?: string;
   voice?: string;
 };
 
 const LLAMA_VERSION = "b10107";
 const WHISPER_VERSION = "v1.9.1";
-const PIPER_VERSION = "2023.11.14-2";
 const MODEL_ROOT = "https://huggingface.co";
 const LLM_FILE = "gemma-4-26b-a4b-styletune-v2-q4_k_m-imat.gguf";
 const LLM_BYTES = 17_211_235_552;
-const WHISPER_FILE = "ggml-tiny-q5_1.bin";
-const WHISPER_BYTES = 32_152_673;
+const WHISPER_FILE = "ggml-small-q5_1.bin";
+const WHISPER_MODEL_ID = "whisper-small-q5_1";
+const WHISPER_BYTES = 190_085_487;
 const PIPER_MODEL_BYTES = 63_201_294;
 const RETRYABLE_DOWNLOAD_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const DOWNLOAD_RETRY_DELAYS_MS = [0, 500, 1_500];
@@ -69,6 +82,27 @@ function dataRoot() {
 
 function componentRoot(id: LocalModelComponentId) {
   return path.join(dataRoot(), id);
+}
+
+async function isCurrentComponentInstalled(id: LocalModelComponentId) {
+  const manifestPath = path.join(componentRoot(id), "install.json");
+  if (!existsSync(manifestPath)) return false;
+  try {
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Partial<InstallManifest>;
+    if (manifest.componentId !== id || !manifest.executable) return false;
+    const executable = safeInside(componentRoot(id), path.resolve(componentRoot(id), manifest.executable));
+    if (!existsSync(executable)) return false;
+    if (id === "stt") {
+      return Array.isArray(manifest.modelFiles)
+        && manifest.modelFiles.some((item) => String(item).split(/[\\/]/).pop() === WHISPER_FILE);
+    }
+    if (id === "tts") {
+      return manifest.runtimeId === localPiperRuntimeId(process.platform, process.arch);
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function safeInside(root: string, candidate: string) {
@@ -140,18 +174,18 @@ function whisperRuntime(platform: NodeJS.Platform, arch: string): Download {
 }
 
 function piperRuntime(platform: NodeJS.Platform, arch: string): Download {
-  const base = `https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}`;
-  if (platform === "darwin") {
-    const arm = arch === "arm64";
-    const filename = `piper_macos_${arm ? "aarch64" : "x64"}.tar.gz`;
-    return { filename, url: `${base}/${filename}`, bytes: arm ? 19_146_957 : 19_146_927, digest: arm ? "sha256:6b1eb03b3735946cb35216e063e7eebcc33a6bbf5dd96ec0217959bf1cdcb0cc" : "sha256:ced85c0a3df13945b1e623b878a48fdc2854d5c485b4b67f62857cf551deaf8b", archive: "tgz" };
-  }
-  if (platform === "win32") {
-    return { filename: "piper_windows_amd64.zip", url: `${base}/piper_windows_amd64.zip`, bytes: 22_477_236, digest: "sha256:f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea", archive: "zip" };
-  }
-  const arm = arch === "arm64";
-  const filename = `piper_linux_${arm ? "aarch64" : "x86_64"}.tar.gz`;
-  return { filename, url: `${base}/${filename}`, bytes: arm ? 26_004_717 : 26_460_462, digest: arm ? "sha256:fea0fd2d87c54dbc7078d0f878289f404bd4d6eea6e7444a77835d1537ab88eb" : "sha256:a50cb45f355b7af1f6d758c1b360717877ba0a398cc8cbe6d2a7a3a26e225992", archive: "tgz" };
+  const platformName = platform === "darwin" ? "macos" : platform === "win32" ? "windows" : "linux";
+  const archName = arch === "arm64" ? "arm64" : "x64";
+  const archive = platform === "win32" ? "zip" : "tgz";
+  const extension = archive === "zip" ? "zip" : "tar.gz";
+  const filename = `vellium-piper-ohf-v${LOCAL_PIPER_VERSION}-${platformName}-${archName}.${extension}`;
+  return {
+    filename,
+    url: `https://github.com/tg-prplx/vellium/releases/download/v${app.getVersion()}/${filename}`,
+    bytes: 0,
+    archive,
+    githubReleaseAsset: { owner: "tg-prplx", repo: "vellium", tag: `v${app.getVersion()}` }
+  };
 }
 
 async function detectHardware() {
@@ -186,6 +220,7 @@ function voiceDownloads(locale: LocalModelInstallRequest["locale"]): Download[] 
 export class LocalModelInstaller {
   private abortControllers = new Map<LocalModelComponentId, AbortController>();
   private listeners = new Set<BrowserWindow>();
+  private runtimeByteCache = new Map<string, Promise<number>>();
 
   attachWindow(window: BrowserWindow) {
     this.listeners.add(window);
@@ -194,14 +229,20 @@ export class LocalModelInstaller {
 
   async catalog(): Promise<LocalModelCatalog> {
     const hardware = await detectHardware();
-    const installed = await Promise.all((["llm", "stt", "tts"] as const).map(async (id) => existsSync(path.join(componentRoot(id), "install.json"))));
+    const installed = await Promise.all((["llm", "stt", "tts"] as const).map(isCurrentComponentInstalled));
+    const whisper = whisperRuntime(process.platform, process.arch);
+    const piper = piperRuntime(process.platform, process.arch);
+    const [whisperBytes, piperBytes] = await Promise.all([
+      this.resolveRuntimeBytes(whisper),
+      this.resolveRuntimeBytes(piper)
+    ]);
     return {
       available: ["darwin", "win32", "linux"].includes(process.platform) && ["x64", "arm64"].includes(process.arch),
       hardware,
       items: [
         { id: "llm", name: "llama.cpp", modelName: "Gemma 4 26B A4B StyleTune V2 Q4_K_M", modelBytes: LLM_BYTES, auxiliaryBytes: llamaRuntime(process.platform, process.arch, hardware.accelerator).bytes, installed: installed[0], recommended: hardware.fullGpuOffloadRecommended, warning: "Full GPU offload is intended for about 20–24 GB VRAM or unified memory including context headroom." },
-        { id: "stt", name: "Whisper", modelName: "Whisper Tiny Q5_1", modelBytes: WHISPER_BYTES, auxiliaryBytes: whisperRuntime(process.platform, process.arch).bytes, installed: installed[1], recommended: true },
-        { id: "tts", name: "Piper", modelName: "Piper medium voice", modelBytes: PIPER_MODEL_BYTES, auxiliaryBytes: piperRuntime(process.platform, process.arch).bytes, installed: installed[2], recommended: true }
+        { id: "stt", name: "Whisper", modelName: "Whisper Small Q5_1 (multilingual)", modelBytes: WHISPER_BYTES, auxiliaryBytes: whisperBytes, installed: installed[1], recommended: true },
+        { id: "tts", name: "OHF Voice", modelName: `Piper ${LOCAL_PIPER_VERSION} medium voice`, modelBytes: PIPER_MODEL_BYTES, auxiliaryBytes: piperBytes, installed: installed[2], recommended: true }
       ]
     };
   }
@@ -244,7 +285,7 @@ export class LocalModelInstaller {
           result.managedBackend = this.managedBackend(runtime, model, hardware);
           result.provider = { id: LOCAL_LLAMA_PROVIDER_ID, name: "Vellium Local (llama.cpp)", baseUrl: "http://127.0.0.1:8088/v1", apiKey: "local-key", fullLocalOnly: true, providerType: "openai" };
         } else if (id === "stt") {
-          Object.assign(result.settingsPatch, { sttSource: "whisper", sttBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, sttApiKey: "", sttModel: "whisper-tiny-q5_1" });
+          Object.assign(result.settingsPatch, { sttSource: "whisper", sttBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, sttApiKey: "", sttModel: WHISPER_MODEL_ID });
         } else {
           Object.assign(result.settingsPatch, { ttsBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, ttsApiKey: "", ttsModel: "piper", ttsVoice: manifest.voice || VOICES[request.locale].key, ttsRealtime: true });
         }
@@ -271,9 +312,14 @@ export class LocalModelInstaller {
     if (id === "stt") return {
       id,
       runtime: [whisperRuntime(process.platform, process.arch)],
-      model: [{ filename: WHISPER_FILE, url: `${MODEL_ROOT}/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/${WHISPER_FILE}?download=true`, bytes: WHISPER_BYTES, digest: "sha256:818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7" }]
+      model: [{ filename: WHISPER_FILE, url: `${MODEL_ROOT}/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/${WHISPER_FILE}?download=true`, bytes: WHISPER_BYTES, digest: "sha256:ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb" }]
     };
-    return { id, runtime: [piperRuntime(process.platform, process.arch)], model: voiceDownloads(locale) };
+    return {
+      id,
+      runtime: [piperRuntime(process.platform, process.arch)],
+      model: voiceDownloads(locale),
+      runtimeId: localPiperRuntimeId(process.platform, process.arch)
+    };
   }
 
   private async installComponent(spec: ComponentSpec, signal: AbortSignal, locale: LocalModelInstallRequest["locale"]) {
@@ -305,12 +351,17 @@ export class LocalModelInstaller {
       }
       const executable = await this.findExecutable(staging, spec.id);
       if (process.platform !== "win32") await chmod(path.join(staging, executable), 0o755);
+      if (spec.id === "tts") {
+        this.emit({ componentId: spec.id, phase: "verifying", receivedBytes: 1, totalBytes: 1, label: "Checking OHF Voice runtime" });
+        await this.validateTtsRuntime(path.join(staging, executable), signal);
+      }
       const manifest: InstallManifest = {
         version: 1,
         componentId: spec.id,
         modelFiles: spec.model.map((item) => path.join("models", item.filename)),
         executable,
         installedAt: new Date().toISOString(),
+        ...(spec.runtimeId ? { runtimeId: spec.runtimeId } : {}),
         ...(spec.id === "tts" ? { voice: VOICES[locale].key } : {})
       };
       await require("fs/promises").writeFile(path.join(staging, "install.json"), JSON.stringify(manifest, null, 2));
@@ -333,6 +384,8 @@ export class LocalModelInstaller {
         const asset = await this.resolveGitHubReleaseAsset(item.githubReleaseAsset, item.filename, signal);
         sources.push({
           url: asset.url,
+          bytes: asset.size,
+          digest: asset.digest,
           headers: {
             Accept: "application/octet-stream",
             "X-GitHub-Api-Version": "2022-11-28"
@@ -355,6 +408,12 @@ export class LocalModelInstaller {
         await rm(target, { force: true }).catch(() => {});
         try {
           await this.downloadOnce(id, item, target, source, signal);
+          if (source.digest) {
+            const [algorithm, expected] = source.digest.split(":") as ["sha256", string];
+            if (algorithm !== "sha256" || !expected || await hashFile(target, "sha256") !== expected) {
+              throw new Error(`Checksum mismatch for ${item.filename}`);
+            }
+          }
           return;
         } catch (error) {
           lastError = error;
@@ -373,8 +432,9 @@ export class LocalModelInstaller {
       await response.body?.cancel().catch(() => {});
       throw new DownloadHttpError(response.status, `Download failed (${response.status}) for ${item.filename}`);
     }
-    const headerBytes = Number(response.headers.get("content-length")) || item.bytes;
-    if (item.bytes && headerBytes && headerBytes !== item.bytes) throw new Error(`Unexpected download size for ${item.filename}`);
+    const expectedBytes = source.bytes || item.bytes;
+    const headerBytes = Number(response.headers.get("content-length")) || expectedBytes;
+    if (expectedBytes && headerBytes && headerBytes !== expectedBytes) throw new Error(`Unexpected download size for ${item.filename}`);
     let received = 0;
     const reader = response.body.getReader();
     const output = createWriteStream(target, { flags: "wx" });
@@ -384,7 +444,7 @@ export class LocalModelInstaller {
         if (done) break;
         if (signal.aborted) throw new DOMException("Download cancelled", "AbortError");
         received += value.byteLength;
-        if (item.bytes && received > item.bytes) throw new Error(`Download exceeded expected size for ${item.filename}`);
+        if (expectedBytes && received > expectedBytes) throw new Error(`Download exceeded expected size for ${item.filename}`);
         if (!output.write(Buffer.from(value))) await new Promise<void>((resolve) => output.once("drain", resolve));
         this.emit({ componentId: id, phase: "downloading", receivedBytes: received, totalBytes: headerBytes, label: `Downloading ${item.filename}` });
       }
@@ -393,7 +453,7 @@ export class LocalModelInstaller {
       output.destroy();
       throw error;
     }
-    if (item.bytes && received !== item.bytes) throw new Error(`Incomplete download for ${item.filename}`);
+    if (expectedBytes && received !== expectedBytes) throw new Error(`Incomplete download for ${item.filename}`);
   }
 
   private async resolveGitHubReleaseAsset(release: GitHubReleaseAsset, filename: string, signal: AbortSignal) {
@@ -416,17 +476,92 @@ export class LocalModelInstaller {
           lastError = new DownloadHttpError(response.status, `GitHub release metadata failed (${response.status})`);
           continue;
         }
-        const payload = await response.json() as { assets?: Array<{ name?: unknown; url?: unknown }> };
+        const payload = await response.json() as {
+          assets?: Array<{ name?: unknown; url?: unknown; size?: unknown; digest?: unknown }>;
+        };
         const asset = payload.assets?.find((candidate) => candidate.name === filename);
         const url = String(asset?.url || "").trim();
         if (!url) throw new Error(`GitHub release asset not found: ${filename}`);
-        return { url };
+        const digest = String(asset?.digest || "").trim();
+        return {
+          url,
+          size: Number(asset?.size) || 0,
+          digest: /^sha256:[a-f0-9]{64}$/i.test(digest) ? digest.toLowerCase() : undefined
+        };
       } catch (error) {
         lastError = error;
         if (signal.aborted || error instanceof DownloadHttpError) throw error;
       }
     }
     throw lastError;
+  }
+
+  private async resolveRuntimeBytes(item: Download) {
+    if (item.bytes || !item.githubReleaseAsset) return item.bytes;
+    const cacheKey = `${item.githubReleaseAsset.tag}/${item.filename}`;
+    const cached = this.runtimeByteCache.get(cacheKey);
+    if (cached) return cached;
+    const pending = this.fetchRuntimeBytes(item);
+    this.runtimeByteCache.set(cacheKey, pending);
+    return pending;
+  }
+
+  private async fetchRuntimeBytes(item: Download) {
+    if (!item.githubReleaseAsset) return item.bytes;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1_000);
+    timer.unref?.();
+    try {
+      const asset = await this.resolveGitHubReleaseAsset(item.githubReleaseAsset, item.filename, controller.signal);
+      return asset.size;
+    } catch {
+      return 0;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async validateTtsRuntime(executable: string, signal: AbortSignal) {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let output = "";
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        if (error) reject(error);
+        else resolve();
+      };
+      const child = spawn(executable, ["--help"], {
+        cwd: path.dirname(executable),
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      const collect = (chunk: Buffer) => {
+        output = `${output}${chunk.toString("utf8")}`.slice(-2_000);
+      };
+      child.stdout.on("data", collect);
+      child.stderr.on("data", collect);
+      child.once("error", (error) => {
+        finish(new Error(`OHF Voice runtime cannot start on ${process.platform}/${process.arch}: ${error.message}`));
+      });
+      child.once("exit", (code, exitSignal) => {
+        if (code === 0) finish();
+        else finish(new Error(`OHF Voice runtime check failed with code ${code ?? "?"}${exitSignal ? ` (${exitSignal})` : ""}: ${output.trim()}`));
+      });
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        finish(new Error("OHF Voice runtime check timed out"));
+      }, 30_000);
+      timer.unref?.();
+      const abort = () => {
+        child.kill("SIGKILL");
+        finish(new DOMException("Download cancelled", "AbortError"));
+      };
+      if (signal.aborted) abort();
+      else signal.addEventListener("abort", abort, { once: true });
+    });
   }
 
   private async waitForRetry(delayMs: number, signal: AbortSignal) {

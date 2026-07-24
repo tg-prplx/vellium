@@ -78,7 +78,11 @@ function safeAudioFilename(raw: string | undefined, extension: string): string {
 export async function transcribeSpeech(request: SpeechToTextRequest): Promise<string> {
   if (String(request.baseUrl || "").trim() === LOCAL_INFERENCE_URL) {
     const { mimeType } = normalizeMimeType(request.mimeType);
-    return transcribeLocalWhisper(decodeSpeechAudio(request.audioBase64), mimeType);
+    return transcribeLocalWhisper(
+      decodeSpeechAudio(request.audioBase64),
+      mimeType,
+      request.language
+    );
   }
   const endpoint = normalizeSpeechToTextEndpoint(request.baseUrl);
   const model = String(request.model || "").trim();
