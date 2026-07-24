@@ -1,4 +1,5 @@
 import type { ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState } from "./shared/types/contracts";
+import type { LocalModelCatalog, LocalModelComponentId, LocalModelInstallRequest, LocalModelInstallResult, LocalModelProgress } from "./shared/types/localModels";
 
 export interface ElectronAPI {
   minimize: () => Promise<void>;
@@ -7,6 +8,8 @@ export interface ElectronAPI {
   isMaximized: () => Promise<boolean>;
   getPlatform: () => Promise<string>;
   setZoomFactor: (factor: number) => Promise<number>;
+  requestLiveMicrophonePermission: () => Promise<{ granted: boolean; status: string }>;
+  captureLiveScreenContext: () => Promise<{ ok: boolean; dataUrl?: string; width?: number; height?: number; error?: string }>;
   saveFile: (filename: string, base64Data: string) => Promise<{ ok: boolean; canceled: boolean; filePath?: string }>;
   openExternal: (url: string) => Promise<{ ok: boolean }>;
   showDesktopPet: (config?: unknown) => Promise<{ ok: boolean; visible: boolean }>;
@@ -32,6 +35,11 @@ export interface ElectronAPI {
   getManagedBackendLogs: (backendId: string) => Promise<ManagedBackendLogEntry[]>;
   onMaximizedChange: (callback: (maximized: boolean) => void) => void;
   onManagedBackendsUpdate: (callback: (states: ManagedBackendRuntimeState[]) => void) => void;
+  getLocalModelCatalog: () => Promise<LocalModelCatalog>;
+  installLocalModels: (request: LocalModelInstallRequest) => Promise<LocalModelInstallResult>;
+  cancelLocalModelInstall: (componentId?: LocalModelComponentId) => Promise<{ ok: boolean }>;
+  removeLocalModel: (componentId: LocalModelComponentId) => Promise<LocalModelCatalog>;
+  onLocalModelProgress: (callback: (progress: LocalModelProgress) => void) => () => void;
 }
 
 export type DesktopPetChatsPayload = {

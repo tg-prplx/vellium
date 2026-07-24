@@ -29,6 +29,8 @@ import {
   compressChat,
   translateMessage,
   ttsMessage,
+  ttsMessageRealtime,
+  ttsTextRealtime,
   ttsText
 } from "../modules/chat/contentHandlers.js";
 import { completeProviderOnce, countProviderTokens } from "../modules/chat/providerExecution.js";
@@ -519,7 +521,9 @@ router.post("/messages/:id/translate", translateMessage);
 
 // --- TTS message (OpenAI-compatible audio/speech) ---
 router.post("/messages/:id/tts", ttsMessage);
+router.post("/messages/:id/tts/realtime", ttsMessageRealtime);
 router.post("/tts", ttsText);
+router.post("/tts/realtime", ttsTextRealtime);
 
 // --- Per-chat sampler config ---
 router.patch("/:id/sampler", updateChatSampler);

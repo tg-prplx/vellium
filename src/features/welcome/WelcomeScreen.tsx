@@ -3,6 +3,8 @@ import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { PROVIDER_PRESETS } from "../../shared/providerPresets";
 import type { AppSettings } from "../../shared/types/contracts";
+import type { LocalModelInstallResult } from "../../shared/types/localModels";
+import { LocalModelsSetup } from "../../components/LocalModelsSetup";
 
 type WelcomeScreenProps = {
   initialSettings: AppSettings;
@@ -21,6 +23,7 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
   const [providerApiKey, setProviderApiKey] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [setupError, setSetupError] = useState("");
+  const [localModelsConfigured, setLocalModelsConfigured] = useState(false);
   const selectedPreset = useMemo(
     () => PROVIDER_PRESETS.find((preset) => preset.key === selectedPresetKey) ?? null,
     [selectedPresetKey]
@@ -46,7 +49,7 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
     setSetupError("");
     try {
       const providerPatch: Partial<AppSettings> = {};
-      if (selectedPreset) {
+      if (selectedPreset && !localModelsConfigured) {
         await api.providerUpsert({
           id: selectedPreset.defaultId,
           name: selectedPreset.defaultName,
@@ -75,6 +78,14 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
       setSetupError(`${t("welcome.presetSetupFailed")}: ${String(error)}`);
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  function handleLocalModelsInstalled(result: LocalModelInstallResult) {
+    if (result.managedBackend) {
+      setLocalModelsConfigured(true);
+      setSelectedPresetKey("");
+      setFullLocalMode(true);
     }
   }
 
@@ -237,6 +248,10 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
             ) : (
               <p className="mt-2 text-[11px] text-text-tertiary">{t("welcome.presetSkipHint")}</p>
             )}
+          </div>
+
+          <div className="mt-4">
+            <LocalModelsSetup locale={interfaceLanguage} compact onInstalled={handleLocalModelsInstalled} />
           </div>
 
           {setupError ? (

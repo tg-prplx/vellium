@@ -639,7 +639,7 @@ export function CharactersScreen() {
     });
     try {
       const copied = await api.characterTranslateCopy(selected.id, undefined, controller.signal);
-      setCharacters((prev) => [...prev, copied]);
+      setCharacters((prev) => [copied, ...prev]);
       setSelected(copied);
       setSaveStatus(`${t("chars.translatedCopyCreated")}: ${copied.name}`);
       setSaveStatusType("success");
@@ -668,7 +668,7 @@ export function CharactersScreen() {
     }
     try {
       const result = await api.characterImportV2(importJson);
-      setCharacters((prev) => [...prev, result]);
+      setCharacters((prev) => [result, ...prev]);
       setSelected(result);
       setImportJson("");
       setImportSuccess(`${t("chars.imported")}: ${result.name}`);
@@ -686,7 +686,7 @@ export function CharactersScreen() {
       const file = e.target.files[0];
       const text = await file.text();
       const result = await api.characterImportV2(text);
-      setCharacters((prev) => [...prev, result]);
+      setCharacters((prev) => [result, ...prev]);
       setSelected(result);
       setImportSuccess(`${t("chars.importedFromFile")}: ${result.name}`);
       setTimeout(() => setImportSuccess(""), 3000);
@@ -701,7 +701,7 @@ export function CharactersScreen() {
     setImportSuccess("");
     try {
       const result = await api.characterImportV2(buildBlankCard(kind));
-      setCharacters((prev) => [...prev, result]);
+      setCharacters((prev) => [result, ...prev]);
       setSelected(result);
       setCreatePickerOpen(false);
       setImportSuccess(kind === "agent" ? t("chars.agentBlankCreated") : t("chars.blankCreated"));

@@ -4,6 +4,7 @@ import { agentClient } from "./api/agentClient";
 import { chatClient } from "./api/chatClient";
 import { contentClient } from "./api/contentClient";
 import { extensionClient } from "./api/extensionClient";
+import { liveClient } from "./api/liveClient";
 import { pluginClient } from "./api/pluginClient";
 import { providerClient } from "./api/providerClient";
 import { writerClient } from "./api/writerClient";
@@ -13,6 +14,7 @@ export const api = {
   ...agentClient,
   ...providerClient,
   ...extensionClient,
+  ...liveClient,
   ...pluginClient,
   ...chatClient,
   ...contentClient,

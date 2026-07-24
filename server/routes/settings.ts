@@ -9,7 +9,7 @@ import { normalizeManagedBackends } from "../../src/shared/managedBackends.js";
 import { normalizeRuntimeTuningSettings } from "../services/runtimeTuning.js";
 
 const router = Router();
-const TTS_DISCOVERY_TIMEOUT_MS = 12_000;
+const MODEL_DISCOVERY_TIMEOUT_MS = 12_000;
 
 const PROMPT_BLOCK_KINDS = new Set(["system", "jailbreak", "character", "author_note", "lore", "scene", "history"]);
 
@@ -149,6 +149,7 @@ function getSettings() {
     ...DEFAULT_SETTINGS,
     ...stored,
     ...normalizeRuntimeTuningSettings(stored),
+    checkForUpdates: stored.checkForUpdates !== false,
     rpReasoningEnabled: stored.rpReasoningEnabled === true,
     includeReasoningInContext: stored.includeReasoningInContext !== false,
     agentsEnabled: stored.agentsEnabled === true,
@@ -213,7 +214,7 @@ async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string
   if (!baseUrl) return [];
   const apiKey = String(apiKeyRaw || "").trim();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error(`TTS model discovery timed out after ${TTS_DISCOVERY_TIMEOUT_MS}ms`)), TTS_DISCOVERY_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(new Error(`Model discovery timed out after ${MODEL_DISCOVERY_TIMEOUT_MS}ms`)), MODEL_DISCOVERY_TIMEOUT_MS);
   let body: { data?: Array<{ id?: unknown }>; models?: Array<{ id?: unknown }>; };
   try {
     const response = await fetch(`${baseUrl}/models`, {
@@ -221,7 +222,7 @@ async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string
       cache: "no-store",
       signal: controller.signal
     });
-    if (!response.ok) throw new Error(`TTS model endpoint returned HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`Model endpoint returned HTTP ${response.status}`);
     body = await response.json() as typeof body;
   } finally {
     clearTimeout(timeout);
@@ -275,7 +276,7 @@ async function fetchOpenAiCompatibleVoices(baseUrlRaw: string, apiKeyRaw: string
   const apiKey = String(apiKeyRaw || "").trim();
   const headers = { Connection: "close", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) };
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error(`TTS voice discovery timed out after ${TTS_DISCOVERY_TIMEOUT_MS}ms`)), TTS_DISCOVERY_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(new Error(`TTS voice discovery timed out after ${MODEL_DISCOVERY_TIMEOUT_MS}ms`)), MODEL_DISCOVERY_TIMEOUT_MS);
   const candidates = [
     `${baseUrl}/audio/voices`,
     `${baseUrl}/voices`,
@@ -446,6 +447,12 @@ router.patch("/", (req, res) => {
     ...current,
     ...patchData,
     ...runtimeTuning,
+    checkForUpdates: patchData.checkForUpdates === undefined
+      ? current.checkForUpdates
+      : patchData.checkForUpdates === true,
+    ttsRealtime: patchData.ttsRealtime === undefined
+      ? current.ttsRealtime
+      : patchData.ttsRealtime === true,
     rpReasoningEnabled: patchData.rpReasoningEnabled === undefined
       ? current.rpReasoningEnabled
       : patchData.rpReasoningEnabled === true,
@@ -492,6 +499,13 @@ router.patch("/", (req, res) => {
     simpleModeWallpaperPosition: patchData.simpleModeWallpaperPosition === undefined
       ? current.simpleModeWallpaperPosition
       : normalizeWallpaperPosition(patchData.simpleModeWallpaperPosition),
+    sttSource: patchData.sttSource === "whisper"
+      ? "whisper"
+      : patchData.sttSource === "system" ? "system" : current.sttSource,
+    sttBaseUrl: String(patchData.sttBaseUrl ?? current.sttBaseUrl ?? "").trim().slice(0, 2048),
+    sttApiKey: String(patchData.sttApiKey ?? current.sttApiKey ?? "").trim().slice(0, 4096),
+    sttModel: String(patchData.sttModel ?? current.sttModel ?? "whisper-1").trim().slice(0, 200),
+    sttLanguage: String(patchData.sttLanguage ?? current.sttLanguage ?? "").trim().slice(0, 24),
     samplerConfig: { ...current.samplerConfig, ...(patchData.samplerConfig ?? {}) },
     apiParamPolicy: normalizeApiParamPolicy({
       ...(current.apiParamPolicy ?? {}),
@@ -592,6 +606,27 @@ router.post("/tts/voices", async (req, res) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     res.status(502).json({ error: `TTS voice endpoint unreachable: ${baseUrl} (${message || "request failed"})` });
+  }
+});
+
+router.post("/stt/models", async (req, res) => {
+  const current = getSettings();
+  const body = req.body as { baseUrl?: unknown; apiKey?: unknown } | undefined;
+  const baseUrl = String(body?.baseUrl ?? current.sttBaseUrl ?? "").trim();
+  const apiKey = String(body?.apiKey ?? current.sttApiKey ?? "").trim();
+  if (!baseUrl) {
+    res.json([]);
+    return;
+  }
+  if (current.fullLocalMode && !isLocalhostUrl(baseUrl)) {
+    res.status(403).json({ error: "STT endpoint blocked by Full Local Mode" });
+    return;
+  }
+  try {
+    res.json(await fetchOpenAiCompatibleModels(baseUrl, apiKey));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(502).json({ error: `STT model endpoint unreachable: ${baseUrl} (${message || "request failed"})` });
   }
 });
 

@@ -83,6 +83,7 @@ import { useMessageTranslation } from "./hooks/useMessageTranslation";
 import { useChatJsonExport } from "./hooks/useChatJsonExport";
 import { useBranchManagement } from "./hooks/useBranchManagement";
 import { useRpReasoningToggle } from "./hooks/useRpReasoningToggle";
+import { useTtsPlayback } from "./hooks/useTtsPlayback";
 
 interface StreamingToolCall {
   callId: string;
@@ -120,6 +121,8 @@ export function ChatScreen() {
   const [streamingToolsExpanded, setStreamingToolsExpanded] = useState(false);
   const [streamingReasoningExpanded, setStreamingReasoningExpanded] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
+  const [ttsRealtime, setTtsRealtime] = useState(false);
+  const { ttsLoadingId, ttsPlayingId, handleTts } = useTtsPlayback(ttsRealtime, setErrorText);
   const { rpReasoningEnabled, setRpReasoningEnabled, savingRpReasoning, toggleRpReasoning } = useRpReasoningToggle(setErrorText);
   const { branches, setBranches, activeBranchId, setActiveBranchId, forkBranch: handleFork, renameBranch, removeBranch } = useBranchManagement({ activeChat, setMessages, setErrorText });
   const { exportingChat, exportChat: exportChatJson } = useChatJsonExport(setErrorText);
@@ -176,11 +179,6 @@ export function ChatScreen() {
   const [chatModelId, setChatModelId] = useState("");
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
-
-  const [ttsLoadingId, setTtsLoadingId] = useState<string | null>(null);
-  const [ttsPlayingId, setTtsPlayingId] = useState<string | null>(null);
-  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
-  const ttsAudioUrlRef = useRef<string | null>(null);
 
   // Active preset
   const [activePreset, setActivePreset] = useState<string | null>(null);
@@ -487,6 +485,7 @@ export function ChatScreen() {
     setSamplerConfig,
     setPromptStack,
     setAlternateSimpleMode,
+    setTtsRealtime,
     setRpReasoningEnabled,
     setAutoConversationConfig,
     setSimpleSidebarOpen,
@@ -503,10 +502,33 @@ export function ChatScreen() {
   });
 
   useEffect(() => {
+    const refreshChatList = () => {
+      void api.chatList().then(setChats).catch(() => {});
+    };
+    window.addEventListener("chat-list-refresh", refreshChatList);
+    return () => window.removeEventListener("chat-list-refresh", refreshChatList);
+  }, []);
+
+  useEffect(() => {
+    const provideLiveContext = () => {
+      window.dispatchEvent(new CustomEvent("chat-context-for-live", {
+        detail: {
+          chatId: activeChat?.id || "",
+          personaId: activePersona?.id || ""
+        }
+      }));
+    };
+    window.addEventListener("live-request-chat-context", provideLiveContext);
+    provideLiveContext();
+    return () => window.removeEventListener("live-request-chat-context", provideLiveContext);
+  }, [activeChat?.id, activePersona?.id]);
+
+  useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<AppSettings>).detail;
       if (!detail || typeof detail !== "object") return;
       setAlternateSimpleMode(detail.alternateSimpleMode === true);
+      setTtsRealtime(detail.ttsRealtime === true);
       setRpReasoningEnabled(detail.rpReasoningEnabled === true);
       setAutoConversationConfig({ turns: detail.autoConversationDefaultTurns, delayMs: detail.autoConversationDelayMs });
       if (detail.alternateSimpleMode !== true) {
@@ -521,14 +543,6 @@ export function ChatScreen() {
     return () => {
       if (promptStackSaveTimerRef.current) {
         clearTimeout(promptStackSaveTimerRef.current);
-      }
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.pause();
-        ttsAudioRef.current = null;
-      }
-      if (ttsAudioUrlRef.current) {
-        URL.revokeObjectURL(ttsAudioUrlRef.current);
-        ttsAudioUrlRef.current = null;
       }
     };
   }, []);
@@ -953,48 +967,6 @@ export function ChatScreen() {
   async function handleExportChatJson() {
     if (!activeChat || exportingChat) return;
     setErrorText(""); return exportChatJson(activeChat.id, activeChat.title, activeBranchId || undefined);
-  }
-
-  async function handleTts(msgId: string) {
-    if (ttsLoadingId) return;
-
-    if (ttsPlayingId === msgId && ttsAudioRef.current) {
-      ttsAudioRef.current.pause();
-      ttsAudioRef.current.currentTime = 0;
-      setTtsPlayingId(null);
-      return;
-    }
-
-    setTtsLoadingId(msgId);
-    try {
-      const blob = await api.chatTtsMessage(msgId);
-
-      if (ttsAudioRef.current) {
-        ttsAudioRef.current.pause();
-        ttsAudioRef.current = null;
-      }
-      if (ttsAudioUrlRef.current) {
-        URL.revokeObjectURL(ttsAudioUrlRef.current);
-      }
-
-      const objectUrl = URL.createObjectURL(blob);
-      ttsAudioUrlRef.current = objectUrl;
-      const audio = new Audio(objectUrl);
-      ttsAudioRef.current = audio;
-      audio.onended = () => {
-        setTtsPlayingId((prev) => (prev === msgId ? null : prev));
-      };
-      audio.onerror = () => {
-        setTtsPlayingId((prev) => (prev === msgId ? null : prev));
-      };
-      setTtsPlayingId(msgId);
-      await audio.play();
-    } catch (error) {
-      setTtsPlayingId(null);
-      setErrorText(String(error));
-    } finally {
-      setTtsLoadingId(null);
-    }
   }
 
   function buildClipboardFilename(file: File, index: number): string {

@@ -1,4 +1,4 @@
-import type { AppSettings, McpDiscoverResult, McpImportResult, McpServerConfig, McpServerTestResult, ProviderModel } from "../types/contracts";
+import type { AppSettings, AppUpdateInfo, McpDiscoverResult, McpImportResult, McpServerConfig, McpServerTestResult, ProviderModel } from "../types/contracts";
 import { get, patchReq, post } from "./core";
 
 const LONG_RUNNING_REQUEST_OPTIONS = { timeoutMs: 0 };
@@ -11,10 +11,13 @@ export const accountSettingsClient = {
   settingsGet: () => get<AppSettings>("/settings"),
   settingsUpdate: (patchData: Partial<AppSettings>) => patchReq<AppSettings>("/settings", patchData),
   settingsReset: () => post<AppSettings>("/settings/reset"),
+  appUpdateLatest: () => get<AppUpdateInfo>("/updates/latest"),
   settingsFetchTtsModels: (baseUrl?: string, apiKey?: string, adapterId?: string | null) =>
     post<ProviderModel[]>("/settings/tts/models", { baseUrl, apiKey, adapterId }, LONG_RUNNING_REQUEST_OPTIONS),
   settingsFetchTtsVoices: (baseUrl?: string, apiKey?: string, adapterId?: string | null) =>
     post<ProviderModel[]>("/settings/tts/voices", { baseUrl, apiKey, adapterId }, LONG_RUNNING_REQUEST_OPTIONS),
+  settingsFetchSttModels: (baseUrl?: string, apiKey?: string) =>
+    post<ProviderModel[]>("/settings/stt/models", { baseUrl, apiKey }, LONG_RUNNING_REQUEST_OPTIONS),
   settingsTestMcpServer: (server: McpServerConfig) =>
     post<McpServerTestResult>("/settings/mcp/test", { server }, LONG_RUNNING_REQUEST_OPTIONS),
   settingsImportMcpSource: (source: string) =>

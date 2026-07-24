@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { writeFileSync } from "fs";
 import { join } from "path";
-import { db, newId, now, nextCharacterSortOrder, DATA_DIR } from "../db.js";
+import { db, newId, now, DATA_DIR } from "../db.js";
 import { runConsistency } from "../domain/writerEngine.js";
 import { getWriterRagBinding, setWriterRagBinding } from "../services/rag.js";
 import {
@@ -176,26 +176,29 @@ router.post("/characters/generate", async (req, res) => {
     }
   }, null, 2);
 
-  db.prepare(
-    `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, sort_order, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    draft.name,
-    cardJson,
-    null,
-    null,
-    JSON.stringify(draft.tags),
-    draft.greeting,
-    draft.systemPrompt,
-    draft.description,
-    draft.personality,
-    draft.scenario,
-    draft.mesExample,
-    draft.creatorNotes,
-    nextCharacterSortOrder(),
-    ts
-  );
+  db.transaction(() => {
+    db.prepare("UPDATE characters SET sort_order = sort_order + 1").run();
+    db.prepare(
+      `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, sort_order, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      draft.name,
+      cardJson,
+      null,
+      null,
+      JSON.stringify(draft.tags),
+      draft.greeting,
+      draft.systemPrompt,
+      draft.description,
+      draft.personality,
+      draft.scenario,
+      draft.mesExample,
+      draft.creatorNotes,
+      1,
+      ts
+    );
+  })();
 
   const row = db.prepare("SELECT * FROM characters WHERE id = ?").get(id) as CharacterRow | undefined;
   if (!row) {

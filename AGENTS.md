@@ -149,6 +149,7 @@ uncommitted changes belong to the user unless their provenance is certain.
 | `/api/agents` | `routes/agents.ts` | Deprecated Agents threads/runs/tools |
 | `/api/account` | `routes/account.ts` | Local account and recovery |
 | `/api/settings` | `routes/settings.ts` | Settings payload and normalization |
+| `/api/updates` | `routes/updates.ts` | Best-effort GitHub Release update checks |
 | `/api/plugins` | `routes/plugins.ts` | Plugin catalog/install/assets |
 | `/api/plugin-runtime` | `routes/pluginRuntime.ts` | Permission-gated plugin calls |
 | `/api/providers` | `routes/providers.ts` | Providers, models, tests, previews |
@@ -158,6 +159,7 @@ uncommitted changes belong to the user unless their provenance is certain.
 | `/api/rp` | `routes/rp.ts` | Scene state, author note, prompt blocks |
 | `/api/characters` | `routes/characters.ts` | Character CRUD/import/order |
 | `/api/lorebooks` | `routes/lorebooks.ts` | LoreBook CRUD/import/export |
+| `/api/live` | `routes/live.ts` | Live-mode speech transcription |
 | `/api/rag` | `routes/rag.ts` | Collections, ingestion, retrieval |
 | `/api/writer` | `routes/writer.ts` | Projects, scenes, generation, export |
 | `/api/personas` | `routes/personas.ts` | User persona CRUD/default |
@@ -589,4 +591,3 @@ Before reporting a task complete:
 - [ ] Real UI or packaged behavior was checked when the bug is visual/runtime-only.
 - [ ] No security boundary was weakened for convenience.
 - [ ] Final report distinguishes code/build success from real end-to-end proof.
-

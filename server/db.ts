@@ -112,11 +112,6 @@ export function nextSortOrder(chatId: string, branchId: string): number {
   return (row?.mx ?? 0) + 1;
 }
 
-export function nextCharacterSortOrder(): number {
-  const row = db.prepare("SELECT MAX(sort_order) as mx FROM characters").get() as { mx: number | null };
-  return (row?.mx ?? 0) + 1;
-}
-
 export {
   db,
   DATA_DIR,
