@@ -12,6 +12,7 @@ import agentRoutes from "../routes/agents.js";
 import characterRoutes from "../routes/characters.js";
 import chatRoutes from "../routes/chats.js";
 import lorebookRoutes from "../routes/lorebooks.js";
+import liveRoutes from "../routes/live.js";
 import messageRoutes from "../routes/messages.js";
 import personaRoutes from "../routes/personas.js";
 import pluginRoutes from "../routes/plugins.js";
@@ -21,6 +22,7 @@ import extensionRoutes from "../routes/extensions.js";
 import ragRoutes from "../routes/rag.js";
 import rpRoutes from "../routes/rp.js";
 import settingsRoutes from "../routes/settings.js";
+import updateRoutes from "../routes/updates.js";
 import writerRoutes from "../routes/writer.js";
 import { isAllowedRequestOrigin } from "./requestOrigin.js";
 
@@ -288,6 +290,7 @@ function registerRoutes(app: express.Express) {
   app.use("/api/agents", agentRoutes);
   app.use("/api/account", accountRoutes);
   app.use("/api/settings", settingsRoutes);
+  app.use("/api/updates", updateRoutes);
   app.use("/api/plugins", pluginRoutes);
   app.use("/api/plugin-runtime", pluginRuntimeRoutes);
   app.use("/api/providers", providerRoutes);
@@ -297,6 +300,7 @@ function registerRoutes(app: express.Express) {
   app.use("/api/rp", rpRoutes);
   app.use("/api/characters", characterRoutes);
   app.use("/api/lorebooks", lorebookRoutes);
+  app.use("/api/live", liveRoutes);
   app.use("/api/rag", ragRoutes);
   app.use("/api/writer", writerRoutes);
   app.use("/api/personas", personaRoutes);

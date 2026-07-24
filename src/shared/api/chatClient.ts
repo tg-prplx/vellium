@@ -1,7 +1,11 @@
 import type { BranchNode, ChatMessage, ChatSession, FileAttachment, PromptBlock, RagBinding, RpSceneState, SamplerConfig, UserPersona } from "../types/contracts";
-import { del, get, patchReq, post, put, requestBlob, streamPost, type StreamCallbacks } from "./core";
+import { del, get, patchReq, post, put, requestBlob, streamNdjson, streamPost, type StreamCallbacks } from "./core";
 
 type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
+export type TtsStreamEvent =
+  | { type: "audio"; index: number; contentType: string; audioBase64: string }
+  | { type: "done"; count: number }
+  | { type: "error"; message: string };
 const STREAM_TIMELINE_TIMEOUT_MS = 15_000;
 
 function sleep(ms: number): Promise<void> {
@@ -73,6 +77,11 @@ export const chatClient = {
   chatTranslateMessage: (messageId: string, targetLanguage?: string, signal?: AbortSignal) =>
     post<{ translation: string }>(`/chats/messages/${messageId}/translate`, { targetLanguage }, { timeoutMs: 0, signal }),
   chatTtsMessage: (messageId: string) => requestBlob("POST", `/chats/messages/${messageId}/tts`),
+  chatTtsText: (input: string) => requestBlob("POST", "/chats/tts", { input }, { timeoutMs: 0 }),
+  chatTtsMessageRealtime: (messageId: string, onEvent: (event: TtsStreamEvent) => void | Promise<void>, signal?: AbortSignal) =>
+    streamNdjson<TtsStreamEvent>(`/chats/messages/${messageId}/tts/realtime`, {}, onEvent, { timeoutMs: 0, signal }),
+  chatTtsTextRealtime: (input: string, onEvent: (event: TtsStreamEvent) => void | Promise<void>, signal?: AbortSignal) =>
+    streamNdjson<TtsStreamEvent>("/chats/tts/realtime", { input }, onEvent, { timeoutMs: 0, signal }),
   chatSaveSampler: (chatId: string, samplerConfig: SamplerConfig) => patchReq<{ ok: boolean }>(`/chats/${chatId}/sampler`, { samplerConfig }),
   chatGetSampler: (chatId: string) => get<SamplerConfig | null>(`/chats/${chatId}/sampler`),
   chatSavePreset: (chatId: string, presetId: string | null) => patchReq<{ ok: boolean }>(`/chats/${chatId}/preset`, { presetId }),

@@ -21,6 +21,7 @@ describe.sequential("createApp integration", () => {
   let lastBuildDirectToolChoice = "";
   let lastPlannerResponseFormat: unknown = null;
   let lastChatTemplateMessages: Array<{ role?: unknown; content?: unknown }> = [];
+  let lastSttMultipartBody = "";
   let createApp: typeof import("./createApp.js").createApp;
   let db: typeof import("../db.js").db;
   let newId: typeof import("../db.js").newId;
@@ -1529,6 +1530,14 @@ process.stdin.on("data", (chunk) => {
         res.end(Buffer.from("FAKE_MP3_DATA"));
         return;
       }
+      if (req.method === "POST" && req.url === "/v1/audio/transcriptions") {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        lastSttMultipartBody = Buffer.concat(chunks).toString("utf-8");
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ text: "Recognized live speech" }));
+        return;
+      }
       res.statusCode = 404;
       res.end("not found");
     }));
@@ -1581,6 +1590,27 @@ process.stdin.on("data", (chunk) => {
       role: "assistant",
       content: "[No provider configured] Echo: Hello integration"
     });
+  });
+
+  it("persists the launch update-check opt-out without contacting GitHub", async () => {
+    const disableResponse = await requestJson("/api/settings", {
+      method: "PATCH",
+      body: { checkForUpdates: false }
+    });
+    expect(disableResponse.ok).toBe(true);
+    expect((await disableResponse.json() as { checkForUpdates: boolean }).checkForUpdates).toBe(false);
+
+    const checkResponse = await fetch(`${baseUrl}/api/updates/latest`);
+    expect(checkResponse.status).toBe(403);
+    expect(await checkResponse.json()).toMatchObject({
+      error: "Update checks are disabled in Settings"
+    });
+
+    const enableResponse = await requestJson("/api/settings", {
+      method: "PATCH",
+      body: { checkForUpdates: true }
+    });
+    expect(enableResponse.ok).toBe(true);
   });
 
   it("exports a stable chat JSON bundle with branches and messages", async () => {
@@ -1698,7 +1728,7 @@ process.stdin.on("data", (chunk) => {
     await updateSettings({ rpReasoningEnabled: false });
   });
 
-  it("persists manual character ordering and appends new characters to the end", async () => {
+  it("persists manual character ordering and prepends new characters", async () => {
     const importCharacter = (name: string) => postJson("/api/characters/import", {
       rawJson: JSON.stringify({
         spec: "chara_card_v2",
@@ -1712,7 +1742,7 @@ process.stdin.on("data", (chunk) => {
       "/api/characters",
       await fetch(`${baseUrl}/api/characters`)
     ) as Array<{ id: string; sortOrder: number }>;
-    expect(before.slice(-2).map((character) => character.id)).toEqual([first.id, second.id]);
+    expect(before.slice(0, 2).map((character) => character.id)).toEqual([second.id, first.id]);
 
     const originalIds = before.map((character) => character.id);
     const reversedIds = [...originalIds].reverse();
@@ -1729,11 +1759,13 @@ process.stdin.on("data", (chunk) => {
     ) as Array<{ id: string }>;
     expect(persisted.map((character) => character.id)).toEqual(reversedIds);
 
-    const restoreResponse = await requestJson("/api/characters/reorder", {
-      method: "PATCH",
-      body: { characterIds: originalIds }
-    });
-    expect(restoreResponse.ok).toBe(true);
+    const newest = await importCharacter("Manual Order Newest");
+    const afterCreate = await parseJsonResponse(
+      "/api/characters",
+      await fetch(`${baseUrl}/api/characters`)
+    ) as Array<{ id: string }>;
+    expect(afterCreate[0]?.id).toBe(newest.id);
+    expect(afterCreate.slice(1).map((character) => character.id)).toEqual(reversedIds);
   });
 
   it("initializes a new chat from the first character's enabled scene defaults", async () => {
@@ -1890,6 +1922,47 @@ process.stdin.on("data", (chunk) => {
     expect(audioResponse.headers.get("content-type")).toContain("audio/mpeg");
     const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
     expect(audioBuffer.toString("utf-8")).toBe("FAKE_MP3_DATA");
+
+    const realtimeResponse = await fetch(`${baseUrl}/api/chats/tts/realtime`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: `${"First phrase ".repeat(20)}. ${"Second phrase ".repeat(20)}!` })
+    });
+    expect(realtimeResponse.ok).toBe(true);
+    expect(realtimeResponse.headers.get("content-type")).toContain("application/x-ndjson");
+    const realtimeEvents = (await realtimeResponse.text()).trim().split("\n").map((line) => JSON.parse(line));
+    const audioEvents = realtimeEvents.filter((event) => event.type === "audio");
+    expect(audioEvents.length).toBeGreaterThan(1);
+    expect(Buffer.from(audioEvents[0].audioBase64, "base64").toString("utf8")).toBe("FAKE_MP3_DATA");
+    expect(realtimeEvents.at(-1)).toMatchObject({ type: "done", count: audioEvents.length });
+  });
+
+  it("discovers and uses a Whisper-compatible STT endpoint", async () => {
+    await updateSettings({
+      sttSource: "whisper",
+      sttBaseUrl: mockProviderBaseUrl,
+      sttApiKey: "test-key",
+      sttModel: "whisper-1",
+      sttLanguage: "en"
+    });
+
+    const modelsResponse = await requestJson("/api/settings/stt/models", {
+      method: "POST",
+      body: {}
+    });
+    expect(modelsResponse.ok).toBe(true);
+    expect(await modelsResponse.json()).toContainEqual({ id: "mock-model" });
+
+    const transcript = await postJson("/api/live/transcribe", {
+      audioBase64: Buffer.from("fake webm audio").toString("base64"),
+      mimeType: "audio/webm;codecs=opus",
+      filename: "live-recording.webm"
+    });
+    expect(transcript).toEqual({ text: "Recognized live speech" });
+    expect(lastSttMultipartBody).toContain('name="model"');
+    expect(lastSttMultipartBody).toContain("whisper-1");
+    expect(lastSttMultipartBody).toContain('name="language"');
+    expect(lastSttMultipartBody).toContain("fake webm audio");
   });
 
   it("generates writer drafts through the mock provider and exports markdown", async () => {

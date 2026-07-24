@@ -40,6 +40,30 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist:mac
 
+      - name: Build self-contained Whisper CLI runtimes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v1.9.1 https://github.com/ggml-org/whisper.cpp.git "$RUNNER_TEMP/whisper.cpp"
+          mkdir -p release/local-runtimes
+          for arch in arm64 x86_64; do
+            cmake -S "$RUNNER_TEMP/whisper.cpp" -B "$RUNNER_TEMP/whisper-$arch" \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_ARCHITECTURES="$arch" \
+              -DBUILD_SHARED_LIBS=OFF \
+              -DWHISPER_BUILD_TESTS=OFF \
+              -DWHISPER_BUILD_EXAMPLES=ON \
+              -DGGML_METAL=OFF
+            cmake --build "$RUNNER_TEMP/whisper-$arch" --config Release --target whisper-cli -j 3
+            output_arch="$arch"
+            if [ "$arch" = "x86_64" ]; then output_arch="x64"; fi
+            stage="$RUNNER_TEMP/vellium-whisper-v1.9.1-macos-$output_arch"
+            mkdir -p "$stage"
+            cp "$RUNNER_TEMP/whisper-$arch/bin/whisper-cli" "$stage/whisper-cli"
+            cp "$RUNNER_TEMP/whisper.cpp/LICENSE" "$stage/LICENSE"
+            tar -C "$stage" -czf "release/local-runtimes/vellium-whisper-v1.9.1-macos-$output_arch.tar.gz" .
+          done
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -162,6 +186,7 @@ jobs:
             -name "*Setup*.exe.blockmap" -o \
             -name "*.AppImage" -o \
             -name "*.AppImage.blockmap" -o \
+            -name "vellium-whisper-*.tar.gz" -o \
             -name "latest.yml" -o \
             -name "latest-linux.yml" -o \
             -name "latest-mac.yml" -o \

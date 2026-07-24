@@ -3,7 +3,11 @@ import path from "path";
 import { existsSync } from "fs";
 import { mkdir, readFile, writeFile } from "fs/promises";
 import { pathToFileURL } from "url";
+import { configureLiveMediaPermissions, registerLiveMediaIpc } from "./liveMedia";
 import { ManagedBackendManager } from "./managedBackends";
+import { registerManagedBackendIpc } from "./managedBackendIpc";
+import { LocalModelInstaller } from "./localModelInstaller";
+import { registerLocalModelIpc } from "./localModelIpc";
 import { createIpcSenderGuard, decodeBoundedBase64, isAllowedExternalUrl } from "./security";
 import { buildDesktopPetHtml } from "./desktopPet/html";
 import type {
@@ -21,7 +25,6 @@ import type {
   DesktopPetTheme,
   DesktopPetUiPlacement
 } from "./desktopPet/types";
-import type { ManagedBackendConfig } from "../src/shared/types/contracts";
 import { applyServerRuntimeEnv, formatServerUrl, parseServerRuntimeOptions } from "../server/runtimeConfig";
 
 const isDev = !app.isPackaged;
@@ -85,11 +88,15 @@ let creatingWindow = false;
 let embeddedServerStart: Promise<void> | null = null;
 const desktopPetPeerSeenAt = new Map<string, number>();
 const managedBackendManager = new ManagedBackendManager();
+const localModelInstaller = new LocalModelInstaller();
 const assertTrustedIpcSender = createIpcSenderGuard({
   getMainWindow: () => mainWindow,
   getDesktopPetWindow: (sender) => getDesktopPetInstanceForSender(sender)?.window || null,
   isAllowedMainUrl: (url) => isAllowedAppNavigation(url)
 });
+registerLiveMediaIpc(assertTrustedIpcSender, () => mainWindow);
+registerLocalModelIpc(localModelInstaller, assertTrustedIpcSender);
+registerManagedBackendIpc(managedBackendManager, assertTrustedIpcSender);
 
 const SERVER_PORT = runtimeOptions.port;
 const SERVER_HOST = runtimeOptions.host;
@@ -1023,12 +1030,14 @@ async function createWindow() {
       }
     });
 
-    const session = mainWindow.webContents.session;
-    session.setPermissionCheckHandler?.(() => false);
-    session.setPermissionRequestHandler?.((_webContents, _permission, callback) => callback(false));
-    session.setDevicePermissionHandler?.(() => false);
+    configureLiveMediaPermissions({
+      session: mainWindow.webContents.session,
+      getMainWindow: () => mainWindow,
+      isAllowedAppUrl: isAllowedAppNavigation
+    });
 
     managedBackendManager.attachWindow(mainWindow);
+    localModelInstaller.attachWindow(mainWindow);
 
     const forceShowTimer = setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
@@ -1398,32 +1407,6 @@ ipcMain.handle("desktop-pet:tts", async (event, text: unknown) => {
       error: error instanceof Error ? error.message : "Desktop pet TTS request failed"
     };
   }
-});
-
-ipcMain.handle("managed-backends:list", (event) => {
-  assertTrustedIpcSender(event);
-  return managedBackendManager.listRuntimeStates();
-});
-
-ipcMain.handle("managed-backends:start", async (event, rawConfig: unknown) => {
-  assertTrustedIpcSender(event);
-  return managedBackendManager.start(rawConfig as ManagedBackendConfig);
-});
-
-ipcMain.handle("managed-backends:stop", async (event, backendId: unknown) => {
-  assertTrustedIpcSender(event);
-  return managedBackendManager.stop(String(backendId || "").trim());
-});
-
-ipcMain.handle("managed-backends:stop-active", async (event) => {
-  assertTrustedIpcSender(event);
-  await managedBackendManager.stopActive();
-  return { ok: true };
-});
-
-ipcMain.handle("managed-backends:logs", (event, backendId: unknown) => {
-  assertTrustedIpcSender(event);
-  return managedBackendManager.getLogs(String(backendId || "").trim());
 });
 
 app.on("second-instance", () => {

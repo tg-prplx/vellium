@@ -13,17 +13,13 @@ import { SettingsSidebar } from "./components/SettingsSidebar";
 import { ManagedBackendsSettings } from "./components/ManagedBackendsSettings";
 import { WallpaperThemePanel } from "./components/WallpaperThemePanel";
 import { RuntimeTuningSettings } from "./components/RuntimeTuningSettings";
+import { SpeechToTextSettings } from "./components/SpeechToTextSettings";
+import { UpdateCheckSetting } from "./components/UpdateCheckSetting";
+import { LocalModelsSetup } from "../../components/LocalModelsSetup";
 import { LegacyScreen } from "../legacy/public";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
 import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue } from "./utils";
-import {
-  applyWallpaperThemePalette,
-  clearWallpaperTheme,
-  generateWallpaperThemePalette,
-  isWallpaperThemeEnabled,
-  readWallpaperThemePalette,
-  setWallpaperThemeEnabled, storeWallpaperThemePalette
-} from "../../shared/wallpaperTheme";
+import { applyWallpaperThemePalette, clearWallpaperTheme, generateWallpaperThemePalette, isWallpaperThemeEnabled, readWallpaperThemePalette, setWallpaperThemeEnabled, storeWallpaperThemePalette } from "../../shared/wallpaperTheme";
 function isLocalProviderEndpoint(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -1743,6 +1739,7 @@ export function SettingsScreen({
                     <div className="settings-section-title">{t("settings.tts")}</div>
                     <p className="settings-section-desc">{t("settings.ttsDesc")}</p>
                   </div>
+                  <label className="flex items-center gap-2 text-xs text-text-secondary" title={t("settings.ttsRealtimeHint")}><span>{t("settings.ttsRealtime")}</span><ToggleSwitch checked={settings.ttsRealtime === true} onChange={(e) => patch({ ttsRealtime: e.target.checked })} /></label>
                 </div>
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                   <div className="space-y-3">
@@ -1781,12 +1778,14 @@ export function SettingsScreen({
                   </div>
                 </div>
               </div>
+              <SpeechToTextSettings settings={settings} onPatch={patch} autosaveProps={autosaveProps} />
             </div>
           )}
 
-          {/* ===== MANAGED BACKENDS ===== */}
           {activeCategory === "backends" && (
-            <ManagedBackendsSettings
+            <div className="space-y-4">
+              <LocalModelsSetup locale={settings.interfaceLanguage || "en"} />
+              <ManagedBackendsSettings
               backends={managedBackends}
               runtimeStateById={managedBackendStateMap}
               providers={providers}
@@ -1801,9 +1800,9 @@ export function SettingsScreen({
               onApplyCommand={applyManagedBackendCommand}
               autosaveProps={autosaveProps}
               t={t}
-            />
+              />
+            </div>
           )}
-
           {/* ===== INTERFACE ===== */}
           {activeCategory === "interface" && (
             <div className="space-y-4">
@@ -1900,6 +1899,7 @@ export function SettingsScreen({
                       {t("settings.noPluginThemes")}
                     </div>
                   )}
+                  <UpdateCheckSetting checked={settings.checkForUpdates !== false} onChange={(checked) => { void patch({ checkForUpdates: checked }); }} />
                   <div id="settings-wallpaper" className="settings-wallpaper-studio scroll-mt-24">
                     <div className="settings-wallpaper-copy">
                       <div>

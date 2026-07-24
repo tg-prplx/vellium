@@ -1,9 +1,11 @@
 import type { Request, Response } from "express";
 import { db, isLocalhostUrl } from "../../db.js";
 import { synthesizeCustomAdapterSpeech } from "../../services/customProviderAdapters.js";
+import { LOCAL_INFERENCE_URL, synthesizeLocalPiper } from "../../services/localInference.js";
 import { completeProviderOnce, normalizeOpenAiBaseUrl } from "./providerExecution.js";
 import { buildReasoningAwareTimeline } from "./reasoningContext.js";
 import { getSettings, getTimeline, resolveBranch, type MessageRow, type ProviderRow } from "./routeHelpers.js";
+import { splitRealtimeTtsInput } from "./ttsRealtime.js";
 
 function isAbortLikeError(error: unknown): boolean {
   return error instanceof Error && (
@@ -155,6 +157,16 @@ export async function ttsMessage(req: Request, res: Response) {
   await synthesizeTtsText(String(message.content || ""), res);
 }
 
+export async function ttsMessageRealtime(req: Request, res: Response) {
+  const messageId = req.params.id;
+  const message = db.prepare("SELECT * FROM messages WHERE id = ?").get(messageId) as MessageRow | undefined;
+  if (!message) {
+    res.status(404).json({ error: "Message not found" });
+    return;
+  }
+  await streamTtsText(String(message.content || ""), req, res);
+}
+
 export async function ttsText(req: Request, res: Response) {
   const input = String(req.body?.input || "").trim().slice(0, 4000);
   if (!input) {
@@ -164,66 +176,108 @@ export async function ttsText(req: Request, res: Response) {
   await synthesizeTtsText(input, res);
 }
 
+export async function ttsTextRealtime(req: Request, res: Response) {
+  const input = String(req.body?.input || "").trim().slice(0, 4000);
+  if (!input) {
+    res.status(400).json({ error: "TTS input is empty" });
+    return;
+  }
+  await streamTtsText(input, req, res);
+}
+
+async function streamTtsText(input: string, req: Request, res: Response) {
+  const chunks = splitRealtimeTtsInput(input);
+  const controller = new AbortController();
+  const onClose = () => controller.abort(new Error("TTS client disconnected"));
+  res.once("close", onClose);
+  res.status(200);
+  res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+  try {
+    for (let index = 0; index < chunks.length; index += 1) {
+      if (controller.signal.aborted || res.destroyed) break;
+      const audio = await synthesizeTtsAudio(chunks[index], controller.signal);
+      res.write(`${JSON.stringify({
+        type: "audio",
+        index,
+        contentType: audio.contentType,
+        audioBase64: audio.buffer.toString("base64")
+      })}\n`);
+    }
+    if (!res.destroyed) res.end(`${JSON.stringify({ type: "done", count: chunks.length })}\n`);
+  } catch (error) {
+    if (!controller.signal.aborted && !res.destroyed) {
+      res.end(`${JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "TTS request failed" })}\n`);
+    }
+  } finally {
+    res.removeListener("close", onClose);
+  }
+}
+
 async function synthesizeTtsText(input: string, res: Response) {
+  try {
+    const audio = await synthesizeTtsAudio(input);
+    res.setHeader("Content-Type", audio.contentType);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(audio.buffer);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "TTS request failed";
+    const status = /not configured/i.test(message) ? 400 : /blocked by Full Local Mode/i.test(message) ? 403 : 500;
+    res.status(status).json({ error: message });
+  }
+}
+
+async function synthesizeTtsAudio(input: string, signal?: AbortSignal): Promise<{ contentType: string; buffer: Buffer }> {
   const settings = getSettings();
   const rawBaseUrl = String(settings.ttsBaseUrl || "").trim();
   const apiKey = String(settings.ttsApiKey || "").trim();
   const adapterId = String(settings.ttsAdapterId || "").trim();
-  const baseUrl = adapterId ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
+  const isLocalPiper = rawBaseUrl === LOCAL_INFERENCE_URL;
+  const baseUrl = adapterId || isLocalPiper ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
   const model = String(settings.ttsModel || "").trim();
   const voice = String(settings.ttsVoice || "alloy").trim() || "alloy";
   if (!baseUrl || !model) {
-    res.status(400).json({ error: "TTS endpoint/model not configured" });
-    return;
+    throw new Error("TTS endpoint/model not configured");
   }
 
-  if (settings.fullLocalMode && !isLocalhostUrl(baseUrl)) {
-    res.status(403).json({ error: "TTS endpoint blocked by Full Local Mode" });
-    return;
+  if (settings.fullLocalMode && !isLocalPiper && !isLocalhostUrl(baseUrl)) {
+    throw new Error("TTS endpoint blocked by Full Local Mode");
   }
 
-  try {
-    if (adapterId) {
-      const result = await synthesizeCustomAdapterSpeech({
-        provider: {
-          base_url: String(settings.ttsBaseUrl || "").trim(),
-          api_key_cipher: apiKey,
-          adapter_id: adapterId
-        },
-        modelId: model,
-        voice,
-        input
-      });
-      res.setHeader("Content-Type", result.contentType);
-      res.setHeader("Cache-Control", "no-store");
-      res.send(result.buffer);
-      return;
-    }
-
-    const response = await fetch(`${baseUrl}/audio/speech`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+  if (isLocalPiper) {
+    return { contentType: "audio/wav", buffer: await synthesizeLocalPiper(input) };
+  }
+  if (adapterId) {
+    return synthesizeCustomAdapterSpeech({
+      provider: {
+        base_url: String(settings.ttsBaseUrl || "").trim(),
+        api_key_cipher: apiKey,
+        adapter_id: adapterId
       },
-      body: JSON.stringify({
-        model,
-        voice,
-        input
-      })
+      modelId: model,
+      voice,
+      input,
+      signal
     });
-    if (!response.ok) {
-      const details = await response.text().catch(() => "");
-      res.status(response.status).json({ error: `TTS failed: ${details.slice(0, 500) || response.statusText}` });
-      return;
-    }
-
-    const contentType = response.headers.get("content-type") || "audio/mpeg";
-    const arrayBuffer = await response.arrayBuffer();
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Cache-Control", "no-store");
-    res.send(Buffer.from(arrayBuffer));
-  } catch (err) {
-    res.status(500).json({ error: err instanceof Error ? err.message : "TTS request failed" });
   }
+
+  const response = await fetch(`${baseUrl}/audio/speech`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+    },
+    body: JSON.stringify({ model, voice, input }),
+    signal
+  });
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`TTS failed: ${details.slice(0, 500) || response.statusText}`);
+  }
+  return {
+    contentType: response.headers.get("content-type") || "audio/mpeg",
+    buffer: Buffer.from(await response.arrayBuffer())
+  };
 }

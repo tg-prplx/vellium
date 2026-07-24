@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState } from "../src/shared/types/contracts";
+import type { LocalModelCatalog, LocalModelComponentId, LocalModelInstallRequest, LocalModelInstallResult, LocalModelProgress } from "../src/shared/types/localModels";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   minimize: () => ipcRenderer.invoke("window:minimize"),
@@ -8,6 +9,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
   getPlatform: () => ipcRenderer.invoke("window:getPlatform"),
   setZoomFactor: (factor: number) => ipcRenderer.invoke("window:setZoomFactor", factor) as Promise<number>,
+  requestLiveMicrophonePermission: () => ipcRenderer.invoke("live:microphone-permission") as Promise<{ granted: boolean; status: string }>,
+  captureLiveScreenContext: () =>
+    ipcRenderer.invoke("live:screen-context") as Promise<{ ok: boolean; dataUrl?: string; width?: number; height?: number; error?: string }>,
   saveFile: (filename: string, base64Data: string) => ipcRenderer.invoke("file:save", { filename, base64Data }),
   openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
   showDesktopPet: (config?: unknown) => ipcRenderer.invoke("desktop-pet:show", config) as Promise<{ ok: boolean; visible: boolean }>,
@@ -46,5 +50,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("managed-backends:update", (_event, states: ManagedBackendRuntimeState[]) => {
       callback(states);
     });
+  },
+  getLocalModelCatalog: () => ipcRenderer.invoke("local-models:catalog") as Promise<LocalModelCatalog>,
+  installLocalModels: (request: LocalModelInstallRequest) => ipcRenderer.invoke("local-models:install", request) as Promise<LocalModelInstallResult>,
+  cancelLocalModelInstall: (componentId?: LocalModelComponentId) => ipcRenderer.invoke("local-models:cancel", componentId) as Promise<{ ok: boolean }>,
+  removeLocalModel: (componentId: LocalModelComponentId) => ipcRenderer.invoke("local-models:remove", componentId) as Promise<LocalModelCatalog>,
+  onLocalModelProgress: (callback: (progress: LocalModelProgress) => void) => {
+    const listener = (_event: IpcRendererEvent, progress: LocalModelProgress) => callback(progress);
+    ipcRenderer.on("local-models:progress", listener);
+    return () => ipcRenderer.removeListener("local-models:progress", listener);
   }
 });

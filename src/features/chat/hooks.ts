@@ -34,6 +34,7 @@ interface ChatBootstrapParams {
   setSamplerConfig: Dispatch<SetStateAction<SamplerConfig>>;
   setPromptStack: Dispatch<SetStateAction<PromptBlock[]>>;
   setAlternateSimpleMode: Dispatch<SetStateAction<boolean>>;
+  setTtsRealtime: Dispatch<SetStateAction<boolean>>;
   setRpReasoningEnabled: Dispatch<SetStateAction<boolean>>;
   setAutoConversationConfig: Dispatch<SetStateAction<{ turns: number; delayMs: number }>>;
   setSimpleSidebarOpen: Dispatch<SetStateAction<boolean>>;
@@ -78,6 +79,7 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
       if (settings.samplerConfig) params.setSamplerConfig(settings.samplerConfig);
       params.setPromptStack(normalizePromptStack(settings.promptStack));
       params.setAlternateSimpleMode(settings.alternateSimpleMode === true);
+      params.setTtsRealtime(settings.ttsRealtime === true);
       params.setRpReasoningEnabled(settings.rpReasoningEnabled === true);
       params.setAutoConversationConfig({ turns: settings.autoConversationDefaultTurns, delayMs: settings.autoConversationDelayMs });
       params.setSimpleSidebarOpen(settings.alternateSimpleMode !== true);

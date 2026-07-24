@@ -166,6 +166,59 @@ export async function requestBlob(method: string, path: string, body?: unknown, 
   throw lastErr;
 }
 
+export async function streamNdjson<T>(
+  path: string,
+  body: unknown,
+  onItem: (item: T) => void | Promise<void>,
+  options?: RequestOptions
+): Promise<void> {
+  let lastErr: unknown = new Error("Request failed");
+  for (const base of requestBases()) {
+    const controller = new AbortController();
+    const abortFromCaller = () => controller.abort(options?.signal?.reason);
+    if (options?.signal?.aborted) abortFromCaller();
+    else options?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+    try {
+      const response = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+        credentials: "same-origin",
+        referrerPolicy: "no-referrer",
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error(await readErrorResponseMessage(response));
+      if (!response.body) throw new Error("Streaming response has no body");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        if (buffer.length > 24 * 1024 * 1024) throw new Error("Streaming TTS chunk is too large");
+        let newline = buffer.indexOf("\n");
+        while (newline >= 0) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          if (line) await onItem(JSON.parse(line) as T);
+          newline = buffer.indexOf("\n");
+        }
+      }
+      buffer += decoder.decode();
+      if (buffer.trim()) await onItem(JSON.parse(buffer.trim()) as T);
+      return;
+    } catch (error) {
+      lastErr = error;
+      if (!isNetworkError(error) || import.meta.env.DEV || controller.signal.aborted) throw error;
+    } finally {
+      options?.signal?.removeEventListener("abort", abortFromCaller);
+    }
+  }
+  throw lastErr;
+}
+
 export type StreamCallbacks = {
   onDelta?: (delta: string) => void;
   onReasoningDelta?: (delta: string) => void;

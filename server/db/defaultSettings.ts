@@ -34,6 +34,7 @@ export function migrateDefaultSystemPrompt(value: unknown): string {
 
 export const DEFAULT_SETTINGS = {
   onboardingCompleted: false,
+  checkForUpdates: true,
   agentsEnabled: false,
   agentWorkspaceToolsEnabled: true,
   agentCommandToolEnabled: true,
@@ -81,6 +82,12 @@ export const DEFAULT_SETTINGS = {
   ttsAdapterId: null as string | null,
   ttsModel: "",
   ttsVoice: "alloy",
+  ttsRealtime: false,
+  sttSource: "system" as "system" | "whisper",
+  sttBaseUrl: "",
+  sttApiKey: "",
+  sttModel: "whisper-1",
+  sttLanguage: "",
   compressProviderId: null,
   compressModel: null,
   translationTimeoutSeconds: 120,

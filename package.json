@@ -1,7 +1,7 @@
 {
   "name": "vellium",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3-live-beta",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -37,11 +37,13 @@
     "cors": "^2.8.5",
     "docx": "^9.5.3",
     "express": "^4.22.2",
+    "extract-zip": "^2.0.1",
     "mammoth": "^1.11.0",
     "marked": "^17.0.3",
     "pdf-parse": "^1.1.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "tar": "7.5.20",
     "uuid": "^11.1.1"
   },
   "devDependencies": {
@@ -126,7 +128,8 @@
     "mac": {
       "icon": "build/icon.icns",
       "extendInfo": {
-        "NSLocalNetworkUsageDescription": "Vellium connects to AI providers and tools hosted on devices in your local network."
+        "NSLocalNetworkUsageDescription": "Vellium connects to AI providers and tools hosted on devices in your local network.",
+        "NSMicrophoneUsageDescription": "Vellium uses the microphone only when you start listening in Live mode."
       },
       "target": [
         {

@@ -700,6 +700,7 @@ export interface PluginHostContext {
 
 export interface AppSettings {
   onboardingCompleted: boolean;
+  checkForUpdates: boolean;
   /** @deprecated The Agents workspace is available only through the Legacy tab. */
   agentsEnabled: boolean;
   agentWorkspaceToolsEnabled: boolean;
@@ -748,7 +749,10 @@ export interface AppSettings {
   ttsApiKey: string;
   ttsAdapterId?: string | null;
   ttsModel: string;
-  ttsVoice: string;
+  ttsVoice: string; ttsRealtime: boolean;
+  sttSource: "system" | "whisper";
+  sttBaseUrl: string; sttApiKey: string;
+  sttModel: string; sttLanguage: string;
   compressProviderId?: string | null;
   compressModel?: string | null;
   translationTimeoutSeconds: number;
@@ -797,6 +801,15 @@ export interface AppSettings {
   };
   customInspectorFields: CustomInspectorField[];
   customEndpointAdapters: CustomEndpointAdapter[];
+}
+
+export interface AppUpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  releaseName: string;
+  releaseUrl: string;
+  publishedAt: string | null;
 }
 
 export interface ChatCharacterLink {

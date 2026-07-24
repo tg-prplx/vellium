@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { existsSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
-import { db, newId, now, nextCharacterSortOrder, AVATARS_DIR, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
+import { db, newId, now, AVATARS_DIR, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
 import { parseCharacterLoreBook } from "../domain/lorebooks.js";
 import { buildOpenAiSamplingPayload, buildKoboldSamplerConfig, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
@@ -429,12 +429,11 @@ router.post("/import", (req, res) => {
     const creatorNotes = String(data.creator_notes || "");
     const avatarPath = data.avatar ? String(data.avatar) : null;
     const ts = now();
-    const sortOrder = nextCharacterSortOrder();
-
     const parsedLorebook = parseCharacterLoreBook(data);
     let lorebookId: string | null = null;
 
     const importTx = db.transaction(() => {
+      db.prepare("UPDATE characters SET sort_order = sort_order + 1").run();
       if (parsedLorebook) {
         lorebookId = newId();
         db.prepare(
@@ -467,7 +466,7 @@ router.post("/import", (req, res) => {
         scenario,
         mesExample,
         creatorNotes,
-        sortOrder,
+        1,
         ts
       );
     });
@@ -702,28 +701,29 @@ router.post("/:id/translate-copy", async (req, res) => {
     const translatedCreatorNotes = String(translatedCardData.creator_notes || source.creator_notes || "");
     const translatedId = newId();
     const ts = now();
-    const sortOrder = nextCharacterSortOrder();
-
-    db.prepare(
-      `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, sort_order, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      translatedId,
-      finalName,
-      translatedCardJson,
-      source.lorebook_id,
-      source.avatar_path,
-      translatedTags,
-      translatedGreeting,
-      translatedSystemPrompt,
-      translatedDescription,
-      translatedPersonality,
-      translatedScenario,
-      translatedMesExample,
-      translatedCreatorNotes,
-      sortOrder,
-      ts
-    );
+    db.transaction(() => {
+      db.prepare("UPDATE characters SET sort_order = sort_order + 1").run();
+      db.prepare(
+        `INSERT INTO characters (id, name, card_json, lorebook_id, avatar_path, tags, greeting, system_prompt, description, personality, scenario, mes_example, creator_notes, sort_order, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        translatedId,
+        finalName,
+        translatedCardJson,
+        source.lorebook_id,
+        source.avatar_path,
+        translatedTags,
+        translatedGreeting,
+        translatedSystemPrompt,
+        translatedDescription,
+        translatedPersonality,
+        translatedScenario,
+        translatedMesExample,
+        translatedCreatorNotes,
+        1,
+        ts
+      );
+    })();
 
     const copied = db.prepare("SELECT * FROM characters WHERE id = ?").get(translatedId) as CharacterRow;
     res.json(characterToJson(copied));
