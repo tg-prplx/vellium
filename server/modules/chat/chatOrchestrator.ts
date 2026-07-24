@@ -43,6 +43,7 @@ import {
   serializeToolTrace,
   type ToolCallTrace
 } from "./tooling.js";
+import { appendRpReasoningTurnGuard, inlineRpReasoningHistory, RP_REASONING_SYSTEM_PROMPT } from "./rpReasoning.js";
 
 export const activeAbortControllers = new Map<string, AbortController>();
 
@@ -182,6 +183,7 @@ export async function streamLlmResponse(params: {
   const pureChatMode = chatMode === "pure_chat";
   const lightRpMode = chatMode === "light_rp";
   const strictGrounding = (settings as { strictGrounding?: unknown }).strictGrounding !== false;
+  const rpReasoningEnabled = (settings as { rpReasoningEnabled?: unknown }).rpReasoningEnabled === true;
   const systemBlockContent = String(blocks.find((block) => block.kind === "system")?.content || "").trim();
 
   const resolvedUserName = (params.userPersona?.name || "").trim() || "User";
@@ -190,7 +192,10 @@ export async function streamLlmResponse(params: {
     params.userPersona?.personality ? `Personality: ${params.userPersona.personality}` : "",
     params.userPersona?.scenario ? `Scenario: ${params.userPersona.scenario}` : ""
   ].filter(Boolean).join("\n");
-  const runtimeSystemPrompt = String(params.runtimeSystemPrompt || "").trim().slice(0, 4000);
+  const runtimeSystemPrompt = [
+    rpReasoningEnabled ? RP_REASONING_SYSTEM_PROMPT : "",
+    String(params.runtimeSystemPrompt || "").trim()
+  ].filter(Boolean).join("\n\n").slice(0, 4000);
 
   let characterIds: string[] = [];
   try {
@@ -254,16 +259,22 @@ export async function streamLlmResponse(params: {
   const effectiveBlocks = !pureChatMode && !lightRpMode && triggeredLoreEntries.length > 0
     ? injectLoreBlocks(blocks, triggeredLoreEntries)
     : blocks;
-  const promptTimelineForModel = promptTimeline.map((item) => ({
-    role: item.role === "assistant" ? "assistant" as const : "user" as const,
-    content: buildPromptContentWithAttachments(
+  const promptTimelineForModel = promptTimeline.map((item) => {
+    const content = buildPromptContentWithAttachments(
       String(item.content || ""),
       item.attachments as MessageAttachmentPayload[] | undefined || []
-    ),
-    characterName: item.characterName || undefined,
-    reasoningContent: item.reasoningContent,
-    attachments: toChatAttachments(item.attachments as MessageAttachmentPayload[] | undefined)
-  }));
+    );
+    const reasoningHistory = rpReasoningEnabled && item.role === "assistant"
+      ? inlineRpReasoningHistory(content, item.reasoningContent)
+      : { content, reasoningContent: item.reasoningContent };
+    return {
+      role: item.role === "assistant" ? "assistant" as const : "user" as const,
+      content: reasoningHistory.content,
+      characterName: item.characterName || undefined,
+      reasoningContent: reasoningHistory.reasoningContent,
+      attachments: toChatAttachments(item.attachments as MessageAttachmentPayload[] | undefined)
+    };
+  });
 
   const characterSystemPrompt = String(currentCharCard?.systemPrompt || "").trim();
   const resolvedBaseSystemPrompt = systemBlockContent
@@ -420,6 +431,9 @@ export async function streamLlmResponse(params: {
     apiMessages = mergeConsecutiveRoles(apiMessages);
   }
   apiMessages = coalesceSystemMessages(apiMessages);
+  if (rpReasoningEnabled) {
+    apiMessages = appendRpReasoningTurnGuard(apiMessages);
+  }
 
   if (!providerId || !modelId) {
     const lastUser = timeline.filter((message) => message.role === "user").pop();

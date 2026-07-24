@@ -1,6 +1,7 @@
 import { splitThinkContent } from "../modules/chat/reasoning.js";
 import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "./apiParamPolicy.js";
 import { completeCustomAdapter } from "./customProviderAdapters.js";
+import { fetchProviderResponse } from "./providerHttp.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "./providerApi.js";
 
 export interface UnifiedProviderRow {
@@ -204,7 +205,7 @@ export async function unifiedGenerateText(params: {
       maxTokens: 1024
     }
   });
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetchProviderResponse(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

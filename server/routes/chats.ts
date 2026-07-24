@@ -48,6 +48,7 @@ import {
 } from "../modules/chat/settingsHandlers.js";
 import { getChatRagBinding, setChatRagBinding } from "../services/rag.js";
 import { exportChatJson } from "../modules/chat/exportChat.js";
+import { readCharacterSceneDefaults } from "../modules/chat/characterSceneDefaults.js";
 
 const router = Router();
 
@@ -75,44 +76,52 @@ router.post("/", (req, res) => {
   const allCharIds: string[] = characterIds?.length ? characterIds : (characterId ? [characterId] : []);
   const primaryCharacterId = allCharIds[0] || null;
   const charIdsJson = JSON.stringify(allCharIds);
+  const firstChar = primaryCharacterId
+    ? db.prepare("SELECT name, greeting, card_json, lorebook_id FROM characters WHERE id = ?").get(primaryCharacterId) as {
+      name: string;
+      greeting: string;
+      card_json: string;
+      lorebook_id: string | null;
+    } | undefined
+    : undefined;
   let lorebookIds = normalizeLorebookIdList(req.body?.lorebookIds);
   if (lorebookIds.length === 0 && req.body?.lorebookId) {
     lorebookIds = [String(req.body.lorebookId).trim()].filter(Boolean);
   }
-  if (lorebookIds.length === 0 && allCharIds[0]) {
-    const row = db.prepare("SELECT lorebook_id FROM characters WHERE id = ?").get(allCharIds[0]) as { lorebook_id: string | null } | undefined;
-    if (row?.lorebook_id) {
-      lorebookIds = [row.lorebook_id];
-    }
+  if (lorebookIds.length === 0 && firstChar?.lorebook_id) {
+    lorebookIds = [firstChar.lorebook_id];
   }
   const lorebookId = lorebookIds[0] || null;
 
-  db.prepare("INSERT INTO chats (id, title, character_id, character_ids, lorebook_id, lorebook_ids, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(chatId, title, primaryCharacterId, charIdsJson, lorebookId, JSON.stringify(lorebookIds), ts);
+  const sceneDefaults = readCharacterSceneDefaults(firstChar?.card_json, chatId);
+  const createChat = db.transaction(() => {
+    db.prepare("INSERT INTO chats (id, title, character_id, character_ids, lorebook_id, lorebook_ids, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(chatId, title, primaryCharacterId, charIdsJson, lorebookId, JSON.stringify(lorebookIds), ts);
 
-  // Auto-create root branch
-  const branchId = newId();
-  db.prepare("INSERT INTO branches (id, chat_id, name, parent_message_id, created_at) VALUES (?, ?, ?, ?, ?)")
-    .run(branchId, chatId, "main", null, ts);
+    // Auto-create root branch
+    const branchId = newId();
+    db.prepare("INSERT INTO branches (id, chat_id, name, parent_message_id, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(branchId, chatId, "main", null, ts);
 
-  // If character has a greeting, insert it as first message
-  if (allCharIds.length > 0) {
-    // Insert greeting from first character
-    const firstChar = db.prepare("SELECT name, greeting, card_json FROM characters WHERE id = ?").get(allCharIds[0]) as {
-      name: string;
-      greeting: string;
-      card_json: string;
-    } | undefined;
-    const cardData = parseCardData(firstChar?.card_json);
-    const alternateGreetings = pickStringList(cardData.alternate_greetings);
-    const firstGreeting = String(firstChar?.greeting || "").trim();
-    const greetingToInsert = pickInitialGreeting(firstGreeting, alternateGreetings, settings.useAlternateGreetings === true);
-    if (greetingToInsert && firstChar) {
-      db.prepare(
-        "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
-      ).run(newId(), chatId, branchId, "assistant", greetingToInsert, roughTokenCount(greetingToInsert), null, ts, firstChar.name, 1);
+    if (sceneDefaults) {
+      db.prepare("INSERT INTO rp_scene_state (chat_id, payload, updated_at) VALUES (?, ?, ?)")
+        .run(chatId, JSON.stringify(sceneDefaults), ts);
     }
-  }
+
+    // If character has a greeting, insert it as first message.
+    if (firstChar) {
+      const cardData = parseCardData(firstChar.card_json);
+      const alternateGreetings = pickStringList(cardData.alternate_greetings);
+      const firstGreeting = String(firstChar.greeting || "").trim();
+      const greetingToInsert = pickInitialGreeting(firstGreeting, alternateGreetings, settings.useAlternateGreetings === true);
+      if (greetingToInsert) {
+        db.prepare(
+          "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+        ).run(newId(), chatId, branchId, "assistant", greetingToInsert, roughTokenCount(greetingToInsert), null, ts, firstChar.name, 1);
+      }
+    }
+  });
+  createChat();
 
   res.json({ id: chatId, title, characterId: primaryCharacterId, characterIds: allCharIds, lorebookId, lorebookIds, createdAt: ts });
 });

@@ -226,16 +226,24 @@ interface ToggleSwitchProps {
   checked: boolean;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
   disabled?: boolean;
+  ariaLabel?: string;
 }
 
 export function ToggleSwitch({
   checked,
   onChange,
-  disabled = false
+  disabled = false,
+  ariaLabel
 }: ToggleSwitchProps) {
   return (
     <label className="toggle-switch">
-      <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} />
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        aria-label={ariaLabel}
+      />
       <div className="toggle-track">
         <div className="toggle-thumb" />
       </div>

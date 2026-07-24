@@ -1,4 +1,5 @@
 import { db } from "../../db.js";
+import { describeSceneLevel } from "../../../src/shared/sceneLevels.js";
 import { normalizeLoreBookEntries, type LoreBookEntryData } from "../../domain/lorebooks.js";
 import { replacePromptPlaceholders, type CharacterCardData } from "../../domain/rpEngine.js";
 import {
@@ -114,20 +115,20 @@ export function buildSillyTavernCompatibleLightPrompt(params: {
   const scene = params.sceneState;
   if (scene) {
     const style = String(scene.variables.dialogueStyle || "").trim();
-    const initiative = String(scene.variables.initiative || "").trim();
-    const descriptiveness = String(scene.variables.descriptiveness || "").trim();
-    const unpredictability = String(scene.variables.unpredictability || "").trim();
-    const emotionalDepth = String(scene.variables.emotionalDepth || "").trim();
+    const initiative = Number(scene.variables.initiative);
+    const descriptiveness = Number(scene.variables.descriptiveness);
+    const unpredictability = Number(scene.variables.unpredictability);
+    const emotionalDepth = Number(scene.variables.emotionalDepth);
     const lines = [
       "[Light RP Scene]",
       `Mood: ${scene.mood || "neutral"}`,
       `Pacing: ${scene.pacing || "balanced"}`,
-      `Intensity: ${Math.round(Math.max(0, Math.min(1, scene.intensity)) * 100)}%`,
+      `Intensity: ${describeSceneLevel("intensity", scene.intensity * 100)}`,
       style ? `Dialogue style: ${style}` : "",
-      initiative ? `Initiative: ${initiative}%` : "",
-      descriptiveness ? `Descriptiveness: ${descriptiveness}%` : "",
-      unpredictability ? `Unpredictability: ${unpredictability}%` : "",
-      emotionalDepth ? `Emotional depth: ${emotionalDepth}%` : ""
+      Number.isFinite(initiative) ? `Initiative: ${describeSceneLevel("initiative", initiative)}` : "",
+      Number.isFinite(descriptiveness) ? `Descriptiveness: ${describeSceneLevel("descriptiveness", descriptiveness)}` : "",
+      Number.isFinite(unpredictability) ? `Unpredictability: ${describeSceneLevel("unpredictability", unpredictability)}` : "",
+      Number.isFinite(emotionalDepth) ? `Emotional depth: ${describeSceneLevel("emotionalDepth", emotionalDepth)}` : ""
     ].filter(Boolean);
     sections.push(lines.join("\n"));
   }

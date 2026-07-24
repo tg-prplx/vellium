@@ -1,3 +1,5 @@
+import { fetchProviderResponse } from "./providerHttp.js";
+
 export type ProviderType = "openai" | "koboldcpp" | "custom";
 
 export interface ProviderLike {
@@ -153,7 +155,7 @@ export async function requestKoboldGenerate(
   signal?: AbortSignal
 ) {
   const base = normalizeKoboldBaseUrl(provider.base_url);
-  return fetch(`${base}/api/v1/generate`, {
+  return fetchProviderResponse(`${base}/api/v1/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -167,7 +169,7 @@ export async function requestKoboldGenerateStream(
   signal?: AbortSignal
 ) {
   const base = normalizeKoboldBaseUrl(provider.base_url);
-  return fetch(`${base}/api/extra/generate/stream`, {
+  return fetchProviderResponse(`${base}/api/extra/generate/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

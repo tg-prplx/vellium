@@ -6,6 +6,7 @@ import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../component
 import { PluginActionBar, PluginSlotMount } from "../plugins/PluginHost";
 import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
+import { getSceneLevelTranslationKey, type SceneLevelAxis } from "../../shared/sceneLevels";
 import type {
   AppSettings,
   ChatMessage,
@@ -70,6 +71,7 @@ import { ToolResultPreview, type ToolResultMediaItem } from "./components/ToolRe
 import { SceneControlsEditor } from "./components/SceneControlsEditor";
 import { SimpleSceneModal } from "./components/SimpleSceneModal";
 import { BranchManager } from "./components/BranchManager";
+import { RpReasoningToggle } from "./components/RpReasoningToggle";
 import {
   failBackgroundTask,
   finishBackgroundTask,
@@ -80,6 +82,7 @@ import {
 import { useMessageTranslation } from "./hooks/useMessageTranslation";
 import { useChatJsonExport } from "./hooks/useChatJsonExport";
 import { useBranchManagement } from "./hooks/useBranchManagement";
+import { useRpReasoningToggle } from "./hooks/useRpReasoningToggle";
 
 interface StreamingToolCall {
   callId: string;
@@ -117,6 +120,7 @@ export function ChatScreen() {
   const [streamingToolsExpanded, setStreamingToolsExpanded] = useState(false);
   const [streamingReasoningExpanded, setStreamingReasoningExpanded] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
+  const { rpReasoningEnabled, setRpReasoningEnabled, savingRpReasoning, toggleRpReasoning } = useRpReasoningToggle(setErrorText);
   const { branches, setBranches, activeBranchId, setActiveBranchId, forkBranch: handleFork, renameBranch, removeBranch } = useBranchManagement({ activeChat, setMessages, setErrorText });
   const { exportingChat, exportChat: exportChatJson } = useChatJsonExport(setErrorText);
   const {
@@ -483,6 +487,7 @@ export function ChatScreen() {
     setSamplerConfig,
     setPromptStack,
     setAlternateSimpleMode,
+    setRpReasoningEnabled,
     setAutoConversationConfig,
     setSimpleSidebarOpen,
     setSceneFieldVisibility,
@@ -502,6 +507,7 @@ export function ChatScreen() {
       const detail = (event as CustomEvent<AppSettings>).detail;
       if (!detail || typeof detail !== "object") return;
       setAlternateSimpleMode(detail.alternateSimpleMode === true);
+      setRpReasoningEnabled(detail.rpReasoningEnabled === true);
       setAutoConversationConfig({ turns: detail.autoConversationDefaultTurns, delayMs: detail.autoConversationDelayMs });
       if (detail.alternateSimpleMode !== true) {
         setSimpleSidebarOpen(true);
@@ -2379,6 +2385,7 @@ export function ChatScreen() {
                           </span>
                         )}
                         {loadingModels && <span>{t("chat.loading")}</span>}
+                        <RpReasoningToggle enabled={rpReasoningEnabled} disabled={chatGenerationBusy || savingRpReasoning} variant="status" onToggle={() => { void toggleRpReasoning(); }} />
                         {chatMode === "light_rp" && <span>{t("inspector.modeLightRpHint")}</span>}
                       </div>
                     </div>
@@ -2654,6 +2661,7 @@ export function ChatScreen() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
+                <RpReasoningToggle enabled={rpReasoningEnabled} disabled={chatGenerationBusy || savingRpReasoning} variant="home" onToggle={() => { void toggleRpReasoning(); }} />
                 <button
                   onClick={() => openSimpleInspector(true)}
                   className="chat-simple-home-control"
@@ -3144,6 +3152,7 @@ export function ChatScreen() {
                         </svg>
                       </button>
                     )}
+                    {!simpleHomeState && <RpReasoningToggle enabled={rpReasoningEnabled} disabled={chatGenerationBusy || savingRpReasoning} onToggle={() => { void toggleRpReasoning(); }} />}
                     {!simpleHomeState && (
                       <span className="chat-simple-bar-mode">
                         {chatMode === "rp" ? t("inspector.modeRp") : chatMode === "light_rp" ? t("inspector.modeLightRp") : t("inspector.modePureChat")}
@@ -3538,11 +3547,13 @@ export function ChatScreen() {
                     <div>
                       <div className="mb-1 flex items-center justify-between">
                         <label className="text-[10px] text-text-tertiary">{t("inspector.intensity")}</label>
-                        <span className="text-[10px] font-medium text-text-secondary">{Math.round(sceneState.intensity * 100)}%</span>
+                        <span className="text-[10px] font-medium text-text-secondary">
+                          {Math.round(sceneState.intensity * 100)}% ({t(getSceneLevelTranslationKey("intensity", sceneState.intensity * 100))})
+                        </span>
                       </div>
                       <input type="range" min={0} max={1} step={0.05} value={sceneState.intensity}
                         onChange={(e) => setSceneState((prev) => ({ ...prev, intensity: Number(e.target.value) }))}
-                        className="w-full" />
+                        className="scene-level-range w-full" />
                     </div>
                     {sceneFieldVisibility.dialogueStyle && (
                       <div>
@@ -3572,7 +3583,9 @@ export function ChatScreen() {
                         <div key={item.key}>
                           <div className="mb-1 flex items-center justify-between">
                             <label className="text-[10px] text-text-tertiary">{item.label}</label>
-                            <span className="text-[10px] font-medium text-text-secondary">{value}%</span>
+                            <span className="text-[10px] font-medium text-text-secondary">
+                              {value}% ({t(getSceneLevelTranslationKey(item.key as SceneLevelAxis, value))})
+                            </span>
                           </div>
                           <input
                             type="range"
@@ -3581,7 +3594,7 @@ export function ChatScreen() {
                             step={5}
                             value={value}
                             onChange={(e) => setSceneVariablePercent(item.key, Number(e.target.value))}
-                            className="w-full"
+                            className="scene-level-range w-full"
                           />
                         </div>
                       );

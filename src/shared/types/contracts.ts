@@ -260,6 +260,14 @@ export interface RpSceneState {
   pureChatMode?: boolean;
 }
 
+export interface CharacterSceneDefaults {
+  enabled: boolean;
+  variables: Record<string, string>;
+  mood: string;
+  pacing: "slow" | "balanced" | "fast";
+  intensity: number;
+}
+
 export interface RpPreset {
   id: Id;
   name: string;
@@ -756,6 +764,7 @@ export interface AppSettings {
   apiParamPolicy: ApiParamPolicy;
   defaultSystemPrompt: string;
   strictGrounding: boolean;
+  rpReasoningEnabled: boolean;
   includeReasoningInContext: boolean;
   contextMaxMessages: number;
   reasoningMaxChars: number;

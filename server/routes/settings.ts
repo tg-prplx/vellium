@@ -149,6 +149,7 @@ function getSettings() {
     ...DEFAULT_SETTINGS,
     ...stored,
     ...normalizeRuntimeTuningSettings(stored),
+    rpReasoningEnabled: stored.rpReasoningEnabled === true,
     includeReasoningInContext: stored.includeReasoningInContext !== false,
     agentsEnabled: stored.agentsEnabled === true,
     agentWorkspaceToolsEnabled: stored.agentWorkspaceToolsEnabled !== false,
@@ -445,6 +446,9 @@ router.patch("/", (req, res) => {
     ...current,
     ...patchData,
     ...runtimeTuning,
+    rpReasoningEnabled: patchData.rpReasoningEnabled === undefined
+      ? current.rpReasoningEnabled
+      : patchData.rpReasoningEnabled === true,
     includeReasoningInContext: patchData.includeReasoningInContext === undefined
       ? current.includeReasoningInContext
       : patchData.includeReasoningInContext !== false,

@@ -146,6 +146,7 @@ export const DEFAULT_SETTINGS = {
   },
   defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
   strictGrounding: true,
+  rpReasoningEnabled: false,
   includeReasoningInContext: true,
   contextMaxMessages: 0,
   reasoningMaxChars: 12000,

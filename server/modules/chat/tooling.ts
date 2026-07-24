@@ -1,6 +1,7 @@
 import { buildOpenAiSamplingPayload } from "../../services/apiParamPolicy.js";
 import { coalesceSystemMessages } from "../../domain/rpEngine.js";
 import { prepareMcpTools, type McpServerConfig } from "../../services/mcp.js";
+import { fetchProviderResponse } from "../../services/providerHttp.js";
 import type { ProviderRow } from "./routeHelpers.js";
 import {
   consumeSseEventBlocks,
@@ -11,6 +12,7 @@ import {
 } from "./openAiStream.js";
 import { consumeThinkChunk, createThinkStreamState, flushThinkState } from "./reasoning.js";
 import { prepareOpenAiCompatibleMessages } from "./providerMessages.js";
+import { appendRpReasoningTurnGuard } from "./rpReasoning.js";
 
 export interface OpenAICompletionMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -645,7 +647,7 @@ async function requestChatCompletion(
   const requestBody = Array.isArray(body.messages)
     ? { ...body, messages: prepareOpenAiCompatibleMessages(baseUrl, body.messages as OpenAICompletionMessage[]) }
     : body;
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetchProviderResponse(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -694,7 +696,7 @@ async function requestChatCompletionStream(
   const requestBody = Array.isArray(body.messages)
     ? { ...body, messages: prepareOpenAiCompatibleMessages(baseUrl, body.messages as OpenAICompletionMessage[]) }
     : body;
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await fetchProviderResponse(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1026,13 +1028,16 @@ export async function runToolCallingCompletion(params: {
       : policy === "aggressive"
         ? "Prefer using tools when they can improve accuracy, freshness, or completeness of the answer."
         : "Use tools only when they clearly help produce a better answer.";
-    const workingMessages = coalesceSystemMessages([
+    const messagesWithToolPolicy = coalesceSystemMessages([
       ...params.apiMessages,
       {
         role: "system",
         content: policyInstruction
       }
     ] as Array<OpenAICompletionMessage>);
+    const workingMessages = params.settings.rpReasoningEnabled === true
+      ? appendRpReasoningTurnGuard(messagesWithToolPolicy)
+      : messagesWithToolPolicy;
     const sc = params.samplerConfig;
     const openAiSampling = buildOpenAiSamplingPayload({
       samplerConfig: sc,

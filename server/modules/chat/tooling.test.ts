@@ -11,6 +11,7 @@ import {
   serializeToolTrace,
   type ToolCallTrace
 } from "./tooling.js";
+import { RP_REASONING_TURN_GUARD } from "./rpReasoning.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -253,11 +254,13 @@ describe("runToolCallingCompletion", () => {
       }
     );
 
+    const capturedMessageBatches: Array<Array<{ role?: string; content?: unknown }>> = [];
     globalThis.fetch = vi.fn(async (_input, init) => {
       const body = JSON.parse(String(init?.body || "{}")) as {
-        messages?: Array<{ role?: string }>;
+        messages?: Array<{ role?: string; content?: unknown }>;
         stream?: boolean;
       };
+      capturedMessageBatches.push(body.messages || []);
       const toolMessages = (body.messages || []).filter((item) => item.role === "tool");
       if (toolMessages.length === 0 && body.stream === true) {
         return makeSseResponse([
@@ -313,10 +316,16 @@ describe("runToolCallingCompletion", () => {
       } as never,
       modelId: "test-model",
       samplerConfig: {},
-      apiMessages: [{
-        role: "user",
-        content: "Use the tool and answer after it."
-      }],
+      apiMessages: [
+        {
+          role: "system",
+          content: `Base prompt\n\n${RP_REASONING_TURN_GUARD}`
+        },
+        {
+          role: "user",
+          content: "Use the tool and answer after it."
+        }
+      ],
       settings: {
         mcpServers: [{
           id: "mockserver",
@@ -324,7 +333,8 @@ describe("runToolCallingCompletion", () => {
           command: "node",
           enabled: true
         }],
-        toolCallingPolicy: "balanced"
+        toolCallingPolicy: "balanced",
+        rpReasoningEnabled: true
       },
       signal: new AbortController().signal,
       onAssistantDelta: (delta) => {
@@ -338,6 +348,15 @@ describe("runToolCallingCompletion", () => {
     });
     expect(result?.streamMessages).toBeUndefined();
     expect(streamedAssistantDeltas).toEqual(["FINAL ", "TOOL ANSWER"]);
+    expect(capturedMessageBatches).toHaveLength(2);
+    for (const messages of capturedMessageBatches) {
+      const systemMessages = messages.filter((message) => message.role === "system");
+      expect(systemMessages).toHaveLength(1);
+      const systemContent = String(systemMessages[0]?.content || "");
+      expect(systemContent).toContain("Use tools only when they clearly help produce a better answer.");
+      expect(systemContent.endsWith(RP_REASONING_TURN_GUARD)).toBe(true);
+      expect(systemContent.split(RP_REASONING_TURN_GUARD)).toHaveLength(2);
+    }
   });
 
   it("streams reasoning while tool calling is enabled even when no tool is used", async () => {

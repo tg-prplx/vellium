@@ -6,7 +6,13 @@ import { isAbortError } from "../../shared/errors";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../components/Panels";
 import { ToggleSwitch } from "../../components/FormControls";
-import type { AgentHeroProfile, AgentHeroSkill, AppSettings, CharacterDetail } from "../../shared/types/contracts";
+import type {
+  AgentHeroProfile,
+  AgentHeroSkill,
+  AppSettings,
+  CharacterDetail,
+  CharacterSceneDefaults
+} from "../../shared/types/contracts";
 import {
   failBackgroundTask,
   finishBackgroundTask,
@@ -14,10 +20,27 @@ import {
   useBackgroundTasks
 } from "../../shared/backgroundTasks";
 import { CharacterLibraryList } from "./components/CharacterLibraryList";
+import { CharacterSceneStateEditor } from "./components/CharacterSceneStateEditor";
 
 const ALT_GREETING_SEPARATOR = "\n\n---\n\n";
 const HERO_AGENT_EXTENSION_KEY = "vellium_agent";
+const SCENE_DEFAULTS_EXTENSION_KEY = "vellium_scene_state";
 type CharacterEditorKind = "standard" | "agent";
+type CharacterEditorTab = "profile" | "scene";
+
+const DEFAULT_CHARACTER_SCENE_DEFAULTS: CharacterSceneDefaults = {
+  enabled: false,
+  variables: {
+    dialogueStyle: "teasing",
+    initiative: "65",
+    descriptiveness: "70",
+    unpredictability: "45",
+    emotionalDepth: "75"
+  },
+  mood: "teasing",
+  pacing: "slow",
+  intensity: 0.7
+};
 
 function buildEmptyHeroSkill(index = 0): AgentHeroSkill {
   return {
@@ -115,6 +138,57 @@ function mergeAgentProfileExtension(extensions: Record<string, unknown>, agentPr
     delete next[HERO_AGENT_EXTENSION_KEY];
   }
   return next;
+}
+
+function normalizeCharacterSceneDefaults(value: unknown): CharacterSceneDefaults {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      ...DEFAULT_CHARACTER_SCENE_DEFAULTS,
+      variables: { ...DEFAULT_CHARACTER_SCENE_DEFAULTS.variables }
+    };
+  }
+  const record = value as Record<string, unknown>;
+  const rawVariables = toPlainObject(record.variables);
+  const variables = { ...DEFAULT_CHARACTER_SCENE_DEFAULTS.variables };
+  for (const [key, rawValue] of Object.entries(rawVariables)) {
+    if (typeof rawValue === "string") variables[key] = rawValue;
+    else if (typeof rawValue === "number" && Number.isFinite(rawValue)) variables[key] = String(rawValue);
+  }
+  const intensity = typeof record.intensity === "number" && Number.isFinite(record.intensity)
+    ? Math.max(0, Math.min(1, record.intensity))
+    : DEFAULT_CHARACTER_SCENE_DEFAULTS.intensity;
+  return {
+    enabled: record.enabled === true,
+    variables,
+    mood: typeof record.mood === "string" ? record.mood : DEFAULT_CHARACTER_SCENE_DEFAULTS.mood,
+    pacing: record.pacing === "slow" || record.pacing === "fast" || record.pacing === "balanced"
+      ? record.pacing
+      : DEFAULT_CHARACTER_SCENE_DEFAULTS.pacing,
+    intensity
+  };
+}
+
+function splitSceneDefaultsExtension(extensions: Record<string, unknown>) {
+  const next = { ...toPlainObject(extensions) };
+  const sceneDefaults = normalizeCharacterSceneDefaults(next[SCENE_DEFAULTS_EXTENSION_KEY]);
+  delete next[SCENE_DEFAULTS_EXTENSION_KEY];
+  return { extensions: next, sceneDefaults };
+}
+
+function mergeSceneDefaultsExtension(
+  extensions: Record<string, unknown>,
+  sceneDefaults: CharacterSceneDefaults
+) {
+  return {
+    ...toPlainObject(extensions),
+    [SCENE_DEFAULTS_EXTENSION_KEY]: {
+      enabled: sceneDefaults.enabled,
+      variables: { ...sceneDefaults.variables },
+      mood: sceneDefaults.mood.trim(),
+      pacing: sceneDefaults.pacing,
+      intensity: Math.max(0, Math.min(1, sceneDefaults.intensity))
+    }
+  };
 }
 
 function parseAlternateGreetingsInput(raw: string): string[] {
@@ -215,6 +289,10 @@ export function CharactersScreen() {
   const [creatorNotesMultilingualJson, setCreatorNotesMultilingualJson] = useState("{}");
   const [extensionsJson, setExtensionsJson] = useState("{}");
   const [agentProfileDraft, setAgentProfileDraft] = useState<AgentHeroProfile>(createEmptyAgentProfile());
+  const [sceneDefaultsDraft, setSceneDefaultsDraft] = useState<CharacterSceneDefaults>(() =>
+    normalizeCharacterSceneDefaults(null)
+  );
+  const [editorTab, setEditorTab] = useState<CharacterEditorTab>("profile");
 
   // Raw JSON panel
   const [rawJson, setRawJson] = useState("{}");
@@ -318,12 +396,14 @@ export function CharactersScreen() {
       setCreatorNotesMultilingualJson("{}");
       setExtensionsJson("{}");
       setAgentProfileDraft(createEmptyAgentProfile());
+      setSceneDefaultsDraft(normalizeCharacterSceneDefaults(null));
       setRawJson("{}");
       setEditorSections(editorSectionsForKind("standard"));
       return;
     }
     const parsedAgentProfile = normalizeAgentProfile(selected.agentProfile);
-    const { extensions } = splitAgentProfileExtension(selected.extensions);
+    const agentSplit = splitAgentProfileExtension(selected.extensions);
+    const sceneSplit = splitSceneDefaultsExtension(agentSplit.extensions);
     setName(selected.name);
     setDescription(selected.description || "");
     setPersonality(selected.personality || "");
@@ -338,8 +418,9 @@ export function CharactersScreen() {
     setPostHistoryInstructions(selected.postHistoryInstructions || "");
     setAlternateGreetingsText(formatAlternateGreetings(selected.alternateGreetings));
     setCreatorNotesMultilingualJson(formatObjectJson(selected.creatorNotesMultilingual));
-    setExtensionsJson(formatObjectJson(extensions));
+    setExtensionsJson(formatObjectJson(sceneSplit.extensions));
     setAgentProfileDraft(parsedAgentProfile);
+    setSceneDefaultsDraft(sceneSplit.sceneDefaults);
     setRawJson(selected.cardJson || "{}");
     setJsonSyncDirection("gui");
     setEditorSections(editorSectionsForKind(parsedAgentProfile.enabled ? "agent" : "standard"));
@@ -365,9 +446,14 @@ export function CharactersScreen() {
       data.post_history_instructions = postHistoryInstructions;
       data.alternate_greetings = parseAlternateGreetingsInput(alternateGreetingsText);
       data.creator_notes_multilingual = parseObjectJson(creatorNotesMultilingualJson, toPlainObject(data.creator_notes_multilingual));
-      data.extensions = mergeAgentProfileExtension(
-        parseObjectJson(extensionsJson, splitAgentProfileExtension(toPlainObject(data.extensions)).extensions),
-        agentProfileDraft
+      const currentAgentSplit = splitAgentProfileExtension(toPlainObject(data.extensions));
+      const currentSceneSplit = splitSceneDefaultsExtension(currentAgentSplit.extensions);
+      data.extensions = mergeSceneDefaultsExtension(
+        mergeAgentProfileExtension(
+          parseObjectJson(extensionsJson, currentSceneSplit.extensions),
+          agentProfileDraft
+        ),
+        sceneDefaultsDraft
       );
       setRawJson(JSON.stringify({ spec: "chara_card_v2", spec_version: "2.0", data }, null, 2));
     } catch {
@@ -390,6 +476,7 @@ export function CharactersScreen() {
     creatorNotesMultilingualJson,
     extensionsJson,
     agentProfileDraft,
+    sceneDefaultsDraft,
     jsonSyncDirection,
     selected
   ]);
@@ -414,9 +501,11 @@ export function CharactersScreen() {
       setPostHistoryInstructions(typeof data.post_history_instructions === "string" ? data.post_history_instructions : "");
       setAlternateGreetingsText(formatAlternateGreetings(data.alternate_greetings));
       setCreatorNotesMultilingualJson(formatObjectJson(data.creator_notes_multilingual));
-      const split = splitAgentProfileExtension(toPlainObject(data.extensions));
-      setExtensionsJson(formatObjectJson(split.extensions));
-      setAgentProfileDraft(split.agentProfile);
+      const agentSplit = splitAgentProfileExtension(toPlainObject(data.extensions));
+      const sceneSplit = splitSceneDefaultsExtension(agentSplit.extensions);
+      setExtensionsJson(formatObjectJson(sceneSplit.extensions));
+      setAgentProfileDraft(agentSplit.agentProfile);
+      setSceneDefaultsDraft(sceneSplit.sceneDefaults);
       setJsonSyncDirection("gui");
     } catch {
       // ignore
@@ -430,7 +519,10 @@ export function CharactersScreen() {
     try {
       const tagsArr = tags.split(",").map((t) => t.trim()).filter(Boolean);
       const creatorNotesMultilingual = parseObjectJsonStrict(creatorNotesMultilingualJson);
-      const extensions = mergeAgentProfileExtension(parseObjectJsonStrict(extensionsJson), agentProfileDraft);
+      const extensions = mergeSceneDefaultsExtension(
+        mergeAgentProfileExtension(parseObjectJsonStrict(extensionsJson), agentProfileDraft),
+        sceneDefaultsDraft
+      );
       const updated = await api.characterUpdate(selected.id, {
         name,
         description,
@@ -1064,7 +1156,30 @@ export function CharactersScreen() {
               </div>
             </div>
 
+            <div className="char-editor-tabs" role="tablist" aria-label={t("chars.editorTabs")}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={editorTab === "profile"}
+                className={editorTab === "profile" ? "is-active" : ""}
+                onClick={() => setEditorTab("profile")}
+              >
+                {t("chars.profileTab")}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={editorTab === "scene"}
+                className={editorTab === "scene" ? "is-active" : ""}
+                onClick={() => setEditorTab("scene")}
+              >
+                {t("chars.sceneStateTab")}
+                {sceneDefaultsDraft.enabled ? <span className="char-editor-tab-status" /> : null}
+              </button>
+            </div>
+
             {/* GUI editor fields — sectioned */}
+            {editorTab === "profile" ? (
             <div className="flex-1 space-y-2 overflow-y-auto">
               {/* Section: Identity */}
               <div className="char-editor-section">
@@ -1395,6 +1510,17 @@ export function CharactersScreen() {
                 )}
               </div>
             </div>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <CharacterSceneStateEditor
+                  value={sceneDefaultsDraft}
+                  onChange={(nextValue) => {
+                    setSceneDefaultsDraft(nextValue);
+                    setJsonSyncDirection("gui");
+                  }}
+                />
+              </div>
+            )}
           </div>
         ) : (
           <EmptyState title={t("chars.selectCharacter")} description={t("chars.selectCharacterDesc")} />

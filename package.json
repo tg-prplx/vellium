@@ -1,7 +1,7 @@
 {
   "name": "vellium",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -95,6 +95,7 @@
   "build": {
     "appId": "com.vellium.app",
     "productName": "Vellium",
+    "afterPack": "scripts/after-pack.cjs",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -124,6 +125,9 @@
     "npmRebuild": true,
     "mac": {
       "icon": "build/icon.icns",
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "Vellium connects to AI providers and tools hosted on devices in your local network."
+      },
       "target": [
         {
           "target": "dmg",
