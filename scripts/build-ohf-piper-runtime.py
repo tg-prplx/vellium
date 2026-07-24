@@ -51,9 +51,10 @@ def copy_distribution_licenses(stage: Path) -> None:
 
 
 def build_runtime(output_dir: Path, platform_name: str, arch: str) -> Path:
-    entrypoint = shutil.which("piper")
-    if not entrypoint:
-        raise RuntimeError("piper executable is unavailable; install the pinned piper-tts package first")
+    try:
+        importlib.metadata.version("piper-tts")
+    except importlib.metadata.PackageNotFoundError as error:
+        raise RuntimeError("piper-tts is unavailable; install the pinned build requirements first") from error
 
     archive_suffix = ".zip" if platform_name == "windows" else ".tar.gz"
     archive_name = f"vellium-piper-ohf-v{PIPER_VERSION}-{platform_name}-{arch}{archive_suffix}"
@@ -63,6 +64,13 @@ def build_runtime(output_dir: Path, platform_name: str, arch: str) -> Path:
     with tempfile.TemporaryDirectory(prefix="vellium-piper-build-") as temporary:
         temporary_root = Path(temporary)
         dist_root = temporary_root / "dist"
+        entrypoint = temporary_root / "piper_entry.py"
+        entrypoint.write_text(
+            "from piper.__main__ import main\n\n"
+            "if __name__ == \"__main__\":\n"
+            "    main()\n",
+            encoding="utf-8",
+        )
         subprocess.run(
             [
                 sys.executable,
@@ -83,7 +91,7 @@ def build_runtime(output_dir: Path, platform_name: str, arch: str) -> Path:
                 str(temporary_root / "work"),
                 "--specpath",
                 str(temporary_root / "spec"),
-                entrypoint,
+                str(entrypoint),
             ],
             check=True,
         )
