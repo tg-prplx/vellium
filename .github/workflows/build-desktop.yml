@@ -38,7 +38,15 @@ jobs:
       - name: Build app bundles
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npm run dist:mac
+        shell: bash
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            if npm run dist:mac; then exit 0; else status=$?; fi
+            if [ "$attempt" -eq 3 ]; then exit "$status"; fi
+            echo "macOS packaging failed; retrying attempt $((attempt + 1))/3 after $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
 
       - name: Build self-contained Whisper CLI runtimes
         shell: bash
@@ -101,7 +109,17 @@ jobs:
       - name: Build app bundles
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npm run dist:win
+        shell: pwsh
+        run: |
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            npm run dist:win
+            $status = $LASTEXITCODE
+            if ($status -eq 0) { exit 0 }
+            if ($attempt -eq 3) { exit $status }
+            $delay = $attempt * 15
+            Write-Host "Windows packaging failed; retrying attempt $($attempt + 1)/3 after ${delay}s"
+            Start-Sleep -Seconds $delay
+          }
 
       - name: Verify bundled plugins are packaged
         shell: pwsh
@@ -146,7 +164,15 @@ jobs:
       - name: Build AppImage bundle
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npm run dist:linux
+        shell: bash
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            if npm run dist:linux; then exit 0; else status=$?; fi
+            if [ "$attempt" -eq 3 ]; then exit "$status"; fi
+            echo "Linux packaging failed; retrying attempt $((attempt + 1))/3 after $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
