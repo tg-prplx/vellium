@@ -1077,7 +1077,7 @@ export const ja = {
   "localModels.title": "ローカル AI をインストール",
   "localModels.description": "LLM、音声認識、音声モデルを Vellium のデータフォルダーへダウンロードし、自動設定します。ここから削除もできます。",
   "localModels.speechTitle": "ローカル音声をインストール",
-  "localModels.speechDescription": "ローカルの Whisper STT と Piper TTS をいつでもインストール、設定、削除できます。",
+  "localModels.speechDescription": "ローカル Whisper STT と、任意導入の OHF Voice Piper TTS ランタイムをいつでもインストール、設定、削除できます。",
   "localModels.desktopOnly": "ローカルモデルの自動インストールはデスクトップアプリで利用できます。",
   "localModels.model": "モデル",
   "localModels.runtime": "ランタイム",

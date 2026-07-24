@@ -1,0 +1,8 @@
+piper-tts==1.6.0
+onnxruntime==1.27.0
+numpy==2.4.6
+pathvalidate==3.3.1
+protobuf==7.35.1
+flatbuffers==25.12.19
+pyinstaller==6.21.0
+pyinstaller-hooks-contrib==2026.6

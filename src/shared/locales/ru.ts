@@ -1585,7 +1585,7 @@ export const ru = {
   "localModels.title": "Установить локальный ИИ",
   "localModels.description": "Скачивает независимые модели LLM, распознавания и озвучки в каталог данных Vellium. Всё настраивается автоматически и удаляется здесь же.",
   "localModels.speechTitle": "Установить локальную речь",
-  "localModels.speechDescription": "В любой момент установите, настройте или удалите локальные Whisper STT и Piper TTS.",
+  "localModels.speechDescription": "В любой момент установите, настройте или удалите локальные Whisper STT и отдельный движок OHF Voice Piper TTS.",
   "localModels.desktopOnly": "Автоустановка локальных моделей доступна в desktop-приложении.",
   "localModels.model": "модель",
   "localModels.runtime": "движок",

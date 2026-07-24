@@ -4,6 +4,7 @@ import { mkdir, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 import { DATA_DIR } from "../db/paths.js";
+import { localPiperRuntimeId } from "../../src/shared/localModelConfig.js";
 
 export const LOCAL_INFERENCE_URL = "vellium-local://inference";
 const ROOT = path.join(DATA_DIR, "local-models");
@@ -14,6 +15,7 @@ interface Manifest {
   componentId: "stt" | "tts";
   modelFiles: string[];
   executable: string;
+  runtimeId?: string;
   voice?: string;
 }
 
@@ -29,6 +31,9 @@ async function loadManifest(componentId: "stt" | "tts") {
   const raw = JSON.parse(await readFile(path.join(root, "install.json"), "utf8")) as Manifest;
   if (raw.version !== 1 || raw.componentId !== componentId || !Array.isArray(raw.modelFiles) || !raw.modelFiles[0]) {
     throw new Error(`Local ${componentId.toUpperCase()} installation is invalid`);
+  }
+  if (componentId === "tts" && raw.runtimeId !== localPiperRuntimeId(process.platform, process.arch)) {
+    throw new Error("Local TTS runtime is outdated or incompatible with this computer; reinstall OHF Voice in Settings");
   }
   const executable = safeResolve(root, String(raw.executable || ""));
   const models = raw.modelFiles.map((item) => safeResolve(root, String(item || "")));
@@ -63,7 +68,20 @@ async function runProcess(command: string, args: string[], options: { cwd: strin
   });
 }
 
-export async function transcribeLocalWhisper(audio: Buffer, mimeType: string) {
+export function buildLocalWhisperArgs(model: string, input: string, outputPrefix: string, language = "") {
+  const normalizedLanguage = String(language || "").trim().toLowerCase();
+  const resolvedLanguage = /^[a-z]{2,3}$/.test(normalizedLanguage) ? normalizedLanguage : "auto";
+  return [
+    "--model", model,
+    "--file", input,
+    "--language", resolvedLanguage,
+    "--output-txt",
+    "--output-file", outputPrefix,
+    "--no-timestamps"
+  ];
+}
+
+export async function transcribeLocalWhisper(audio: Buffer, mimeType: string, language = "") {
   const normalized = String(mimeType || "").split(";")[0].toLowerCase();
   if (normalized !== "audio/wav" && normalized !== "audio/x-wav") {
     throw new Error("Local Whisper requires PCM WAV audio; restart Live mode and record again");
@@ -75,13 +93,11 @@ export async function transcribeLocalWhisper(audio: Buffer, mimeType: string) {
   const outputPrefix = path.join(temp, "transcript");
   try {
     await writeFile(input, audio, { flag: "wx" });
-    await runProcess(runtime.executable, [
-      "--model", runtime.models[0],
-      "--file", input,
-      "--output-txt",
-      "--output-file", outputPrefix,
-      "--no-timestamps"
-    ], { cwd: path.dirname(runtime.executable), timeoutMs: 120_000 });
+    await runProcess(
+      runtime.executable,
+      buildLocalWhisperArgs(runtime.models[0], input, outputPrefix, language),
+      { cwd: path.dirname(runtime.executable), timeoutMs: 120_000 }
+    );
     const text = (await readFile(`${outputPrefix}.txt`, "utf8")).trim();
     if (!text) throw new Error("Local Whisper returned an empty transcript");
     return text.slice(0, 100_000);

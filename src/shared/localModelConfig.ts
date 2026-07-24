@@ -4,6 +4,11 @@ import type { LocalModelHardwareProfile } from "./types/localModels";
 export const LOCAL_LLAMA_BACKEND_ID = "vellium-local-llama-backend";
 export const LOCAL_LLAMA_PROVIDER_ID = "vellium-local-llama";
 export const LOCAL_INFERENCE_SETTINGS_URL = "vellium-local://inference";
+export const LOCAL_PIPER_VERSION = "1.6.0";
+
+export function localPiperRuntimeId(platform: string, arch: string) {
+  return `ohf-piper-v${LOCAL_PIPER_VERSION}-${platform}-${arch}`;
+}
 
 export function buildLocalLlamaManagedBackend(
   executable: string,
