@@ -1,6 +1,7 @@
 import type { ManagedBackendConfig } from "./contracts";
 
 export type LocalModelComponentId = "llm" | "stt" | "tts";
+export type LocalLlmVariantId = "e2b" | "e4b" | "12b" | "26b";
 export type LocalModelInstallPhase = "idle" | "downloading" | "extracting" | "verifying" | "installed" | "error" | "cancelled";
 
 export interface LocalModelCatalogItem {
@@ -14,13 +15,27 @@ export interface LocalModelCatalogItem {
   warning?: string;
 }
 
+export interface LocalLlmVariantOption {
+  id: LocalLlmVariantId;
+  label: string;
+  modelName: string;
+  modelBytes: number;
+  minimumMemoryBytes: number;
+  recommendedMemoryBytes: number;
+  contextSize: number;
+  /** The machine meets this variant's minimum requirements. */
+  fits: boolean;
+  /** The auto-selected default for this machine. */
+  recommended: boolean;
+  installed: boolean;
+}
+
 export interface LocalModelHardwareProfile {
   platform: string;
   arch: string;
   memoryBytes: number;
   gpuLabel: string;
   accelerator: "metal" | "cuda" | "vulkan" | "rocm" | "cpu";
-  fullGpuOffloadRecommended: boolean;
 }
 
 export interface LocalModelCatalog {
@@ -28,6 +43,7 @@ export interface LocalModelCatalog {
   reason?: string;
   hardware: LocalModelHardwareProfile;
   items: LocalModelCatalogItem[];
+  llmVariants: LocalLlmVariantOption[];
 }
 
 export interface LocalModelProgress {
@@ -42,6 +58,8 @@ export interface LocalModelProgress {
 export interface LocalModelInstallRequest {
   componentIds: LocalModelComponentId[];
   locale: "en" | "ru" | "zh" | "ja";
+  /** Defaults to the variant recommended for the detected hardware. */
+  llmVariantId?: LocalLlmVariantId;
 }
 
 export interface LocalModelInstallResult {

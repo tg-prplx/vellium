@@ -25,6 +25,7 @@ import settingsRoutes from "../routes/settings.js";
 import updateRoutes from "../routes/updates.js";
 import writerRoutes from "../routes/writer.js";
 import { isAllowedRequestOrigin } from "./requestOrigin.js";
+import { buildPermissionsPolicy } from "./permissionsPolicy.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const INLINE_ATTACHMENT_TEXT_LIMIT = 240_000;
@@ -358,7 +359,7 @@ export function createApp() {
     }
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
-    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), midi=()");
+    res.setHeader("Permissions-Policy", buildPermissionsPolicy(req.path));
     if (req.path.startsWith("/api")) {
       res.setHeader("Cache-Control", "no-store");
     }

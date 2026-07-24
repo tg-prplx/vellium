@@ -90,8 +90,8 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
   }
 
   return (
-    <div className="mx-auto h-full w-full max-w-[1300px] overflow-y-auto p-4 md:p-6">
-      <div className="grid h-full min-h-[560px] grid-cols-1 gap-4 lg:grid-cols-[1.05fr,1.35fr]">
+    <div className="h-full w-full overflow-y-auto overflow-x-hidden">
+      <div className="mx-auto grid w-full max-w-[1300px] grid-cols-1 items-start gap-4 p-4 md:p-6 lg:grid-cols-[1.05fr,1.35fr]">
         <section className="panel-shell float-card flex flex-col rounded-2xl border border-border bg-bg-secondary p-5">
           <div className="flex items-center justify-between">
             <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("welcome.stepLabel")}</p>

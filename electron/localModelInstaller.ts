@@ -8,6 +8,7 @@ import { pipeline } from "stream/promises";
 import extractZip from "extract-zip";
 import { x as extractTar } from "tar";
 import type {
+  LocalLlmVariantId,
   LocalModelCatalog,
   LocalModelComponentId,
   LocalModelInstallRequest,
@@ -22,6 +23,14 @@ import {
   LOCAL_LLAMA_PROVIDER_ID,
   LOCAL_PIPER_VERSION
 } from "../src/shared/localModelConfig";
+import {
+  findLocalLlmVariant,
+  localLlmModelUrl,
+  localLlmVariantFits,
+  recommendedLocalLlmVariant,
+  LOCAL_LLM_VARIANTS,
+  type LocalLlmVariant
+} from "../src/shared/localLlmVariants";
 
 type GitHubReleaseAsset = { owner: string; repo: string; tag: string };
 type Download = {
@@ -38,7 +47,7 @@ type DownloadSource = {
   bytes?: number;
   digest?: string;
 };
-type ComponentSpec = { id: LocalModelComponentId; model: Download[]; runtime: Download[]; runtimeId?: string };
+type ComponentSpec = { id: LocalModelComponentId; model: Download[]; runtime: Download[]; runtimeId?: string; variantId?: LocalLlmVariantId };
 type InstallManifest = {
   version: 1;
   componentId: LocalModelComponentId;
@@ -47,13 +56,12 @@ type InstallManifest = {
   installedAt: string;
   runtimeId?: string;
   voice?: string;
+  variantId?: LocalLlmVariantId;
 };
 
 const LLAMA_VERSION = "b10107";
 const WHISPER_VERSION = "v1.9.1";
 const MODEL_ROOT = "https://huggingface.co";
-const LLM_FILE = "gemma-4-26b-a4b-styletune-v2-q4_k_m-imat.gguf";
-const LLM_BYTES = 17_211_235_552;
 const WHISPER_FILE = "ggml-small-q5_1.bin";
 const WHISPER_MODEL_ID = "whisper-small-q5_1";
 const WHISPER_BYTES = 190_085_487;
@@ -84,25 +92,32 @@ function componentRoot(id: LocalModelComponentId) {
   return path.join(dataRoot(), id);
 }
 
-async function isCurrentComponentInstalled(id: LocalModelComponentId) {
+async function readCurrentInstall(id: LocalModelComponentId): Promise<Partial<InstallManifest> | null> {
   const manifestPath = path.join(componentRoot(id), "install.json");
-  if (!existsSync(manifestPath)) return false;
+  if (!existsSync(manifestPath)) return null;
   try {
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Partial<InstallManifest>;
-    if (manifest.componentId !== id || !manifest.executable) return false;
+    if (manifest.componentId !== id || !manifest.executable) return null;
     const executable = safeInside(componentRoot(id), path.resolve(componentRoot(id), manifest.executable));
-    if (!existsSync(executable)) return false;
+    if (!existsSync(executable)) return null;
     if (id === "stt") {
-      return Array.isArray(manifest.modelFiles)
+      const matches = Array.isArray(manifest.modelFiles)
         && manifest.modelFiles.some((item) => String(item).split(/[\\/]/).pop() === WHISPER_FILE);
+      return matches ? manifest : null;
     }
     if (id === "tts") {
-      return manifest.runtimeId === localPiperRuntimeId(process.platform, process.arch);
+      return manifest.runtimeId === localPiperRuntimeId(process.platform, process.arch) ? manifest : null;
     }
-    return true;
+    return manifest;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Installations predating the model ladder always carried the 26B build. */
+function installedLlmVariantId(manifest: Partial<InstallManifest> | null) {
+  if (!manifest) return null;
+  return findLocalLlmVariant(manifest.variantId)?.id ?? "26b";
 }
 
 function safeInside(root: string, candidate: string) {
@@ -197,14 +212,12 @@ async function detectHardware() {
   if (process.platform === "darwin") accelerator = "metal";
   else if (process.platform === "win32" && (gpu.gpuDevice || []).some((item) => item.active)) accelerator = "vulkan";
   else if (process.platform === "linux" && (gpu.gpuDevice || []).some((item) => item.active)) accelerator = "vulkan";
-  const memoryBytes = Number(require("os").totalmem());
   return {
     platform: process.platform,
     arch: process.arch,
-    memoryBytes,
+    memoryBytes: Number(require("os").totalmem()),
     gpuLabel: label,
-    accelerator,
-    fullGpuOffloadRecommended: memoryBytes >= 24 * 1024 ** 3
+    accelerator
   };
 }
 
@@ -229,20 +242,35 @@ export class LocalModelInstaller {
 
   async catalog(): Promise<LocalModelCatalog> {
     const hardware = await detectHardware();
-    const installed = await Promise.all((["llm", "stt", "tts"] as const).map(isCurrentComponentInstalled));
+    const installed = await Promise.all((["llm", "stt", "tts"] as const).map(readCurrentInstall));
     const whisper = whisperRuntime(process.platform, process.arch);
     const piper = piperRuntime(process.platform, process.arch);
     const [whisperBytes, piperBytes] = await Promise.all([
       this.resolveRuntimeBytes(whisper),
       this.resolveRuntimeBytes(piper)
     ]);
+    const installedVariantId = installedLlmVariantId(installed[0]);
+    const recommendedVariant = recommendedLocalLlmVariant(hardware);
+    const activeVariant = findLocalLlmVariant(installedVariantId) || recommendedVariant;
     return {
       available: ["darwin", "win32", "linux"].includes(process.platform) && ["x64", "arm64"].includes(process.arch),
       hardware,
+      llmVariants: LOCAL_LLM_VARIANTS.map((variant) => ({
+        id: variant.id,
+        label: variant.label,
+        modelName: variant.modelName,
+        modelBytes: variant.bytes,
+        minimumMemoryBytes: variant.minimumMemoryBytes,
+        recommendedMemoryBytes: variant.recommendedMemoryBytes,
+        contextSize: variant.contextSize,
+        fits: localLlmVariantFits(variant, hardware),
+        recommended: variant.id === recommendedVariant.id,
+        installed: variant.id === installedVariantId
+      })),
       items: [
-        { id: "llm", name: "llama.cpp", modelName: "Gemma 4 26B A4B StyleTune V2 Q4_K_M", modelBytes: LLM_BYTES, auxiliaryBytes: llamaRuntime(process.platform, process.arch, hardware.accelerator).bytes, installed: installed[0], recommended: hardware.fullGpuOffloadRecommended, warning: "Full GPU offload is intended for about 20–24 GB VRAM or unified memory including context headroom." },
-        { id: "stt", name: "Whisper", modelName: "Whisper Small Q5_1 (multilingual)", modelBytes: WHISPER_BYTES, auxiliaryBytes: whisperBytes, installed: installed[1], recommended: true },
-        { id: "tts", name: "OHF Voice", modelName: `Piper ${LOCAL_PIPER_VERSION} medium voice`, modelBytes: PIPER_MODEL_BYTES, auxiliaryBytes: piperBytes, installed: installed[2], recommended: true }
+        { id: "llm", name: "llama.cpp", modelName: activeVariant.modelName, modelBytes: activeVariant.bytes, auxiliaryBytes: llamaRuntime(process.platform, process.arch, hardware.accelerator).bytes, installed: Boolean(installed[0]), recommended: true },
+        { id: "stt", name: "Whisper", modelName: "Whisper Small Q5_1 (multilingual)", modelBytes: WHISPER_BYTES, auxiliaryBytes: whisperBytes, installed: Boolean(installed[1]), recommended: true },
+        { id: "tts", name: "OHF Voice", modelName: `Piper ${LOCAL_PIPER_VERSION} medium voice`, modelBytes: PIPER_MODEL_BYTES, auxiliaryBytes: piperBytes, installed: Boolean(installed[2]), recommended: true }
       ]
     };
   }
@@ -263,8 +291,9 @@ export class LocalModelInstaller {
     const ids = [...new Set(request.componentIds)].filter((id): id is LocalModelComponentId => ["llm", "stt", "tts"].includes(id));
     if (!ids.length) throw new Error("Select at least one local model");
     const hardware = await detectHardware();
+    const variant = findLocalLlmVariant(request.llmVariantId) || recommendedLocalLlmVariant(hardware);
     await mkdir(dataRoot(), { recursive: true });
-    const specs = ids.map((id) => this.spec(id, request.locale, hardware.accelerator));
+    const specs = ids.map((id) => this.spec(id, request.locale, hardware.accelerator, variant));
     const requiredBytes = specs.flatMap((spec) => [...spec.runtime, ...spec.model]).reduce((sum, item) => sum + item.bytes, 0) + 1024 ** 3;
     const disk = await statfs(dataRoot());
     const availableBytes = Number(disk.bavail) * Number(disk.bsize);
@@ -282,7 +311,7 @@ export class LocalModelInstaller {
         if (id === "llm") {
           const runtime = path.join(componentRoot(id), manifest.executable);
           const model = path.join(componentRoot(id), manifest.modelFiles[0]);
-          result.managedBackend = this.managedBackend(runtime, model, hardware);
+          result.managedBackend = this.managedBackend(runtime, model, hardware, variant);
           result.provider = { id: LOCAL_LLAMA_PROVIDER_ID, name: "Vellium Local (llama.cpp)", baseUrl: "http://127.0.0.1:8088/v1", apiKey: "local-key", fullLocalOnly: true, providerType: "openai" };
         } else if (id === "stt") {
           Object.assign(result.settingsPatch, { sttSource: "whisper", sttBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, sttApiKey: "", sttModel: WHISPER_MODEL_ID });
@@ -303,11 +332,12 @@ export class LocalModelInstaller {
     return result;
   }
 
-  private spec(id: LocalModelComponentId, locale: LocalModelInstallRequest["locale"], accelerator: string): ComponentSpec {
+  private spec(id: LocalModelComponentId, locale: LocalModelInstallRequest["locale"], accelerator: string, variant: LocalLlmVariant): ComponentSpec {
     if (id === "llm") return {
       id,
       runtime: [llamaRuntime(process.platform, process.arch, accelerator)],
-      model: [{ filename: LLM_FILE, url: `${MODEL_ROOT}/Kraekin/Gemma-4-26B-A4B-StyleTune-V2-Q4_K_M-GGUF/resolve/1c49854aee1a3a6551f6ac0e5c9bccae4a1f66e2/${LLM_FILE}?download=true`, bytes: LLM_BYTES, digest: "sha256:0d7c6006e8c767f55e4f18252f28e25537d72f8c1b5dd01fa0450408a707bcf8" }]
+      model: [{ filename: variant.file, url: localLlmModelUrl(variant), bytes: variant.bytes, digest: variant.digest }],
+      variantId: variant.id
     };
     if (id === "stt") return {
       id,
@@ -362,6 +392,7 @@ export class LocalModelInstaller {
         executable,
         installedAt: new Date().toISOString(),
         ...(spec.runtimeId ? { runtimeId: spec.runtimeId } : {}),
+        ...(spec.variantId ? { variantId: spec.variantId } : {}),
         ...(spec.id === "tts" ? { voice: VOICES[locale].key } : {})
       };
       await require("fs/promises").writeFile(path.join(staging, "install.json"), JSON.stringify(manifest, null, 2));
@@ -602,8 +633,8 @@ export class LocalModelInstaller {
     return executable;
   }
 
-  private managedBackend(executable: string, model: string, hardware: Awaited<ReturnType<typeof detectHardware>>): ManagedBackendConfig {
-    return buildLocalLlamaManagedBackend(executable, model, hardware, require("os").cpus().length - 1);
+  private managedBackend(executable: string, model: string, hardware: Awaited<ReturnType<typeof detectHardware>>, variant: LocalLlmVariant): ManagedBackendConfig {
+    return buildLocalLlamaManagedBackend(executable, model, hardware, require("os").cpus().length - 1, variant);
   }
 
   private emit(progress: LocalModelProgress) {

@@ -1,10 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AvatarBadge } from "../../components/AvatarBadge";
-import { PersonaModal } from "../chat/public";
+import {
+  AttachmentPreviewModal,
+  BranchManager,
+  REASONING_CALL_NAME,
+  PersonaModal,
+  RpReasoningToggle,
+  guessMimeType,
+  imageSourceFromAttachment,
+  useBranchManagement,
+  useMessageTranslation,
+  useTtsPlayback,
+  type AttachmentViewerState
+} from "../chat/public";
 import { api } from "../../shared/api";
 import { resolveApiAssetUrl } from "../../shared/api/core";
+import {
+  failBackgroundTask,
+  finishBackgroundTask,
+  startBackgroundTask
+} from "../../shared/backgroundTasks";
 import { useI18n } from "../../shared/i18n";
 import { RealtimeTtsPlayer } from "../../shared/realtimeTts";
+import { StreamingTextTtsSession } from "../../shared/streamingTextTts";
 import type {
   AppSettings,
   CharacterDetail,
@@ -16,7 +34,11 @@ import type {
   UserPersona
 } from "../../shared/types/contracts";
 import { LiveCharacterPickerModal } from "./components/LiveCharacterPickerModal";
+import { LiveChatControlPanel } from "./components/LiveChatControlPanel";
+import { LiveIcon } from "./components/LiveIcon";
+import { type LiveModelActivityCall } from "./components/LiveModelActivity";
 import { LiveModelSelectorModal } from "./components/LiveModelSelectorModal";
+import { LiveTranscriptPanel } from "./components/LiveTranscriptPanel";
 import {
   isAddressedToCharacter,
   latestAssistantText,
@@ -29,10 +51,9 @@ import {
   type LiveTtsSource
 } from "./utils";
 import { createWhisperRecorder, type WhisperRecorderController } from "./whisperRecorder";
-
 type LivePhase = "ready" | "listening" | "thinking" | "speaking";
-type InheritedChatContext = { chatId: string; personaId: string };
-
+type InheritedChatContext = { chatId: string; personaId: string; branchId: string };
+type LiveStreamingCall = LiveModelActivityCall;
 type SpeechRecognitionResultEventLike = {
   resultIndex: number;
   results: ArrayLike<{
@@ -40,11 +61,9 @@ type SpeechRecognitionResultEventLike = {
     0: { transcript: string };
   }>;
 };
-
 type SpeechRecognitionErrorEventLike = {
   error?: string;
 };
-
 type SpeechRecognitionLike = {
   lang: string;
   interimResults: boolean;
@@ -57,25 +76,20 @@ type SpeechRecognitionLike = {
   onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null;
   onend: (() => void) | null;
 };
-
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
-
 declare global {
   interface Window {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
   }
 }
-
 const LIVE_TTS_SOURCE_KEY = "vellium.live.tts-source";
-
 function localeToSpeechLanguage(locale: string): string {
   if (locale === "ru") return "ru-RU";
   if (locale === "zh") return "zh-CN";
   if (locale === "ja") return "ja-JP";
   return "en-US";
 }
-
 function trimForSpeech(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, " ")
@@ -84,7 +98,6 @@ function trimForSpeech(text: string): string {
     .trim()
     .slice(0, 4000);
 }
-
 async function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -98,26 +111,6 @@ async function blobToBase64(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob);
   });
 }
-
-function LiveIcon({ name }: { name: "mic" | "screen" | "vision" | "voice" | "send" | "stop" | "plus" | "settings" | "handsFree" }) {
-  const paths = {
-    mic: "M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3zm-7 9a7 7 0 0014 0M12 18v4m-4 0h8",
-    screen: "M4 4h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zm4 18h8m-4-4v4",
-    vision: "M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6S2.5 12 2.5 12zm9.5 3a3 3 0 100-6 3 3 0 000 6z",
-    voice: "M4 10v4m4-7v10m4-14v18m4-14v10m4-7v4",
-    send: "M3 11.5L21 3l-8.5 18-2-7.5L3 11.5zm7.5 2L21 3",
-    stop: "M7 7h10v10H7z",
-    plus: "M12 5v14M5 12h14",
-    settings: "M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zm7.4-3.5a7.3 7.3 0 00-.1-1l2-1.5-2-3.4-2.4 1a8 8 0 00-1.7-1L15 3.5h-4L10.6 6a8 8 0 00-1.7 1L6.5 6 4.5 9.5l2 1.5a7.3 7.3 0 000 2l-2 1.5 2 3.4 2.4-1a8 8 0 001.7 1l.4 2.6h4l.4-2.6a8 8 0 001.7-1l2.4 1 2-3.4-2-1.5a7.3 7.3 0 00.1-1z",
-    handsFree: "M5 10v4m3-7v10m4-13v16m4-13v10m3-7v4M3 4l18 16"
-  } as const;
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
-      <path strokeLinecap="round" strokeLinejoin="round" d={paths[name]} />
-    </svg>
-  );
-}
-
 export function LiveScreen() {
   const { t, locale } = useI18n();
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -133,6 +126,7 @@ export function LiveScreen() {
   const [showCharacterPicker, setShowCharacterPicker] = useState(false);
   const [showPersonaModal, setShowPersonaModal] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showChatControls, setShowChatControls] = useState(false);
   const [editingPersona, setEditingPersona] = useState<UserPersona | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [applyingModel, setApplyingModel] = useState(false);
@@ -141,6 +135,9 @@ export function LiveScreen() {
   const [draft, setDraft] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
   const [streamingReply, setStreamingReply] = useState("");
+  const [streamingToolCalls, setStreamingToolCalls] = useState<LiveStreamingCall[]>([]);
+  const [streamingReasoningCalls, setStreamingReasoningCalls] = useState<LiveStreamingCall[]>([]);
+  const [streamingReasoningText, setStreamingReasoningText] = useState("");
   const [phase, setPhase] = useState<LivePhase>("ready");
   const [voiceReplies, setVoiceReplies] = useState(true);
   const [ttsSourcePreference, setTtsSourcePreference] = useState<LiveTtsSource | null>(() => {
@@ -155,7 +152,10 @@ export function LiveScreen() {
   const [screenContextEnabled, setScreenContextEnabled] = useState(false);
   const [heardStatus, setHeardStatus] = useState("");
   const [error, setError] = useState("");
-
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerState | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [autoConversationRunning, setAutoConversationRunning] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const whisperRecorderRef = useRef<WhisperRecorderController | null>(null);
   const sttRequestControllerRef = useRef<AbortController | null>(null);
@@ -164,13 +164,16 @@ export function LiveScreen() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef("");
   const realtimeTtsPlayerRef = useRef<RealtimeTtsPlayer | null>(null);
+  const streamingTextTtsRef = useRef<StreamingTextTtsSession | null>(null);
   const chatIdRef = useRef("");
   const mountedRef = useRef(true);
   const handsFreeRef = useRef(false);
   const restartTimerRef = useRef<number | null>(null);
-  const inheritedChatContextRef = useRef<InheritedChatContext>({ chatId: "", personaId: "" });
+  const inheritedChatContextRef = useRef<InheritedChatContext>({ chatId: "", personaId: "", branchId: "" });
   const microphonePermissionRequestRef = useRef<Promise<boolean> | null>(null);
-  const busy = phase === "thinking" || phase === "speaking";
+  const autoConversationRef = useRef(false);
+  const generationTaskRef = useRef<string | null>(null);
+  const busy = phase === "thinking" || phase === "speaking" || autoConversationRunning;
   const providerReady = Boolean(settings?.activeProviderId && settings?.activeModel);
   const speechRecognitionAvailable = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
   const mediaRecorderAvailable = typeof MediaRecorder !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
@@ -189,6 +192,21 @@ export function LiveScreen() {
     () => personas.find((persona) => persona.id === selectedPersonaId) || null,
     [personas, selectedPersonaId]
   );
+  const {
+    branches,
+    setBranches,
+    activeBranchId,
+    setActiveBranchId,
+    forkBranch,
+    renameBranch,
+    removeBranch
+  } = useBranchManagement({ activeChat: chat, setMessages, setErrorText: setError });
+  const {
+    translatingId,
+    translatedTexts,
+    translateMessage
+  } = useMessageTranslation(setError);
+  const { ttsLoadingId, ttsPlayingId, handleTts } = useTtsPlayback(settings?.ttsRealtime === true, setError);
   const availableSessions = useMemo(() => sessions.filter((session) => {
     const participantIds = session.characterIds?.length
       ? session.characterIds
@@ -198,32 +216,55 @@ export function LiveScreen() {
       : participantIds.length === 0;
   }).slice(0, 30), [sessions, selectedCharacterId]);
   const characterAvatarUrl = resolveApiAssetUrl(selectedCharacter?.avatarUrl);
-
   const phaseLabel = useMemo(() => {
     if (phase === "listening") return t("live.listening");
     if (phase === "thinking") return t("live.thinking");
     if (phase === "speaking") return t("live.speaking");
     return t("live.ready");
   }, [phase, t]);
-
   const visibleMessages = useMemo(() => {
-    const rows = messages.filter((message) => message.role === "user" || message.role === "assistant").slice(-8);
+    const rows = messages.filter((message) => message.role === "user" || message.role === "assistant");
     if (!streamingReply) return rows;
     return [
       ...rows,
       {
         id: "live-streaming",
         chatId: chat?.id || "",
-        branchId: "",
+        branchId: activeBranchId || "",
         role: "assistant" as const,
         content: streamingReply,
         tokenCount: 0,
         createdAt: new Date().toISOString()
       }
     ];
-  }, [chat?.id, messages, streamingReply]);
+  }, [activeBranchId, chat?.id, messages, streamingReply]);
+
+  function previewAttachment(attachment: FileAttachment) {
+    const imageSrc = imageSourceFromAttachment(attachment);
+    if (imageSrc) {
+      setAttachmentViewer({ attachment, mode: "image", previewUrl: imageSrc });
+      return;
+    }
+    if (attachment.type === "text" && String(attachment.content || "").trim()) {
+      setAttachmentViewer({ attachment, mode: "text" });
+      return;
+    }
+    void openAttachmentRaw(attachment);
+  }
+
+  async function openAttachmentRaw(attachment: FileAttachment) {
+    const href = imageSourceFromAttachment(attachment) || resolveApiAssetUrl(attachment.url);
+    if (!href) return;
+    if (window.electronAPI) {
+      await window.electronAPI.openExternal(href);
+      return;
+    }
+    window.open(href, "_blank", "noopener,noreferrer");
+  }
 
   const stopAudio = useCallback(() => {
+    streamingTextTtsRef.current?.stop();
+    streamingTextTtsRef.current = null;
     realtimeTtsPlayerRef.current?.stop();
     realtimeTtsPlayerRef.current = null;
     if (audioRef.current) {
@@ -244,7 +285,8 @@ export function LiveScreen() {
       const detail = (event as CustomEvent<Partial<InheritedChatContext>>).detail;
       inheritedChatContextRef.current = {
         chatId: typeof detail?.chatId === "string" ? detail.chatId : "",
-        personaId: typeof detail?.personaId === "string" ? detail.personaId : ""
+        personaId: typeof detail?.personaId === "string" ? detail.personaId : "",
+        branchId: typeof detail?.branchId === "string" ? detail.branchId : ""
       };
     };
     window.addEventListener("chat-context-for-live", receiveChatContext);
@@ -277,9 +319,15 @@ export function LiveScreen() {
           setChat(inheritedSession);
           chatIdRef.current = inheritedSession.id;
           setPhase("thinking");
-          void api.chatTimeline(inheritedSession.id)
-            .then((timeline) => {
+          void api.chatBranches(inheritedSession.id)
+            .then(async (nextBranches) => {
+              const branchId = nextBranches.some((branch) => branch.id === inheritedContext.branchId)
+                ? inheritedContext.branchId
+                : nextBranches[0]?.id || null;
+              const timeline = await api.chatTimeline(inheritedSession.id, branchId || undefined);
               if (!mountedRef.current || chatIdRef.current !== inheritedSession.id) return;
+              setBranches(nextBranches);
+              setActiveBranchId(branchId);
               setMessages(timeline);
               setPhase("ready");
             })
@@ -302,9 +350,11 @@ export function LiveScreen() {
       whisperRecorderRef.current = null;
       sttRequestControllerRef.current?.abort();
       sttRequestControllerRef.current = null;
+      autoConversationRef.current = false;
       stopAudio();
       const activeChatId = chatIdRef.current;
       if (activeChatId) void api.chatAbort(activeChatId).catch(() => {});
+      if (generationTaskRef.current) failGenerationTask(generationTaskRef.current, t("chat.stop"));
     };
   }, [stopAudio, t]);
 
@@ -394,6 +444,17 @@ export function LiveScreen() {
     }
   }
 
+  async function toggleRpReasoning() {
+    if (!settings || busy) return;
+    try {
+      const updated = await api.settingsUpdate({ rpReasoningEnabled: settings.rpReasoningEnabled !== true });
+      setSettings(updated);
+      window.dispatchEvent(new CustomEvent("settings-change", { detail: updated }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
   async function applyLiveModel() {
     if (!modelProviderId || !modelId || applyingModel) return;
     setApplyingModel(true);
@@ -458,12 +519,80 @@ export function LiveScreen() {
   function finishTurn() {
     if (!mountedRef.current) return;
     setPhase("ready");
+    if (autoConversationRef.current) return;
     if (!handsFreeRef.current) return;
     if (restartTimerRef.current !== null) window.clearTimeout(restartTimerRef.current);
     restartTimerRef.current = window.setTimeout(() => {
       restartTimerRef.current = null;
       if (mountedRef.current && handsFreeRef.current) void startListening(true);
     }, 320);
+  }
+
+  function resetStreamingActivity() {
+    setStreamingToolCalls([]);
+    setStreamingReasoningCalls([]);
+    setStreamingReasoningText("");
+  }
+
+  function handleStreamingToolEvent(event: {
+    phase: "start" | "delta" | "done";
+    callId: string;
+    name: string;
+    args?: string;
+    result?: string;
+  }) {
+    const reasoning = event.name === REASONING_CALL_NAME;
+    const setter = reasoning ? setStreamingReasoningCalls : setStreamingToolCalls;
+    setter((current) => {
+      const index = current.findIndex((item) => item.callId === event.callId);
+      if (index < 0) {
+        return [...current, {
+          callId: event.callId,
+          name: event.name,
+          args: event.args || "{}",
+          status: event.phase === "done" ? "done" : "running",
+          result: event.result || ""
+        }];
+      }
+      const next = [...current];
+      const previous = next[index];
+      next[index] = {
+        ...previous,
+        args: event.args ?? previous.args,
+        status: event.phase === "done" ? "done" : "running",
+        result: event.phase === "delta"
+          ? `${previous.result}${event.result || ""}`
+          : event.result ?? previous.result
+      };
+      return next;
+    });
+  }
+
+  function startGenerationTask(chatId: string, label: string) {
+    if (generationTaskRef.current) failBackgroundTask(generationTaskRef.current, t("chat.stop"));
+    const taskId = startBackgroundTask({
+      scope: "chat",
+      type: "generate",
+      label,
+      progressLabel: t("chat.streaming"),
+      cancellable: true,
+      cancelLabel: t("taskManager.stop"),
+      onCancel: async () => {
+        await api.chatAbort(chatId);
+      }
+    });
+    generationTaskRef.current = taskId;
+    return taskId;
+  }
+
+  function finishGenerationTask(taskId: string) {
+    finishBackgroundTask(taskId);
+    if (generationTaskRef.current === taskId) generationTaskRef.current = null;
+  }
+
+  function failGenerationTask(taskId: string, message: string) {
+    failBackgroundTask(taskId, message);
+    if (generationTaskRef.current === taskId) generationTaskRef.current = null;
   }
 
   async function speak(text: string) {
@@ -538,6 +667,49 @@ export function LiveScreen() {
     finishTurn();
   }
 
+  function startStreamingResponseTts(): StreamingTextTtsSession | null {
+    if (
+      !voiceReplies
+      || ttsSource !== "custom"
+      || !customTtsConfigured
+      || settings?.ttsRealtime !== true
+    ) {
+      return null;
+    }
+    const session = new StreamingTextTtsSession(
+      (input, onEvent, signal) => api.chatTtsTextRealtime(input, onEvent, signal),
+      {
+        normalizeText: trimForSpeech,
+        onPlaybackStart: () => {
+          if (mountedRef.current) setPhase("speaking");
+        },
+        onError: () => {
+          if (mountedRef.current) setError(t("live.customTtsError"));
+        }
+      }
+    );
+    streamingTextTtsRef.current = session;
+    return session;
+  }
+
+  async function finishResponseSpeech(
+    session: StreamingTextTtsSession | null,
+    completedText: string
+  ) {
+    if (!session) {
+      await speak(completedText);
+      return;
+    }
+    try {
+      await session.finish();
+    } catch {
+      if (mountedRef.current) setError(t("live.customTtsError"));
+    } finally {
+      if (streamingTextTtsRef.current === session) streamingTextTtsRef.current = null;
+      if (mountedRef.current) finishTurn();
+    }
+  }
+
   async function buildScreenAttachments(): Promise<FileAttachment[]> {
     if (!visionEnabled || !screenContextEnabled) return [];
     if (!window.electronAPI?.captureLiveScreenContext) {
@@ -559,22 +731,104 @@ export function LiveScreen() {
     return [];
   }
 
+  async function readFileAsBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        resolve(result.split(",")[1] || result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadComposerFiles(files: File[]) {
+    if (!files.length || uploading) return;
+    setUploading(true);
+    try {
+      for (const file of files) {
+        const base64 = await readFileAsBase64(file);
+        const uploaded = await api.uploadFile(base64, file.name || `live-attachment-${Date.now()}`);
+        const mimeType = uploaded.mimeType || file.type || guessMimeType(file.name);
+        setAttachments((current) => [...current, {
+          ...uploaded,
+          mimeType,
+          ...(uploaded.type === "image" ? { dataUrl: `data:${mimeType};base64,${base64}` } : {})
+        }]);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function selectBranch(branchId: string) {
+    if (!chat || busy || branchId === activeBranchId) return;
+    setError("");
+    setPhase("thinking");
+    try {
+      const timeline = await api.chatTimeline(chat.id, branchId);
+      if (!mountedRef.current || chatIdRef.current !== chat.id) return;
+      setActiveBranchId(branchId);
+      setMessages(timeline);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      if (mountedRef.current) setPhase("ready");
+    }
+  }
+
+  async function editMessage(messageId: string, content: string) {
+    try {
+      const result = await api.chatEditMessage(messageId, content);
+      setMessages(result.timeline);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      throw cause;
+    }
+  }
+
+  async function deleteMessage(messageId: string) {
+    try {
+      const result = await api.chatDeleteMessage(messageId);
+      setMessages(result.timeline);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      throw cause;
+    }
+  }
+
+  function activePersonaPayload() {
+    return selectedPersona ? {
+      name: selectedPersona.name,
+      description: selectedPersona.description,
+      personality: selectedPersona.personality,
+      scenario: selectedPersona.scenario
+    } : null;
+  }
+
   async function submitTurn(rawText: string) {
     const text = rawText.trim();
-    if (!text || busy) return;
+    if ((!text && attachments.length === 0) || busy) return;
     if (!providerReady) {
       setError(t("live.providerRequired"));
       return;
     }
     setError("");
     setDraft("");
+    const composerAttachments = [...attachments];
+    setAttachments([]);
     setInterimTranscript("");
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     stopAudio();
     setPhase("thinking");
     setStreamingReply("");
+    resetStreamingActivity();
 
+    let taskId = "";
     try {
       const activeChat = chat || await api.chatCreate(
         makeLiveSessionTitle(new Date(), selectedCharacter?.name || ""),
@@ -587,24 +841,36 @@ export function LiveScreen() {
         window.dispatchEvent(new Event("chat-list-refresh"));
       }
       chatIdRef.current = activeChat.id;
-      const attachments = await buildScreenAttachments();
+      let branchId = chat?.id === activeChat.id ? activeBranchId : null;
+      if (!branchId) {
+        const nextBranches = await api.chatBranches(activeChat.id);
+        branchId = nextBranches[0]?.id || null;
+        setBranches(nextBranches);
+        setActiveBranchId(branchId);
+      }
+      const screenAttachments = await buildScreenAttachments();
+      const requestAttachments = [...composerAttachments, ...screenAttachments];
+      taskId = startGenerationTask(activeChat.id, activeChat.title || t("live.title"));
       let streamed = "";
-      const timeline = await api.chatSend(activeChat.id, text, undefined, {
+      const streamingTts = startStreamingResponseTts();
+      const timeline = await api.chatSend(activeChat.id, text, branchId || undefined, {
         onDelta: (delta) => {
           streamed += delta;
+          streamingTts?.push(delta);
           if (mountedRef.current) setStreamingReply(streamed);
-        }
-      }, selectedPersona ? {
-        name: selectedPersona.name,
-        description: selectedPersona.description,
-        personality: selectedPersona.personality,
-        scenario: selectedPersona.scenario
-      } : null, attachments);
+        },
+        onReasoningDelta: (delta) => setStreamingReasoningText((current) => `${current}${delta}`),
+        onToolEvent: handleStreamingToolEvent
+      }, activePersonaPayload(), requestAttachments);
       if (!mountedRef.current) return;
       setMessages(timeline);
       setStreamingReply("");
-      await speak(latestAssistantText(timeline) || streamed);
+      await finishResponseSpeech(streamingTts, latestAssistantText(timeline) || streamed);
+      if (taskId) finishGenerationTask(taskId);
     } catch (cause) {
+      streamingTextTtsRef.current?.stop();
+      streamingTextTtsRef.current = null;
+      if (taskId) failGenerationTask(taskId, cause instanceof Error ? cause.message : String(cause));
       if (!mountedRef.current) return;
       setStreamingReply("");
       finishTurn();
@@ -887,11 +1153,16 @@ export function LiveScreen() {
   }
 
   async function stopResponse() {
+    autoConversationRef.current = false;
+    setAutoConversationRunning(false);
     recognitionRef.current?.abort();
     recognitionRef.current = null;
     stopAudio();
     const chatId = chatIdRef.current;
     if (chatId) await api.chatAbort(chatId).catch(() => {});
+    if (generationTaskRef.current) {
+      failGenerationTask(generationTaskRef.current, t("chat.stop"));
+    }
     if (mountedRef.current) {
       setStreamingReply("");
       finishTurn();
@@ -905,19 +1176,29 @@ export function LiveScreen() {
     setError("");
     setStreamingReply("");
     setPhase("thinking");
+    resetStreamingActivity();
+    const taskId = startGenerationTask(chat.id, t("chat.regenerate"));
     try {
       let streamed = "";
-      const timeline = await api.chatRegenerate(chat.id, undefined, {
+      const streamingTts = startStreamingResponseTts();
+      const timeline = await api.chatRegenerate(chat.id, activeBranchId || undefined, {
         onDelta: (delta) => {
           streamed += delta;
+          streamingTts?.push(delta);
           if (mountedRef.current) setStreamingReply(streamed);
-        }
+        },
+        onReasoningDelta: (delta) => setStreamingReasoningText((current) => `${current}${delta}`),
+        onToolEvent: handleStreamingToolEvent
       });
       if (!mountedRef.current) return;
       setMessages(timeline);
       setStreamingReply("");
-      await speak(latestAssistantText(timeline) || streamed);
+      await finishResponseSpeech(streamingTts, latestAssistantText(timeline) || streamed);
+      finishGenerationTask(taskId);
     } catch (cause) {
+      streamingTextTtsRef.current?.stop();
+      streamingTextTtsRef.current = null;
+      failGenerationTask(taskId, cause instanceof Error ? cause.message : String(cause));
       if (!mountedRef.current) return;
       setStreamingReply("");
       finishTurn();
@@ -925,14 +1206,105 @@ export function LiveScreen() {
     }
   }
 
+  async function generateCharacterTurn(characterName: string, auto = false): Promise<boolean> {
+    if (!chat || (!auto && busy)) return false;
+    stopAudio();
+    setError("");
+    setStreamingReply("");
+    setPhase("thinking");
+    resetStreamingActivity();
+    const taskId = auto ? "" : startGenerationTask(chat.id, `${t("chat.nextTurn")}: ${characterName}`);
+    try {
+      let streamed = "";
+      const streamingTts = startStreamingResponseTts();
+      const timeline = await api.chatNextTurn(chat.id, characterName, activeBranchId || undefined, {
+        onDelta: (delta) => {
+          streamed += delta;
+          streamingTts?.push(delta);
+          if (mountedRef.current) setStreamingReply(streamed);
+        },
+        onReasoningDelta: (delta) => setStreamingReasoningText((current) => `${current}${delta}`),
+        onToolEvent: handleStreamingToolEvent
+      }, auto, activePersonaPayload());
+      if (!mountedRef.current) return false;
+      setMessages(timeline);
+      setStreamingReply("");
+      await finishResponseSpeech(streamingTts, latestAssistantText(timeline) || streamed);
+      if (taskId) finishGenerationTask(taskId);
+      return true;
+    } catch (cause) {
+      streamingTextTtsRef.current?.stop();
+      streamingTextTtsRef.current = null;
+      if (taskId) failGenerationTask(taskId, cause instanceof Error ? cause.message : String(cause));
+      if (mountedRef.current) {
+        setStreamingReply("");
+        finishTurn();
+        setError(cause instanceof Error ? cause.message : t("live.sendError"));
+      }
+      return false;
+    }
+  }
+
+  async function startAutoConversation(turns: number, delayMs: number) {
+    if (!chat || autoConversationRunning) return;
+    const participantNames = (chat.characterIds?.length ? chat.characterIds : chat.characterId ? [chat.characterId] : [])
+      .map((id) => characters.find((character) => character.id === id)?.name || "")
+      .filter(Boolean);
+    if (participantNames.length < 2) return;
+    autoConversationRef.current = true;
+    setAutoConversationRunning(true);
+    const taskId = startGenerationTask(chat.id, t("chat.autoConvo"));
+    let failed = false;
+    try {
+      const lastSpeaker = [...messages].reverse().find((message) => (
+        message.role === "assistant" && message.characterName && participantNames.includes(message.characterName)
+      ))?.characterName;
+      const startIndex = lastSpeaker
+        ? (participantNames.indexOf(lastSpeaker) + 1) % participantNames.length
+        : 0;
+      for (let turn = 0; turn < turns && autoConversationRef.current; turn += 1) {
+        const speaker = participantNames[(startIndex + turn) % participantNames.length];
+        const ok = await generateCharacterTurn(speaker, true);
+        if (!ok) {
+          failed = true;
+          break;
+        }
+        if (turn < turns - 1 && autoConversationRef.current && delayMs > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+        }
+      }
+    } finally {
+      autoConversationRef.current = false;
+      setAutoConversationRunning(false);
+      if (generationTaskRef.current === taskId) {
+        if (failed) failGenerationTask(taskId, error || t("live.sendError"));
+        else finishGenerationTask(taskId);
+      }
+      if (mountedRef.current) finishTurn();
+    }
+  }
+
+  function stopAutoConversation() {
+    autoConversationRef.current = false;
+    setAutoConversationRunning(false);
+    stopAudio();
+    if (chat) void api.chatAbort(chat.id).catch(() => {});
+    if (generationTaskRef.current) failGenerationTask(generationTaskRef.current, t("chat.autoConvoStop"));
+  }
+
   function resetConversationState() {
+    stopAutoConversation();
     stopAudio();
     stopListening(true, true);
     setChat(null);
     chatIdRef.current = "";
     setMessages([]);
+    setBranches([]);
+    setActiveBranchId(null);
     setDraft("");
+    setAttachments([]);
     setStreamingReply("");
+    resetStreamingActivity();
     setHeardStatus("");
     setError("");
     setPhase("ready");
@@ -965,8 +1337,12 @@ export function LiveScreen() {
     setSelectedCharacterId(nextSession.characterId || nextSession.characterIds?.[0] || "");
     setPhase("thinking");
     try {
-      const timeline = await api.chatTimeline(nextSession.id);
+      const nextBranches = await api.chatBranches(nextSession.id);
+      const branchId = nextBranches[0]?.id || null;
+      const timeline = await api.chatTimeline(nextSession.id, branchId || undefined);
       if (!mountedRef.current || chatIdRef.current !== nextSession.id) return;
+      setBranches(nextBranches);
+      setActiveBranchId(branchId);
       setMessages(timeline);
       setPhase("ready");
     } catch (cause) {
@@ -997,6 +1373,12 @@ export function LiveScreen() {
 
   return (
     <>
+      <AttachmentPreviewModal
+        viewer={attachmentViewer}
+        onClose={() => setAttachmentViewer(null)}
+        onOpenRaw={openAttachmentRaw}
+        t={t}
+      />
       <LiveCharacterPickerModal
         open={showCharacterPicker}
         characters={characters}
@@ -1059,6 +1441,39 @@ export function LiveScreen() {
         onOpenSettings={openProviderSettings}
         t={t}
       />
+      <LiveChatControlPanel
+        open={showChatControls}
+        chat={chat}
+        settings={settings}
+        characters={characters}
+        branches={branches}
+        activeBranchId={activeBranchId}
+        busy={busy}
+        autoConversationRunning={autoConversationRunning}
+        setMessages={setMessages}
+        onClose={() => setShowChatControls(false)}
+        onSettingsChange={setSettings}
+        onChatChange={(nextChat) => {
+          if (!nextChat) {
+            const removedId = chat?.id;
+            resetConversationState();
+            if (removedId) setSessions((current) => current.filter((session) => session.id !== removedId));
+            return;
+          }
+          setChat(nextChat);
+          setSessions((current) => current.map((session) => session.id === nextChat.id ? nextChat : session));
+          setSelectedCharacterId(nextChat.characterId || nextChat.characterIds?.[0] || "");
+        }}
+        onBranchSelect={selectBranch}
+        onBranchRename={renameBranch}
+        onBranchDelete={removeBranch}
+        onNextTurn={async (characterName) => {
+          await generateCharacterTurn(characterName);
+        }}
+        onAutoConversation={startAutoConversation}
+        onStopAutoConversation={stopAutoConversation}
+        onError={setError}
+      />
       <section className={`live-screen live-phase-${phase}`} aria-label={t("live.title")}>
       <header className="live-header">
         <div>
@@ -1070,6 +1485,10 @@ export function LiveScreen() {
           <p>{chat?.title || t("live.newSession")}</p>
         </div>
         <div className="live-header-actions">
+          <button type="button" className="live-quiet-button" onClick={() => setShowChatControls(true)}>
+            <LiveIcon name="settings" />
+            <span>{t("live.chatControls")}</span>
+          </button>
           <button type="button" className="live-quiet-button" onClick={startNewSession} disabled={busy}>
             <LiveIcon name="plus" />
             <span>{t("live.new")}</span>
@@ -1129,6 +1548,23 @@ export function LiveScreen() {
             ))}
           </select>
         </label>
+        {chat && branches.length ? (
+          <BranchManager
+            branches={branches}
+            activeBranchId={activeBranchId}
+            disabled={busy}
+            simple
+            onSelect={(branchId) => { void selectBranch(branchId); }}
+            onRename={renameBranch}
+            onDelete={removeBranch}
+          />
+        ) : null}
+        <RpReasoningToggle
+          enabled={settings?.rpReasoningEnabled === true}
+          disabled={busy}
+          variant="status"
+          onToggle={() => { void toggleRpReasoning(); }}
+        />
         <button
           type="button"
           className="live-model-context"
@@ -1277,84 +1713,43 @@ export function LiveScreen() {
           </div>
         </div>
 
-        <aside className="live-transcript" aria-label={t("live.transcript")}>
-          <div className="live-transcript-heading">
-            <div>
-              <span>{t("live.transcript")}</span>
-              <small>{visibleMessages.length ? t("live.savedInChat") : t("live.privateUntilShared")}</small>
-            </div>
-            <div className="live-transcript-actions">
-              {screenContextEnabled && visionEnabled ? <b>{t("live.screenAttached")}</b> : null}
-              <button
-                type="button"
-                onClick={() => void regenerateResponse()}
-                disabled={!chat || busy || !latestAssistantText(messages)}
-              >
-                {t("live.regenerate")}
-              </button>
-            </div>
-          </div>
-          <div className="live-message-list" aria-live="polite">
-            {visibleMessages.length === 0 ? (
-              <div className="live-empty">
-                {selectedCharacter ? (
-                  <AvatarBadge
-                    name={selectedCharacter.name}
-                    src={characterAvatarUrl}
-                    alt=""
-                    className="live-empty-avatar"
-                  />
-                ) : <LiveIcon name="voice" />}
-                <strong>{selectedCharacter?.name || t("live.emptyTitle")}</strong>
-                <span>
-                  {selectedCharacter?.greeting
-                    ? selectedCharacter.greeting.slice(0, 220)
-                    : (speechRecognitionAvailable ? t("live.emptyHint") : t("live.emptyTextHint"))}
-                </span>
-              </div>
-            ) : visibleMessages.map((message) => (
-              <article key={message.id} className={`live-message is-${message.role}`}>
-                <span>
-                  {message.role === "user"
-                    ? (selectedPersona?.name || t("live.you"))
-                    : (message.characterName || selectedCharacter?.name || t("live.assistant"))}
-                </span>
-                <p>{message.content}</p>
-                {message.attachments?.some((item) => item.type === "image") ? (
-                  <small><LiveIcon name="vision" />{t("live.screenWasAttached")}</small>
-                ) : null}
-              </article>
-            ))}
-          </div>
-          <form
-            className="live-compose"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submitTurn(draft);
-            }}
-          >
-            {error ? (
-              <div className="live-error" role="alert">
-                <span>{error}</span>
-                {!providerReady ? <button type="button" onClick={openProviderSettings}>{t("live.openSettings")}</button> : null}
-              </div>
-            ) : null}
-            <div className="live-compose-row">
-              <input
-                className="live-compose-input"
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder={t("live.placeholder")}
-                aria-label={t("live.placeholder")}
-                disabled={busy}
-              />
-              <button type="submit" disabled={!draft.trim() || busy} aria-label={t("live.send")}>
-                <LiveIcon name="send" />
-              </button>
-            </div>
-            <small>{screenContextEnabled && visionEnabled ? t("live.nextFrameHint") : t("live.screenOffHint")}</small>
-          </form>
-        </aside>
+        <LiveTranscriptPanel
+          messages={visibleMessages}
+          character={selectedCharacter}
+          characterAvatarUrl={characterAvatarUrl}
+          persona={selectedPersona}
+          security={settings?.security}
+          busy={busy}
+          uploading={uploading}
+          error={error}
+          draft={draft}
+          attachments={attachments}
+          providerReady={providerReady}
+          speechInputAvailable={speechRecognitionAvailable}
+          screenAttached={screenContextEnabled && visionEnabled}
+          canRegenerate={Boolean(chat) && !busy && Boolean(latestAssistantText(messages))}
+          streamingReply={streamingReply}
+          toolCalls={streamingToolCalls}
+          reasoningCalls={streamingReasoningCalls}
+          reasoningText={streamingReasoningText}
+          translatedTexts={translatedTexts}
+          translatingId={translatingId}
+          ttsLoadingId={ttsLoadingId}
+          ttsPlayingId={ttsPlayingId}
+          onDraftChange={setDraft}
+          onSubmit={() => { void submitTurn(draft); }}
+          onUploadFiles={(files) => { void uploadComposerFiles(files); }}
+          onRemoveAttachment={(attachmentId) =>
+            setAttachments((current) => current.filter((item) => item.id !== attachmentId))}
+          onRegenerate={() => { void regenerateResponse(); }}
+          onOpenProviderSettings={openProviderSettings}
+          onEditMessage={editMessage}
+          onDeleteMessage={deleteMessage}
+          onTranslateMessage={async (messageId) => { await translateMessage(messageId, false); }}
+          onTtsMessage={handleTts}
+          onForkMessage={async (messageId) => { await forkBranch(messageId); }}
+          onPreviewAttachment={previewAttachment}
+        />
       </div>
       </section>
     </>

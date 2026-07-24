@@ -9985,6 +9985,9 @@ body > .vellium-modal-layer {
 /* Live voice + vision workspace */
 .live-screen {
   --live-accent: var(--color-accent);
+  /* Single source of truth for every chip/toggle in the screen so imported controls line up. */
+  --live-chip-height: 30px;
+  --live-chip-radius: 9px;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   width: 100%;
@@ -10060,41 +10063,68 @@ body > .vellium-modal-layer {
   gap: 8px;
 }
 
+/* One row of interchangeable chips. Everything dropped in here — including the shared branch and
+   reasoning controls from the chat feature — is normalised to the same height, radius and type
+   scale below, so the row reads as a single control family instead of three. */
 .live-context-bar {
   position: relative;
   z-index: 4;
-  display: grid;
+  display: flex;
   min-width: 0;
-  grid-template-columns: minmax(0, 0.82fr) minmax(0, 0.72fr) minmax(0, 1.08fr) minmax(0, 0.78fr) minmax(0, 0.94fr) minmax(0, 0.78fr);
-  gap: 1px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  padding: 11px 22px;
   border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-border-subtle);
+  background: var(--color-bg-secondary);
 }
 
-.live-context-bar label,
-.live-model-context,
-.live-stt-context {
-  display: grid;
+.live-context-bar > *,
+.live-context-bar > .rp-reasoning-toggle,
+.live-context-bar > details > summary {
+  display: inline-flex;
   min-width: 0;
-  gap: 4px;
-  padding: 9px 14px 10px;
-  background: var(--color-bg-secondary);
+  min-height: var(--live-chip-height);
+  max-width: 260px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--live-chip-radius);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 600;
   text-align: left;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.live-context-bar > details {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.live-context-bar > *:hover:not(:disabled),
+.live-context-bar > details > summary:hover {
+  border-color: var(--color-border);
+  background: var(--color-bg-hover);
 }
 
 .live-context-bar label > span,
 .live-model-context > span,
 .live-stt-context > span {
+  flex: 0 0 auto;
   color: var(--color-text-tertiary);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .live-context-bar select {
-  width: 100%;
   min-width: 0;
+  max-width: 150px;
   border: 0;
   outline: 0;
   background: transparent;
@@ -10109,30 +10139,32 @@ body > .vellium-modal-layer {
   opacity: 0.48;
 }
 
-.live-model-context {
-  align-content: center;
-}
-
-.live-model-context strong {
+.live-model-context strong,
+.live-entity-context strong {
   overflow: hidden;
   color: var(--color-text-primary);
   font-size: 11px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.live-model-context:hover {
-  background: var(--color-bg-hover);
+  direction: ltr;
 }
 
 .live-stt-context {
   cursor: default;
 }
 
-.live-entity-context:disabled {
+.live-entity-context:disabled,
+.live-context-bar > *:disabled {
   cursor: not-allowed;
   opacity: 0.48;
+}
+
+/* Re-assert the shared control's own "on" treatment, which the chip reset above would flatten. */
+.live-context-bar > .rp-reasoning-toggle.is-active {
+  border-color: color-mix(in srgb, var(--color-accent) 62%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent-subtle) 72%, var(--color-bg-secondary));
+  color: var(--color-accent);
 }
 
 .live-picker-body {
@@ -10233,7 +10265,7 @@ body > .vellium-modal-layer {
 
 .live-picker-option small {
   color: var(--color-text-tertiary);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .live-picker-option > i {
@@ -10291,7 +10323,7 @@ body > .vellium-modal-layer {
 
 .live-model-current small {
   color: var(--color-text-tertiary);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .live-model-current strong {
@@ -10332,16 +10364,16 @@ body > .vellium-modal-layer {
 
 .live-quiet-button {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 36px;
   align-items: center;
   gap: 7px;
-  padding: 0 11px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 10px;
-  background: var(--color-bg-tertiary);
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  background: var(--color-bg-primary);
   color: var(--color-text-secondary);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
 }
 
@@ -10351,7 +10383,7 @@ body > .vellium-modal-layer {
 }
 
 .live-quiet-button:hover:not(:disabled) {
-  border-color: var(--color-border);
+  border-color: var(--color-border-strong);
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
@@ -10370,7 +10402,7 @@ body > .vellium-modal-layer {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(310px, 370px);
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 480px);
 }
 
 .live-stage {
@@ -10605,16 +10637,16 @@ body > .vellium-modal-layer {
 
 .live-controls button {
   display: inline-flex;
-  min-height: 37px;
+  min-height: 36px;
   align-items: center;
   gap: 8px;
-  padding: 0 11px;
-  border: 1px solid var(--color-border-subtle);
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
   border-radius: 11px;
   background: color-mix(in srgb, var(--color-bg-secondary) 88%, transparent);
   color: var(--color-text-secondary);
-  font-size: 10px;
-  font-weight: 620;
+  font-size: 11px;
+  font-weight: 700;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
@@ -10679,18 +10711,21 @@ body > .vellium-modal-layer {
 
 .live-transcript-heading small {
   color: var(--color-text-tertiary);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .live-transcript-heading b {
   flex: 0 0 auto;
-  padding: 4px 7px;
+  padding: 0 8px;
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
   border-radius: 999px;
   background: color-mix(in srgb, var(--live-accent) 13%, transparent);
   color: var(--live-accent);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -10702,16 +10737,20 @@ body > .vellium-modal-layer {
 }
 
 .live-transcript-actions button {
-  padding: 4px 7px;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--live-chip-height);
+  padding: 0 10px;
   border: 1px solid var(--color-border-subtle);
-  border-radius: 7px;
-  color: var(--color-text-tertiary);
-  font-size: 8px;
-  font-weight: 650;
+  border-radius: var(--live-chip-radius);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .live-transcript-actions button:hover:not(:disabled) {
   border-color: var(--color-border);
+  background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
 
@@ -10772,8 +10811,9 @@ body > .vellium-modal-layer {
 }
 
 .live-message {
+  position: relative;
   display: grid;
-  gap: 5px;
+  gap: 6px;
   max-width: 92%;
   animation: live-message-enter 180ms ease-out both;
 }
@@ -10783,39 +10823,195 @@ body > .vellium-modal-layer {
   justify-items: end;
 }
 
-.live-message > span {
+.live-message-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.live-message-avatar {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  box-shadow: inset 0 0 0 1px var(--color-border-subtle);
+}
+
+.live-message-author {
+  overflow: hidden;
   color: var(--color-text-tertiary);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.live-message p {
-  margin: 0;
+.live-message.is-assistant .live-message-author {
+  color: var(--live-accent);
+}
+
+.live-message-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 5px;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.live-message-body {
   color: var(--color-text-secondary);
-  font-size: 11px;
-  line-height: 1.58;
-  white-space: pre-wrap;
+  font-size: 12px;
 }
 
-.live-message.is-user p {
+.live-message.is-user .live-message-body {
   padding: 9px 12px;
   border-radius: 13px 13px 3px 13px;
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
 }
 
-.live-message small {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--live-accent);
-  font-size: 8px;
+.live-message.is-streaming .live-message-body::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 11px;
+  margin-left: 3px;
+  border-radius: 1px;
+  background: var(--live-accent);
+  vertical-align: -1px;
+  animation: live-caret-blink 1s steps(2, start) infinite;
 }
 
-.live-message small svg {
-  width: 11px;
-  height: 11px;
+@keyframes live-caret-blink {
+  to { opacity: 0; }
+}
+
+.live-message-translation {
+  display: grid;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 9px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.live-message-translation > span {
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.live-message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.live-message-editor {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+}
+
+.live-message-editor textarea {
+  width: 100%;
+  min-height: 84px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.live-message-editor > div {
+  display: flex;
+  gap: 6px;
+}
+
+.live-message-editor button {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.live-message-editor button:hover {
+  background: var(--color-bg-hover);
+}
+
+.live-message-editor button.is-primary {
+  border-color: transparent;
+  background: var(--live-accent);
+  color: var(--color-text-inverse);
+}
+
+/* Kept out of the reading flow until the row is hovered or focused, like the chat bubbles. */
+.live-message-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.live-message:hover .live-message-actions,
+.live-message:focus-within .live-message-actions {
+  opacity: 1;
+}
+
+.live-message-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-text-tertiary);
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.live-message-actions button:hover:not(:disabled) {
+  border-color: var(--color-border-subtle);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.live-message-actions button.is-on {
+  color: var(--live-accent);
+}
+
+.live-message-actions button:disabled {
+  opacity: 0.4;
+}
+
+.live-message-actions svg {
+  width: 13px;
+  height: 13px;
+}
+
+@media (hover: none) {
+  .live-message-actions {
+    opacity: 1;
+  }
 }
 
 .live-compose {
@@ -10827,7 +11023,7 @@ body > .vellium-modal-layer {
 
 .live-compose-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
   gap: 7px;
 }
 
@@ -10854,7 +11050,8 @@ body > .vellium-modal-layer {
   color: var(--color-text-tertiary);
 }
 
-.live-compose-row > button {
+.live-compose-row > button,
+.live-compose-row > .live-compose-attach {
   display: grid;
   width: 36px;
   height: 36px;
@@ -10865,7 +11062,14 @@ body > .vellium-modal-layer {
   transition: transform 160ms ease, opacity 160ms ease;
 }
 
-.live-compose-row > button:hover:not(:disabled) {
+.live-compose-row > .live-compose-attach {
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+}
+
+.live-compose-row > button:hover:not(:disabled),
+.live-compose-row > .live-compose-attach:hover:not([aria-disabled="true"]) {
   transform: translateY(-1px);
 }
 
@@ -10874,14 +11078,20 @@ body > .vellium-modal-layer {
   opacity: 0.35;
 }
 
-.live-compose-row > button svg {
+.live-compose-row > .live-compose-attach[aria-disabled="true"] {
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+.live-compose-row > button svg,
+.live-compose-row > .live-compose-attach svg {
   width: 16px;
   height: 16px;
 }
 
 .live-compose > small {
   color: var(--color-text-tertiary);
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1.4;
 }
 
@@ -10895,7 +11105,7 @@ body > .vellium-modal-layer {
   border-radius: 9px;
   background: color-mix(in srgb, var(--color-danger) 8%, transparent);
   color: var(--color-danger);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.4;
 }
 
@@ -10942,13 +11152,13 @@ body > .vellium-modal-layer {
   }
 
   .live-context-bar {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding-inline: 14px;
   }
 
-  .live-context-bar label,
-  .live-model-context,
-  .live-stt-context {
-    padding-inline: 10px;
+  .live-context-bar > *,
+  .live-context-bar > details > summary {
+    max-width: 200px;
+    padding-inline: 8px;
   }
 }
 
@@ -10987,19 +11197,15 @@ body > .vellium-modal-layer {
   }
 
   .live-context-bar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    padding: 9px 14px;
     overflow: visible;
   }
 
-  .live-context-bar label,
-  .live-model-context,
-  .live-stt-context {
-    min-width: 0;
-  }
-
-  .live-context-bar .live-context-session {
-    min-width: 0;
+  /* Two chips per row rather than a ragged wrap once the screen gets phone-narrow. */
+  .live-context-bar > *,
+  .live-context-bar > details > summary {
+    flex: 1 1 calc(50% - 4px);
+    max-width: none;
   }
 
   .live-transcript {

@@ -514,14 +514,15 @@ export function ChatScreen() {
       window.dispatchEvent(new CustomEvent("chat-context-for-live", {
         detail: {
           chatId: activeChat?.id || "",
-          personaId: activePersona?.id || ""
+          personaId: activePersona?.id || "",
+          branchId: activeBranchId || ""
         }
       }));
     };
     window.addEventListener("live-request-chat-context", provideLiveContext);
     provideLiveContext();
     return () => window.removeEventListener("live-request-chat-context", provideLiveContext);
-  }, [activeChat?.id, activePersona?.id]);
+  }, [activeBranchId, activeChat?.id, activePersona?.id]);
 
   useEffect(() => {
     const handler = (event: Event) => {

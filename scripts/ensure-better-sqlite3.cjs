@@ -3,11 +3,12 @@ const path = require("node:path");
 
 const rootDir = path.resolve(__dirname, "..");
 
-function hasAbiMismatchOutput(output) {
+function hasRecoverableNativeBindingOutput(output) {
   const text = String(output || "");
   return (
     text.includes("ERR_DLOPEN_FAILED") ||
-    text.includes("NODE_MODULE_VERSION")
+    text.includes("NODE_MODULE_VERSION") ||
+    text.includes("Could not locate the bindings file")
   );
 }
 
@@ -42,7 +43,7 @@ if (initialProbe.ok) {
 
 const initialOutput = `${initialProbe.stdout}\n${initialProbe.stderr}`;
 const shouldRebuild =
-  Boolean(initialProbe.signal) || hasAbiMismatchOutput(initialOutput);
+  Boolean(initialProbe.signal) || hasRecoverableNativeBindingOutput(initialOutput);
 
 if (!shouldRebuild) {
   if (initialOutput.trim()) {
@@ -52,7 +53,7 @@ if (!shouldRebuild) {
 }
 
 console.warn(
-  "[native] better-sqlite3 ABI mismatch detected. Running `npm rebuild better-sqlite3`..."
+  "[native] better-sqlite3 binding is missing or incompatible. Running `npm rebuild better-sqlite3`..."
 );
 
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
