@@ -22,6 +22,7 @@ describe.sequential("createApp integration", () => {
   let lastPlannerResponseFormat: unknown = null;
   let lastChatTemplateMessages: Array<{ role?: unknown; content?: unknown }> = [];
   let lastSttMultipartBody = "";
+  let lastTtsRequestBody: Record<string, unknown> = {};
   let createApp: typeof import("./createApp.js").createApp;
   let db: typeof import("../db.js").db;
   let newId: typeof import("../db.js").newId;
@@ -1526,6 +1527,22 @@ process.stdin.on("data", (chunk) => {
         return;
       }
       if (req.method === "POST" && req.url === "/v1/audio/speech") {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        lastTtsRequestBody = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as Record<string, unknown>;
+        if (lastTtsRequestBody.stream_format === "sse") {
+          res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+          for (const audio of ["PCM_ONE", "PCM_TWO"]) {
+            res.write(`event: audio.delta\ndata: ${JSON.stringify({
+              type: "audio.delta",
+              audio: Buffer.from(audio).toString("base64"),
+              format: "pcm",
+              sample_rate: 24_000
+            })}\n\n`);
+          }
+          res.end("event: audio.done\ndata: {\"type\":\"audio.done\",\"format\":\"pcm\",\"sample_rate\":24000}\n\ndata: [DONE]\n\n");
+          return;
+        }
         res.setHeader("Content-Type", "audio/mpeg");
         res.end(Buffer.from("FAKE_MP3_DATA"));
         return;
@@ -1932,8 +1949,10 @@ process.stdin.on("data", (chunk) => {
     expect(realtimeResponse.headers.get("content-type")).toContain("application/x-ndjson");
     const realtimeEvents = (await realtimeResponse.text()).trim().split("\n").map((line) => JSON.parse(line));
     const audioEvents = realtimeEvents.filter((event) => event.type === "audio");
-    expect(audioEvents.length).toBeGreaterThan(1);
-    expect(Buffer.from(audioEvents[0].audioBase64, "base64").toString("utf8")).toBe("FAKE_MP3_DATA");
+    expect(audioEvents).toHaveLength(2);
+    expect(Buffer.from(audioEvents[0].audioBase64, "base64").toString("utf8")).toBe("PCM_ONE");
+    expect(audioEvents[0]).toMatchObject({ contentType: "audio/pcm", format: "pcm", sampleRate: 24_000 });
+    expect(lastTtsRequestBody).toMatchObject({ response_format: "pcm", stream_format: "sse" });
     expect(realtimeEvents.at(-1)).toMatchObject({ type: "done", count: audioEvents.length });
   });
 

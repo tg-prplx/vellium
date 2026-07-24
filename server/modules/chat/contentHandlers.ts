@@ -6,6 +6,7 @@ import { completeProviderOnce, normalizeOpenAiBaseUrl } from "./providerExecutio
 import { buildReasoningAwareTimeline } from "./reasoningContext.js";
 import { getSettings, getTimeline, resolveBranch, type MessageRow, type ProviderRow } from "./routeHelpers.js";
 import { splitRealtimeTtsInput } from "./ttsRealtime.js";
+import { streamOpenAiCompatibleTts } from "./ttsUpstreamStream.js";
 
 function isAbortLikeError(error: unknown): boolean {
   return error instanceof Error && (
@@ -186,7 +187,23 @@ export async function ttsTextRealtime(req: Request, res: Response) {
 }
 
 async function streamTtsText(input: string, req: Request, res: Response) {
-  const chunks = splitRealtimeTtsInput(input);
+  const settings = getSettings();
+  const rawBaseUrl = String(settings.ttsBaseUrl || "").trim();
+  const apiKey = String(settings.ttsApiKey || "").trim();
+  const adapterId = String(settings.ttsAdapterId || "").trim();
+  const isLocalPiper = rawBaseUrl === LOCAL_INFERENCE_URL;
+  const baseUrl = adapterId || isLocalPiper ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
+  const model = String(settings.ttsModel || "").trim();
+  const voice = String(settings.ttsVoice || "alloy").trim() || "alloy";
+  if (!baseUrl || !model) {
+    res.status(400).json({ error: "TTS endpoint/model not configured" });
+    return;
+  }
+  if (settings.fullLocalMode && !isLocalPiper && !isLocalhostUrl(baseUrl)) {
+    res.status(403).json({ error: "TTS endpoint blocked by Full Local Mode" });
+    return;
+  }
+
   const controller = new AbortController();
   const onClose = () => controller.abort(new Error("TTS client disconnected"));
   res.once("close", onClose);
@@ -196,6 +213,34 @@ async function streamTtsText(input: string, req: Request, res: Response) {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
   try {
+    if (!adapterId && !isLocalPiper) {
+      let nativeIndex = 0;
+      const nativeCount = await streamOpenAiCompatibleTts({
+        baseUrl,
+        apiKey,
+        model,
+        voice,
+        input: String(input || "").replace(/\s+/g, " ").trim().slice(0, 4000),
+        signal: controller.signal
+      }, (chunk) => {
+        if (controller.signal.aborted || res.destroyed) return;
+        res.write(`${JSON.stringify({
+          type: "audio",
+          index: nativeIndex,
+          contentType: "audio/pcm",
+          audioBase64: chunk.audioBase64,
+          format: chunk.format,
+          sampleRate: chunk.sampleRate
+        })}\n`);
+        nativeIndex += 1;
+      });
+      if (nativeCount !== null) {
+        if (!res.destroyed) res.end(`${JSON.stringify({ type: "done", count: nativeCount })}\n`);
+        return;
+      }
+    }
+
+    const chunks = splitRealtimeTtsInput(input);
     for (let index = 0; index < chunks.length; index += 1) {
       if (controller.signal.aborted || res.destroyed) break;
       const audio = await synthesizeTtsAudio(chunks[index], controller.signal);
