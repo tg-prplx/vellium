@@ -35,6 +35,10 @@ export function normalizeApiParamPolicy(raw: ApiParamPolicy | null | undefined):
 export function scrollToSettingsSection(id: string) {
   const node = document.getElementById(id);
   if (!node) return;
+  scrollToSettingsNode(node);
+}
+
+function scrollToSettingsNode(node: HTMLElement) {
   const scroller = node.closest(".settings-content-area") as HTMLElement | null;
   if (!scroller) {
     node.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
@@ -46,6 +50,53 @@ export function scrollToSettingsSection(id: string) {
     top: scroller.scrollTop + nodeRect.top - scrollerRect.top - 18,
     behavior: "smooth"
   });
+}
+
+function normalizedSearchLabel(value: string): string {
+  return value
+    .normalize("NFKD")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+export function revealSettingsSearchTarget(sectionId: string, targetLabel?: string): boolean {
+  const section = document.getElementById(sectionId);
+  if (!section) return false;
+  const needle = normalizedSearchLabel(targetLabel || "");
+  let target: HTMLElement = section;
+  let focusTarget: HTMLElement | null = null;
+
+  if (needle) {
+    const controls = Array.from(section.querySelectorAll<HTMLElement>(
+      "input:not([type='hidden']), select, textarea, button, [tabindex]:not([tabindex='-1'])"
+    ));
+    let best: { node: HTMLElement; control: HTMLElement; length: number } | null = null;
+
+    for (const control of controls) {
+      let candidate: HTMLElement | null = control;
+      for (let depth = 0; candidate && candidate !== section && depth < 5; depth += 1) {
+        const text = normalizedSearchLabel(candidate.textContent || control.getAttribute("aria-label") || "");
+        if (text.includes(needle) && (!best || text.length < best.length)) {
+          best = { node: candidate, control, length: text.length };
+        }
+        candidate = candidate.parentElement;
+      }
+    }
+
+    if (best) {
+      target = best.node;
+      focusTarget = best.control;
+    }
+  }
+
+  scrollToSettingsNode(target);
+  target.classList.remove("settings-search-target");
+  void target.offsetWidth;
+  target.classList.add("settings-search-target");
+  window.setTimeout(() => target.classList.remove("settings-search-target"), 2600);
+  window.setTimeout(() => focusTarget?.focus({ preventScroll: true }), 360);
+  return true;
 }
 
 const HIGH_RISK_PLUGIN_PERMISSIONS = new Set(["api.write", "pluginSettings.write"]);

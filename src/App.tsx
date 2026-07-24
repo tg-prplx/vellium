@@ -17,6 +17,7 @@ import {
   readWallpaperThemePalette,
   storeWallpaperThemePalette
 } from "./shared/wallpaperTheme";
+import { SettingsCommandPalette } from "./features/settings/components/SettingsCommandPalette";
 
 const ChatScreen = lazy(() => import("./features/chat/ChatScreen").then((module) => ({ default: module.ChatScreen })));
 const LiveScreen = lazy(() => import("./features/live/LiveScreen").then((module) => ({ default: module.LiveScreen })));
@@ -65,7 +66,11 @@ function AppContent({
   const { t } = useI18n();
   const { pluginTabs, catalogRevision } = usePlugins();
   const [pendingAgentThreadId, setPendingAgentThreadId] = useState<string | null>(null);
-  const [pendingSettingsView, setPendingSettingsView] = useState<{ category?: string; sectionId?: string } | null>(null);
+  const [pendingSettingsView, setPendingSettingsView] = useState<{
+    category?: string;
+    sectionId?: string;
+    targetLabel?: string;
+  } | null>(null);
   const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
   const [compactNavigation, setCompactNavigation] = useState(() => window.matchMedia("(max-width: 480px)").matches);
   const navRef = useRef<HTMLElement | null>(null);
@@ -148,7 +153,11 @@ function AppContent({
 
   useEffect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ category?: string; sectionId?: string }>).detail;
+      const detail = (event as CustomEvent<{
+        category?: string;
+        sectionId?: string;
+        targetLabel?: string;
+      }>).detail;
       if (detail?.category === "agents") {
         setPendingSettingsView({ category: "legacy", sectionId: "settings-legacy" });
         setActiveTab("settings");
@@ -157,7 +166,8 @@ function AppContent({
       }
       setPendingSettingsView({
         category: typeof detail?.category === "string" ? detail.category : undefined,
-        sectionId: typeof detail?.sectionId === "string" ? detail.sectionId : undefined
+        sectionId: typeof detail?.sectionId === "string" ? detail.sectionId : undefined,
+        targetLabel: typeof detail?.targetLabel === "string" ? detail.targetLabel : undefined
       });
       setActiveTab("settings");
     };
@@ -179,6 +189,7 @@ function AppContent({
         <SettingsScreen
           initialCategory={pendingSettingsView?.category}
           initialSectionId={pendingSettingsView?.sectionId}
+          initialTargetLabel={pendingSettingsView?.targetLabel}
           onInitialViewHandled={() => setPendingSettingsView(null)}
           initialLegacyAgentThreadId={pendingAgentThreadId}
           onInitialLegacyAgentThreadHandled={() => setPendingAgentThreadId(null)}
@@ -363,6 +374,16 @@ function AppContent({
         </div>
       </main>
       {compactNavigation ? renderTabsNode(true) : null}
+      <SettingsCommandPalette
+        onNavigate={(entry) => {
+          setPendingSettingsView({
+            category: entry.category,
+            sectionId: entry.sectionId,
+            targetLabel: entry.targetLabel
+          });
+          setActiveTab("settings");
+        }}
+      />
     </div>
   );
 }
