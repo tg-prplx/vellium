@@ -19,6 +19,7 @@ import { LocalModelsSetup } from "../../components/LocalModelsSetup";
 import { LegacyScreen } from "../legacy/public";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
 import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue } from "./utils";
+import { useInitialSettingsNavigation } from "./hooks/useInitialSettingsNavigation";
 import { applyWallpaperThemePalette, clearWallpaperTheme, generateWallpaperThemePalette, isWallpaperThemeEnabled, readWallpaperThemePalette, setWallpaperThemeEnabled, storeWallpaperThemePalette } from "../../shared/wallpaperTheme";
 function isLocalProviderEndpoint(url: string): boolean {
   try {
@@ -109,17 +110,6 @@ async function prepareSimpleModeWallpaper(file: File, t: (key: any) => string): 
   }
 }
 
-const SETTINGS_CATEGORIES: SettingsCategory[] = [
-  "connection",
-  "backends",
-  "interface",
-  "generation",
-  "context",
-  "prompts",
-  "tools",
-  "legacy"
-];
-
 type SettingsActionIconName = "add" | "refresh" | "edit" | "test" | "save" | "models" | "activate" | "voice" | "tour";
 
 function SettingsActionIcon({ name }: { name: SettingsActionIconName }) {
@@ -145,12 +135,14 @@ function SettingsActionIcon({ name }: { name: SettingsActionIconName }) {
 export function SettingsScreen({
   initialCategory,
   initialSectionId,
+  initialTargetLabel,
   onInitialViewHandled,
   initialLegacyAgentThreadId,
   onInitialLegacyAgentThreadHandled
 }: {
   initialCategory?: string;
   initialSectionId?: string;
+  initialTargetLabel?: string;
   onInitialViewHandled?: () => void;
   initialLegacyAgentThreadId?: string | null;
   onInitialLegacyAgentThreadHandled?: () => void;
@@ -309,31 +301,15 @@ export function SettingsScreen({
     void window.electronAPI.getManagedBackendLogs(managedBackendLogsFor.id).then(setManagedBackendLogs).catch(() => {});
   }, [managedBackendStates, managedBackendLogsFor]);
 
-  useEffect(() => {
-    const nextCategory = SETTINGS_CATEGORIES.includes(initialCategory as SettingsCategory)
-      ? initialCategory as SettingsCategory
-      : null;
-    if (!nextCategory && !initialSectionId) return;
-    if (nextCategory && activeCategory !== nextCategory) {
-      setActiveCategory(nextCategory);
-    }
-
-    let timer: number | null = null;
-    const frame = window.requestAnimationFrame(() => {
-      if (!initialSectionId) {
-        onInitialViewHandled?.();
-        return;
-      }
-      timer = window.setTimeout(() => {
-        scrollToSettingsSection(initialSectionId);
-        onInitialViewHandled?.();
-      }, 60);
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [activeCategory, initialCategory, initialSectionId, onInitialViewHandled]);
+  useInitialSettingsNavigation({
+    ready: Boolean(settings),
+    activeCategory,
+    setActiveCategory,
+    initialCategory,
+    initialSectionId,
+    initialTargetLabel,
+    onHandled: onInitialViewHandled
+  });
 
   useEffect(() => {
     return () => {
