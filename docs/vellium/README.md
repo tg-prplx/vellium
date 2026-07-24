@@ -31,6 +31,7 @@ The screenshots in this guide are local captures from the current app build. Whe
 | [settings-and-providers.md](./settings-and-providers.md) | Providers, models, UI settings, generation, context, security, plugins, and MCP |
 | [plugins-and-security.md](./plugins-and-security.md) | Plugin management, permissions, Pluginfile, themes, and safe usage guidelines |
 | [runtime-and-integration-reference.md](./runtime-and-integration-reference.md) | Headless mode, runtime flags, MCP lifecycle, and integration helper functions |
+| [web-service-e2ee-and-regulatory-plan.md](./web-service-e2ee-and-regulatory-plan.md) | Future E2EE/BYOK web-service architecture, German/EU regulatory constraints, and implementation phases |
 | [troubleshooting.md](./troubleshooting.md) | Common failures, diagnostics, and a practical fallback plan |
 
 ## How Vellium Fits Together

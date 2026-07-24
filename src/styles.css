@@ -467,6 +467,17 @@ input[type="range"] {
   outline: none;
 }
 
+input[type="range"].scene-level-range {
+  height: 6px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--range-track) 0,
+    var(--range-track) calc(20% - 2px),
+    var(--color-bg-primary) calc(20% - 2px),
+    var(--color-bg-primary) 20%
+  );
+}
+
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -2614,6 +2625,50 @@ select {
   background: var(--color-accent-subtle);
 }
 
+.rp-reasoning-toggle {
+  flex-shrink: 0;
+}
+
+.rp-reasoning-toggle.is-active {
+  border-color: color-mix(in srgb, var(--color-accent) 62%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent-subtle) 72%, var(--color-bg-secondary));
+  color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+
+.rp-reasoning-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.rp-reasoning-toggle-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 25px;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: 10px;
+}
+
+.rp-reasoning-toggle-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--color-text-tertiary);
+  opacity: 0.45;
+}
+
+.rp-reasoning-toggle-dot.is-active {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent);
+  opacity: 1;
+}
+
 .chat-simple-bar-mode {
   font-size: 10px;
   color: var(--color-text-tertiary);
@@ -3108,6 +3163,200 @@ select {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.char-editor-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 4px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-bg-primary) 76%, transparent);
+}
+
+.char-editor-tabs button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+  transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+
+.char-editor-tabs button:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  transform: none;
+}
+
+.char-editor-tabs button.is-active {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  box-shadow: 0 5px 18px rgb(0 0 0 / 12%);
+}
+
+.char-editor-tab-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 16%, transparent);
+}
+
+.character-scene-editor {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.character-scene-editor-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(230px, 0.75fr);
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-bg-primary) 72%, transparent);
+}
+
+.character-scene-editor-intro h2 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.character-scene-editor-intro p {
+  margin: 5px 0 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.character-scene-editor-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+}
+
+.character-scene-editor-toggle strong,
+.character-scene-editor-toggle span {
+  display: block;
+}
+
+.character-scene-editor-toggle strong {
+  color: var(--color-text-primary);
+  font-size: 11px;
+}
+
+.character-scene-editor-toggle span {
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.character-scene-editor-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  transition: opacity var(--motion-fast) ease;
+}
+
+.character-scene-editor-fields:disabled {
+  opacity: 0.48;
+}
+
+.character-scene-field,
+.character-scene-slider {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-bg-primary) 68%, transparent);
+}
+
+.character-scene-field label,
+.character-scene-slider label {
+  display: block;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.character-scene-field input,
+.character-scene-field select {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  outline: none;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: 12px;
+}
+
+.character-scene-field input:focus,
+.character-scene-field select:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-subtle);
+}
+
+.character-scene-slider > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.character-scene-slider output {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.character-scene-slider input[type="range"] {
+  width: 100%;
+  margin-top: 14px;
+  accent-color: var(--color-accent);
+}
+
+.character-scene-editor-disabled-note {
+  padding: 10px 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .character-scene-editor-intro,
+  .character-scene-editor-fields {
+    grid-template-columns: 1fr;
+  }
 }
 
 .char-editor-header-top {

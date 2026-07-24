@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { ModalShell } from "../../../components/ModalShell";
 import type { TranslationKey } from "../../../shared/i18n";
+import { getSceneLevelTranslationKey } from "../../../shared/sceneLevels";
 import type { CustomInspectorField, RpSceneState } from "../../../shared/types/contracts";
 import { DEFAULT_SCENE_FIELD_VISIBILITY } from "../constants";
 import { readSceneVarPercent } from "../utils";
@@ -100,7 +101,9 @@ export function SimpleSceneModal({
         <div>
           <div className="mb-1 flex items-center justify-between">
             <label className="text-[10px] text-text-tertiary">{t("inspector.intensity")}</label>
-            <span className="text-[10px] font-medium text-text-secondary">{Math.round(sceneState.intensity * 100)}%</span>
+            <span className="text-[10px] font-medium text-text-secondary">
+              {Math.round(sceneState.intensity * 100)}% ({t(getSceneLevelTranslationKey("intensity", sceneState.intensity * 100))})
+            </span>
           </div>
           <input
             type="range"
@@ -112,7 +115,7 @@ export function SimpleSceneModal({
               ...previous,
               intensity: Number(event.target.value)
             }))}
-            className="w-full"
+            className="scene-level-range w-full"
           />
         </div>
 
@@ -142,7 +145,9 @@ export function SimpleSceneModal({
               <div key={key}>
                 <div className="mb-1 flex items-center justify-between">
                   <label className="text-[10px] text-text-tertiary">{t(labelKey)}</label>
-                  <span className="text-[10px] font-medium text-text-secondary">{value}%</span>
+                  <span className="text-[10px] font-medium text-text-secondary">
+                    {value}% ({t(getSceneLevelTranslationKey(key, value))})
+                  </span>
                 </div>
                 <input
                   type="range"
@@ -151,7 +156,7 @@ export function SimpleSceneModal({
                   step={5}
                   value={value}
                   onChange={(event) => onSceneVariablePercentChange(key, Number(event.target.value))}
-                  className="w-full"
+                  className="scene-level-range w-full"
                 />
               </div>
             );

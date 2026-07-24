@@ -1,4 +1,5 @@
 // Full RP prompt builder engine
+import { describeSceneLevel } from "../../src/shared/sceneLevels.js";
 
 export interface PromptBlock {
   id: string;
@@ -429,16 +430,16 @@ function formatSceneState(scene: SceneState, intensity: number): string {
     parts.push(`Dialogue style: ${dialogueStyle.trim()}`);
   }
   if (Number.isFinite(initiative)) {
-    parts.push(`Character initiative: ${Math.max(0, Math.min(100, Math.round(initiative)))}%`);
+    parts.push(`Character initiative: ${describeSceneLevel("initiative", initiative)}`);
   }
   if (Number.isFinite(descriptiveness)) {
-    parts.push(`Descriptive richness: ${Math.max(0, Math.min(100, Math.round(descriptiveness)))}%`);
+    parts.push(`Descriptive richness: ${describeSceneLevel("descriptiveness", descriptiveness)}`);
   }
   if (Number.isFinite(unpredictability)) {
-    parts.push(`Plot unpredictability: ${Math.max(0, Math.min(100, Math.round(unpredictability)))}%`);
+    parts.push(`Plot unpredictability: ${describeSceneLevel("unpredictability", unpredictability)}`);
   }
   if (Number.isFinite(emotionalDepth)) {
-    parts.push(`Emotional depth: ${Math.max(0, Math.min(100, Math.round(emotionalDepth)))}%`);
+    parts.push(`Emotional depth: ${describeSceneLevel("emotionalDepth", emotionalDepth)}`);
   }
 
   const remaining = Object.entries(vars)
@@ -446,7 +447,7 @@ function formatSceneState(scene: SceneState, intensity: number): string {
   if (remaining.length > 0) {
     parts.push(`Scene variables: ${remaining.map(([k, v]) => `${k}=${v}`).join(", ")}`);
   }
-  parts.push(`Intensity: ${Math.round(intensity * 100)}%`);
+  parts.push(`Intensity: ${describeSceneLevel("intensity", intensity * 100)}`);
   return `[Scene State]\n${parts.join("\n")}`;
 }
 

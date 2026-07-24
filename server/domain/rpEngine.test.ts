@@ -15,7 +15,10 @@ import {
   type CharacterCardData,
   type PromptContext
 } from "./rpEngine.js";
-import { buildSillyTavernCompatiblePurePrompt } from "../modules/chat/promptContext.js";
+import {
+  buildSillyTavernCompatibleLightPrompt,
+  buildSillyTavernCompatiblePurePrompt
+} from "../modules/chat/promptContext.js";
 
 function character(name: string): CharacterCardData {
   return {
@@ -84,6 +87,52 @@ describe("default roleplay system prompt", () => {
 
     expect(prompt).toContain("writing Mira in an ongoing story with Alex");
     expect(prompt).not.toMatch(/\{\{(?:char|user)\}\}/i);
+  });
+
+  it("sends semantic scene levels instead of percentages in full and light RP prompts", () => {
+    const alice = character("Alice");
+    const sceneState = {
+      mood: "watchful",
+      pacing: "balanced",
+      intensity: 0.74,
+      pureChatMode: false,
+      chatMode: "rp" as const,
+      variables: {
+        dialogueStyle: "formal",
+        initiative: "72",
+        descriptiveness: "91",
+        unpredictability: "35",
+        emotionalDepth: "58"
+      }
+    };
+    const fullContext: PromptContext = {
+      ...context(alice),
+      blocks: [{ id: "scene", kind: "scene", enabled: true, order: 1, content: "" }],
+      sceneState,
+      intensity: sceneState.intensity
+    };
+    const fullPrompt = buildSystemPrompt(fullContext);
+    const lightPrompt = buildSillyTavernCompatibleLightPrompt({
+      baseSystemPrompt: "Stay in character.",
+      currentCharacter: alice,
+      characterCards: [alice],
+      currentCharacterName: "Alice",
+      userName: "Reader",
+      sceneState,
+      strictGrounding: false
+    });
+
+    expect(fullPrompt).toContain("Character initiative: proactive");
+    expect(fullPrompt).toContain("Descriptive richness: richly detailed");
+    expect(fullPrompt).toContain("Plot unpredictability: steady");
+    expect(lightPrompt).toContain("Initiative: proactive");
+    expect(lightPrompt).toContain("Descriptiveness: richly detailed");
+    expect(lightPrompt).toContain("Unpredictability: steady");
+    for (const prompt of [fullPrompt, lightPrompt]) {
+      expect(prompt).toContain("Intensity: high");
+      expect(prompt).toContain("Emotional depth: balanced");
+      expect(prompt).not.toMatch(/(?:Intensity|initiative|Initiative|richness|Descriptiveness|unpredictability|Unpredictability|Emotional depth):[^\n]*%/);
+    }
   });
 
   it("emits one combined system message at the beginning", () => {

@@ -91,7 +91,7 @@ Vellium converts a recognized MCP result into a stable trace before storing and 
 }
 ```
 
-The model receives the short `summary`; the full structured trace is kept for the chat UI. This prevents large tool payloads from being dumped into the visible assistant text.
+The model receives the short `summary`; the full structured trace is kept for the chat UI. This prevents large tool payloads from being dumped into the visible assistant text. If Vellium appends display-only image Markdown to the saved assistant response, links confirmed by that message's media trace are removed from later provider context while remaining visible in the chat and export.
 
 If the tool supplies `markdown`, Vellium also checks the final assistant response. Missing image Markdown is appended once, while duplicate URLs are suppressed.
 

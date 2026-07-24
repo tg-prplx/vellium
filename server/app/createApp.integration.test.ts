@@ -1665,6 +1665,7 @@ process.stdin.on("data", (chunk) => {
       activeProviderId: "mock-openai",
       activeModel: "mock-model",
       toolCallingEnabled: false,
+      rpReasoningEnabled: true,
       defaultSystemPrompt: "Base template instruction"
     });
     lastChatTemplateMessages = [];
@@ -1689,7 +1690,12 @@ process.stdin.on("data", (chunk) => {
     expect(String(systemMessages[0]?.content || "")).toContain("Base template instruction");
     expect(String(systemMessages[0]?.content || "")).toContain("Persisted summary context");
     expect(String(systemMessages[0]?.content || "")).toContain("Keep the reply grounded");
+    expect(String(systemMessages[0]?.content || "")).toContain("Before every response, write a reasoning block inside <think>...</think> tags.");
+    expect(String(systemMessages[0]?.content || "")).toContain("roughly 2-5 sentences");
+    expect(String(systemMessages[0]?.content || "").trim()).toMatch(/\[Mandatory format for the next assistant turn\][\s\S]*earlier assistant message omitted the block\.$/);
     expect(lastChatTemplateMessages.slice(1).some((message) => message.role === "system")).toBe(false);
+    expect(lastChatTemplateMessages.filter((message) => message.role === "user").at(-1)?.content).toBe("single-system-template-check");
+    await updateSettings({ rpReasoningEnabled: false });
   });
 
   it("persists manual character ordering and appends new characters to the end", async () => {
@@ -1728,6 +1734,77 @@ process.stdin.on("data", (chunk) => {
       body: { characterIds: originalIds }
     });
     expect(restoreResponse.ok).toBe(true);
+  });
+
+  it("initializes a new chat from the first character's enabled scene defaults", async () => {
+    const primary = await postJson("/api/characters/import", {
+      rawJson: JSON.stringify({
+        spec: "chara_card_v2",
+        spec_version: "2.0",
+        data: {
+          name: "Scene Defaults Primary",
+          first_mes: "Ready.",
+          extensions: {
+            vellium_scene_state: {
+              enabled: true,
+              mood: "watchful",
+              pacing: "fast",
+              intensity: 0.82,
+              variables: {
+                dialogueStyle: "formal",
+                initiative: "88",
+                descriptiveness: "64",
+                unpredictability: "37",
+                emotionalDepth: "79"
+              }
+            }
+          }
+        }
+      })
+    });
+    const secondary = await postJson("/api/characters/import", {
+      rawJson: JSON.stringify({
+        spec: "chara_card_v2",
+        spec_version: "2.0",
+        data: {
+          name: "Scene Defaults Secondary",
+          extensions: {
+            vellium_scene_state: {
+              enabled: true,
+              mood: "secondary-mood",
+              pacing: "slow",
+              intensity: 0.2,
+              variables: {}
+            }
+          }
+        }
+      })
+    });
+
+    const created = await postJson("/api/chats", {
+      title: "Character Scene Defaults",
+      characterIds: [primary.id, secondary.id]
+    });
+    const sceneState = await parseJsonResponse(
+      `/api/rp/scene-state/${created.id}`,
+      await fetch(`${baseUrl}/api/rp/scene-state/${created.id}`)
+    );
+
+    expect(sceneState).toMatchObject({
+      chatId: created.id,
+      mood: "watchful",
+      pacing: "fast",
+      intensity: 0.82,
+      variables: {
+        dialogueStyle: "formal",
+        initiative: "88",
+        descriptiveness: "64",
+        unpredictability: "37",
+        emotionalDepth: "79"
+      },
+      chatMode: "rp",
+      pureChatMode: false
+    });
   });
 
   it("exports multi-character chats with explicit participants and speakers", async () => {
@@ -1959,7 +2036,8 @@ process.stdin.on("data", (chunk) => {
       contextMaxMessages: 0,
       translationTimeoutSeconds: 120,
       compressionMaxTokens: 1024,
-      autoConversationDefaultTurns: 5
+      autoConversationDefaultTurns: 5,
+      rpReasoningEnabled: false
     });
 
     const updateResponse = await requestJson("/api/settings", {
@@ -1969,7 +2047,8 @@ process.stdin.on("data", (chunk) => {
         contextMaxMessages: -10,
         translationTimeoutSeconds: 1,
         compressionTemperature: 8,
-        autoConversationDefaultTurns: 100
+        autoConversationDefaultTurns: 100,
+        rpReasoningEnabled: true
       }
     });
     expect(updateResponse.ok).toBe(true);
@@ -1978,7 +2057,8 @@ process.stdin.on("data", (chunk) => {
       contextMaxMessages: 0,
       translationTimeoutSeconds: 5,
       compressionTemperature: 2,
-      autoConversationDefaultTurns: 50
+      autoConversationDefaultTurns: 50,
+      rpReasoningEnabled: true
     });
 
     await updateSettings({
@@ -1986,7 +2066,8 @@ process.stdin.on("data", (chunk) => {
       contextMaxMessages: 0,
       translationTimeoutSeconds: 120,
       compressionTemperature: 0.3,
-      autoConversationDefaultTurns: 5
+      autoConversationDefaultTurns: 5,
+      rpReasoningEnabled: false
     });
   });
 
