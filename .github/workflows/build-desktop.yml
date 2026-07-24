@@ -33,9 +33,13 @@ jobs:
         run: python -m pip install --upgrade pip pillow
 
       - name: Install dependencies
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -uo pipefail
+          node scripts/prefetch-electron.cjs
           for attempt in 1 2 3; do
             if npm ci; then exit 0; else status=$?; fi
             if [ "$attempt" -eq 3 ]; then exit "$status"; fi
@@ -112,8 +116,13 @@ jobs:
         run: python -m pip install --upgrade pip pillow
 
       - name: Install dependencies
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
+          node scripts/prefetch-electron.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           for ($attempt = 1; $attempt -le 3; $attempt++) {
             npm ci
             $status = $LASTEXITCODE
@@ -177,9 +186,13 @@ jobs:
         run: python -m pip install --upgrade pip pillow
 
       - name: Install dependencies
+        env:
+          electron_config_cache: ${{ runner.temp }}/electron-cache
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -uo pipefail
+          node scripts/prefetch-electron.cjs
           for attempt in 1 2 3; do
             if npm ci; then exit 0; else status=$?; fi
             if [ "$attempt" -eq 3 ]; then exit "$status"; fi
