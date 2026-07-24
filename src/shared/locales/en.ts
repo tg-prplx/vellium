@@ -1584,6 +1584,8 @@ export const en = {
   "common.delete": "Delete",
   "localModels.title": "Install local AI",
   "localModels.description": "Download independent LLM, speech recognition, and voice models into Vellium's data folder. They are configured automatically and can be removed here.",
+  "localModels.speechTitle": "Install local speech",
+  "localModels.speechDescription": "Install, configure, or remove local Whisper STT and Piper TTS at any time.",
   "localModels.desktopOnly": "Automatic local model installation is available in the desktop app.",
   "localModels.model": "model",
   "localModels.runtime": "runtime",
