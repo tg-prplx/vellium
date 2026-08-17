@@ -90,6 +90,8 @@ export const DEFAULT_SETTINGS = {
   sttLanguage: "",
   compressProviderId: null,
   compressModel: null,
+  endpointDiscoveryTimeoutSeconds: 30,
+  speechTranscriptionTimeoutSeconds: 180,
   translationTimeoutSeconds: 120,
   translationTemperature: 0.2,
   translationMaxTokens: 2048,
@@ -193,6 +195,7 @@ export const DEFAULT_SETTINGS = {
     envText?: string;
     defaultModel?: string | null;
     autoStopOnSwitch: boolean;
+    startTimeoutSeconds: number;
     statusMode: "auto" | "api" | "stdout" | "none";
     healthPath?: string;
     modelsPath?: string;

@@ -257,7 +257,7 @@ function parseModelIds(raw: unknown): string[] {
   return [...new Set(out.map((item) => item.trim()).filter(Boolean))];
 }
 
-export async function fetchKoboldModels(provider: ProviderLike): Promise<string[]> {
+export async function fetchKoboldModels(provider: ProviderLike, signal?: AbortSignal): Promise<string[]> {
   const base = normalizeKoboldBaseUrl(provider.base_url);
   const candidates = [
     `${base}/api/v1/models`,
@@ -270,7 +270,7 @@ export async function fetchKoboldModels(provider: ProviderLike): Promise<string[
   ];
   for (const url of candidates) {
     try {
-      const response = await fetch(url, { method: "GET" });
+      const response = await fetch(url, { method: "GET", signal });
       if (!response.ok) continue;
       const raw = await response.text();
       let ids: string[] = [];
@@ -284,6 +284,7 @@ export async function fetchKoboldModels(provider: ProviderLike): Promise<string[
       }
       if (ids.length > 0) return ids;
     } catch {
+      if (signal?.aborted) throw signal.reason;
       // Try next endpoint.
     }
   }

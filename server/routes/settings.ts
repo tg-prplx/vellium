@@ -7,9 +7,11 @@ import { fetchCustomAdapterModels, fetchCustomAdapterVoices } from "../services/
 import { normalizeCustomEndpointAdapters, normalizeCustomInspectorFields } from "../services/extensions.js";
 import { normalizeManagedBackends } from "../../src/shared/managedBackends.js";
 import { normalizeRuntimeTuningSettings } from "../services/runtimeTuning.js";
+import { createRequestTimeout } from "../services/requestTimeout.js";
+import { LOCAL_INFERENCE_URL } from "../services/localInference.js";
+import { LOCAL_TERATTS_MODEL_ID, LOCAL_TERATTS_VOICES } from "../../src/shared/localModelConfig.js";
 
 const router = Router();
-const MODEL_DISCOVERY_TIMEOUT_MS = 12_000;
 
 const PROMPT_BLOCK_KINDS = new Set(["system", "jailbreak", "character", "author_note", "lore", "scene", "history"]);
 
@@ -202,6 +204,19 @@ function getSettings() {
   };
 }
 
+async function withEndpointDiscoveryTimeout<T>(
+  settings: ReturnType<typeof getSettings>,
+  label: string,
+  operation: (signal: AbortSignal | undefined) => Promise<T>
+): Promise<T> {
+  const timeout = createRequestTimeout(settings.endpointDiscoveryTimeoutSeconds, label);
+  try {
+    return await operation(timeout.signal);
+  } finally {
+    timeout.dispose();
+  }
+}
+
 function normalizeOpenAiBaseUrl(raw: string): string {
   const trimmed = String(raw || "").trim().replace(/\/+$/, "");
   if (!trimmed) return "";
@@ -209,24 +224,18 @@ function normalizeOpenAiBaseUrl(raw: string): string {
   return `${trimmed}/v1`;
 }
 
-async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string): Promise<Array<{ id: string }>> {
+async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string, signal?: AbortSignal): Promise<Array<{ id: string }>> {
   const baseUrl = normalizeOpenAiBaseUrl(baseUrlRaw);
   if (!baseUrl) return [];
   const apiKey = String(apiKeyRaw || "").trim();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error(`Model discovery timed out after ${MODEL_DISCOVERY_TIMEOUT_MS}ms`)), MODEL_DISCOVERY_TIMEOUT_MS);
   let body: { data?: Array<{ id?: unknown }>; models?: Array<{ id?: unknown }>; };
-  try {
-    const response = await fetch(`${baseUrl}/models`, {
-      headers: { Connection: "close", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-      cache: "no-store",
-      signal: controller.signal
-    });
-    if (!response.ok) throw new Error(`Model endpoint returned HTTP ${response.status}`);
-    body = await response.json() as typeof body;
-  } finally {
-    clearTimeout(timeout);
-  }
+  const response = await fetch(`${baseUrl}/models`, {
+    headers: { Connection: "close", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+    cache: "no-store",
+    signal
+  });
+  if (!response.ok) throw new Error(`Model endpoint returned HTTP ${response.status}`);
+  body = await response.json() as typeof body;
   const out: Array<{ id: string }> = [];
   if (Array.isArray(body.data)) {
     for (const item of body.data) {
@@ -270,35 +279,29 @@ function extractVoiceIds(payload: unknown): Array<{ id: string }> {
   return Array.from(uniq.values());
 }
 
-async function fetchOpenAiCompatibleVoices(baseUrlRaw: string, apiKeyRaw: string): Promise<Array<{ id: string }>> {
+async function fetchOpenAiCompatibleVoices(baseUrlRaw: string, apiKeyRaw: string, signal?: AbortSignal): Promise<Array<{ id: string }>> {
   const baseUrl = normalizeOpenAiBaseUrl(baseUrlRaw);
   if (!baseUrl) return [];
   const apiKey = String(apiKeyRaw || "").trim();
   const headers = { Connection: "close", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) };
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error(`TTS voice discovery timed out after ${MODEL_DISCOVERY_TIMEOUT_MS}ms`)), MODEL_DISCOVERY_TIMEOUT_MS);
   const candidates = [
     `${baseUrl}/audio/voices`,
     `${baseUrl}/voices`,
     `${baseUrl}/audio/speech/voices`
   ];
-  try {
-    for (const url of candidates) {
-      try {
-        const response = await fetch(url, { headers, cache: "no-store", signal: controller.signal });
-        if (!response.ok) continue;
-        const body = await response.json().catch(() => null);
-        const voices = extractVoiceIds(body);
-        if (voices.length > 0) return voices;
-      } catch (error) {
-        if (controller.signal.aborted) throw error;
-        // try next candidate endpoint
-      }
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, { headers, cache: "no-store", signal });
+      if (!response.ok) continue;
+      const body = await response.json().catch(() => null);
+      const voices = extractVoiceIds(body);
+      if (voices.length > 0) return voices;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      // try next candidate endpoint
     }
-    return [];
-  } finally {
-    clearTimeout(timeout);
   }
+  return [];
 }
 
 function normalizeMcpServer(raw: unknown, fallbackIndex = 1): McpServerConfig | null {
@@ -390,18 +393,17 @@ function parseMcpServersPayload(payload: unknown): McpServerConfig[] {
   return one ? [one] : [];
 }
 
-async function fetchImportSource(source: string): Promise<{ sourceType: "url" | "json"; content: string }> {
+async function fetchImportSource(source: string, timeoutSeconds: number): Promise<{ sourceType: "url" | "json"; content: string }> {
   const trimmed = source.trim();
   if (/^https?:\/\//i.test(trimmed)) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
+    const timeout = createRequestTimeout(timeoutSeconds, "Remote MCP config import");
     try {
-      const response = await fetch(trimmed, { signal: controller.signal });
+      const response = await fetch(trimmed, { signal: timeout.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const content = await response.text();
       return { sourceType: "url", content };
     } finally {
-      clearTimeout(timer);
+      timeout.dispose();
     }
   }
   return { sourceType: "json", content: trimmed };
@@ -558,6 +560,10 @@ router.post("/tts/models", async (req, res) => {
     res.json([]);
     return;
   }
+  if (baseUrl === LOCAL_INFERENCE_URL) {
+    res.json([{ id: LOCAL_TERATTS_MODEL_ID, label: "TeraTTSv2 distilled CFG-3" }]);
+    return;
+  }
 
   if (current.fullLocalMode && !isLocalhostUrl(baseUrl)) {
     res.status(403).json({ error: "TTS endpoint blocked by Full Local Mode" });
@@ -565,12 +571,15 @@ router.post("/tts/models", async (req, res) => {
   }
 
   try {
-    if (adapterId) {
-      const models = await fetchCustomAdapterModels({ base_url: baseUrl, api_key_cipher: apiKey, adapter_id: adapterId });
-      res.json(models.map((id) => ({ id })));
-      return;
-    }
-    const models = await fetchOpenAiCompatibleModels(baseUrl, apiKey);
+    const models = await withEndpointDiscoveryTimeout(current, "TTS model discovery", async (signal) => {
+      if (adapterId) {
+        return (await fetchCustomAdapterModels(
+          { base_url: baseUrl, api_key_cipher: apiKey, adapter_id: adapterId },
+          signal
+        )).map((id) => ({ id }));
+      }
+      return fetchOpenAiCompatibleModels(baseUrl, apiKey, signal);
+    });
     res.json(models);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -589,6 +598,10 @@ router.post("/tts/voices", async (req, res) => {
     res.json([]);
     return;
   }
+  if (baseUrl === LOCAL_INFERENCE_URL) {
+    res.json(LOCAL_TERATTS_VOICES.map((id) => ({ id })));
+    return;
+  }
 
   if (current.fullLocalMode && !isLocalhostUrl(baseUrl)) {
     res.status(403).json({ error: "TTS endpoint blocked by Full Local Mode" });
@@ -596,12 +609,15 @@ router.post("/tts/voices", async (req, res) => {
   }
 
   try {
-    if (adapterId) {
-      const voices = await fetchCustomAdapterVoices({ base_url: baseUrl, api_key_cipher: apiKey, adapter_id: adapterId });
-      res.json(voices.map((id) => ({ id })));
-      return;
-    }
-    const voices = await fetchOpenAiCompatibleVoices(baseUrl, apiKey);
+    const voices = await withEndpointDiscoveryTimeout(current, "TTS voice discovery", async (signal) => {
+      if (adapterId) {
+        return (await fetchCustomAdapterVoices(
+          { base_url: baseUrl, api_key_cipher: apiKey, adapter_id: adapterId },
+          signal
+        )).map((id) => ({ id }));
+      }
+      return fetchOpenAiCompatibleVoices(baseUrl, apiKey, signal);
+    });
     res.json(voices);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -623,7 +639,11 @@ router.post("/stt/models", async (req, res) => {
     return;
   }
   try {
-    res.json(await fetchOpenAiCompatibleModels(baseUrl, apiKey));
+    res.json(await withEndpointDiscoveryTimeout(
+      current,
+      "STT model discovery",
+      (signal) => fetchOpenAiCompatibleModels(baseUrl, apiKey, signal)
+    ));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     res.status(502).json({ error: `STT model endpoint unreachable: ${baseUrl} (${message || "request failed"})` });
@@ -657,6 +677,7 @@ router.post("/mcp/test", async (req, res) => {
 });
 
 router.post("/mcp/import", async (req, res) => {
+  const current = getSettings();
   const source = String((req.body as { source?: unknown } | undefined)?.source || "").trim();
   if (!source) {
     res.status(400).json({ ok: false, servers: [], sourceType: "json", error: "source is required" });
@@ -672,7 +693,7 @@ router.post("/mcp/import", async (req, res) => {
       }
     }
 
-    const loaded = await fetchImportSource(source);
+    const loaded = await fetchImportSource(source, current.endpointDiscoveryTimeoutSeconds);
     let parsed: unknown;
     try {
       parsed = JSON.parse(loaded.content);

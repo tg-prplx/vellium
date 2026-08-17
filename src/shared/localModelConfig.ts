@@ -6,9 +6,30 @@ export const LOCAL_LLAMA_BACKEND_ID = "vellium-local-llama-backend";
 export const LOCAL_LLAMA_PROVIDER_ID = "vellium-local-llama";
 export const LOCAL_INFERENCE_SETTINGS_URL = "vellium-local://inference";
 export const LOCAL_PIPER_VERSION = "1.6.0";
+export const LOCAL_TERATTS_RUNTIME_VERSION = "1";
+export const LOCAL_TERATTS_MODEL_REVISION = "f05ea799094571a3553904a555df3834fb0b963b";
+export const LOCAL_TERATTS_MODEL_ID = "teratts-v2-distilled";
+export const LOCAL_TERATTS_DEFAULT_VOICE = "ru_f1";
+
+export const LOCAL_TERATTS_VOICES = [
+  "ru_f1",
+  "ru_m5",
+  "ru_f2",
+  "ru_m1",
+  "eng_f3",
+  "eng_f4_whisper",
+  "eng_f5",
+  "eng_m2_whisper",
+  "eng_m3",
+  "eng_m4"
+] as const;
 
 export function localPiperRuntimeId(platform: string, arch: string) {
   return `ohf-piper-v${LOCAL_PIPER_VERSION}-${platform}-${arch}`;
+}
+
+export function localTeraTtsRuntimeId(platform: string, arch: string) {
+  return `teratts-v2-runtime-v${LOCAL_TERATTS_RUNTIME_VERSION}-${LOCAL_TERATTS_MODEL_REVISION.slice(0, 8)}-${platform}-${arch}`;
 }
 
 export function buildLocalLlamaManagedBackend(
@@ -35,6 +56,7 @@ export function buildLocalLlamaManagedBackend(
     envText: "",
     defaultModel: variant.file,
     autoStopOnSwitch: true,
+    startTimeoutSeconds: 600,
     statusMode: "api",
     healthPath: "/health",
     modelsPath: "/v1/models",

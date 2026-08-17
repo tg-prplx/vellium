@@ -1,6 +1,5 @@
 const BASE = "/api";
 const PROD_FALLBACK_BASES = ["http://127.0.0.1:3001/api", "http://localhost:3001/api"];
-const REQUEST_TIMEOUT_MS = 6000;
 
 type RequestOptions = {
   timeoutMs?: number;
@@ -77,7 +76,7 @@ async function readErrorResponseMessage(res: Response): Promise<string> {
 export async function request<T>(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<T> {
   const bases = requestBases();
   let lastErr: unknown = new Error("Request failed");
-  const timeoutMs = Math.max(0, Math.floor(options?.timeoutMs ?? REQUEST_TIMEOUT_MS));
+  const timeoutMs = Math.max(0, Math.floor(options?.timeoutMs ?? 0));
 
   for (const base of bases) {
     try {
@@ -126,7 +125,7 @@ export const del = <T>(path: string, options?: RequestOptions) => request<T>("DE
 export async function requestBlob(method: string, path: string, body?: unknown, options?: RequestOptions): Promise<Blob> {
   const bases = requestBases();
   let lastErr: unknown = new Error("Request failed");
-  const timeoutMs = Math.max(0, Math.floor(options?.timeoutMs ?? REQUEST_TIMEOUT_MS));
+  const timeoutMs = Math.max(0, Math.floor(options?.timeoutMs ?? 0));
 
   for (const base of bases) {
     try {

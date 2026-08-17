@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { db, isLocalhostUrl } from "../../db.js";
 import { synthesizeCustomAdapterSpeech } from "../../services/customProviderAdapters.js";
-import { LOCAL_INFERENCE_URL, synthesizeLocalPiper } from "../../services/localInference.js";
+import { LOCAL_INFERENCE_URL, streamLocalTts, synthesizeLocalTts } from "../../services/localInference.js";
 import { completeProviderOnce, normalizeOpenAiBaseUrl } from "./providerExecution.js";
 import { buildReasoningAwareTimeline } from "./reasoningContext.js";
 import { getSettings, getTimeline, resolveBranch, type MessageRow, type ProviderRow } from "./routeHelpers.js";
@@ -191,15 +191,15 @@ async function streamTtsText(input: string, req: Request, res: Response) {
   const rawBaseUrl = String(settings.ttsBaseUrl || "").trim();
   const apiKey = String(settings.ttsApiKey || "").trim();
   const adapterId = String(settings.ttsAdapterId || "").trim();
-  const isLocalPiper = rawBaseUrl === LOCAL_INFERENCE_URL;
-  const baseUrl = adapterId || isLocalPiper ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
+  const isLocalInference = rawBaseUrl === LOCAL_INFERENCE_URL;
+  const baseUrl = adapterId || isLocalInference ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
   const model = String(settings.ttsModel || "").trim();
   const voice = String(settings.ttsVoice || "alloy").trim() || "alloy";
   if (!baseUrl || !model) {
     res.status(400).json({ error: "TTS endpoint/model not configured" });
     return;
   }
-  if (settings.fullLocalMode && !isLocalPiper && !isLocalhostUrl(baseUrl)) {
+  if (settings.fullLocalMode && !isLocalInference && !isLocalhostUrl(baseUrl)) {
     res.status(403).json({ error: "TTS endpoint blocked by Full Local Mode" });
     return;
   }
@@ -213,7 +213,30 @@ async function streamTtsText(input: string, req: Request, res: Response) {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
   try {
-    if (!adapterId && !isLocalPiper) {
+    if (isLocalInference) {
+      let localIndex = 0;
+      let usedNativeStream = false;
+      for (const phrase of splitRealtimeTtsInput(input)) {
+        const streamed = await streamLocalTts(phrase, voice, controller.signal, (chunk) => {
+          usedNativeStream = true;
+          if (controller.signal.aborted || res.destroyed) return;
+          res.write(`${JSON.stringify({
+            type: "audio",
+            index: localIndex,
+            contentType: "audio/pcm",
+            audioBase64: chunk.audioBase64,
+            format: chunk.format,
+            sampleRate: chunk.sampleRate
+          })}\n`);
+          localIndex += 1;
+        });
+        if (!streamed) break;
+      }
+      if (usedNativeStream) {
+        if (!res.destroyed) res.end(`${JSON.stringify({ type: "done", count: localIndex })}\n`);
+        return;
+      }
+    } else if (!adapterId) {
       let nativeIndex = 0;
       const nativeCount = await streamOpenAiCompatibleTts({
         baseUrl,
@@ -279,20 +302,20 @@ async function synthesizeTtsAudio(input: string, signal?: AbortSignal): Promise<
   const rawBaseUrl = String(settings.ttsBaseUrl || "").trim();
   const apiKey = String(settings.ttsApiKey || "").trim();
   const adapterId = String(settings.ttsAdapterId || "").trim();
-  const isLocalPiper = rawBaseUrl === LOCAL_INFERENCE_URL;
-  const baseUrl = adapterId || isLocalPiper ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
+  const isLocalInference = rawBaseUrl === LOCAL_INFERENCE_URL;
+  const baseUrl = adapterId || isLocalInference ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
   const model = String(settings.ttsModel || "").trim();
   const voice = String(settings.ttsVoice || "alloy").trim() || "alloy";
   if (!baseUrl || !model) {
     throw new Error("TTS endpoint/model not configured");
   }
 
-  if (settings.fullLocalMode && !isLocalPiper && !isLocalhostUrl(baseUrl)) {
+  if (settings.fullLocalMode && !isLocalInference && !isLocalhostUrl(baseUrl)) {
     throw new Error("TTS endpoint blocked by Full Local Mode");
   }
 
-  if (isLocalPiper) {
-    return { contentType: "audio/wav", buffer: await synthesizeLocalPiper(input) };
+  if (isLocalInference) {
+    return { contentType: "audio/wav", buffer: await synthesizeLocalTts(input, voice, signal) };
   }
   if (adapterId) {
     return synthesizeCustomAdapterSpeech({

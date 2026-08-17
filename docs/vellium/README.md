@@ -4,15 +4,20 @@
 
 Vellium is a local-first desktop/workbench app for:
 
-- AI chat and RP workflows
-- long-form writing workflows
-- characters and LoreBooks
-- knowledge collections and RAG
-- autonomous agent workflows over a selected workspace
-- MCP / tool calling
-- local plugins and themes
+- AI chat, character RP, and live voice conversations;
+- long-form writing projects;
+- characters, personas, LoreBooks, and scene state;
+- knowledge collections and RAG;
+- MCP tool calling, plugins, themes, and desktop pets.
 
-This guide documents the current UI and is based on the real app areas: `Welcome`, `Chat`, `Writing`, `Characters`, `LoreBooks`, `Knowledge`, `Settings`, and plugin-powered surfaces. The dedicated Agents workspace is deprecated and now lives under `Settings → Legacy`.
+This guide follows the current primary areas: `Welcome`, `Chat`, `Live`,
+`Writing`, `Characters`, `Pets`, `LoreBooks`, `Knowledge`, `Settings`, and
+plugin-powered surfaces.
+
+> **Agents is deprecated.** It is disabled by default and available only through
+> `Settings → Legacy` for compatibility with existing threads. Its data and API
+> have not been deleted, but it is not part of the recommended product flow. See
+> [Legacy and Agents](./legacy-and-agents.md).
 
 The screenshots in this guide are local captures from the current app build. Where it makes onboarding clearer, they use `Simple Mode` so the first-run flow matches what many users will actually see.
 
@@ -29,6 +34,7 @@ The screenshots in this guide are local captures from the current app build. Whe
 | [writing.md](./writing.md) | Projects, chapters, scenes, Character Forge, summary lenses, DOCX / Markdown workflows |
 | [knowledge-and-rag.md](./knowledge-and-rag.md) | Knowledge collections, ingestion, scope, and how RAG plugs into chat and writing |
 | [settings-and-providers.md](./settings-and-providers.md) | Providers, models, UI settings, generation, context, security, plugins, and MCP |
+| [legacy-and-agents.md](./legacy-and-agents.md) | Deprecation status, how to open existing Agents threads, compatibility guarantees, and safer replacements |
 | [plugins-and-security.md](./plugins-and-security.md) | Plugin management, permissions, Pluginfile, themes, and safe usage guidelines |
 | [runtime-and-integration-reference.md](./runtime-and-integration-reference.md) | Headless mode, runtime flags, MCP lifecycle, and integration helper functions |
 | [web-service-e2ee-and-regulatory-plan.md](./web-service-e2ee-and-regulatory-plan.md) | Future E2EE/BYOK web-service architecture, German/EU regulatory constraints, and implementation phases |
@@ -40,14 +46,14 @@ The screenshots in this guide are local captures from the current app build. Whe
 flowchart LR
   A["Welcome / Onboarding"] --> B["Settings / Providers"]
   B --> C["Chat"]
-  B --> D["Writing"]
+  B --> D["Live / Writing"]
   E["Characters"] --> C
   F["LoreBooks"] --> C
   G["Knowledge"] --> C
   G --> D
   B --> H["Plugins / Themes / MCP"]
   B --> I["Settings / Legacy"]
-  I --> J["Agents"]
+  I -. compatibility only .-> J["Agents (deprecated)"]
   H --> C
   H --> D
 ```
@@ -57,12 +63,13 @@ flowchart LR
 | Area | Main job | Usually configured together with |
 | --- | --- | --- |
 | `Chat` | Dialogues, RP, tool calling, translation, TTS | `Characters`, `LoreBooks`, `Knowledge`, `Settings` |
+| `Live` | Voice-first conversation with STT/TTS and chat capabilities | `Chat`, `Characters`, `Settings` |
 | `Writing` | Books, chapters, scenes, drafts, summaries, lenses | `Characters`, `Knowledge`, `Settings` |
 | `Characters` | Importing and editing character cards | `Chat`, `Writing` |
 | `LoreBooks` | World facts, trigger keys, scripted prompt injections | `Chat` |
 | `Knowledge` | Retrieval collections for RAG | `Chat`, `Writing`, `Settings` |
 | `Settings` | Providers, models, UI, prompt stack, security, plugins, MCP | Everything |
-| `Settings → Legacy` | Deprecated Agents and non-Simple UI compatibility | Existing agent threads and old workspace preferences |
+| `Settings → Legacy` | Compatibility controls, not a primary workspace | Existing Agents threads and the deprecated non-Simple interface |
 | `Plugin tabs / widgets` | Plugin-powered extensions and extra UI surfaces | `Settings -> Plugins` |
 
 ## Recommended Learning Order
@@ -73,15 +80,15 @@ flowchart LR
 4. Add or import a character in `Characters`.
 5. If your workflow needs world facts, create a LoreBook.
 6. If your workflow needs retrieval, create a knowledge collection in `Knowledge`.
-7. Use Chat, Writing, or plugin-powered surfaces for primary workflows; deprecated Agents remains available under `Settings → Legacy`.
-8. Only after that move on to multi-character scenes, writer workflows, plugins, and MCP.
+7. Only after that move on to Live mode, multi-character scenes, writer workflows, plugins, and MCP.
+8. Open Agents under `Settings → Legacy` only when you need an existing legacy workflow.
 
 ## Important Things to Know Up Front
 
 - Vellium is not tied to a single backend. Chat, translation, compression, TTS, and RAG can all use different models.
 - `Local-only mode` limits the app to localhost or private-network endpoints.
 - Tool calling through MCP only works with OpenAI-compatible chat/completions providers, not with KoboldCpp.
-- Legacy Agents data, server APIs, and workspace remain available through `Settings → Legacy`.
+- Legacy Agents data, server APIs, and workspace remain available through `Settings → Legacy`, but new work should use supported surfaces.
 - `Knowledge` and `LoreBooks` solve different problems: one is retrieval-based, the other is trigger-based scripted context.
 - Plugins in Vellium are local extensions. Treat their permissions the same way you would treat shell tools or third-party scripts.
 

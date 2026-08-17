@@ -408,7 +408,7 @@ export function ManagedBackendsSettings({
                           </>
                         )}
 
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <div className="mt-4 grid gap-3 md:grid-cols-3">
                           <div>
                             <FieldLabel>{t("settings.workingDirectory")}</FieldLabel>
                             <InputField value={backend.workingDirectory || ""} onChange={(value) => updateManagedBackend(backend.id, { workingDirectory: value })} />
@@ -416,6 +416,17 @@ export function ManagedBackendsSettings({
                           <div>
                             <FieldLabel>{t("settings.extraArgs")}</FieldLabel>
                             <InputField value={backend.extraArgs || ""} onChange={(value) => updateManagedBackend(backend.id, { extraArgs: value })} />
+                          </div>
+                          <div>
+                            <FieldLabel>{t("settings.backendStartTimeout")}</FieldLabel>
+                            <InputField
+                              type="number"
+                              value={String(backend.startTimeoutSeconds)}
+                              onChange={(value) => updateManagedBackend(backend.id, {
+                                startTimeoutSeconds: Math.max(15, Math.min(3600, Math.floor(Number(value) || backend.startTimeoutSeconds)))
+                              })}
+                              {...autosaveProps}
+                            />
                           </div>
                         </div>
 

@@ -17,6 +17,13 @@ Vellium groups settings into large categories:
 | `Context` | Context window, scene fields, chat behavior, RAG tuning |
 | `Prompts` | Prompt templates, prompt stack, default system prompts |
 | `Tools & MCP` | Tool calling, security, plugins, MCP servers, MCP functions, reset flows |
+| `Legacy` | Deprecated Agents and the older non-Simple interface; both are disabled/isolated compatibility options |
+
+## Search settings without navigating menus
+
+Press `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS), enter a setting name, and choose a
+result. Vellium opens the owning category, scrolls to the control, and highlights
+it. Search includes localized labels, so use the same language as the interface.
 
 ## Connection: providers and models
 
@@ -69,6 +76,25 @@ Vellium can keep separate models or providers for:
 - embeddings / RAG
 - reranking
 
+Speech is configured independently:
+
+- TTS uses an OpenAI-compatible or custom speech endpoint, model, voice, and an
+  optional realtime streaming mode;
+- STT uses the system recognizer or a Whisper-compatible endpoint and can route
+  to a managed local installation.
+
+The desktop local-speech installer uses
+[TeraTTSv2](https://huggingface.co/TeraSpace/TeraTTSv2) as its default TTS package.
+Vellium downloads the reviewed distilled snapshot pinned to commit
+`f05ea799094571a3553904a555df3834fb0b963b`: exactly 915,321,336 bytes of model
+data, plus the platform runtime shown in the installer. It supports Russian and
+English, exposes all ten bundled voices, supplies the model's required language
+tags automatically, applies the bundled Russian stress model, and streams
+44.1 kHz PCM chunks. The heavier unused teacher sampler is not downloaded.
+The runtime stays alive between utterances so the ONNX sessions are not reloaded
+for every sentence. Existing Piper installations remain readable only as a
+compatibility path until the user replaces or removes them.
+
 This is one of the biggest advantages of Vellium as a workbench: one endpoint does not have to do everything.
 
 ## Runtime mode and local-only policy
@@ -91,6 +117,8 @@ From the code and UI structure, this section is built around:
 - imported CLI commands
 - runtime state
 - logs
+- a per-backend startup timeout, because large local models can need much longer
+  to become healthy than lightweight servers
 
 Use it when your self-hosted stack is complex enough that you want launch control close to the app.
 
@@ -102,7 +130,7 @@ The `Interface` section usually contains:
 - response language
 - theme
 - plugin theme
-- Simple Mode status; the deprecated workspace toggle lives under `Settings → Legacy`
+- Simple Mode status; compatibility toggles live under `Settings → Legacy`
 
 If several people use Vellium on the same machine, it is worth defining these early.
 
@@ -111,8 +139,16 @@ If several people use Vellium on the same machine, it is worth defining these ea
 This section holds the settings that affect output style and form:
 
 - output behavior
+- endpoint discovery timeout for model/voice lists and compatible endpoint probes
+- speech transcription timeout for local or remote Whisper-compatible STT
+- translation timeout and generation limits
+- automatic multi-character turn count and pacing
 - sampler defaults
 - API parameter forwarding
+
+These operational limits are server-owned. Normal renderer API calls do not share
+a hidden global timeout, and generation continues until the provider responds or
+the user/request explicitly cancels it.
 
 The `API param forwarding` block is especially important, because it controls which generation parameters are actually sent to the backend.
 
@@ -226,13 +262,23 @@ Use it only when:
 - you want to restart setup from a clean baseline
 - you need to discard experimental state quickly
 
+## Legacy
+
+Agents is deprecated and disabled by default. To inspect an existing thread, open
+`Settings → Legacy`, enable Agents explicitly, and choose `Open Agents`. The old
+non-Simple interface has its own toggle and does not enable Agents.
+
+Stored Agents threads and server routes remain available for compatibility. New
+workflows should use Chat, Live, Writing, MCP tools, or plugins. See
+[Legacy and Agents](./legacy-and-agents.md) for the full policy.
+
 ## Recommended setup profiles
 
 ### Local RP stack
 
 - provider: `LM Studio`, `Ollama`, or `KoboldCpp`
 - local-only: enabled
-- Simple Mode: recommended; the old interface is available under `Settings → Legacy`
+- Simple Mode: supported default; the old interface is available under `Settings → Legacy`
 - RAG: only if you actually use collections
 - tool calling: only if you need it and the provider supports it
 

@@ -56,7 +56,7 @@ export interface ManagedBackendConfig {
   workingDirectory?: string;
   envText?: string;
   defaultModel?: string | null;
-  autoStopOnSwitch: boolean;
+  autoStopOnSwitch: boolean; startTimeoutSeconds: number;
   statusMode: ManagedBackendStatusMode;
   healthPath?: string;
   modelsPath?: string;
@@ -753,8 +753,8 @@ export interface AppSettings {
   sttSource: "system" | "whisper";
   sttBaseUrl: string; sttApiKey: string;
   sttModel: string; sttLanguage: string;
-  compressProviderId?: string | null;
-  compressModel?: string | null;
+  compressProviderId?: string | null; compressModel?: string | null;
+  endpointDiscoveryTimeoutSeconds: number; speechTranscriptionTimeoutSeconds: number;
   translationTimeoutSeconds: number;
   translationTemperature: number;
   translationMaxTokens: number;

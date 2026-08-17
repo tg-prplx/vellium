@@ -3,6 +3,8 @@ import { buildManagedBackendLaunch } from "./managedBackends";
 import {
   buildLocalLlamaManagedBackend,
   localPiperRuntimeId,
+  localTeraTtsRuntimeId,
+  LOCAL_TERATTS_MODEL_REVISION,
   LOCAL_PIPER_VERSION
 } from "./localModelConfig";
 import { findLocalLlmVariant, LOCAL_LLM_VARIANTS } from "./localLlmVariants";
@@ -42,5 +44,14 @@ describe("local OHF Voice runtime identity", () => {
       .toBe(`ohf-piper-v${LOCAL_PIPER_VERSION}-darwin-arm64`);
     expect(localPiperRuntimeId("darwin", "x64"))
       .not.toBe(localPiperRuntimeId("darwin", "arm64"));
+  });
+});
+
+describe("local TeraTTSv2 runtime identity", () => {
+  it("pins the model revision, runtime generation, platform, and architecture", () => {
+    expect(localTeraTtsRuntimeId("darwin", "arm64"))
+      .toContain(LOCAL_TERATTS_MODEL_REVISION.slice(0, 8));
+    expect(localTeraTtsRuntimeId("darwin", "x64"))
+      .not.toBe(localTeraTtsRuntimeId("darwin", "arm64"));
   });
 });

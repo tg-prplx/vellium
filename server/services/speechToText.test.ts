@@ -52,7 +52,8 @@ describe("speech-to-text transport", () => {
       language: "ru",
       audioBase64: Buffer.from("test audio").toString("base64"),
       mimeType: "audio/webm;codecs=opus",
-      filename: "../../unsafe.webm"
+      filename: "../../unsafe.webm",
+      timeoutSeconds: 180
     })).resolves.toBe("Привет, мир.");
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:1234/v1/audio/transcriptions",

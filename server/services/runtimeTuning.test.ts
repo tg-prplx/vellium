@@ -6,6 +6,8 @@ describe("runtime tuning settings", () => {
     expect(normalizeRuntimeTuningSettings({})).toEqual({
       contextMaxMessages: 0,
       reasoningMaxChars: 12000,
+      endpointDiscoveryTimeoutSeconds: 30,
+      speechTranscriptionTimeoutSeconds: 180,
       translationTimeoutSeconds: 120,
       translationTemperature: 0.2,
       translationMaxTokens: 2048,
@@ -21,6 +23,8 @@ describe("runtime tuning settings", () => {
     expect(normalizeRuntimeTuningSettings({
       contextMaxMessages: 5000,
       reasoningMaxChars: 999999,
+      endpointDiscoveryTimeoutSeconds: 1,
+      speechTranscriptionTimeoutSeconds: 99999,
       translationTimeoutSeconds: 1,
       translationTemperature: 9,
       translationMaxTokens: 3,
@@ -32,6 +36,8 @@ describe("runtime tuning settings", () => {
     })).toEqual({
       contextMaxMessages: 1000,
       reasoningMaxChars: 100000,
+      endpointDiscoveryTimeoutSeconds: 5,
+      speechTranscriptionTimeoutSeconds: 1800,
       translationTimeoutSeconds: 5,
       translationTemperature: 2,
       translationMaxTokens: 64,

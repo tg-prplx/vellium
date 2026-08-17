@@ -10,8 +10,6 @@ import type {
 } from "../types/contracts";
 import { del, get, patchReq, post, streamPost, type StreamCallbacks } from "./core";
 
-const THREAD_STATE_TIMEOUT_MS = 15_000;
-
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -23,7 +21,7 @@ async function loadThreadStateAfterStream(threadId: string): Promise<AgentThread
       await sleep(delayMs);
     }
     try {
-      return await get<AgentThreadState>(`/agents/threads/${threadId}/state`, { timeoutMs: THREAD_STATE_TIMEOUT_MS });
+      return await get<AgentThreadState>(`/agents/threads/${threadId}/state`);
     } catch (error) {
       lastError = error;
     }

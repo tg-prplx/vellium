@@ -70,7 +70,7 @@ If you are unsure:
 - theme: whatever matches your daily workflow
 - censorship: your own usage policy
 - local-only mode: enable it if you only use local models or self-hosted endpoints
-- Simple Mode is the default; the deprecated workspace can be enabled from `Settings → Legacy`
+- Simple Mode is the default; compatibility controls are under `Settings → Legacy`
 
 ## Built-In Provider Presets
 
@@ -124,13 +124,19 @@ Do not enable it if you plan to use public endpoints such as OpenAI or OpenRoute
 
 ## Simple Mode
 
-`Simple Mode` is now the supported interface. The legacy Chat and Writing workspace remains available from `Settings → Legacy`.
+`Simple Mode` is the supported interface. The older Chat and Writing layout
+remains available from `Settings → Legacy` for compatibility. Deprecated Agents
+is a separate opt-in in the same section; enabling the old layout does not enable
+Agents.
 
 - you want a cleaner, more modern Chat and Writing UI
 - you want to learn the main flows before dealing with every advanced side panel
 - the app will be used by non-technical users as well
 
 You can change it later in `Settings`.
+
+For the exact compatibility policy, see
+[Legacy and Agents](./legacy-and-agents.md).
 
 ## What to verify in the first 10 minutes
 

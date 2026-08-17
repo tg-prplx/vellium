@@ -1956,6 +1956,33 @@ process.stdin.on("data", (chunk) => {
     expect(realtimeEvents.at(-1)).toMatchObject({ type: "done", count: audioEvents.length });
   });
 
+  it("discovers the managed TeraTTSv2 model and voices without treating its internal URL as remote", async () => {
+    await updateSettings({ fullLocalMode: true });
+    try {
+      const models = await requestJson("/api/settings/tts/models", {
+        method: "POST",
+        body: { baseUrl: "vellium-local://inference" }
+      });
+      expect(models.ok).toBe(true);
+      expect(await models.json()).toEqual([
+        { id: "teratts-v2-distilled", label: "TeraTTSv2 distilled CFG-3" }
+      ]);
+
+      const voices = await requestJson("/api/settings/tts/voices", {
+        method: "POST",
+        body: { baseUrl: "vellium-local://inference" }
+      });
+      expect(voices.ok).toBe(true);
+      expect(await voices.json()).toEqual(expect.arrayContaining([
+        { id: "ru_f1" },
+        { id: "ru_m5" },
+        { id: "eng_f3" }
+      ]));
+    } finally {
+      await updateSettings({ fullLocalMode: false });
+    }
+  });
+
   it("discovers and uses a Whisper-compatible STT endpoint", async () => {
     await updateSettings({
       sttSource: "whisper",
@@ -2126,6 +2153,8 @@ process.stdin.on("data", (chunk) => {
     expect(await initialResponse.json()).toMatchObject({
       reasoningMaxChars: 12000,
       contextMaxMessages: 0,
+      endpointDiscoveryTimeoutSeconds: 30,
+      speechTranscriptionTimeoutSeconds: 180,
       translationTimeoutSeconds: 120,
       compressionMaxTokens: 1024,
       autoConversationDefaultTurns: 5,
@@ -2137,6 +2166,8 @@ process.stdin.on("data", (chunk) => {
       body: {
         reasoningMaxChars: 500000,
         contextMaxMessages: -10,
+        endpointDiscoveryTimeoutSeconds: 1,
+        speechTranscriptionTimeoutSeconds: 99999,
         translationTimeoutSeconds: 1,
         compressionTemperature: 8,
         autoConversationDefaultTurns: 100,
@@ -2147,6 +2178,8 @@ process.stdin.on("data", (chunk) => {
     expect(await updateResponse.json()).toMatchObject({
       reasoningMaxChars: 100000,
       contextMaxMessages: 0,
+      endpointDiscoveryTimeoutSeconds: 5,
+      speechTranscriptionTimeoutSeconds: 1800,
       translationTimeoutSeconds: 5,
       compressionTemperature: 2,
       autoConversationDefaultTurns: 50,
@@ -2156,6 +2189,8 @@ process.stdin.on("data", (chunk) => {
     await updateSettings({
       reasoningMaxChars: 12000,
       contextMaxMessages: 0,
+      endpointDiscoveryTimeoutSeconds: 30,
+      speechTranscriptionTimeoutSeconds: 180,
       translationTimeoutSeconds: 120,
       compressionTemperature: 0.3,
       autoConversationDefaultTurns: 5,

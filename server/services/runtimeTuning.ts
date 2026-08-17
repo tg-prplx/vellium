@@ -1,6 +1,8 @@
 export interface RuntimeTuningSettings {
   contextMaxMessages: number;
   reasoningMaxChars: number;
+  endpointDiscoveryTimeoutSeconds: number;
+  speechTranscriptionTimeoutSeconds: number;
   translationTimeoutSeconds: number;
   translationTemperature: number;
   translationMaxTokens: number;
@@ -25,6 +27,8 @@ export function normalizeRuntimeTuningSettings(raw: Record<string, unknown>): Ru
   return {
     contextMaxMessages: integer(raw.contextMaxMessages, 0, 0, 1000),
     reasoningMaxChars: integer(raw.reasoningMaxChars, 12000, 1000, 100000),
+    endpointDiscoveryTimeoutSeconds: integer(raw.endpointDiscoveryTimeoutSeconds, 30, 5, 300),
+    speechTranscriptionTimeoutSeconds: integer(raw.speechTranscriptionTimeoutSeconds, 180, 15, 1800),
     translationTimeoutSeconds: integer(raw.translationTimeoutSeconds, 120, 5, 600),
     translationTemperature: decimal(raw.translationTemperature, 0.2, 0, 2),
     translationMaxTokens: integer(raw.translationMaxTokens, 2048, 64, 32768),

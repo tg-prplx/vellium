@@ -5,7 +5,7 @@ import { createReadStream, createWriteStream, existsSync } from "fs";
 import { chmod, mkdir, readFile, rename, rm, statfs } from "fs/promises";
 import path from "path";
 import { pipeline } from "stream/promises";
-import extractZip from "extract-zip";
+import extractZip from "@electron-internal/extract-zip";
 import { x as extractTar } from "tar";
 import type {
   LocalLlmVariantId,
@@ -18,11 +18,14 @@ import type {
 import type { ManagedBackendConfig } from "../src/shared/types/contracts";
 import {
   buildLocalLlamaManagedBackend,
-  localPiperRuntimeId,
+  localTeraTtsRuntimeId,
   LOCAL_INFERENCE_SETTINGS_URL,
   LOCAL_LLAMA_PROVIDER_ID,
-  LOCAL_PIPER_VERSION
+  LOCAL_TERATTS_DEFAULT_VOICE,
+  LOCAL_TERATTS_MODEL_ID,
+  LOCAL_TERATTS_RUNTIME_VERSION
 } from "../src/shared/localModelConfig";
+import { TERA_TTS_MODEL_BYTES, TERA_TTS_MODEL_FILES, teraTtsModelUrl } from "../src/shared/teraTtsModel";
 import {
   findLocalLlmVariant,
   localLlmModelUrl,
@@ -47,7 +50,7 @@ type DownloadSource = {
   bytes?: number;
   digest?: string;
 };
-type ComponentSpec = { id: LocalModelComponentId; model: Download[]; runtime: Download[]; runtimeId?: string; variantId?: LocalLlmVariantId };
+type ComponentSpec = { id: LocalModelComponentId; model: Download[]; runtime: Download[]; runtimeId?: string; variantId?: LocalLlmVariantId; voice?: string };
 type InstallManifest = {
   version: 1;
   componentId: LocalModelComponentId;
@@ -65,7 +68,6 @@ const MODEL_ROOT = "https://huggingface.co";
 const WHISPER_FILE = "ggml-small-q5_1.bin";
 const WHISPER_MODEL_ID = "whisper-small-q5_1";
 const WHISPER_BYTES = 190_085_487;
-const PIPER_MODEL_BYTES = 63_201_294;
 const RETRYABLE_DOWNLOAD_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const DOWNLOAD_RETRY_DELAYS_MS = [0, 500, 1_500];
 
@@ -76,12 +78,9 @@ class DownloadHttpError extends Error {
   }
 }
 
-const VOICES = {
-  en: { key: "en_US-lessac-medium", path: "en/en_US/lessac/medium", jsonBytes: 4885, modelMd5: "2fc642b535197b6305c7c8f92dc8b24f", jsonMd5: "c1f2b7bdfe113f3255ff9ef234cfd3" },
-  ru: { key: "ru_RU-irina-medium", path: "ru/ru_RU/irina/medium", jsonBytes: 4765, modelMd5: "21fbe77fdc68bdc35d7adb6bf4f52199", jsonMd5: "e239bb7f22d5de4a44ec6b1cb6c06bb5" },
-  zh: { key: "zh_CN-huayan-medium", path: "zh/zh_CN/huayan/medium", jsonBytes: 4822, modelMd5: "40cdb7930ff91b81574d5f0489e076ea", jsonMd5: "1fda3ec1d0d3a5a74064397ea8fe0af0" },
-  ja: { key: "en_US-lessac-medium", path: "en/en_US/lessac/medium", jsonBytes: 4885, modelMd5: "2fc642b535197b6305c7c8f92dc8b24f", jsonMd5: "c1f2b7bdfe113f3255ff9ef234cfd3" }
-} as const;
+function defaultTeraTtsVoice(locale: LocalModelInstallRequest["locale"]) {
+  return locale === "ru" ? LOCAL_TERATTS_DEFAULT_VOICE : "eng_f3";
+}
 
 function dataRoot() {
   const base = process.env.SLV_DATA_DIR || (app.isPackaged ? path.join(app.getPath("userData"), "data") : path.resolve(process.cwd(), "data"));
@@ -106,7 +105,7 @@ async function readCurrentInstall(id: LocalModelComponentId): Promise<Partial<In
       return matches ? manifest : null;
     }
     if (id === "tts") {
-      return manifest.runtimeId === localPiperRuntimeId(process.platform, process.arch) ? manifest : null;
+      return manifest.runtimeId === localTeraTtsRuntimeId(process.platform, process.arch) ? manifest : null;
     }
     return manifest;
   } catch {
@@ -188,12 +187,12 @@ function whisperRuntime(platform: NodeJS.Platform, arch: string): Download {
   };
 }
 
-function piperRuntime(platform: NodeJS.Platform, arch: string): Download {
+function teraTtsRuntime(platform: NodeJS.Platform, arch: string): Download {
   const platformName = platform === "darwin" ? "macos" : platform === "win32" ? "windows" : "linux";
   const archName = arch === "arm64" ? "arm64" : "x64";
   const archive = platform === "win32" ? "zip" : "tgz";
   const extension = archive === "zip" ? "zip" : "tar.gz";
-  const filename = `vellium-piper-ohf-v${LOCAL_PIPER_VERSION}-${platformName}-${archName}.${extension}`;
+  const filename = `vellium-teratts-v2-runtime-v${LOCAL_TERATTS_RUNTIME_VERSION}-${platformName}-${archName}.${extension}`;
   return {
     filename,
     url: `https://github.com/tg-prplx/vellium/releases/download/v${app.getVersion()}/${filename}`,
@@ -221,13 +220,13 @@ async function detectHardware() {
   };
 }
 
-function voiceDownloads(locale: LocalModelInstallRequest["locale"]): Download[] {
-  const voice = VOICES[locale];
-  const base = `${MODEL_ROOT}/rhasspy/piper-voices/resolve/main/${voice.path}`;
-  return [
-    { filename: `${voice.key}.onnx`, url: `${base}/${voice.key}.onnx?download=true`, bytes: PIPER_MODEL_BYTES, digest: `md5:${voice.modelMd5}` },
-    { filename: `${voice.key}.onnx.json`, url: `${base}/${voice.key}.onnx.json?download=true`, bytes: voice.jsonBytes, digest: `md5:${voice.jsonMd5}` }
-  ];
+function teraTtsModelDownloads(): Download[] {
+  return TERA_TTS_MODEL_FILES.map((file) => ({
+    filename: file.path,
+    url: teraTtsModelUrl(file.path),
+    bytes: file.bytes,
+    ...(file.sha256 ? { digest: `sha256:${file.sha256}` } : {})
+  }));
 }
 
 export class LocalModelInstaller {
@@ -244,10 +243,10 @@ export class LocalModelInstaller {
     const hardware = await detectHardware();
     const installed = await Promise.all((["llm", "stt", "tts"] as const).map(readCurrentInstall));
     const whisper = whisperRuntime(process.platform, process.arch);
-    const piper = piperRuntime(process.platform, process.arch);
-    const [whisperBytes, piperBytes] = await Promise.all([
+    const teraTts = teraTtsRuntime(process.platform, process.arch);
+    const [whisperBytes, teraTtsRuntimeBytes] = await Promise.all([
       this.resolveRuntimeBytes(whisper),
-      this.resolveRuntimeBytes(piper)
+      this.resolveRuntimeBytes(teraTts)
     ]);
     const installedVariantId = installedLlmVariantId(installed[0]);
     const recommendedVariant = recommendedLocalLlmVariant(hardware);
@@ -270,7 +269,7 @@ export class LocalModelInstaller {
       items: [
         { id: "llm", name: "llama.cpp", modelName: activeVariant.modelName, modelBytes: activeVariant.bytes, auxiliaryBytes: llamaRuntime(process.platform, process.arch, hardware.accelerator).bytes, installed: Boolean(installed[0]), recommended: true },
         { id: "stt", name: "Whisper", modelName: "Whisper Small Q5_1 (multilingual)", modelBytes: WHISPER_BYTES, auxiliaryBytes: whisperBytes, installed: Boolean(installed[1]), recommended: true },
-        { id: "tts", name: "OHF Voice", modelName: `Piper ${LOCAL_PIPER_VERSION} medium voice`, modelBytes: PIPER_MODEL_BYTES, auxiliaryBytes: piperBytes, installed: Boolean(installed[2]), recommended: true }
+        { id: "tts", name: "TeraTTSv2", modelName: "TeraTTSv2 distilled CFG-3 (RU + EN, 10 voices)", modelBytes: TERA_TTS_MODEL_BYTES, auxiliaryBytes: teraTtsRuntimeBytes, installed: Boolean(installed[2]), recommended: true }
       ]
     };
   }
@@ -316,7 +315,7 @@ export class LocalModelInstaller {
         } else if (id === "stt") {
           Object.assign(result.settingsPatch, { sttSource: "whisper", sttBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, sttApiKey: "", sttModel: WHISPER_MODEL_ID });
         } else {
-          Object.assign(result.settingsPatch, { ttsBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, ttsApiKey: "", ttsModel: "piper", ttsVoice: manifest.voice || VOICES[request.locale].key, ttsRealtime: true });
+          Object.assign(result.settingsPatch, { ttsBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, ttsApiKey: "", ttsModel: LOCAL_TERATTS_MODEL_ID, ttsVoice: manifest.voice || defaultTeraTtsVoice(request.locale), ttsRealtime: true });
         }
       } catch (error) {
         result.errors![id] = error instanceof Error ? error.message : String(error);
@@ -346,9 +345,10 @@ export class LocalModelInstaller {
     };
     return {
       id,
-      runtime: [piperRuntime(process.platform, process.arch)],
-      model: voiceDownloads(locale),
-      runtimeId: localPiperRuntimeId(process.platform, process.arch)
+      runtime: [teraTtsRuntime(process.platform, process.arch)],
+      model: teraTtsModelDownloads(),
+      runtimeId: localTeraTtsRuntimeId(process.platform, process.arch),
+      voice: defaultTeraTtsVoice(locale)
     };
   }
 
@@ -360,6 +360,7 @@ export class LocalModelInstaller {
     try {
       for (const item of [...spec.runtime, ...spec.model]) {
         const target = path.join(staging, "downloads", item.filename);
+        await mkdir(path.dirname(target), { recursive: true });
         await this.download(spec.id, item, target, signal);
         if (item.digest) {
           this.emit({ componentId: spec.id, phase: "verifying", receivedBytes: item.bytes, totalBytes: item.bytes, label: `Verifying ${item.filename}` });
@@ -382,7 +383,7 @@ export class LocalModelInstaller {
       const executable = await this.findExecutable(staging, spec.id);
       if (process.platform !== "win32") await chmod(path.join(staging, executable), 0o755);
       if (spec.id === "tts") {
-        this.emit({ componentId: spec.id, phase: "verifying", receivedBytes: 1, totalBytes: 1, label: "Checking OHF Voice runtime" });
+        this.emit({ componentId: spec.id, phase: "verifying", receivedBytes: 1, totalBytes: 1, label: "Checking TeraTTSv2 runtime" });
         await this.validateTtsRuntime(path.join(staging, executable), signal);
       }
       const manifest: InstallManifest = {
@@ -393,7 +394,7 @@ export class LocalModelInstaller {
         installedAt: new Date().toISOString(),
         ...(spec.runtimeId ? { runtimeId: spec.runtimeId } : {}),
         ...(spec.variantId ? { variantId: spec.variantId } : {}),
-        ...(spec.id === "tts" ? { voice: VOICES[locale].key } : {})
+        ...(spec.id === "tts" ? { voice: spec.voice || defaultTeraTtsVoice(locale) } : {})
       };
       await require("fs/promises").writeFile(path.join(staging, "install.json"), JSON.stringify(manifest, null, 2));
       await rm(root, { recursive: true, force: true });
@@ -564,7 +565,7 @@ export class LocalModelInstaller {
         if (error) reject(error);
         else resolve();
       };
-      const child = spawn(executable, ["--help"], {
+      const child = spawn(executable, ["--version"], {
         cwd: path.dirname(executable),
         shell: false,
         stdio: ["ignore", "pipe", "pipe"]
@@ -575,15 +576,15 @@ export class LocalModelInstaller {
       child.stdout.on("data", collect);
       child.stderr.on("data", collect);
       child.once("error", (error) => {
-        finish(new Error(`OHF Voice runtime cannot start on ${process.platform}/${process.arch}: ${error.message}`));
+        finish(new Error(`TeraTTSv2 runtime cannot start on ${process.platform}/${process.arch}: ${error.message}`));
       });
       child.once("exit", (code, exitSignal) => {
         if (code === 0) finish();
-        else finish(new Error(`OHF Voice runtime check failed with code ${code ?? "?"}${exitSignal ? ` (${exitSignal})` : ""}: ${output.trim()}`));
+        else finish(new Error(`TeraTTSv2 runtime check failed with code ${code ?? "?"}${exitSignal ? ` (${exitSignal})` : ""}: ${output.trim()}`));
       });
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
-        finish(new Error("OHF Voice runtime check timed out"));
+        finish(new Error("TeraTTSv2 runtime check timed out"));
       }, 30_000);
       timer.unref?.();
       const abort = () => {
@@ -617,7 +618,7 @@ export class LocalModelInstaller {
       ? (process.platform === "win32" ? ["llama-server.exe"] : ["llama-server"])
       : id === "stt"
         ? (process.platform === "win32" ? ["whisper-cli.exe", "main.exe"] : ["whisper-cli", "main"])
-        : (process.platform === "win32" ? ["piper.exe"] : ["piper"]);
+        : (process.platform === "win32" ? ["teratts-runtime.exe"] : ["teratts-runtime"]);
     const walk = async (dir: string): Promise<string | null> => {
       for (const entry of await require("fs/promises").readdir(dir, { withFileTypes: true })) {
         const absolute = path.join(dir, entry.name);

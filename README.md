@@ -1,364 +1,201 @@
-# Vellium — local-first AI workbench for chat, roleplay and writing
+# Vellium
 
 [![Latest release](https://img.shields.io/github/v/release/tg-prplx/vellium?display_name=tag&sort=semver)](https://github.com/tg-prplx/vellium/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/tg-prplx/vellium/total)](https://github.com/tg-prplx/vellium/releases)
 [![Stars](https://img.shields.io/github/stars/tg-prplx/vellium?style=flat)](https://github.com/tg-prplx/vellium/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-<img width="1440" height="913" alt="image" src="https://github.com/user-attachments/assets/b81aeaa9-7f40-44e0-b739-deb6d91b8edf" />
+<img width="1440" height="913" alt="Vellium chat interface" src="https://github.com/user-attachments/assets/b81aeaa9-7f40-44e0-b739-deb6d91b8edf" />
 
-<p align="center"><strong>One desktop app for character chat, multi-character roleplay, long-form writing, RAG, MCP tools, plugins and local models.</strong></p>
-
-Vellium is a free, open-source desktop AI workspace that works with OpenAI-compatible APIs, OpenRouter, LM Studio, Ollama, KoboldCpp and custom endpoints. Your chats, characters, projects and knowledge stay in a local SQLite database.
+Vellium is a local-first desktop workbench for AI chat, character roleplay, live
+voice conversations, and long-form writing. It connects to OpenAI-compatible
+APIs, OpenRouter, LM Studio, Ollama, KoboldCpp, and configurable custom
+endpoints. Chats, characters, projects, settings, and knowledge collections are
+stored locally in SQLite.
 
 <p align="center">
-  <a href="https://github.com/tg-prplx/vellium/releases/latest"><strong>Download for macOS, Windows or Linux</strong></a>
+  <a href="https://github.com/tg-prplx/vellium/releases/latest"><strong>Download for macOS, Windows, or Linux</strong></a>
   ·
   <a href="./docs/vellium/getting-started.md">Quick start</a>
   ·
   <a href="./docs/vellium/README.md">User guide</a>
 </p>
 
-<img width="1440" height="911" alt="image" src="https://github.com/user-attachments/assets/54f90253-b51a-4652-bd6e-5023f078f9a8" />
+> [!IMPORTANT]
+> **Agents is deprecated.** It is disabled by default and is not a primary
+> Vellium workspace. Existing agent threads and the implementation are retained
+> for compatibility under **Settings → Legacy → Agents**. New workflows should
+> use Chat, Writing, MCP tools, or plugins. See the
+> [Legacy and Agents policy](./docs/vellium/legacy-and-agents.md).
 
-## Current Release
+## What Vellium includes
 
-- Latest release: [`v1.0.0`](https://github.com/tg-prplx/vellium/releases/tag/v1.0.0)
-- Desktop builds: macOS (`arm64`, `x64`), Windows (`x64`), Linux (`x64` AppImage).
-- Release builds are unsigned. macOS and Windows may require manual confirmation on first launch.
-- The app is usable day to day, but still moving quickly. Expect active iteration around Agents, tool calling, and provider compatibility.
+- **Chat and roleplay:** branching timelines, message editing, multiple
+  characters, personas, LoreBooks, author notes, scene state, prompt blocks,
+  translation, attachments, export, and controllable automatic turns.
+- **Reasoning-aware context:** provider reasoning fields and `<think>` traces can
+  be displayed, bounded, persisted, and optionally returned to the model as
+  context. RP Reasoning is a separate simulated prompt mode.
+- **Live voice:** microphone input, Whisper-compatible STT, streaming TTS, model
+  and RP controls, attachments, screen context, and chat tools in Live mode.
+- **Writing:** projects, chapters, scenes, Character Forge, summaries, rewrite
+  and expansion actions, RAG context, DOCX import, and DOCX/Markdown export.
+- **Characters and world data:** character-card import/editing, manual character
+  ordering, multi-character participation, LoreBooks, and world-info import.
+- **Knowledge and RAG:** collections, bounded ingestion, embeddings, optional
+  reranking, and explicit bindings for Chat and Writing.
+- **Providers:** OpenAI-compatible APIs, KoboldCpp, custom endpoint adapters,
+  manual model fallbacks, job-specific model routing, and API parameter policy.
+- **Tools and extensions:** MCP tool calls, structured image results, local
+  plugins, themes, widgets, custom inspector fields, and desktop pets.
+- **Local control:** SQLite persistence, Full Local Mode, provider URL checks,
+  permission-gated plugins, and separate security gates for powerful legacy
+  workspace tools.
 
-## Why Vellium?
+The interface is translated into English, Russian, Chinese, and Japanese.
 
-- **Bring your own model.** Use cloud APIs or local models without locking the workspace to one provider.
-- **Built for stories, not just prompts.** Characters, personas, LoreBooks, scene state, branching conversations and automatic multi-character turns live together.
-- **Write beyond chat.** Organize projects, chapters and scenes; rewrite, expand, summarize and export to DOCX or Markdown.
-- **Give models useful context.** Connect knowledge collections through RAG and scripted world facts through LoreBooks.
-- **Extend it locally.** Add MCP tools, plugin tabs, widgets, themes, endpoint adapters and desktop pets.
-- **Keep control.** Local storage, local-only networking mode and explicit security gates for powerful tools.
+## Install a desktop build
 
-## User Documentation
+Download the current artifacts from
+[GitHub Releases](https://github.com/tg-prplx/vellium/releases/latest):
 
-- Detailed user guide: [`docs/vellium/README.md`](./docs/vellium/README.md)
-- Runtime and integration reference: [`docs/vellium/runtime-and-integration-reference.md`](./docs/vellium/runtime-and-integration-reference.md)
+- macOS: Apple Silicon (`arm64`) and Intel (`x64`);
+- Windows: `x64`;
+- Linux: `x64` AppImage.
 
+Release builds are currently unsigned. The operating system may require manual
+confirmation on first launch. The release badge above is the source of truth;
+this README deliberately does not hardcode a version number.
 
-## Important
-- Use `npm run dev` for day-to-day development.
-- Use `npm run dev:electron` when testing the real desktop shell.
-- Use `npm run dist:mac`, `npm run dist:win`, or `npm run dist:linux` for platform bundles.
-- CI publishes GitHub Release assets when a `v*` tag is pushed.
-- Local data is stored in `data/` during development and in the Electron user-data directory in packaged builds.
+## Run from source
 
-## Stack
-- Electron
-- React + TypeScript + Vite
-- Express
-- SQLite + `better-sqlite3`
-- Tailwind CSS
+Requirements:
 
-## Core Features
-
-### Agents
-- Dedicated `Agents` workspace with ask, build, and research modes.
-- Workspace tools for listing, reading, searching, editing, moving, deleting, and diffing files.
-- Optional command execution for tests/builds, with separate security gates for shell-like commands, network commands, destructive file operations, and git writes.
-- OpenAI-compatible structured planning with JSON-schema responses when supported.
-- Mid-run corrections, abort/resume/retry, event traces, reasoning traces, and partial-response recovery.
-- Context management for long agent threads, including auto-compaction, continuation cues, duplicate read-only call guards, and stale-run cleanup after edits/deletes.
-
-### Chat / RP
-- Branching chat history.
-- Edit, delete, resend, regenerate.
-- Multi-character chats with auto-turns.
-- RP controls: prompt stack, author note, scene state, presets, personas.
-- LoreBook / World Info support, including SillyTavern-compatible world info import/export.
-- Reasoning support, including streamed reasoning fields and `<think>...</think>` parsing.
-- Vision attachments and chat attachments.
-- MCP tool calling for OpenAI-compatible chat/completions providers, with text-tool-call fallback parsing for providers that do not emit native tool calls cleanly.
-
-### Writing
-- Projects, chapters, scenes, outlines.
-- Summaries, rewrite/expand flows, consistency tools.
-- Character-aware writing workflows.
-- DOCX import and DOCX / Markdown export.
-- Writing-side RAG support.
-
-### Knowledge / RAG
-- Knowledge collections and ingestion.
-- RAG bindings for chat and writing.
-- Embedding and reranker model settings.
-- Hybrid retrieval-oriented foundation.
-
-### Providers
-- OpenAI-compatible providers.
-- KoboldCpp support.
-- Custom endpoint adapters for non-OpenAI / non-Kobold backends.
-- Presets for OpenAI, LM Studio, Ollama, KoboldCpp, OpenRouter, and custom OpenAI-compatible endpoints.
-- Manual fallback models for providers whose `/models` endpoint is missing, empty, or provider-specific.
-- Separate models for translate / compress / TTS / RAG.
-- API parameter forwarding controls for providers that reject unsupported sampling fields.
-
-### Localization
-- Built-in UI translations: English, Russian, Japanese, and Chinese.
-- Language selectable in `Settings`, with English as the fallback locale.
-
-### Desktop Pet
-- Optional always-on-top desktop companion window.
-- Animated states (idle, hop, pop, sway, spin, shake, bounce) with configurable state presets.
-- Chat with the pet directly from the desktop, including attachments and a configurable context token limit.
-
-### Plugins / Extensions
-- Toolbar tabs from plugins.
-- Plugin widgets in chat, writing, and settings slots.
-- Plugin actions in toolbar, messages, composer, and writing.
-- Plugin settings, permissions, plugin-local storage.
-- `Pluginfile` install/export.
-- Plugin themes.
-- Custom inspector fields.
-- Custom endpoint adapters.
-
-<img width="1121" height="705" alt="image" src="https://github.com/user-attachments/assets/ec1b69b0-b8b0-4ca7-b3be-54a4c8f7ee03" />
-
-
-## Requirements
-- Node.js + npm. Node.js 20+ is recommended because CI builds with Node 20.
-- Python 3 + Pillow for icon generation:
-
-```bash
-pip install pillow
-```
-
-Notes:
-- `better-sqlite3` is native. Keep dev/build Node versions consistent.
-- If native ABI breaks, run `npm run rebuild:native`.
-
-## Quick Start
-
-1. Install dependencies:
+- Node.js 20 or newer;
+- npm;
+- Python 3 and Pillow only when regenerating application icons.
 
 ```bash
 npm install
-```
-
-2. Start frontend + local API:
-
-```bash
 npm run dev
 ```
 
-3. Open:
+The development renderer runs at `http://127.0.0.1:1420` and proxies `/api` to
+the Express server at `http://127.0.0.1:3002`.
 
-`http://localhost:1420`
-
-## Electron Dev
+Use the real desktop shell when testing Electron behavior:
 
 ```bash
 npm run dev:electron
 ```
 
-This builds Electron entrypoints, starts the local server, starts Vite, waits for health checks, then launches Electron.
-
-## One-Click Bootstrap
-
-macOS:
-
-```bash
-./setup-and-run-dev.sh
-```
-
-Windows:
-
-```bat
-setup-and-run-dev.bat
-```
-
-These scripts try to:
-- install Node.js LTS,
-- run `npm install`,
-- start `npm run dev`.
-
-## Build Desktop App
-
-All desktop targets:
-
-```bash
-npm run dist
-```
-
-macOS only:
-
-```bash
-npm run dist:mac
-```
-
-Windows only:
-
-```bash
-npm run dist:win
-```
-
-Linux AppImage only:
-
-```bash
-npm run dist:linux
-```
-
-Build output goes to `release/`.
-
-## GitHub Actions
-
-Workflow:
-- `.github/workflows/build-desktop.yml`
-
-What it does:
-- builds macOS (`x64`, `arm64`), Windows (`x64`), and Linux (`x64` AppImage) bundles,
-- uploads workflow artifacts,
-- publishes GitHub Release assets on `v*` tag pushes.
-
-## Plugins
-
-Vellium now has a real plugin system.
-
-Plugin capabilities:
-- toolbar tabs,
-- slot widgets,
-- modal and inline actions,
-- plugin-local settings,
-- permission-gated API access,
-- plugin themes,
-- `Pluginfile` import/export.
-
-Useful docs:
-- [`docs/plugins/README.md`](./docs/plugins/README.md)
-
-Runtime plugin locations:
-- user plugins: `data/plugins`
-- bundled plugins: `data/bundled-plugins`
-
-Important:
-- plugins are local extensions, not a trusted public plugin marketplace model,
-- plugin permissions should be reviewed before enabling write access,
-- plugin settings and permissions are managed in `Settings -> Plugins`.
-
-### Pluginfile
-
-`Pluginfile` is the portable single-file plugin package format.
-
-You can:
-- install a plugin from `Settings -> Plugins -> Install Pluginfile`,
-- export an existing plugin from `Settings -> Plugins -> Export Pluginfile`.
-
-Bundled plugins can also be exported as `Pluginfile`.
-
-## Themes
-
-Vellium supports:
-- built-in dark/light themes,
-- plugin-provided themes.
-
-Bundled theme pack:
-- Catppuccin
-  - Latte
-  - Frappe
-  - Macchiato
-  - Mocha
-
-Theme plugins also propagate into plugin UI kit styling.
-
-## Extensions API
-
-Vellium includes an extensions layer beyond normal plugins:
-- custom inspector fields,
-- custom endpoint adapters,
-- unified plugin-side backend access through `vellium.generate(...)` and related SDK namespaces.
-
-This makes it possible to:
-- add inspector controls,
-- integrate non-OpenAI / non-Kobold backends,
-- build workflow plugins against a stable host-side contract.
-
-## TTS
-
-Vellium supports OpenAI-compatible TTS:
-- configurable endpoint,
-- model selection,
-- voice selection,
-- per-message TTS actions.
-
-## App Icons
-
-Generate icons:
-
-```bash
-npm run build:icons
-```
-
-Generated files:
-- `build/icon.png`
-- `build/icon.icns`
-- `build/icon.ico`
-
-## Useful Scripts
-- `npm run dev` — frontend + server.
-- `npm run dev:frontend` — Vite only.
-- `npm run dev:server` — Express API only.
-- `npm run dev:electron` — Electron + frontend + server.
-- `npm run build` — frontend production build.
-- `npm run build:server` — bundled server build.
-- `npm run headless` — build and run the API plus built frontend without Electron; see [`runtime-and-integration-reference.md`](./docs/vellium/runtime-and-integration-reference.md).
-- `npm run build:desktop` — full desktop build pipeline without publishing.
-- `npm run dist` — package all desktop targets supported by the current host/CI runner.
-- `npm run dist:mac` / `npm run dist:win` / `npm run dist:linux` — package a specific desktop target.
-- `npm run rebuild:native` — rebuild `better-sqlite3`.
-- `npm run test` — Vitest.
-
-## Data Storage
-- In dev: local `data/`
-- In packaged app: `SLV_DATA_DIR` maps to Electron `userData/data`
-
-## Troubleshooting
-
-### `ERR_DLOPEN_FAILED` / `NODE_MODULE_VERSION ...`
-Cause: `better-sqlite3` was built against a different Node ABI.
-
-Fix:
+`better-sqlite3` is a native dependency. If Node or Electron reports an ABI
+mismatch, rebuild it for the runtime you are about to use:
 
 ```bash
 npm run rebuild:native
+npm run rebuild:native:electron
 ```
 
-If needed, remove `node_modules` and reinstall.
-
-### `EADDRINUSE: address already in use :::3001`
-Cause: an old server process is still alive.
-
-Fix:
+## Build and package
 
 ```bash
-lsof -nP -iTCP:3001 -sTCP:LISTEN
-kill -TERM <pid>
+npm run build:desktop
+npm run dist:mac
+npm run dist:win
+npm run dist:linux
 ```
 
-### Blank window or long startup in packaged builds
-Check:
-- full desktop build was used,
-- `server-bundle.mjs` is present,
-- the bundled server reaches `/api/health`.
+`build:desktop` compiles the renderer, server bundle, Electron main process, and
+preload. Platform packages are written to `release/`. Pushing a `v*` tag starts
+the multi-platform workflow in `.github/workflows/build-desktop.yml` and
+publishes GitHub Release assets; do not use release tags as a local test command.
 
-### Plugins do not load
-Check:
-- plugin is enabled in `Settings -> Plugins`,
-- required permissions were granted,
-- after changing plugin files, use `Reload Plugins`,
-- after SDK/runtime changes, restart `npm run dev:electron`.
+## Headless local web mode
 
-## Project Structure
-- `src/` — React frontend
-- `server/` — Express API
-- `electron/` — Electron main + preload
-- `scripts/` — build/dev helper scripts
-- `docs/` — docs, plugin docs, assets
-- `data/` — runtime data, user plugins, bundled plugins
-- `build/` — electron-builder resources
-- `release/` — packaged desktop output
+```bash
+npm run headless
+```
+
+This builds and serves the frontend and API at `http://127.0.0.1:3001` without
+opening Electron. Public binding is opt-in and requires Basic Authentication.
+See the [runtime and integration reference](./docs/vellium/runtime-and-integration-reference.md)
+for flags and environment variables.
+
+## Data and privacy
+
+- Development data: `data/`.
+- Packaged desktop data: `<Electron userData>/data` through `SLV_DATA_DIR`.
+- Primary database: `vellum.db` (`sillytauri.db` remains a legacy fallback).
+- API keys are masked at response boundaries, but local application data is not
+  an encrypted vault by default. Protect the operating-system account and data
+  directory accordingly.
+- Full Local Mode blocks configured public provider endpoints; it does not turn
+  untrusted plugins, MCP commands, or legacy workspace tools into safe code.
+
+Do not commit `data/`, `output/`, `release/`, generated bundles, or imported user
+assets.
+
+## Settings and timeouts
+
+Press `Ctrl+Shift+P` (`Cmd+Shift+P` on macOS) to search settings, jump to the
+owning section, and highlight the target control.
+
+Long operations do not share a hidden renderer-wide timeout. Endpoint discovery,
+speech transcription, translation, MCP servers, and other bounded operations
+have settings at the layer that owns them. Endpoint discovery and speech limits
+are under **Settings → Generation → Runtime tuning**; each managed backend has
+its own startup timeout under **Settings → Backends**.
+
+## Plugins and MCP
+
+Plugins are local extensions, not packages from a trusted marketplace. Review
+their declared permissions before enabling them. Plugin management and
+`Pluginfile` import/export live under **Settings → Tools & MCP → Plugins**.
+
+MCP child processes are allowlisted and reject inline-eval launch forms. MCP can
+still expose powerful tools, so enable only the servers and individual functions
+you intend to use.
+
+- [Plugin author guide](./docs/plugins/README.md)
+- [Tool calls and generated media](./docs/vellium/tool-calls-and-media.md)
+- [Plugins and security](./docs/vellium/plugins-and-security.md)
+
+## Documentation
+
+- [User guide and documentation map](./docs/vellium/README.md)
+- [Getting started](./docs/vellium/getting-started.md)
+- [Chat and roleplay](./docs/vellium/chat-and-rp.md)
+- [Characters and LoreBooks](./docs/vellium/characters-and-lorebooks.md)
+- [Writing](./docs/vellium/writing.md)
+- [Knowledge and RAG](./docs/vellium/knowledge-and-rag.md)
+- [Settings and providers](./docs/vellium/settings-and-providers.md)
+- [Legacy and Agents](./docs/vellium/legacy-and-agents.md)
+- [Troubleshooting](./docs/vellium/troubleshooting.md)
+
+## Repository map
+
+```text
+src/       React renderer and shared contracts
+server/    Express API, SQLite repositories, provider and MCP services
+electron/  Desktop main process, preload bridge, managed backends, pets
+scripts/   Development, architecture, native rebuild, and packaging helpers
+docs/      User, runtime, security, and plugin documentation
+```
+
+The main verification commands are:
+
+```bash
+npm test
+npm run check:architecture
+npm run typecheck
+npm run build
+npm audit --audit-level=low
+```
+
+See [AGENTS.md](./AGENTS.md) for repository boundaries, invariants, and the
+maintainer verification matrix.
+
+## License
+
+[MIT](./LICENSE)

@@ -1,13 +1,15 @@
 import { Router } from "express";
 import { db, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
 import { transcribeSpeech } from "../services/speechToText.js";
+import { normalizeRuntimeTuningSettings } from "../services/runtimeTuning.js";
 
 const router = Router();
 
 function getSettings() {
   const row = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string } | undefined;
   try {
-    return { ...DEFAULT_SETTINGS, ...(row ? JSON.parse(row.payload) : {}) };
+    const stored = row ? JSON.parse(row.payload) : {};
+    return { ...DEFAULT_SETTINGS, ...stored, ...normalizeRuntimeTuningSettings(stored) };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -39,7 +41,8 @@ router.post("/transcribe", async (req, res) => {
       language: String(settings.sttLanguage || ""),
       audioBase64: String(body?.audioBase64 || ""),
       mimeType: String(body?.mimeType || ""),
-      filename: String(body?.filename || "")
+      filename: String(body?.filename || ""),
+      timeoutSeconds: settings.speechTranscriptionTimeoutSeconds
     });
     res.json({ text });
   } catch (error) {

@@ -152,6 +152,7 @@ export function defaultManagedBackendConfig(index = 1): ManagedBackendConfig {
       baseUrl: "",
       extraArgs: "",
       autoStopOnSwitch: true,
+      startTimeoutSeconds: 300,
       statusMode: "auto",
       koboldcpp
     }),
@@ -160,6 +161,7 @@ export function defaultManagedBackendConfig(index = 1): ManagedBackendConfig {
     envText: "",
     defaultModel: null,
     autoStopOnSwitch: true,
+    startTimeoutSeconds: 300,
     statusMode: "auto",
     healthPath: "",
     modelsPath: "",
@@ -204,6 +206,7 @@ export function normalizeManagedBackendConfig(raw: unknown, index = 1): ManagedB
     envText: String(row.envText || "").trim(),
     defaultModel: String(row.defaultModel || "").trim() || null,
     autoStopOnSwitch: row.autoStopOnSwitch !== false,
+    startTimeoutSeconds: parseNumeric(row.startTimeoutSeconds, fallback.startTimeoutSeconds, 15, 3600),
     statusMode: (row.statusMode === "api" || row.statusMode === "stdout" || row.statusMode === "none") ? row.statusMode as ManagedBackendStatusMode : "auto",
     healthPath: String(row.healthPath || "").trim(),
     modelsPath: String(row.modelsPath || "").trim(),

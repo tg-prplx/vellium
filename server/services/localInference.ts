@@ -4,7 +4,8 @@ import { mkdir, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
 import { DATA_DIR } from "../db/paths.js";
-import { localPiperRuntimeId } from "../../src/shared/localModelConfig.js";
+import { LOCAL_TERATTS_DEFAULT_VOICE, localPiperRuntimeId, localTeraTtsRuntimeId } from "../../src/shared/localModelConfig.js";
+import { TeraTtsProcess, type TeraTtsAudioChunk } from "./teraTtsProcess.js";
 
 export const LOCAL_INFERENCE_URL = "vellium-local://inference";
 const ROOT = path.join(DATA_DIR, "local-models");
@@ -32,15 +33,17 @@ async function loadManifest(componentId: "stt" | "tts") {
   if (raw.version !== 1 || raw.componentId !== componentId || !Array.isArray(raw.modelFiles) || !raw.modelFiles[0]) {
     throw new Error(`Local ${componentId.toUpperCase()} installation is invalid`);
   }
-  if (componentId === "tts" && raw.runtimeId !== localPiperRuntimeId(process.platform, process.arch)) {
-    throw new Error("Local TTS runtime is outdated or incompatible with this computer; reinstall OHF Voice in Settings");
+  const teraRuntimeId = localTeraTtsRuntimeId(process.platform, process.arch);
+  const piperRuntimeId = localPiperRuntimeId(process.platform, process.arch);
+  if (componentId === "tts" && raw.runtimeId !== teraRuntimeId && raw.runtimeId !== piperRuntimeId) {
+    throw new Error("Local TTS runtime is outdated or incompatible with this computer; reinstall TeraTTSv2 in Settings");
   }
   const executable = safeResolve(root, String(raw.executable || ""));
   const models = raw.modelFiles.map((item) => safeResolve(root, String(item || "")));
   if (!existsSync(executable) || models.some((item) => !existsSync(item))) {
     throw new Error(`Local ${componentId.toUpperCase()} files are missing; reinstall the component`);
   }
-  return { root, executable, models, voice: raw.voice };
+  return { root, executable, models, voice: raw.voice, runtimeId: raw.runtimeId };
 }
 
 async function runProcess(command: string, args: string[], options: { cwd: string; input?: string; timeoutMs: number }) {
@@ -81,7 +84,7 @@ export function buildLocalWhisperArgs(model: string, input: string, outputPrefix
   ];
 }
 
-export async function transcribeLocalWhisper(audio: Buffer, mimeType: string, language = "") {
+export async function transcribeLocalWhisper(audio: Buffer, mimeType: string, language: string, timeoutMs: number) {
   const normalized = String(mimeType || "").split(";")[0].toLowerCase();
   if (normalized !== "audio/wav" && normalized !== "audio/x-wav") {
     throw new Error("Local Whisper requires PCM WAV audio; restart Live mode and record again");
@@ -96,7 +99,7 @@ export async function transcribeLocalWhisper(audio: Buffer, mimeType: string, la
     await runProcess(
       runtime.executable,
       buildLocalWhisperArgs(runtime.models[0], input, outputPrefix, language),
-      { cwd: path.dirname(runtime.executable), timeoutMs: 120_000 }
+      { cwd: path.dirname(runtime.executable), timeoutMs }
     );
     const text = (await readFile(`${outputPrefix}.txt`, "utf8")).trim();
     if (!text) throw new Error("Local Whisper returned an empty transcript");
@@ -123,4 +126,41 @@ export async function synthesizeLocalPiper(input: string) {
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
+}
+
+let teraProcess: TeraTtsProcess | null = null;
+process.once("exit", () => teraProcess?.stop());
+
+function getTeraProcess(executable: string, modelDir: string) {
+  if (!teraProcess?.matches(executable, modelDir)) {
+    teraProcess?.stop();
+    teraProcess = new TeraTtsProcess(executable, modelDir);
+  }
+  return teraProcess;
+}
+
+export async function synthesizeLocalTts(input: string, voice?: string, signal?: AbortSignal) {
+  const runtime = await loadManifest("tts");
+  if (runtime.runtimeId === localPiperRuntimeId(process.platform, process.arch)) {
+    return synthesizeLocalPiper(input);
+  }
+  const selectedVoice = String(voice || runtime.voice || LOCAL_TERATTS_DEFAULT_VOICE).trim() || LOCAL_TERATTS_DEFAULT_VOICE;
+  const audio = await getTeraProcess(runtime.executable, path.join(runtime.root, "models"))
+    .synthesize(input, selectedVoice, signal);
+  if (!audio.length) throw new Error("Local TeraTTSv2 returned empty audio");
+  return audio;
+}
+
+export async function streamLocalTts(
+  input: string,
+  voice: string | undefined,
+  signal: AbortSignal,
+  onChunk: (chunk: TeraTtsAudioChunk) => void
+) {
+  const runtime = await loadManifest("tts");
+  if (runtime.runtimeId === localPiperRuntimeId(process.platform, process.arch)) return false;
+  const selectedVoice = String(voice || runtime.voice || LOCAL_TERATTS_DEFAULT_VOICE).trim() || LOCAL_TERATTS_DEFAULT_VOICE;
+  await getTeraProcess(runtime.executable, path.join(runtime.root, "models"))
+    .stream(input, selectedVoice, signal, onChunk);
+  return true;
 }

@@ -30,7 +30,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python build dependencies
-        run: python -m pip install --upgrade pip pillow -r scripts/requirements-ohf-piper.txt
+        run: python -m pip install --upgrade pip pillow -r scripts/requirements-teratts-runtime.txt
 
       - name: Install dependencies
         env:
@@ -85,14 +85,8 @@ jobs:
             tar -C "$stage" -czf "release/local-runtimes/vellium-whisper-v1.9.1-macos-$output_arch.tar.gz" .
           done
 
-      - name: Build self-contained OHF Voice runtime
-        run: python scripts/build-ohf-piper-runtime.py --output-dir release/local-runtimes --platform macos --arch arm64
-
-      - name: Download corresponding OHF Voice source
-        run: |
-          curl --fail --location --retry 3 --retry-all-errors \
-            "https://github.com/OHF-Voice/piper1-gpl/archive/refs/tags/v1.6.0.tar.gz" \
-            --output "release/local-runtimes/piper1-gpl-v1.6.0-source.tar.gz"
+      - name: Build self-contained TeraTTSv2 runtime
+        run: python scripts/build-teratts-runtime.py --output-dir release/local-runtimes --platform macos --arch arm64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -101,8 +95,8 @@ jobs:
           path: release/**/*
           if-no-files-found: error
 
-  macos-piper-x64:
-    name: OHF Voice runtime (macOS x64)
+  macos-teratts-x64:
+    name: TeraTTSv2 runtime (macOS x64)
     runs-on: macos-15-intel
 
     steps:
@@ -114,16 +108,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install OHF Voice build dependencies
-        run: python -m pip install --upgrade pip -r scripts/requirements-ohf-piper.txt
+      - name: Install TeraTTSv2 build dependencies
+        run: python -m pip install --upgrade pip -r scripts/requirements-teratts-runtime.txt
 
-      - name: Build self-contained OHF Voice runtime
-        run: python scripts/build-ohf-piper-runtime.py --output-dir release/local-runtimes --platform macos --arch x64
+      - name: Build self-contained TeraTTSv2 runtime
+        run: python scripts/build-teratts-runtime.py --output-dir release/local-runtimes --platform macos --arch x64
 
       - name: Upload runtime
         uses: actions/upload-artifact@v4
         with:
-          name: piper-macos-x64
+          name: teratts-macos-x64
           path: release/local-runtimes/*
           if-no-files-found: error
 
@@ -148,7 +142,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python build dependencies
-        run: python -m pip install --upgrade pip pillow -r scripts/requirements-ohf-piper.txt
+        run: python -m pip install --upgrade pip pillow -r scripts/requirements-teratts-runtime.txt
 
       - name: Install dependencies
         env:
@@ -191,8 +185,8 @@ jobs:
             throw "Bundled plugin was not included in the Windows application package: $plugin"
           }
 
-      - name: Build self-contained OHF Voice runtime
-        run: python scripts/build-ohf-piper-runtime.py --output-dir release/local-runtimes --platform windows --arch x64
+      - name: Build self-contained TeraTTSv2 runtime
+        run: python scripts/build-teratts-runtime.py --output-dir release/local-runtimes --platform windows --arch x64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -221,7 +215,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install Python build dependencies
-        run: python -m pip install --upgrade pip pillow -r scripts/requirements-ohf-piper.txt
+        run: python -m pip install --upgrade pip pillow -r scripts/requirements-teratts-runtime.txt
 
       - name: Install dependencies
         env:
@@ -251,8 +245,8 @@ jobs:
             sleep $((attempt * 15))
           done
 
-      - name: Build self-contained OHF Voice runtime
-        run: python scripts/build-ohf-piper-runtime.py --output-dir release/local-runtimes --platform linux --arch x64
+      - name: Build self-contained TeraTTSv2 runtime
+        run: python scripts/build-teratts-runtime.py --output-dir release/local-runtimes --platform linux --arch x64
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -261,8 +255,8 @@ jobs:
           path: release/**/*
           if-no-files-found: error
 
-  linux-piper-arm64:
-    name: OHF Voice runtime (Linux arm64)
+  linux-teratts-arm64:
+    name: TeraTTSv2 runtime (Linux arm64)
     runs-on: ubuntu-24.04-arm
 
     steps:
@@ -274,16 +268,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install OHF Voice build dependencies
-        run: python -m pip install --upgrade pip -r scripts/requirements-ohf-piper.txt
+      - name: Install TeraTTSv2 build dependencies
+        run: python -m pip install --upgrade pip -r scripts/requirements-teratts-runtime.txt
 
-      - name: Build self-contained OHF Voice runtime
-        run: python scripts/build-ohf-piper-runtime.py --output-dir release/local-runtimes --platform linux --arch arm64
+      - name: Build self-contained TeraTTSv2 runtime
+        run: python scripts/build-teratts-runtime.py --output-dir release/local-runtimes --platform linux --arch arm64
 
       - name: Upload runtime
         uses: actions/upload-artifact@v4
         with:
-          name: piper-linux-arm64
+          name: teratts-linux-arm64
           path: release/local-runtimes/*
           if-no-files-found: error
 
@@ -292,10 +286,10 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - macos
-      - macos-piper-x64
+      - macos-teratts-x64
       - windows
       - linux
-      - linux-piper-arm64
+      - linux-teratts-arm64
     if: startsWith(github.ref_name, 'v')
 
     steps:
@@ -321,8 +315,7 @@ jobs:
             -name "*Setup*.exe.blockmap" -o \
             -name "*.AppImage" -o \
             -name "*.AppImage.blockmap" -o \
-            -name "piper1-gpl-*-source.tar.gz" -o \
-            -name "vellium-piper-ohf-*" -o \
+            -name "vellium-teratts-v2-runtime-*" -o \
             -name "vellium-whisper-*.tar.gz" -o \
             -name "latest.yml" -o \
             -name "latest-linux.yml" -o \

@@ -55,7 +55,7 @@ are intentionally single-user:
 - `providers.api_key_cipher` currently receives the submitted API key directly;
   its name does not mean that encryption is currently performed;
 - public headless mode uses one deployment-wide Basic Auth credential;
-- local MCP, Agents, plugins, filesystem tools, and provider URLs assume a trusted
+- local MCP, deprecated Agents, plugins, filesystem tools, and provider URLs assume a trusted
   local operator rather than hostile anonymous internet users.
 
 The existing public/headless flags are suitable for a single trusted owner behind
@@ -241,7 +241,7 @@ separately installed, authenticated local connector using an outbound tunnel.
 | Background generation | Not available without an open client or trusted relay |
 | Server-side search | Not available over encrypted content |
 | Arbitrary MCP stdio commands | Disabled |
-| Shell, git, workspace, and Agents tools | Disabled |
+| Shell, git, workspace, and deprecated Agents tools | Disabled |
 | User-installed server plugins | Disabled |
 | Curated remote MCP over HTTPS | Future, allowlisted and separately reviewed |
 | Public chat/character sharing | Out of scope for the private edition |
@@ -503,7 +503,7 @@ the key, while the server sees only authenticated ciphertext.
 ### Phase 4: hosted-edition feature enforcement
 
 - Introduce a server-known deployment edition/capability policy.
-- Disable Agents, workspace/shell/git tools, MCP stdio, managed backends, local
+- Disable deprecated Agents, workspace/shell/git tools, MCP stdio, managed backends, local
   plugins, native paths, and Electron-only controls.
 - Ensure hidden renderer controls have matching route/service denial.
 - Make direct provider transport the default hosted mode.
@@ -555,7 +555,7 @@ behavior.
   provider key, prompt, response, or decrypted workspace value.
 - Relay redirects and DNS rebinding cannot reach private/local/link-local/metadata
   addresses.
-- Hosted clients cannot reach local Agents, MCP process, plugin install, shell,
+- Hosted clients cannot reach local deprecated Agents, MCP process, plugin install, shell,
   git, or filesystem routes.
 - Account deletion removes live access immediately and expires backups according
   to the published retention period.
@@ -591,7 +591,7 @@ Do not launch the hosted edition if any of these remain true:
 - provider credentials are stored using the current plaintext provider column;
 - cross-account access is not covered by automated tests;
 - arbitrary provider/MCP URLs can reach private infrastructure;
-- hosted Agents, shell, filesystem, or local MCP execution remains reachable;
+- hosted deprecated Agents, shell, filesystem, or local MCP execution remains reachable;
 - the landing page markets adult content without a separately reviewed adult
   access model;
 - public privacy claims exceed what the browser delivery and relay architecture
@@ -620,4 +620,3 @@ Do not launch the hosted edition if any of these remain true:
   <https://www.w3.org/TR/WebCryptoAPI/>
 - OWASP Cryptographic Storage Cheat Sheet:  
   <https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html>
-

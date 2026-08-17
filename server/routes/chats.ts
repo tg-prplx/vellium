@@ -206,7 +206,11 @@ router.post("/desktop-pet/reply", async (req, res) => {
   ].filter(Boolean).join("\n\n");
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
+  const abortDisconnectedRequest = () => {
+    if (!res.writableEnded) controller.abort(new Error("Client disconnected"));
+  };
+  req.once("aborted", abortDisconnectedRequest);
+  res.once("close", abortDisconnectedRequest);
   try {
     const reply = await completeProviderOnce({
       provider,
@@ -230,7 +234,8 @@ router.post("/desktop-pet/reply", async (req, res) => {
     const message = error instanceof Error ? error.message : "Desktop pet LLM request failed";
     res.status(500).json({ error: message });
   } finally {
-    clearTimeout(timeout);
+    req.off("aborted", abortDisconnectedRequest);
+    res.off("close", abortDisconnectedRequest);
   }
 });
 

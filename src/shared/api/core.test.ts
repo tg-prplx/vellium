@@ -31,9 +31,10 @@ describe("resolveApiAssetUrl", () => {
 
 describe("request", () => {
   it("extracts readable messages from JSON error payloads", async () => {
+    const setTimeoutSpy = vi.fn(globalThis.setTimeout.bind(globalThis));
     Object.defineProperty(globalThis, "window", {
       value: {
-        setTimeout: globalThis.setTimeout.bind(globalThis),
+        setTimeout: setTimeoutSpy,
         clearTimeout: globalThis.clearTimeout.bind(globalThis)
       },
       configurable: true
@@ -52,6 +53,7 @@ describe("request", () => {
     await expect(request("POST", "/providers/preview/models", { baseUrl: "https://example.com/v1" }))
       .rejects
       .toThrow("Provider blocked by Full Local Mode");
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -6,7 +6,6 @@ export type TtsStreamEvent =
   | { type: "audio"; index: number; contentType: string; audioBase64: string; format?: "pcm"; sampleRate?: number }
   | { type: "done"; count: number }
   | { type: "error"; message: string };
-const STREAM_TIMELINE_TIMEOUT_MS = 15_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -19,10 +18,7 @@ async function loadTimelineAfterStream(chatId: string, branchId?: string): Promi
       await sleep(delayMs);
     }
     try {
-      return await get<ChatMessage[]>(
-        `/chats/${chatId}/timeline${branchId ? `?branchId=${branchId}` : ""}`,
-        { timeoutMs: STREAM_TIMELINE_TIMEOUT_MS }
-      );
+      return await get<ChatMessage[]>(`/chats/${chatId}/timeline${branchId ? `?branchId=${branchId}` : ""}`);
     } catch (error) {
       lastError = error;
     }

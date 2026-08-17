@@ -3,9 +3,10 @@ import { db, maskApiKey, isLocalhostUrl, DEFAULT_SETTINGS } from "../db.js";
 import { fetchCustomAdapterModels } from "../services/customProviderAdapters.js";
 import { fetchKoboldModels, normalizeProviderType } from "../services/providerApi.js";
 import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
+import { normalizeRuntimeTuningSettings } from "../services/runtimeTuning.js";
+import { createRequestTimeout } from "../services/requestTimeout.js";
 
 const router = Router();
-const MODEL_FETCH_TIMEOUT_MS = 15_000;
 const MODEL_FETCH_RETRY_DELAYS_MS = [0, 250, 750];
 
 interface ProviderRow {
@@ -59,6 +60,7 @@ function getSettings() {
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
+    ...normalizeRuntimeTuningSettings(stored),
     samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
     apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) }
@@ -93,17 +95,13 @@ function describeFetchFailure(error: unknown): string {
   return error.message || String(error);
 }
 
-async function fetchModelsResponse(url: string, apiKey: string) {
+async function fetchModelsResponse(url: string, apiKey: string, signal?: AbortSignal) {
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt < MODEL_FETCH_RETRY_DELAYS_MS.length; attempt += 1) {
     const delay = MODEL_FETCH_RETRY_DELAYS_MS[attempt] ?? 0;
     if (delay > 0) await sleep(delay);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort(new Error(`Model endpoint timed out after ${MODEL_FETCH_TIMEOUT_MS}ms`));
-    }, MODEL_FETCH_TIMEOUT_MS);
+    if (signal?.aborted) throw signal.reason;
 
     try {
       const response = await fetch(url, {
@@ -113,7 +111,7 @@ async function fetchModelsResponse(url: string, apiKey: string) {
           ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
         },
         cache: "no-store",
-        signal: controller.signal
+        signal
       });
       if ([429, 502, 503, 504].includes(response.status) && attempt < MODEL_FETCH_RETRY_DELAYS_MS.length - 1) {
         lastError = new Error(`Model endpoint returned HTTP ${response.status}`);
@@ -122,16 +120,15 @@ async function fetchModelsResponse(url: string, apiKey: string) {
       return response;
     } catch (error) {
       lastError = error;
+      if (signal?.aborted) throw signal.reason;
       if (attempt >= MODEL_FETCH_RETRY_DELAYS_MS.length - 1) break;
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
   throw new Error(`Model endpoint unreachable: ${url} (${describeFetchFailure(lastError)})`);
 }
 
-async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string): Promise<Array<{ id: string }>> {
+async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string, signal?: AbortSignal): Promise<Array<{ id: string }>> {
   const baseUrl = normalizeOpenAiBaseUrl(baseUrlRaw);
   if (!baseUrl) {
     throw new Error("Base URL is required");
@@ -139,7 +136,7 @@ async function fetchOpenAiCompatibleModels(baseUrlRaw: string, apiKeyRaw: string
 
   const apiKey = String(apiKeyRaw || "").trim();
   const endpoint = `${baseUrl}/models`;
-  const response = await fetchModelsResponse(endpoint, apiKey);
+  const response = await fetchModelsResponse(endpoint, apiKey, signal);
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new Error(text || `Model endpoint returned HTTP ${response.status}: ${endpoint}`);
@@ -218,26 +215,32 @@ function toPreviewProvider(body: ProviderPreviewInput) {
 async function resolveProviderModels(row: Pick<ProviderRow, "base_url" | "api_key_cipher" | "full_local_only" | "provider_type" | "adapter_id" | "manual_models">) {
   const manualModels = parseManualModels(row.manual_models).map((id) => ({ id }));
   assertProviderAllowed(row.base_url, Boolean(row.full_local_only));
+  const settings = getSettings();
+  const timeout = createRequestTimeout(settings.endpointDiscoveryTimeoutSeconds, "Provider model discovery");
 
-  const providerType = normalizeProviderType(row.provider_type);
-  if (providerType === "koboldcpp") {
-    return resolveWithManualFallback(manualModels, async () => {
-      const koboldModels = await fetchKoboldModels(row);
-      return koboldModels.map((id) => ({ id }));
-    });
+  try {
+    const providerType = normalizeProviderType(row.provider_type);
+    if (providerType === "koboldcpp") {
+      return await resolveWithManualFallback(manualModels, async () => {
+        const koboldModels = await fetchKoboldModels(row, timeout.signal);
+        return koboldModels.map((id) => ({ id }));
+      });
+    }
+
+    if (providerType === "custom") {
+      return await resolveWithManualFallback(manualModels, async () => {
+        const customModels = await fetchCustomAdapterModels(row, timeout.signal);
+        return customModels.map((id) => ({ id }));
+      });
+    }
+
+    return await resolveWithManualFallback(
+      manualModels,
+      () => fetchOpenAiCompatibleModels(row.base_url, row.api_key_cipher, timeout.signal)
+    );
+  } finally {
+    timeout.dispose();
   }
-
-  if (providerType === "custom") {
-    return resolveWithManualFallback(manualModels, async () => {
-      const customModels = await fetchCustomAdapterModels(row);
-      return customModels.map((id) => ({ id }));
-    });
-  }
-
-  return resolveWithManualFallback(
-    manualModels,
-    () => fetchOpenAiCompatibleModels(row.base_url, row.api_key_cipher)
-  );
 }
 
 router.post("/", (req, res) => {

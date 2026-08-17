@@ -19,6 +19,7 @@ Check these first:
 | Chat says no active model is configured | `active provider/model` is missing | Open `Settings`, load models, and assign an active model |
 | The provider saves but does not work | Wrong URL, local-only blocks the endpoint, wrong provider type | Check `base URL`, `provider type`, and local-only restrictions |
 | The model list is empty | The endpoint does not expose `/models`, or the backend is incompatible | Add `manual fallback models` or verify API compatibility |
+| Model/voice loading or STT times out too early | The operation-specific limit is too low for the local device or network | Increase endpoint discovery or speech transcription timeout under `Settings → Generation → Runtime tuning` |
 | Tool calling will not enable | `KoboldCpp` is active | Use an OpenAI-compatible provider for tool calling |
 | An MCP server does not answer | Wrong command, args, env, or timeout | Re-check `Command`, `Arguments`, `Environment`, then use `Test MCP Server` |
 | A plugin will not activate | Permissions were not granted, or first-time config is missing | Open `Settings -> Plugins -> Permissions`, grant only the required permissions, and save |
@@ -26,6 +27,7 @@ Check these first:
 | RAG returns nothing | No collection exists, RAG is disabled, scope is wrong, or ingestion is empty | Create a collection, add documents, enable RAG, and re-check scope |
 | A LoreBook does not affect the scene | The LoreBook is not attached, keys do not trigger, or the entry is disabled | Check the selected LoreBook in `Chat`, the `Keys`, `Enabled`, `Constant`, and `Position` |
 | TTS does not play | TTS provider / model / voice is not configured | Open the TTS block in `Settings` and assign endpoint, model, and voice |
+| Agents is missing from navigation | Agents is deprecated and disabled by default | Open `Settings → Legacy`, enable it explicitly, then choose `Open Agents` |
 
 ## If Vellium does not start from the repository
 

@@ -93,6 +93,27 @@ the API, uploads, static frontend, origin checks, security headers, and optional
 Basic Authentication together. Static serving is enabled only when the normalized
 runtime state sets `SLV_SERVE_STATIC=1` or `ELECTRON_SERVE_STATIC=1`.
 
+## Request timeout ownership
+
+Vellium does not impose one renderer-wide deadline on every `/api` call. That
+previous design could abort a healthy long operation simply because it exceeded a
+short UI default. Cancellation and deadlines now belong to the operation that can
+make an informed decision:
+
+| Operation | Owner |
+| --- | --- |
+| Model and voice discovery, custom endpoint probes, remote MCP config import | `endpointDiscoveryTimeoutSeconds` in Settings → Generation → Runtime tuning |
+| Local or remote speech transcription | `speechTranscriptionTimeoutSeconds` in the same section |
+| Translation | `translationTimeoutSeconds` in the same section |
+| MCP process initialization and tool calls | Per-server `timeoutMs` |
+| Chat, Live generation, and custom adapter generation | Explicit abort/disconnect; no arbitrary renderer default |
+| Managed model backend startup | Per-backend `startTimeoutSeconds`; defaults to 300 seconds and is editable in Backends |
+| Electron application/server startup probes | Runtime lifecycle code; these remain bounded so a failed child process cannot hang startup |
+
+Debounce intervals, animation timings, retry backoff, and bounded child-process
+shutdown waits are not network request deadlines and are intentionally not exposed
+as general user settings.
+
 ## MCP server lifecycle
 
 MCP servers are launched as child processes over stdio. The implementation in

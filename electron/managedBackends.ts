@@ -4,7 +4,6 @@ import { buildManagedBackendLaunch, parseManagedBackendEnv, resolveManagedBacken
 import type { ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState } from "../src/shared/types/contracts";
 
 const LOG_LIMIT = 800;
-const START_TIMEOUT_MS = 120000;
 const POLL_INTERVAL_MS = 1200;
 
 function nowIso() {
@@ -257,15 +256,16 @@ export class ManagedBackendManager {
       this.emitUpdate();
     });
 
+    const startTimeoutMs = config.startTimeoutSeconds * 1000;
     state.startDeadline = setTimeout(() => {
       if (state.runtime.status === "starting") {
         state.runtime.status = "error";
-        state.runtime.lastError = `Backend did not become ready within ${Math.floor(START_TIMEOUT_MS / 1000)}s`;
+        state.runtime.lastError = `Backend did not become ready within ${config.startTimeoutSeconds}s`;
         state.runtime.progressLabel = state.runtime.lastError;
         this.pushLog(state, "system", state.runtime.lastError);
         void this.stop(config.id);
       }
-    }, START_TIMEOUT_MS);
+    }, startTimeoutMs);
 
     state.pollTimer = setInterval(() => {
       void this.pollState(state);

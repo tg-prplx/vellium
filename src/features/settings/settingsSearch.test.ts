@@ -48,6 +48,24 @@ describe("settings search", () => {
     });
   });
 
+  it("indexes operation-specific endpoint and speech timeouts", () => {
+    expect(searchSettingsEntries(entries, "model discovery timeout")[0]).toMatchObject({
+      category: "generation",
+      sectionId: "settings-runtime-tuning",
+      label: "Endpoint discovery timeout (seconds)"
+    });
+    expect(searchSettingsEntries(entries, "распознавание речи таймаут")[0]).toMatchObject({
+      category: "generation",
+      sectionId: "settings-runtime-tuning",
+      label: "Speech recognition timeout (seconds)"
+    });
+    expect(searchSettingsEntries(entries, "backend startup timeout")[0]).toMatchObject({
+      category: "backends",
+      sectionId: "settings-managed-backends",
+      label: "Startup timeout (seconds)"
+    });
+  });
+
   it("routes general interface controls to the section that owns them", () => {
     const [result] = searchSettingsEntries(entries, "text size");
 

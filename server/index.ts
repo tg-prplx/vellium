@@ -1,9 +1,14 @@
 import { pathToFileURL } from "url";
 import { applyServerRuntimeEnv, formatServerUrl, parseServerRuntimeOptions } from "./runtimeConfig.js";
 import { createApp } from "./app/createApp.js";
+import { enableSystemCaTrust } from "./services/systemCaTrust.js";
 
 const runtimeOptions = parseServerRuntimeOptions();
 applyServerRuntimeEnv(runtimeOptions);
+const systemCaTrust = enableSystemCaTrust();
+if (systemCaTrust.applied) {
+  console.log(`[tls] Added ${systemCaTrust.addedCertificates} system-trusted CA certificate(s).`);
+}
 const app = createApp();
 const PORT_RETRY_DELAYS_MS = [0, 120, 260, 520, 900];
 

@@ -1,8 +1,8 @@
 import { fetchProviderResponse } from "./providerHttp.js";
 import { LOCAL_INFERENCE_URL, transcribeLocalWhisper } from "./localInference.js";
+import { createRequestTimeout } from "./requestTimeout.js";
 
 export const MAX_STT_AUDIO_BYTES = 18 * 1024 * 1024;
-const TRANSCRIPTION_TIMEOUT_MS = 75_000;
 const ALLOWED_AUDIO_MIME_TYPES = new Map([
   ["audio/flac", "flac"],
   ["audio/mpeg", "mp3"],
@@ -24,6 +24,7 @@ export interface SpeechToTextRequest {
   audioBase64: string;
   mimeType: string;
   filename?: string;
+  timeoutSeconds: number;
 }
 
 export function normalizeSpeechToTextEndpoint(raw: string): string {
@@ -81,7 +82,8 @@ export async function transcribeSpeech(request: SpeechToTextRequest): Promise<st
     return transcribeLocalWhisper(
       decodeSpeechAudio(request.audioBase64),
       mimeType,
-      request.language
+      request.language || "",
+      request.timeoutSeconds * 1000
     );
   }
   const endpoint = normalizeSpeechToTextEndpoint(request.baseUrl);
@@ -96,12 +98,7 @@ export async function transcribeSpeech(request: SpeechToTextRequest): Promise<st
   const language = String(request.language || "").trim();
   if (language) form.append("language", language.slice(0, 24));
 
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(new Error(`STT request timed out after ${TRANSCRIPTION_TIMEOUT_MS}ms`)),
-    TRANSCRIPTION_TIMEOUT_MS
-  );
-  timeout.unref?.();
+  const timeout = createRequestTimeout(request.timeoutSeconds, "STT request");
   try {
     const response = await fetchProviderResponse(endpoint, {
       method: "POST",
@@ -109,7 +106,7 @@ export async function transcribeSpeech(request: SpeechToTextRequest): Promise<st
         ? { Authorization: `Bearer ${request.apiKey.trim()}` }
         : undefined,
       body: form,
-      signal: controller.signal
+      signal: timeout.signal
     });
     if (!response.ok) {
       const detail = (await response.text()).trim().slice(0, 500);
@@ -126,6 +123,6 @@ export async function transcribeSpeech(request: SpeechToTextRequest): Promise<st
     if (!text) throw new Error("STT endpoint returned an empty transcript");
     return text.slice(0, 100_000);
   } finally {
-    clearTimeout(timeout);
+    timeout.dispose();
   }
 }
