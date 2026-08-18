@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, screen, desktopCapturer, type Rectangle, type WebContents } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, shell, screen, session, desktopCapturer, type Rectangle, type WebContents } from "electron";
 import path from "path";
 import { existsSync } from "fs";
 import { mkdir, readFile, writeFile } from "fs/promises";
@@ -10,6 +10,8 @@ import { LocalModelInstaller } from "./localModelInstaller";
 import { registerLocalModelIpc } from "./localModelIpc";
 import { createIpcSenderGuard, decodeBoundedBase64, isAllowedExternalUrl } from "./security";
 import { buildDesktopPetHtml } from "./desktopPet/html";
+import { transcribeDesktopPetAudio } from "./desktopPet/live";
+import { buildDesktopPetPageUrl, installDesktopPetProtocol, isDesktopPetPageUrl, registerDesktopPetScheme } from "./desktopPet/protocol";
 import type {
   DesktopPetAnimation,
   DesktopPetChat,
@@ -28,6 +30,7 @@ import type {
 import { applyServerRuntimeEnv, formatServerUrl, parseServerRuntimeOptions } from "../server/runtimeConfig";
 
 const isDev = !app.isPackaged;
+registerDesktopPetScheme();
 const runtimeOptions = parseServerRuntimeOptions(process.argv.slice(1));
 const isHeadless = runtimeOptions.headless;
 
@@ -92,7 +95,8 @@ const localModelInstaller = new LocalModelInstaller();
 const assertTrustedIpcSender = createIpcSenderGuard({
   getMainWindow: () => mainWindow,
   getDesktopPetWindow: (sender) => getDesktopPetInstanceForSender(sender)?.window || null,
-  isAllowedMainUrl: (url) => isAllowedAppNavigation(url)
+  isAllowedMainUrl: (url) => isAllowedAppNavigation(url),
+  isAllowedDesktopPetUrl: isDesktopPetPageUrl
 });
 registerLiveMediaIpc(assertTrustedIpcSender, () => mainWindow);
 registerLocalModelIpc(localModelInstaller, assertTrustedIpcSender);
@@ -262,6 +266,7 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
   const scenario = String(row.scenario || "").trim().slice(0, 4000);
   const greeting = String(row.greeting || "").trim().slice(0, 1000);
   const systemPrompt = String(row.systemPrompt || "").trim().slice(0, 4000);
+  const locale = row.locale === "ru" || row.locale === "zh" || row.locale === "ja" ? row.locale : "en";
   const assistantInstructions = String(row.assistantInstructions || desktopPetConfig.assistantInstructions || "").trim().slice(0, 3000);
   const persistentMemory = String(row.persistentMemory ?? desktopPetConfig.persistentMemory ?? "").trim().slice(0, 6000);
   const chatContextTokenLimitRaw = Number(row.chatContextTokenLimit ?? desktopPetConfig.chatContextTokenLimit ?? 2400);
@@ -271,16 +276,16 @@ function sanitizeDesktopPetConfig(raw: unknown): DesktopPetConfig {
   const actions = normalizePresets(row.actions, desktopPetConfig.actions);
   const emotions = normalizePresets(row.emotions, desktopPetConfig.emotions);
   const theme = sanitizeTheme(row.theme) || desktopPetConfig.theme;
-  return { characterId, name, spriteUrl, spriteSheetUrl, scale, voice, ttsEnabled, autonomyEnabled, actions, emotions, assistantInstructions, persistentMemory, chatContextTokenLimit, description, personality, scenario, greeting, systemPrompt, theme };
+  return { characterId, locale, name, spriteUrl, spriteSheetUrl, scale, voice, ttsEnabled, autonomyEnabled, actions, emotions, assistantInstructions, persistentMemory, chatContextTokenLimit, description, personality, scenario, greeting, systemPrompt, theme };
 }
 
 function desktopPetWindowSize(config: DesktopPetConfig, expanded = false) {
   const scale = config.scale;
   if (expanded) {
     const compactHeight = 190 * scale;
-    const uiHeight = 238 * Math.max(1, scale * 0.82);
+    const uiHeight = 300 * Math.max(1, scale * 0.82);
     return {
-      width: Math.round(Math.max(330, 292 * scale)),
+      width: Math.round(Math.max(410, 340 * scale)),
       height: Math.round(compactHeight + uiHeight)
     };
   }
@@ -344,12 +349,6 @@ function resizeDesktopPetInstanceWindowForUi(instance: DesktopPetInstance, expan
   const nextY = Math.max(area.y, Math.min(area.y + area.height - height, preferredY));
   instance.window.setBounds({ x: nextX, y: nextY, width, height }, false);
   return placement;
-}
-
-function resizeDesktopPetWindowForUi(expanded: boolean): DesktopPetUiPlacement {
-  const instance = desktopPetWindow ? getDesktopPetInstanceForWindow(desktopPetWindow) : null;
-  if (!instance) return desktopPetUiPlacement;
-  return resizeDesktopPetInstanceWindowForUi(instance, expanded);
 }
 
 async function readPetApiJson<T>(pathName: string, init?: RequestInit): Promise<T> {
@@ -835,9 +834,9 @@ async function sendDesktopPetMessageToLlm(
   return { ok: true, reply, chatId: chat.id };
 }
 
-async function synthesizeDesktopPetSpeech(text: string, config = desktopPetConfig): Promise<{ ok: boolean; contentType: string; base64: string }> {
+async function synthesizeDesktopPetSpeech(text: string): Promise<{ ok: boolean; contentType: string; base64: string }> {
   const input = stripDesktopPetToolLine(text).trim().slice(0, 1200);
-  if (!config.ttsEnabled || !input) {
+  if (!input) {
     return { ok: false, contentType: "", base64: "" };
   }
   const audio = await readPetApiAudio("/api/chats/tts", {
@@ -855,7 +854,7 @@ async function ensureDesktopPetWindow(config?: unknown) {
     existing.config = nextConfig;
     setActiveDesktopPetInstance(existing);
     placeDesktopPetWindow(existing.window, nextConfig);
-    await existing.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDesktopPetHtml(nextConfig))}`);
+    await existing.window.loadURL(buildDesktopPetPageUrl(existing.pageToken));
     existing.window.showInactive();
     existing.window.setAlwaysOnTop(true, "floating");
     return existing.window;
@@ -884,12 +883,13 @@ async function ensureDesktopPetWindow(config?: unknown) {
       allowRunningInsecureContent: false
     }
   });
-  const instance: DesktopPetInstance = { key, window, config: nextConfig, uiPlacement: "above" };
+  const instance: DesktopPetInstance = { key, pageToken: crypto.randomUUID(), window, config: nextConfig, uiPlacement: "above" };
   desktopPetInstances.set(key, instance);
   setActiveDesktopPetInstance(instance);
   window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   window.setAlwaysOnTop(true, "floating");
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("will-navigate", (event, url) => { if (url !== buildDesktopPetPageUrl(instance.pageToken)) event.preventDefault(); });
   window.on("closed", () => {
     desktopPetInstances.delete(key);
     if (desktopPetWindow === window) {
@@ -902,7 +902,7 @@ async function ensureDesktopPetWindow(config?: unknown) {
     }
   });
   placeDesktopPetWindow(window, nextConfig);
-  await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDesktopPetHtml(nextConfig))}`);
+  await window.loadURL(buildDesktopPetPageUrl(instance.pageToken));
   window.showInactive();
   return window;
 }
@@ -1033,7 +1033,10 @@ async function createWindow() {
     configureLiveMediaPermissions({
       session: mainWindow.webContents.session,
       getMainWindow: () => mainWindow,
-      isAllowedAppUrl: isAllowedAppNavigation
+      isAllowedAppUrl: isAllowedAppNavigation,
+      isTrustedDesktopPet: (webContents, requestingUrl) => Boolean(
+        getDesktopPetInstanceForSender(webContents) && isDesktopPetPageUrl(requestingUrl)
+      )
     });
 
     managedBackendManager.attachWindow(mainWindow);
@@ -1233,7 +1236,7 @@ ipcMain.handle("desktop-pet:configure", async (event, rawConfig: unknown) => {
     instance.config = nextConfig;
     setActiveDesktopPetInstance(instance);
     placeDesktopPetWindow(instance.window, nextConfig);
-    void instance.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildDesktopPetHtml(nextConfig))}`);
+    void instance.window.loadURL(buildDesktopPetPageUrl(instance.pageToken));
     if (shouldShow) instance.window.showInactive();
   }
   return { ok: true, visible: shouldShow };
@@ -1396,11 +1399,15 @@ ipcMain.handle("desktop-pet:screen-context", async (event) => {
   }
 });
 
+ipcMain.handle("desktop-pet:transcribe", async (event, payload: unknown) => {
+  assertTrustedIpcSender(event, true);
+  return transcribeDesktopPetAudio(payload, readPetApiJson);
+});
+
 ipcMain.handle("desktop-pet:tts", async (event, text: unknown) => {
   assertTrustedIpcSender(event, true);
   try {
-    const instance = getDesktopPetInstanceForSender(event.sender);
-    return await synthesizeDesktopPetSpeech(String(text || ""), instance?.config || desktopPetConfig);
+    return await synthesizeDesktopPetSpeech(String(text || ""));
   } catch (error) {
     return {
       ok: false,
@@ -1429,6 +1436,10 @@ app.whenReady().then(() => {
       });
     return;
   }
+  installDesktopPetProtocol(session.defaultSession, (token) => {
+    const instance = [...desktopPetInstances.values()].find((item) => item.pageToken === token);
+    return instance ? buildDesktopPetHtml(instance.config) : null;
+  });
   void createWindow().catch((error) => {
     console.error("Failed to create main window:", error);
     const message = error instanceof Error ? error.stack || error.message : String(error);

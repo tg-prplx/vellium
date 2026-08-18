@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LocalModelsSetup } from "../../../components/LocalModelsSetup";
 import { api } from "../../../shared/api";
 import { useI18n } from "../../../shared/i18n";
 import type { AppSettings, ProviderModel } from "../../../shared/types/contracts";
@@ -42,6 +43,8 @@ export function SpeechToTextSettings({ settings, onPatch, autosaveProps }: Speec
           <p className="settings-section-desc">{t("settings.sttDesc")}</p>
         </div>
       </div>
+      <LocalModelsSetup locale={settings.interfaceLanguage || "en"} componentIds={["stt"]} />
+      <p className="mb-4 mt-2 text-[11px] leading-relaxed text-text-tertiary">{t("localModels.otherSttHint")}</p>
       <div className="grid gap-4 xl:grid-cols-2">
         <div className="space-y-3">
           <div>

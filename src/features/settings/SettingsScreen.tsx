@@ -283,6 +283,14 @@ export function SettingsScreen({
       .catch((error) => showResult(error instanceof Error ? error.message : String(error), "error"));
   }, []);
   useEffect(() => {
+    const handleSettingsChange = (event: Event) => {
+      const next = (event as CustomEvent<AppSettings>).detail;
+      if (next && typeof next === "object") setSettings(next);
+    };
+    window.addEventListener("settings-change", handleSettingsChange);
+    return () => window.removeEventListener("settings-change", handleSettingsChange);
+  }, []);
+  useEffect(() => {
     if (!window.electronAPI?.listManagedBackends) return;
     let active = true;
     void window.electronAPI.listManagedBackends().then((states) => {
@@ -1717,6 +1725,8 @@ export function SettingsScreen({
                   </div>
                   <label className="flex items-center gap-2 text-xs text-text-secondary" title={t("settings.ttsRealtimeHint")}><span>{t("settings.ttsRealtime")}</span><ToggleSwitch checked={settings.ttsRealtime === true} onChange={(e) => patch({ ttsRealtime: e.target.checked })} /></label>
                 </div>
+                <LocalModelsSetup locale={settings.interfaceLanguage || "en"} componentIds={["tts"]} />
+                <p className="mb-4 mt-2 text-[11px] leading-relaxed text-text-tertiary">{t("localModels.externalTtsHint")}</p>
                 <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                   <div className="space-y-3">
                     <div><FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel><InputField value={settings.ttsBaseUrl || ""} onChange={(v) => patch({ ttsBaseUrl: v })} placeholder="https://api.openai.com/v1" {...autosaveProps} /></div>
@@ -1731,6 +1741,9 @@ export function SettingsScreen({
                       </div>
                       <SelectField value={settings.ttsModel || ""} onChange={(v) => patch({ ttsModel: v })}>
                         <option value="">{t("settings.selectModel")}</option>
+                        {settings.ttsModel && !ttsModels.some((model) => model.id === settings.ttsModel) ? (
+                          <option value={settings.ttsModel}>{settings.ttsModel}</option>
+                        ) : null}
                         {ttsModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                       </SelectField>
                     </div>
@@ -1755,7 +1768,6 @@ export function SettingsScreen({
                 </div>
               </div>
               <SpeechToTextSettings settings={settings} onPatch={patch} autosaveProps={autosaveProps} />
-              <div id="settings-local-speech" className="scroll-mt-24"><LocalModelsSetup locale={settings.interfaceLanguage || "en"} componentIds={["stt", "tts"]} /></div>
             </div>
           )}
           {activeCategory === "backends" && (

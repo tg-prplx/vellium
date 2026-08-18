@@ -19,8 +19,14 @@ import type { ManagedBackendConfig } from "../src/shared/types/contracts";
 import {
   buildLocalLlamaManagedBackend,
   localTeraTtsRuntimeId,
+  localWhisperModelUrl,
   LOCAL_INFERENCE_SETTINGS_URL,
   LOCAL_LLAMA_PROVIDER_ID,
+  LOCAL_WHISPER_MODEL_BYTES,
+  LOCAL_WHISPER_MODEL_FILE,
+  LOCAL_WHISPER_MODEL_ID,
+  LOCAL_WHISPER_MODEL_NAME,
+  LOCAL_WHISPER_MODEL_SHA256,
   LOCAL_TERATTS_DEFAULT_VOICE,
   LOCAL_TERATTS_MODEL_ID,
   LOCAL_TERATTS_RUNTIME_VERSION
@@ -64,10 +70,6 @@ type InstallManifest = {
 
 const LLAMA_VERSION = "b10107";
 const WHISPER_VERSION = "v1.9.1";
-const MODEL_ROOT = "https://huggingface.co";
-const WHISPER_FILE = "ggml-small-q5_1.bin";
-const WHISPER_MODEL_ID = "whisper-small-q5_1";
-const WHISPER_BYTES = 190_085_487;
 const RETRYABLE_DOWNLOAD_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const DOWNLOAD_RETRY_DELAYS_MS = [0, 500, 1_500];
 
@@ -91,7 +93,7 @@ function componentRoot(id: LocalModelComponentId) {
   return path.join(dataRoot(), id);
 }
 
-async function readCurrentInstall(id: LocalModelComponentId): Promise<Partial<InstallManifest> | null> {
+async function readInstalledManifest(id: LocalModelComponentId): Promise<Partial<InstallManifest> | null> {
   const manifestPath = path.join(componentRoot(id), "install.json");
   if (!existsSync(manifestPath)) return null;
   try {
@@ -99,18 +101,33 @@ async function readCurrentInstall(id: LocalModelComponentId): Promise<Partial<In
     if (manifest.componentId !== id || !manifest.executable) return null;
     const executable = safeInside(componentRoot(id), path.resolve(componentRoot(id), manifest.executable));
     if (!existsSync(executable)) return null;
-    if (id === "stt") {
-      const matches = Array.isArray(manifest.modelFiles)
-        && manifest.modelFiles.some((item) => String(item).split(/[\\/]/).pop() === WHISPER_FILE);
-      return matches ? manifest : null;
-    }
-    if (id === "tts") {
-      return manifest.runtimeId === localTeraTtsRuntimeId(process.platform, process.arch) ? manifest : null;
-    }
+    if (!Array.isArray(manifest.modelFiles) || !manifest.modelFiles.length) return null;
+    if (manifest.modelFiles.some((item) => !existsSync(safeInside(componentRoot(id), path.resolve(componentRoot(id), item))))) return null;
     return manifest;
   } catch {
     return null;
   }
+}
+
+function isCurrentInstall(id: LocalModelComponentId, manifest: Partial<InstallManifest> | null) {
+  if (!manifest) return false;
+  if (id === "stt") {
+    return manifest.modelFiles?.some((item) => String(item).split(/[\\/]/).pop() === LOCAL_WHISPER_MODEL_FILE) === true;
+  }
+  if (id === "tts") return manifest.runtimeId === localTeraTtsRuntimeId(process.platform, process.arch);
+  return true;
+}
+
+function installedModelName(id: LocalModelComponentId, manifest: Partial<InstallManifest> | null) {
+  if (!manifest) return undefined;
+  if (id === "stt") {
+    const filename = String(manifest.modelFiles?.[0] || "").split(/[\\/]/).pop() || "Whisper";
+    if (filename === "ggml-small-q5_1.bin") return "Whisper Small Q5_1 (multilingual)";
+    if (filename === LOCAL_WHISPER_MODEL_FILE) return LOCAL_WHISPER_MODEL_NAME;
+    return filename;
+  }
+  if (id === "tts") return String(manifest.runtimeId || "").startsWith("ohf-piper-") ? "Piper / OHF Voice" : "TeraTTSv2";
+  return undefined;
 }
 
 /** Installations predating the model ladder always carried the 26B build. */
@@ -241,7 +258,8 @@ export class LocalModelInstaller {
 
   async catalog(): Promise<LocalModelCatalog> {
     const hardware = await detectHardware();
-    const installed = await Promise.all((["llm", "stt", "tts"] as const).map(readCurrentInstall));
+    const installed = await Promise.all((["llm", "stt", "tts"] as const).map(readInstalledManifest));
+    const current = (["llm", "stt", "tts"] as const).map((id, index) => isCurrentInstall(id, installed[index]));
     const whisper = whisperRuntime(process.platform, process.arch);
     const teraTts = teraTtsRuntime(process.platform, process.arch);
     const [whisperBytes, teraTtsRuntimeBytes] = await Promise.all([
@@ -267,9 +285,9 @@ export class LocalModelInstaller {
         installed: variant.id === installedVariantId
       })),
       items: [
-        { id: "llm", name: "llama.cpp", modelName: activeVariant.modelName, modelBytes: activeVariant.bytes, auxiliaryBytes: llamaRuntime(process.platform, process.arch, hardware.accelerator).bytes, installed: Boolean(installed[0]), recommended: true },
-        { id: "stt", name: "Whisper", modelName: "Whisper Small Q5_1 (multilingual)", modelBytes: WHISPER_BYTES, auxiliaryBytes: whisperBytes, installed: Boolean(installed[1]), recommended: true },
-        { id: "tts", name: "TeraTTSv2", modelName: "TeraTTSv2 distilled CFG-3 (RU + EN, 10 voices)", modelBytes: TERA_TTS_MODEL_BYTES, auxiliaryBytes: teraTtsRuntimeBytes, installed: Boolean(installed[2]), recommended: true }
+        { id: "llm", name: "llama.cpp", modelName: activeVariant.modelName, modelBytes: activeVariant.bytes, auxiliaryBytes: llamaRuntime(process.platform, process.arch, hardware.accelerator).bytes, installed: current[0], updateAvailable: Boolean(installed[0]) && !current[0], recommended: true },
+        { id: "stt", name: "Whisper", modelName: LOCAL_WHISPER_MODEL_NAME, modelId: LOCAL_WHISPER_MODEL_ID, modelBytes: LOCAL_WHISPER_MODEL_BYTES, auxiliaryBytes: whisperBytes, installed: current[1], updateAvailable: Boolean(installed[1]) && !current[1], installedModelName: installedModelName("stt", installed[1]), recommended: true },
+        { id: "tts", name: "TeraTTSv2", modelName: "TeraTTSv2 distilled CFG-3 (RU + EN, 10 voices)", modelId: LOCAL_TERATTS_MODEL_ID, modelBytes: TERA_TTS_MODEL_BYTES, auxiliaryBytes: teraTtsRuntimeBytes, installed: current[2], updateAvailable: Boolean(installed[2]) && !current[2], installedModelName: installedModelName("tts", installed[2]), recommended: true }
       ]
     };
   }
@@ -313,9 +331,9 @@ export class LocalModelInstaller {
           result.managedBackend = this.managedBackend(runtime, model, hardware, variant);
           result.provider = { id: LOCAL_LLAMA_PROVIDER_ID, name: "Vellium Local (llama.cpp)", baseUrl: "http://127.0.0.1:8088/v1", apiKey: "local-key", fullLocalOnly: true, providerType: "openai" };
         } else if (id === "stt") {
-          Object.assign(result.settingsPatch, { sttSource: "whisper", sttBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, sttApiKey: "", sttModel: WHISPER_MODEL_ID });
+          Object.assign(result.settingsPatch, { sttSource: "whisper", sttBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, sttApiKey: "", sttModel: LOCAL_WHISPER_MODEL_ID });
         } else {
-          Object.assign(result.settingsPatch, { ttsBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, ttsApiKey: "", ttsModel: LOCAL_TERATTS_MODEL_ID, ttsVoice: manifest.voice || defaultTeraTtsVoice(request.locale), ttsRealtime: true });
+          Object.assign(result.settingsPatch, { ttsBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, ttsApiKey: "", ttsAdapterId: null, ttsModel: LOCAL_TERATTS_MODEL_ID, ttsVoice: manifest.voice || defaultTeraTtsVoice(request.locale), ttsRealtime: true });
         }
       } catch (error) {
         result.errors![id] = error instanceof Error ? error.message : String(error);
@@ -341,7 +359,7 @@ export class LocalModelInstaller {
     if (id === "stt") return {
       id,
       runtime: [whisperRuntime(process.platform, process.arch)],
-      model: [{ filename: WHISPER_FILE, url: `${MODEL_ROOT}/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/${WHISPER_FILE}?download=true`, bytes: WHISPER_BYTES, digest: "sha256:ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb" }]
+      model: [{ filename: LOCAL_WHISPER_MODEL_FILE, url: localWhisperModelUrl(), bytes: LOCAL_WHISPER_MODEL_BYTES, digest: `sha256:${LOCAL_WHISPER_MODEL_SHA256}` }]
     };
     return {
       id,

@@ -9,7 +9,7 @@ import {
 } from "./desktopPet";
 
 export function DesktopPetControl() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -60,12 +60,12 @@ export function DesktopPetControl() {
       setOpen(true);
       return;
     }
-    const result = await window.electronAPI!.toggleDesktopPet({ ...config, theme: readDesktopPetThemeSnapshot() });
+    const result = await window.electronAPI!.toggleDesktopPet({ ...config, locale, theme: readDesktopPetThemeSnapshot() });
     setVisible(result.visible);
   }
 
   async function applyConfig(next = config) {
-    const themedNext = { ...next, theme: readDesktopPetThemeSnapshot() };
+    const themedNext = { ...next, locale, theme: readDesktopPetThemeSnapshot() };
     storeDesktopPetConfig(themedNext);
     if (!isElectron) return;
     const result = visible

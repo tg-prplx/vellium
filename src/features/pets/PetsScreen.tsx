@@ -348,7 +348,7 @@ function PetAssetPreview({
 }
 
 export function PetsScreen() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const assetFileRef = useRef<HTMLInputElement | null>(null);
   const spriteSheetFileRef = useRef<HTMLInputElement | null>(null);
   const presetAssetFileRef = useRef<HTMLInputElement | null>(null);
@@ -602,7 +602,7 @@ export function PetsScreen() {
       const updated = await savePet();
       if (!updated) return;
       const nextConfig = petConfigFromDraft(updated, draft);
-      const result = await window.electronAPI!.showDesktopPet(nextConfig);
+      const result = await window.electronAPI!.showDesktopPet({ ...nextConfig, locale });
       setVisible(result.visible);
     } catch (error) {
       setStatus({ kind: "error", text: String(error) });

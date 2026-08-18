@@ -94,8 +94,7 @@ export function buildSettingsNavigation(t: (key: any) => string) {
       { id: "settings-translation-model", label: t("settings.translateModel") },
       { id: "settings-compress-model", label: t("settings.compressModel") },
       { id: "settings-tts", label: t("settings.tts") },
-      { id: "settings-stt", label: t("settings.stt") },
-      { id: "settings-local-speech", label: t("localModels.speechTitle") }
+      { id: "settings-stt", label: t("settings.stt") }
     ],
     backends: [
       { id: "settings-managed-backends", label: t("settings.managedBackends") }

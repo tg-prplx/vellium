@@ -11,6 +11,7 @@ import type {
   LocalModelInstallResult,
   LocalModelProgress
 } from "../shared/types/localModels";
+import { bundledSpeechSettingsPatch, isBundledSpeechActive } from "./localModelsSetupState";
 
 interface LocalModelsSetupProps {
   locale: "en" | "ru" | "zh" | "ja";
@@ -50,6 +51,7 @@ async function applyInstallResult(result: LocalModelInstallResult) {
   }
   const updated = await api.settingsUpdate(patch);
   window.dispatchEvent(new CustomEvent("settings-change", { detail: updated }));
+  return updated;
 }
 
 export function LocalModelsSetup({ locale, compact = false, componentIds, onInstalled }: LocalModelsSetupProps) {
@@ -71,6 +73,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
   const [progress, setProgress] = useState<Partial<Record<LocalModelComponentId, LocalModelProgress>>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [currentSettings, setCurrentSettings] = useState<AppSettings | null>(null);
   const [preferredVariantId, setPreferredVariantId] = useState<LocalLlmVariantId | null>(null);
   const variantSelectId = useId();
 
@@ -89,8 +92,12 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
 
   async function refresh() {
     if (!window.electronAPI?.getLocalModelCatalog) return;
-    const next = await window.electronAPI.getLocalModelCatalog();
+    const [next, settings] = await Promise.all([
+      window.electronAPI.getLocalModelCatalog(),
+      api.settingsGet()
+    ]);
     setCatalog(next);
+    setCurrentSettings(settings);
     setSelected((current) => new Set([...current].filter((id) =>
       visibleComponentIds.has(id) && !next.items.find((item) => item.id === id)?.installed
     )));
@@ -103,22 +110,38 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
     });
   }, []);
 
-  async function install() {
-    if (!window.electronAPI || busy || selected.size === 0) return;
+  async function install(componentIdsToInstall: LocalModelComponentId[] = [...selected]) {
+    if (!window.electronAPI || busy || componentIdsToInstall.length === 0) return;
     setBusy(true);
     setError("");
     try {
       const result = await window.electronAPI.installLocalModels({
-        componentIds: [...selected],
+        componentIds: componentIdsToInstall,
         locale,
         ...(activeVariant ? { llmVariantId: activeVariant.id } : {})
       });
-      await applyInstallResult(result);
+      setCurrentSettings(await applyInstallResult(result));
       onInstalled?.(result);
       if (result.errors && Object.keys(result.errors).length) {
         setError(Object.entries(result.errors).map(([id, message]) => `${id}: ${message}`).join("; "));
       }
       await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function activateBundled(id: "stt" | "tts") {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const patch = bundledSpeechSettingsPatch(id, currentSettings, locale);
+      const updated = await api.settingsUpdate(patch);
+      setCurrentSettings(updated);
+      window.dispatchEvent(new CustomEvent("settings-change", { detail: updated }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -147,6 +170,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
         Object.assign(patch, { ttsBaseUrl: "", ttsModel: "", ttsVoice: "alloy" });
       }
       const updated = await api.settingsUpdate(patch);
+      setCurrentSettings(updated);
       window.dispatchEvent(new CustomEvent("settings-change", { detail: updated }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -157,6 +181,106 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
 
   if (!window.electronAPI?.getLocalModelCatalog) {
     return compact ? null : <p className="text-xs text-text-tertiary">{t("localModels.desktopOnly")}</p>;
+  }
+
+  const visibleItems = catalog?.items.filter((item) => visibleComponentIds.has(item.id)) || [];
+  const singleSpeechItem = visibleItems.length === 1 && (visibleItems[0].id === "stt" || visibleItems[0].id === "tts")
+    ? visibleItems[0]
+    : null;
+
+  if (visibleComponentIds.size === 1 && (visibleComponentIds.has("stt") || visibleComponentIds.has("tts"))) {
+    const id = visibleComponentIds.has("stt") ? "stt" : "tts";
+    const state = progress[id];
+    const percent = state?.totalBytes ? Math.min(100, Math.round(state.receivedBytes / state.totalBytes * 100)) : 0;
+    const active = singleSpeechItem ? isBundledSpeechActive(id, currentSettings) : false;
+    const statusKey = singleSpeechItem?.updateAvailable
+      ? "localModels.updateAvailable"
+      : singleSpeechItem?.installed
+        ? active ? "localModels.active" : "localModels.ready"
+        : "localModels.notInstalled";
+
+    return (
+      <div className="mt-4 rounded-xl border border-border-subtle bg-bg-primary p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-text-primary">
+              {t(id === "stt" ? "localModels.bundledSttTitle" : "localModels.bundledTtsTitle")}
+            </div>
+            <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-text-tertiary">
+              {t(id === "stt" ? "localModels.bundledSttDescription" : "localModels.bundledTtsDescription")}
+            </p>
+          </div>
+          <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium ${active ? "border-success/30 bg-success/10 text-success" : singleSpeechItem?.updateAvailable ? "border-warning/30 bg-warning/10 text-warning" : "border-border-subtle text-text-secondary"}`}>
+            {t(statusKey)}
+          </span>
+        </div>
+
+        {singleSpeechItem ? (
+          <>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2.5">
+                <div className="text-[10px] uppercase tracking-wide text-text-tertiary">{t("localModels.model")}</div>
+                <div className="mt-1 text-xs font-medium text-text-primary">{singleSpeechItem.modelName}</div>
+              </div>
+              <div className="rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2.5">
+                <div className="text-[10px] uppercase tracking-wide text-text-tertiary">{t("localModels.downloadSize")}</div>
+                <div className="mt-1 text-xs font-medium text-text-primary">
+                  {formatExactBytes(singleSpeechItem.modelBytes)} + {formatBytes(singleSpeechItem.auxiliaryBytes)} {t("localModels.runtime")}
+                </div>
+              </div>
+            </div>
+
+            {singleSpeechItem.updateAvailable ? (
+              <p className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+                {t("localModels.installedVersion")} {singleSpeechItem.installedModelName || "—"}. {t("localModels.updateKeepsOld")}
+              </p>
+            ) : null}
+
+            {state && state.phase !== "idle" ? (
+              <div className="mt-3" role="status">
+                <div className="h-1.5 overflow-hidden rounded-full bg-bg-hover">
+                  <div className="h-full bg-accent transition-[width]" style={{ width: `${state.phase === "extracting" || state.phase === "verifying" || state.phase === "installed" ? 100 : percent}%` }} />
+                </div>
+                <p className="mt-1 truncate text-[10px] text-text-tertiary">{state.label}{state.phase === "downloading" ? ` · ${percent}%` : ""}</p>
+              </div>
+            ) : null}
+
+            {error ? <p className="mt-3 rounded-lg border border-danger-border bg-danger-subtle px-3 py-2 text-[11px] text-danger" role="alert">{error}</p> : null}
+
+            <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+              {busy ? (
+                <button type="button" onClick={() => void window.electronAPI?.cancelLocalModelInstall()} className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover">
+                  {t("localModels.cancel")}
+                </button>
+              ) : null}
+              {!busy && (singleSpeechItem.installed || singleSpeechItem.updateAvailable) ? (
+                <button type="button" onClick={() => void remove(id)} className="rounded-lg border border-danger-border px-3 py-1.5 text-xs text-danger hover:bg-danger-subtle">
+                  {t("localModels.remove")}
+                </button>
+              ) : null}
+              {!busy && singleSpeechItem.installed && active ? (
+                <button type="button" onClick={() => void install([id])} className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover">
+                  {t("localModels.reinstall")}
+                </button>
+              ) : null}
+              {!busy && singleSpeechItem.installed && !active ? (
+                <button type="button" onClick={() => void activateBundled(id)} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-text-inverse">
+                  {t("localModels.useBundled")}
+                </button>
+              ) : null}
+              {!busy && (!singleSpeechItem.installed || singleSpeechItem.updateAvailable) ? (
+                <button type="button" disabled={!catalog?.available} onClick={() => void install([id])} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-text-inverse disabled:opacity-50">
+                  {t(singleSpeechItem.updateAvailable ? "localModels.updateAndUse" : "localModels.installAndUse")}
+                </button>
+              ) : null}
+              {busy ? <span className="text-xs text-text-secondary">{t("localModels.installing")}</span> : null}
+            </div>
+          </>
+        ) : (
+          <p className="mt-3 text-xs text-text-tertiary">{error || t("localModels.loading")}</p>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -189,7 +313,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
                   type="checkbox"
                   className="mt-1"
                   checked={selected.has(item.id)}
-                  disabled={busy || item.installed}
+                  disabled={busy || (item.installed && !item.updateAvailable)}
                   onChange={(event) => setSelected((current) => {
                     const next = new Set(current);
                     if (event.target.checked) next.add(item.id); else next.delete(item.id);
@@ -201,6 +325,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
                     <strong className="text-xs text-text-primary">{item.name}: {variant?.modelName || item.modelName}</strong>
                     <span className="text-[10px] text-text-tertiary">{formatExactBytes(variant?.modelBytes ?? item.modelBytes)} {t("localModels.model")} + {formatBytes(item.auxiliaryBytes)} {t("localModels.runtime")}</span>
                     {item.installed ? <span className="text-[10px] text-success">{t("localModels.installed")}</span> : null}
+                    {item.updateAvailable ? <span className="text-[10px] text-warning">{t("localModels.updateAvailable")}</span> : null}
                   </div>
                   {item.warning ? <p className="mt-1 text-[10px] text-warning">{item.warning}</p> : null}
                   {variant ? (
@@ -236,7 +361,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
                     </div>
                   ) : null}
                 </div>
-                {item.installed ? (
+                {item.installed || item.updateAvailable ? (
                   <button type="button" disabled={busy} onClick={() => void remove(item.id)} className="text-[10px] text-danger hover:underline disabled:opacity-50">
                     {t("localModels.remove")}
                   </button>

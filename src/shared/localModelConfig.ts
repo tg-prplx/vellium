@@ -5,6 +5,12 @@ import type { LocalLlmVariant } from "./localLlmVariants";
 export const LOCAL_LLAMA_BACKEND_ID = "vellium-local-llama-backend";
 export const LOCAL_LLAMA_PROVIDER_ID = "vellium-local-llama";
 export const LOCAL_INFERENCE_SETTINGS_URL = "vellium-local://inference";
+export const LOCAL_WHISPER_MODEL_REVISION = "5359861c739e955e79d9a303bcbc70fb988958b1";
+export const LOCAL_WHISPER_MODEL_FILE = "ggml-large-v3-turbo-q5_0.bin";
+export const LOCAL_WHISPER_MODEL_ID = "whisper-large-v3-turbo-q5_0";
+export const LOCAL_WHISPER_MODEL_NAME = "Whisper Large v3 Turbo Q5_0 (multilingual)";
+export const LOCAL_WHISPER_MODEL_BYTES = 574_041_195;
+export const LOCAL_WHISPER_MODEL_SHA256 = "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2";
 export const LOCAL_PIPER_VERSION = "1.6.0";
 export const LOCAL_TERATTS_RUNTIME_VERSION = "1";
 export const LOCAL_TERATTS_MODEL_REVISION = "f05ea799094571a3553904a555df3834fb0b963b";
@@ -30,6 +36,10 @@ export function localPiperRuntimeId(platform: string, arch: string) {
 
 export function localTeraTtsRuntimeId(platform: string, arch: string) {
   return `teratts-v2-runtime-v${LOCAL_TERATTS_RUNTIME_VERSION}-${LOCAL_TERATTS_MODEL_REVISION.slice(0, 8)}-${platform}-${arch}`;
+}
+
+export function localWhisperModelUrl() {
+  return `https://huggingface.co/ggerganov/whisper.cpp/resolve/${LOCAL_WHISPER_MODEL_REVISION}/${LOCAL_WHISPER_MODEL_FILE}?download=true`;
 }
 
 export function buildLocalLlamaManagedBackend(

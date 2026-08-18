@@ -20,6 +20,7 @@ export type DesktopPetStatePreset = {
 
 export type DesktopPetConfig = {
   characterId?: string;
+  locale?: "en" | "ru" | "zh" | "ja";
   name: string;
   spriteUrl: string;
   spriteSheetUrl: string;
@@ -270,6 +271,7 @@ export function readStoredDesktopPetConfig(): DesktopPetConfig {
     const spriteSheetUrl = stringValue(parsed.spriteSheetUrl, 4000);
     return {
       characterId: stringValue(parsed.characterId, 120) || undefined,
+      locale: parsed.locale === "ru" || parsed.locale === "zh" || parsed.locale === "ja" ? parsed.locale : "en",
       name: stringValue(parsed.name, 32) || DEFAULT_DESKTOP_PET_CONFIG.name,
       spriteUrl,
       spriteSheetUrl,
@@ -295,8 +297,9 @@ export function readStoredDesktopPetConfig(): DesktopPetConfig {
 }
 
 export function storeDesktopPetConfig(config: DesktopPetConfig, notify = true) {
-  const normalized = {
+  const normalized: DesktopPetConfig = {
     ...config,
+    locale: config.locale === "ru" || config.locale === "zh" || config.locale === "ja" ? config.locale : "en",
     scale: clampScale(config.scale),
     voice: normalizeDesktopPetVoice(config.voice),
     ttsEnabled: config.ttsEnabled === true,

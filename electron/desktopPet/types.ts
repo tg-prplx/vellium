@@ -2,6 +2,7 @@ import type { BrowserWindow } from "electron";
 
 export type DesktopPetConfig = {
   characterId?: string;
+  locale?: "en" | "ru" | "zh" | "ja";
   name: string;
   spriteUrl: string;
   spriteSheetUrl: string;
@@ -69,6 +70,7 @@ export type DesktopPetScreenContext = {
 
 export type DesktopPetInstance = {
   key: string;
+  pageToken: string;
   window: BrowserWindow;
   config: DesktopPetConfig;
   uiPlacement: DesktopPetUiPlacement;

@@ -4,6 +4,7 @@ interface IpcSenderGuardOptions {
   getMainWindow: () => BrowserWindow | null;
   getDesktopPetWindow: (sender: WebContents) => BrowserWindow | null;
   isAllowedMainUrl: (url: string) => boolean;
+  isAllowedDesktopPetUrl: (url: string) => boolean;
 }
 
 export function createIpcSenderGuard(options: IpcSenderGuardOptions) {
@@ -14,7 +15,7 @@ export function createIpcSenderGuard(options: IpcSenderGuardOptions) {
     const trustedMain = target === options.getMainWindow() && options.isAllowedMainUrl(frame.url);
     const trustedPet = allowDesktopPet
       && target === options.getDesktopPetWindow(event.sender)
-      && frame.url.startsWith("data:text/html");
+      && options.isAllowedDesktopPetUrl(frame.url);
     if (trustedMain || trustedPet) return;
     throw new Error("Unauthorized IPC sender");
   };

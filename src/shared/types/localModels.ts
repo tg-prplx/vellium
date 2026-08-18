@@ -11,6 +11,10 @@ export interface LocalModelCatalogItem {
   modelBytes: number;
   auxiliaryBytes: number;
   installed: boolean;
+  /** A valid older installation exists, but installing the current model/runtime is recommended. */
+  updateAvailable?: boolean;
+  installedModelName?: string;
+  modelId?: string;
   recommended: boolean;
   warning?: string;
 }
@@ -81,6 +85,7 @@ export interface LocalModelInstallResult {
     sttModel?: string;
     ttsBaseUrl?: string;
     ttsApiKey?: string;
+    ttsAdapterId?: string | null;
     ttsModel?: string;
     ttsVoice?: string;
     ttsRealtime?: boolean;

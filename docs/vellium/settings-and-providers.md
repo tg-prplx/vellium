@@ -83,8 +83,21 @@ Speech is configured independently:
 - STT uses the system recognizer or a Whisper-compatible endpoint and can route
   to a managed local installation.
 
-The desktop local-speech installer uses
-[TeraTTSv2](https://huggingface.co/TeraSpace/TeraTTSv2) as its default TTS package.
+The desktop app puts the bundled installer directly inside the TTS and STT
+settings sections. Each panel shows whether its package is installed and active,
+the exact model and runtime download sizes, update progress, and direct actions
+to install, select, reinstall, or remove it. The manual fields below each panel
+remain available for external endpoints.
+
+Bundled STT uses the multilingual `Whisper Large v3 Turbo Q5_0` artifact from
+[whisper.cpp](https://github.com/ggml-org/whisper.cpp/tree/master/models), pinned
+to Hugging Face revision `5359861c739e955e79d9a303bcbc70fb988958b1`. The model
+download is exactly 574,041,195 bytes, plus the platform runtime shown in the UI.
+An older bundled Whisper installation is reported as an available update and
+remains intact until the replacement has downloaded and verified successfully.
+
+Bundled TTS uses
+[TeraTTSv2](https://huggingface.co/TeraSpace/TeraTTSv2) as its default package.
 Vellium downloads the reviewed distilled snapshot pinned to commit
 `f05ea799094571a3553904a555df3834fb0b963b`: exactly 915,321,336 bytes of model
 data, plus the platform runtime shown in the installer. It supports Russian and

@@ -9986,8 +9986,8 @@ body > .vellium-modal-layer {
 .live-screen {
   --live-accent: var(--color-accent);
   /* Single source of truth for every chip/toggle in the screen so imported controls line up. */
-  --live-chip-height: 30px;
-  --live-chip-radius: 9px;
+  --live-chip-height: 34px;
+  --live-chip-radius: 10px;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   width: 100%;
@@ -9995,7 +9995,7 @@ body > .vellium-modal-layer {
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--color-border-subtle);
-  border-radius: 22px;
+  border-radius: 20px;
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.16);
@@ -10007,27 +10007,56 @@ body > .vellium-modal-layer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 82px;
-  gap: 24px;
-  padding: 17px 22px;
+  min-height: 74px;
+  gap: 18px;
+  padding: 13px 18px;
   border-bottom: 1px solid var(--color-border-subtle);
   background: color-mix(in srgb, var(--color-bg-secondary) 92%, transparent);
   -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
 }
 
+.live-header-identity {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+}
+
+.live-header-avatar {
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--color-border);
+  border-radius: 13px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  box-shadow: 0 7px 20px rgba(0, 0, 0, 0.17);
+}
+
+.live-header-copy {
+  min-width: 0;
+}
+
 .live-header h1 {
   margin: 1px 0 0;
-  font-size: 21px;
+  overflow: hidden;
+  font-size: 19px;
   font-weight: 650;
   line-height: 1.15;
   letter-spacing: -0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .live-header p {
   margin: 4px 0 0;
   color: var(--color-text-tertiary);
   font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .live-kicker {
@@ -10069,19 +10098,33 @@ body > .vellium-modal-layer {
 .live-context-bar {
   position: relative;
   z-index: 4;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 7px;
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-secondary);
+}
+
+.live-context-primary,
+.live-context-secondary {
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
   align-items: center;
   gap: 7px;
-  padding: 11px 22px;
-  border-bottom: 1px solid var(--color-border-subtle);
-  background: var(--color-bg-secondary);
 }
 
-.live-context-bar > *,
-.live-context-bar > .rp-reasoning-toggle,
-.live-context-bar > details > summary {
+.live-context-secondary {
+  grid-column: 1 / -1;
+  padding-top: 2px;
+}
+
+.live-context-primary > *,
+.live-context-secondary > *,
+.live-context-more {
   display: inline-flex;
   min-width: 0;
   min-height: var(--live-chip-height);
@@ -10099,16 +10142,38 @@ body > .vellium-modal-layer {
   transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
 }
 
-.live-context-bar > details {
-  padding: 0;
-  border: 0;
-  background: none;
+.live-context-primary > .live-context-session {
+  flex: 1 1 220px;
+  max-width: 340px;
 }
 
-.live-context-bar > *:hover:not(:disabled),
-.live-context-bar > details > summary:hover {
+.live-context-primary > .live-model-context:last-child {
+  flex: 1 1 210px;
+  max-width: 360px;
+}
+
+.live-context-primary > *:hover:not(:disabled),
+.live-context-secondary > *:hover:not(:disabled),
+.live-context-more:hover:not(:disabled) {
   border-color: var(--color-border);
   background: var(--color-bg-hover);
+}
+
+.live-context-more {
+  flex: 0 0 auto;
+  max-width: none;
+  cursor: pointer;
+}
+
+.live-context-more svg {
+  width: 15px;
+  height: 15px;
+}
+
+.live-context-more.is-open {
+  border-color: color-mix(in srgb, var(--live-accent) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--live-accent) 9%, var(--color-bg-primary));
+  color: var(--color-text-primary);
 }
 
 .live-context-bar label > span,
@@ -10124,7 +10189,8 @@ body > .vellium-modal-layer {
 
 .live-context-bar select {
   min-width: 0;
-  max-width: 150px;
+  width: 100%;
+  max-width: 210px;
   border: 0;
   outline: 0;
   background: transparent;
@@ -10155,13 +10221,14 @@ body > .vellium-modal-layer {
 }
 
 .live-entity-context:disabled,
-.live-context-bar > *:disabled {
+.live-context-primary > *:disabled,
+.live-context-secondary > *:disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }
 
 /* Re-assert the shared control's own "on" treatment, which the chip reset above would flatten. */
-.live-context-bar > .rp-reasoning-toggle.is-active {
+.live-context-secondary > .rp-reasoning-toggle.is-active {
   border-color: color-mix(in srgb, var(--color-accent) 62%, var(--color-border));
   background: color-mix(in srgb, var(--color-accent-subtle) 72%, var(--color-bg-secondary));
   color: var(--color-accent);
@@ -10402,7 +10469,7 @@ body > .vellium-modal-layer {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 480px);
+  grid-template-columns: minmax(460px, 1fr) minmax(300px, 34%);
 }
 
 .live-stage {
@@ -10413,6 +10480,7 @@ body > .vellium-modal-layer {
   place-items: center;
   overflow: hidden;
   isolation: isolate;
+  border-left: 1px solid var(--color-border-subtle);
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--color-bg-primary) 90%, var(--live-accent) 10%), var(--color-bg-primary));
 }
@@ -10420,7 +10488,7 @@ body > .vellium-modal-layer {
 .live-stage::before {
   position: absolute;
   z-index: -1;
-  width: min(64vw, 680px);
+  width: min(36vw, 430px);
   aspect-ratio: 1;
   border: 1px solid color-mix(in srgb, var(--color-border) 68%, transparent);
   border-radius: 50%;
@@ -10449,12 +10517,12 @@ body > .vellium-modal-layer {
 }
 
 .live-focus {
-  --live-mic-size: 132px;
+  --live-mic-size: 112px;
   position: relative;
   display: grid;
   justify-items: center;
-  gap: 23px;
-  width: min(76%, 520px);
+  gap: 18px;
+  width: min(82%, 360px);
   animation: live-focus-enter 360ms ease-out both;
 }
 
@@ -10470,14 +10538,14 @@ body > .vellium-modal-layer {
 }
 
 .live-orbit-one {
-  width: 176px;
-  height: 176px;
+  width: 152px;
+  height: 152px;
   opacity: 0.44;
 }
 
 .live-orbit-two {
-  width: 232px;
-  height: 232px;
+  width: 202px;
+  height: 202px;
   opacity: 0.16;
 }
 
@@ -10535,8 +10603,8 @@ body > .vellium-modal-layer {
   position: relative;
   z-index: 2;
   display: grid;
-  width: 52px;
-  height: 52px;
+  width: 46px;
+  height: 46px;
   place-items: center;
   border-radius: 50%;
   background: rgba(12, 13, 17, 0.45);
@@ -10545,8 +10613,8 @@ body > .vellium-modal-layer {
 }
 
 .live-mic-icon svg {
-  width: 29px;
-  height: 29px;
+  width: 25px;
+  height: 25px;
 }
 
 .live-character-avatar {
@@ -10611,7 +10679,7 @@ body > .vellium-modal-layer {
 }
 
 .live-focus-copy strong {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 620;
   letter-spacing: -0.02em;
 }
@@ -10619,28 +10687,31 @@ body > .vellium-modal-layer {
 .live-focus-copy span {
   min-height: 18px;
   color: var(--color-text-tertiary);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
 .live-controls {
   position: absolute;
-  right: 18px;
-  bottom: 18px;
-  left: 18px;
+  right: 14px;
+  bottom: 14px;
+  left: 14px;
   z-index: 3;
-  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
 }
 
 .live-controls button {
   display: inline-flex;
   min-height: 36px;
   align-items: center;
-  gap: 8px;
-  padding: 0 14px;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 0 10px;
   border: 1px solid var(--color-border);
   border-radius: 11px;
   background: color-mix(in srgb, var(--color-bg-secondary) 88%, transparent);
@@ -10664,6 +10735,7 @@ body > .vellium-modal-layer {
 }
 
 .live-controls button i {
+  margin-left: auto;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -10684,18 +10756,17 @@ body > .vellium-modal-layer {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  border-left: 1px solid var(--color-border-subtle);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   background: var(--color-bg-secondary);
 }
 
 .live-transcript-heading {
   display: flex;
-  min-height: 68px;
+  min-height: 60px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 17px;
+  padding: 11px 17px;
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
@@ -10705,7 +10776,7 @@ body > .vellium-modal-layer {
 }
 
 .live-transcript-heading span {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
 }
 
@@ -10758,14 +10829,45 @@ body > .vellium-modal-layer {
   opacity: 0.34;
 }
 
+.live-message-viewport {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
 .live-message-list {
   display: flex;
+  width: 100%;
+  height: 100%;
   min-height: 0;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
   overflow-y: auto;
-  padding: 18px;
+  padding: 20px clamp(18px, 3vw, 34px) 28px;
   scrollbar-gutter: stable;
+}
+
+.live-jump-latest {
+  position: absolute;
+  right: 18px;
+  bottom: 12px;
+  z-index: 3;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg-primary) 94%, transparent);
+  color: var(--color-text-secondary);
+  box-shadow: 0 9px 28px rgba(0, 0, 0, 0.24);
+  font-size: 11px;
+  font-weight: 650;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+.live-jump-latest:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
 }
 
 .live-empty {
@@ -10814,7 +10916,7 @@ body > .vellium-modal-layer {
   position: relative;
   display: grid;
   gap: 6px;
-  max-width: 92%;
+  max-width: min(86%, 720px);
   animation: live-message-enter 180ms ease-out both;
 }
 
@@ -10869,11 +10971,12 @@ body > .vellium-modal-layer {
 
 .live-message-body {
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.62;
 }
 
 .live-message.is-user .live-message-body {
-  padding: 9px 12px;
+  padding: 10px 13px;
   border-radius: 13px 13px 3px 13px;
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
@@ -10968,7 +11071,7 @@ body > .vellium-modal-layer {
 .live-message-actions {
   display: flex;
   gap: 2px;
-  opacity: 0;
+  opacity: 0.32;
   transition: opacity 120ms ease;
 }
 
@@ -11017,27 +11120,33 @@ body > .vellium-modal-layer {
 .live-compose {
   display: grid;
   gap: 7px;
-  padding: 13px 15px 15px;
+  padding: 12px 17px 14px;
   border-top: 1px solid var(--color-border-subtle);
 }
 
 .live-compose-row {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) 36px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px 40px;
   gap: 7px;
+  align-items: end;
 }
 
 .live-compose-input {
   width: 100%;
   min-width: 0;
-  height: 36px;
+  min-height: 40px;
+  max-height: 112px;
   border: 1px solid var(--color-border-subtle);
   border-radius: 11px;
   outline: none;
   background: var(--color-bg-primary);
   color: var(--color-text-primary);
-  padding: 0 11px;
-  font-size: 11px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  field-sizing: content;
+  line-height: 1.45;
+  resize: none;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
@@ -11053,13 +11162,25 @@ body > .vellium-modal-layer {
 .live-compose-row > button,
 .live-compose-row > .live-compose-attach {
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   place-items: center;
   border-radius: 11px;
   background: var(--live-accent);
   color: var(--color-text-inverse);
   transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.live-compose-row > button.live-compose-voice {
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+}
+
+.live-compose-row > button.live-compose-voice.is-active {
+  border-color: color-mix(in srgb, var(--live-accent) 52%, var(--color-border));
+  background: color-mix(in srgb, var(--live-accent) 16%, var(--color-bg-primary));
+  color: var(--live-accent);
 }
 
 .live-compose-row > .live-compose-attach {
@@ -11138,7 +11259,7 @@ body > .vellium-modal-layer {
 
 @media (max-width: 900px) {
   .live-workspace {
-    grid-template-columns: minmax(0, 1fr) minmax(270px, 34vw);
+    grid-template-columns: minmax(0, 1fr) minmax(270px, 36vw);
   }
 
   .live-controls button span {
@@ -11155,10 +11276,20 @@ body > .vellium-modal-layer {
     padding-inline: 14px;
   }
 
-  .live-context-bar > *,
-  .live-context-bar > details > summary {
+  .live-context-primary > *,
+  .live-context-secondary > * {
     max-width: 200px;
     padding-inline: 8px;
+  }
+
+  .live-context-more span {
+    display: none;
+  }
+
+  .live-context-more {
+    width: var(--live-chip-height);
+    justify-content: center;
+    padding: 0;
   }
 }
 
@@ -11173,6 +11304,17 @@ body > .vellium-modal-layer {
   .live-header {
     min-height: 68px;
     padding: 11px 14px;
+  }
+
+  .live-header-identity {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .live-header-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 11px;
   }
 
   .live-header h1 {
@@ -11191,9 +11333,9 @@ body > .vellium-modal-layer {
 
   .live-workspace {
     display: grid;
-    min-height: 760px;
+    min-height: 650px;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(410px, 55dvh) minmax(350px, 1fr);
+    grid-template-rows: minmax(420px, 58dvh) 230px;
   }
 
   .live-context-bar {
@@ -11201,30 +11343,65 @@ body > .vellium-modal-layer {
     overflow: visible;
   }
 
-  /* Two chips per row rather than a ragged wrap once the screen gets phone-narrow. */
-  .live-context-bar > *,
-  .live-context-bar > details > summary {
+  .live-context-primary > * {
+    flex: 1 1 calc(50% - 4px);
+    max-width: none;
+  }
+
+  .live-context-primary > .live-context-session,
+  .live-context-primary > .live-model-context:last-child {
+    flex-basis: calc(50% - 4px);
+    max-width: none;
+  }
+
+  .live-context-secondary > * {
     flex: 1 1 calc(50% - 4px);
     max-width: none;
   }
 
   .live-transcript {
+    border-left: 0;
+  }
+
+  .live-stage {
     border-top: 1px solid var(--color-border-subtle);
     border-left: 0;
   }
 
   .live-focus {
-    --live-mic-size: 112px;
+    --live-mic-size: 88px;
+    gap: 9px;
   }
 
   .live-orbit-one {
-    width: 150px;
-    height: 150px;
+    width: 124px;
+    height: 124px;
   }
 
   .live-orbit-two {
-    width: 198px;
-    height: 198px;
+    width: 158px;
+    height: 158px;
+  }
+
+  .live-mic-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .live-mic-icon svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  .live-focus-copy strong {
+    font-size: 15px;
+  }
+
+  .live-focus-copy span {
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .live-controls {
@@ -11262,6 +11439,38 @@ body > .vellium-modal-layer {
 
   .live-controls button:last-child span {
     display: none;
+  }
+
+  .live-header p,
+  .live-kicker {
+    max-width: 180px;
+  }
+
+  .live-context-primary > * {
+    flex-basis: 100%;
+  }
+
+  .live-context-primary > .live-entity-context {
+    flex-basis: calc(50% - 4px);
+  }
+
+  .live-message-list {
+    padding-inline: 14px;
+  }
+
+  .live-compose {
+    padding-inline: 12px;
+  }
+
+  .live-compose-row {
+    grid-template-columns: 38px minmax(0, 1fr) 38px 38px;
+    gap: 6px;
+  }
+
+  .live-compose-row > button,
+  .live-compose-row > .live-compose-attach {
+    width: 38px;
+    height: 38px;
   }
 }
 

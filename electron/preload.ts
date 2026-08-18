@@ -30,6 +30,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("desktop-pet:message", message, screenContext) as Promise<{ ok: boolean; reply: string; chatId?: string }>,
   captureDesktopPetScreenContext: () =>
     ipcRenderer.invoke("desktop-pet:screen-context") as Promise<{ ok: boolean; dataUrl?: string; width?: number; height?: number; error?: string }>,
+  requestDesktopPetMicrophonePermission: () =>
+    ipcRenderer.invoke("desktop-pet:microphone-permission") as Promise<{ granted: boolean; status: string }>,
+  transcribeDesktopPetSpeech: (payload: { audioBase64: string; mimeType: string }) =>
+    ipcRenderer.invoke("desktop-pet:transcribe", payload) as Promise<{ ok: boolean; text?: string; error?: string }>,
   speakDesktopPetText: (text: string) => ipcRenderer.invoke("desktop-pet:tts", text) as Promise<{ ok: boolean; contentType?: string; base64?: string; error?: string }>,
   onDesktopPetPeerNear: (callback: (payload: { name?: string }) => void) => {
     const listener = (_event: IpcRendererEvent, payload: { name?: string }) => callback(payload);

@@ -4,6 +4,12 @@ import {
   buildLocalLlamaManagedBackend,
   localPiperRuntimeId,
   localTeraTtsRuntimeId,
+  localWhisperModelUrl,
+  LOCAL_WHISPER_MODEL_BYTES,
+  LOCAL_WHISPER_MODEL_FILE,
+  LOCAL_WHISPER_MODEL_ID,
+  LOCAL_WHISPER_MODEL_REVISION,
+  LOCAL_WHISPER_MODEL_SHA256,
   LOCAL_TERATTS_MODEL_REVISION,
   LOCAL_PIPER_VERSION
 } from "./localModelConfig";
@@ -35,6 +41,17 @@ describe("local llama.cpp backend config", () => {
     expect(config.name).toBe(`${lightest.label} (llama.cpp)`);
     expect(config.defaultModel).toBe(lightest.file);
     expect(buildManagedBackendLaunch(config).args).toContain(String(lightest.contextSize));
+  });
+});
+
+describe("local Whisper model", () => {
+  it("pins the multilingual Large v3 Turbo Q5_0 artifact", () => {
+    expect(LOCAL_WHISPER_MODEL_ID).toBe("whisper-large-v3-turbo-q5_0");
+    expect(LOCAL_WHISPER_MODEL_FILE).toBe("ggml-large-v3-turbo-q5_0.bin");
+    expect(LOCAL_WHISPER_MODEL_BYTES).toBe(574_041_195);
+    expect(LOCAL_WHISPER_MODEL_SHA256).toHaveLength(64);
+    expect(localWhisperModelUrl()).toContain(`/resolve/${LOCAL_WHISPER_MODEL_REVISION}/`);
+    expect(localWhisperModelUrl()).toContain(LOCAL_WHISPER_MODEL_FILE);
   });
 });
 

@@ -1,11 +1,44 @@
 import type { DesktopPetConfig } from "./types";
 
+const DESKTOP_PET_LIVE_COPY = {
+  en: {
+    ready: "Ready", listening: "Listening", transcribing: "Transcribing", thinking: "Thinking", speaking: "Speaking",
+    readyHint: "Hover and talk or type", address: "Address", voice: "Voice", vision: "Vision", screen: "Show screen",
+    placeholder: "Message…", send: "Send", startListening: "Start listening", stopListening: "Stop listening",
+    micUnavailable: "Microphone is unavailable", micDenied: "Microphone access is blocked", sttFailed: "Speech recognition failed",
+    looking: "Looking…", screenPrompt: "Look at my screen and tell me what you notice.", addressHint: "Say my name first.", hello: "Hi, I'm {name}."
+  },
+  ru: {
+    ready: "Готов", listening: "Слушаю", transcribing: "Распознаю", thinking: "Думаю", speaking: "Говорю",
+    readyHint: "Наведите и скажите или напишите", address: "Обращение", voice: "Голос", vision: "Vision", screen: "Показать экран",
+    placeholder: "Сообщение…", send: "Отправить", startListening: "Начать слушать", stopListening: "Остановить прослушивание",
+    micUnavailable: "Микрофон недоступен", micDenied: "Доступ к микрофону заблокирован", sttFailed: "Не удалось распознать речь",
+    looking: "Смотрю…", screenPrompt: "Посмотри на мой экран и скажи, что замечаешь.", addressHint: "Сначала назовите моё имя.", hello: "Привет, я {name}."
+  },
+  zh: {
+    ready: "就绪", listening: "正在聆听", transcribing: "正在识别", thinking: "正在思考", speaking: "正在说话",
+    readyHint: "悬停后说话或输入", address: "称呼", voice: "语音", vision: "视觉", screen: "显示屏幕",
+    placeholder: "消息…", send: "发送", startListening: "开始聆听", stopListening: "停止聆听",
+    micUnavailable: "麦克风不可用", micDenied: "麦克风权限被阻止", sttFailed: "语音识别失败",
+    looking: "正在查看…", screenPrompt: "看看我的屏幕并告诉我你注意到了什么。", addressHint: "请先说出我的名字。", hello: "你好，我是{name}。"
+  },
+  ja: {
+    ready: "準備完了", listening: "聞いています", transcribing: "認識中", thinking: "考え中", speaking: "話しています",
+    readyHint: "ホバーして話すか入力", address: "呼びかけ", voice: "音声", vision: "Vision", screen: "画面を表示",
+    placeholder: "メッセージ…", send: "送信", startListening: "聞き取り開始", stopListening: "聞き取り停止",
+    micUnavailable: "マイクを利用できません", micDenied: "マイクへのアクセスがブロックされています", sttFailed: "音声認識に失敗しました",
+    looking: "確認中…", screenPrompt: "画面を見て、気づいたことを教えて。", addressHint: "最初に私の名前を呼んでください。", hello: "こんにちは、{name}です。"
+  }
+} as const;
+
 function safeScriptJson(value: unknown) {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
 export function buildDesktopPetHtml(config: DesktopPetConfig) {
   const cfg = safeScriptJson(config);
+  const copy = DESKTOP_PET_LIVE_COPY[config.locale || "en"] || DESKTOP_PET_LIVE_COPY.en;
+  const copyJson = safeScriptJson(copy);
   const themeVars = config.theme?.variables || {};
   const cssValue = (value: string, fallback: string) => {
     const next = String(value || "").replace(/[;{}<>]/g, "").trim().slice(0, 220);
@@ -51,7 +84,7 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
       --sprite-size: calc(164px * var(--pet-scale));
       --ui-offset: calc(var(--stage-size) + (16px * var(--pet-scale)));
       --ui-space: calc(100vh - var(--ui-offset) - (18px * var(--pet-scale)));
-      --bubble-max: clamp(52px, calc(var(--ui-space) - 62px), calc(150px * var(--pet-scale)));
+      --bubble-max: clamp(32px, calc(var(--ui-space) - 200px), calc(132px * var(--pet-scale)));
     }
     html, body {
       margin: 0;
@@ -84,7 +117,7 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
       bottom: var(--ui-offset);
       z-index: 3;
       display: grid;
-      gap: 7px;
+      gap: 8px;
       max-height: var(--ui-space);
       visibility: hidden;
       opacity: 0;
@@ -108,12 +141,11 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
       transition-delay: 0s;
     }
     .bubble {
-      min-height: 28px;
+      min-height: 18px;
       max-height: var(--bubble-max);
-      min-height: 0;
       overflow-y: auto;
       overscroll-behavior: contain;
-      padding: 8px 11px;
+      padding: 10px 12px;
       border: 1px solid var(--line);
       border-radius: 12px;
       background: var(--panel);
@@ -127,6 +159,33 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
       scrollbar-width: thin;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
+    }
+    .live-status {
+      display: flex;
+      min-height: 20px;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+      pointer-events: none;
+    }
+    .live-status::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      content: "";
+      opacity: 0.68;
+    }
+    .pet-root.phase-listening .live-status::before,
+    .pet-root.phase-transcribing .live-status::before,
+    .pet-root.phase-thinking .live-status::before,
+    .pet-root.phase-speaking .live-status::before {
+      background: var(--accent);
+      box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 58%, transparent);
+      opacity: 1;
     }
     .chatbar {
       display: none;
@@ -146,6 +205,49 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
       place-items: center;
       cursor: grab;
       z-index: 2;
+    }
+    .live-mic {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      z-index: 5;
+      display: grid;
+      width: calc(48px * var(--pet-scale));
+      height: calc(48px * var(--pet-scale));
+      place-items: center;
+      padding: 0;
+      border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--panel) 76%, transparent);
+      color: var(--ink);
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, -42%) scale(0.84);
+      transition: opacity 150ms ease, transform 180ms ease, background 150ms ease;
+      -webkit-backdrop-filter: blur(14px);
+      backdrop-filter: blur(14px);
+    }
+    .live-mic svg {
+      width: 24px;
+      height: 24px;
+    }
+    .live-mic svg[hidden] {
+      display: none;
+    }
+    .stage:hover .live-mic,
+    .pet-root.ui-open .live-mic,
+    .live-mic:focus-visible {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .pet-root.phase-listening .live-mic,
+    .pet-root.phase-transcribing .live-mic,
+    .pet-root.phase-thinking .live-mic,
+    .pet-root.phase-speaking .live-mic {
+      border-color: color-mix(in srgb, var(--accent) 74%, var(--line));
+      background: color-mix(in srgb, var(--accent) 78%, var(--panel));
     }
     .stage:active {
       cursor: grabbing;
@@ -266,9 +368,59 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
     .pet-root.emotion-excited .bubble { border-color: #fbbf24; }
     .pet-root.emotion-sleepy .bubble { border-color: #93c5fd; }
     .pet-root.emotion-curious .bubble { border-color: #c4b5fd; }
-    .controls {
+    .live-toolbar {
       display: grid;
-      grid-template-columns: 1fr auto auto auto;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      padding: 7px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.26);
+    }
+    .live-toggle {
+      display: grid;
+      min-width: 0;
+      grid-template-columns: 18px minmax(0, 1fr) 7px;
+      align-items: center;
+      gap: 7px;
+      padding: 0 9px;
+      color: var(--muted);
+      text-align: left;
+    }
+    .live-toggle svg {
+      width: 17px;
+      height: 17px;
+    }
+    .live-toggle span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .live-toggle i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      opacity: 0.5;
+    }
+    .live-toggle.is-on {
+      border-color: var(--accent-border);
+      background: var(--accent-subtle);
+      color: var(--ink);
+    }
+    .live-toggle.is-on i {
+      background: var(--accent);
+      box-shadow: 0 0 9px color-mix(in srgb, var(--accent) 62%, transparent);
+      opacity: 1;
+    }
+    .live-toggle:disabled {
+      cursor: not-allowed;
+      opacity: 0.42;
+    }
+    .composer {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 36px;
       gap: 6px;
       padding: 7px;
       border: 1px solid var(--line);
@@ -300,6 +452,26 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
     button:hover {
       background: var(--accent-subtle);
       border-color: var(--accent-border);
+    }
+    button svg {
+      pointer-events: none;
+    }
+    .composer button {
+      display: grid;
+      width: 36px;
+      place-items: center;
+      padding: 0;
+      border-color: var(--accent-border);
+      background: var(--accent);
+      color: #fff;
+    }
+    .composer button svg {
+      width: 17px;
+      height: 17px;
+    }
+    .composer :disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
     }
     .close {
       position: absolute;
@@ -386,6 +558,14 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
         <div class="paw left"></div>
         <div class="paw right"></div>
       </div>
+      <button class="live-mic" id="liveMic" type="button" title="${copy.startListening}" aria-label="${copy.startListening}">
+        <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 2a3 3 0 00-3 3v7a3 3 0 006 0V5a3 3 0 00-3-3zm-7 9a7 7 0 0014 0M12 18v4m-4 0h8" />
+        </svg>
+        <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" hidden>
+          <rect x="7" y="7" width="10" height="10" rx="1.5" />
+        </svg>
+      </button>
     </div>
     <section class="pet-ui" id="petUi">
       <button class="close" title="Hide">&times;</button>
@@ -393,17 +573,37 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
         <select id="chatSelect" title="Pet chat"></select>
         <button type="button" id="newChat" title="New chat">+</button>
       </div>
+      <div class="live-status" id="liveStatus">${copy.ready}</div>
       <div class="bubble" id="bubble"></div>
-      <form class="controls" id="form">
-        <input id="input" placeholder="Say something..." autocomplete="off" />
-        <button type="button" id="play">Pet</button>
-        <button type="button" id="look" title="Send screen context">Look</button>
-        <button type="submit">Send</button>
+      <div class="live-toolbar" aria-label="Live controls">
+        <button class="live-toggle" type="button" id="addressToggle" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path stroke-linecap="round" d="M5 10v4m3-7v10m4-13v16m4-13v10m3-7v4M3 4l18 16" /></svg>
+          <span>${copy.address}</span><i></i>
+        </button>
+        <button class="live-toggle${config.ttsEnabled ? " is-on" : ""}" type="button" id="voiceToggle" aria-pressed="${config.ttsEnabled ? "true" : "false"}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path stroke-linecap="round" d="M4 10v4m4-7v10m4-14v18m4-14v10m4-7v4" /></svg>
+          <span>${copy.voice}</span><i></i>
+        </button>
+        <button class="live-toggle is-on" type="button" id="visionToggle" aria-pressed="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6S2.5 12 2.5 12zm9.5 3a3 3 0 100-6 3 3 0 000 6z" /></svg>
+          <span>${copy.vision}</span><i></i>
+        </button>
+        <button class="live-toggle" type="button" id="screenToggle" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zm4 18h8m-4-4v4" /></svg>
+          <span>${copy.screen}</span><i></i>
+        </button>
+      </div>
+      <form class="composer" id="form">
+        <input id="input" placeholder="${copy.placeholder}" aria-label="${copy.placeholder}" autocomplete="off" />
+        <button type="submit" title="${copy.send}" aria-label="${copy.send}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 11.5L21 3l-8.5 18-2-7.5L3 11.5zm7.5 2L21 3" /></svg>
+        </button>
       </form>
     </section>
   </main>
   <script>
     const config = ${cfg};
+    const copy = ${copyJson};
     const bubble = document.getElementById("bubble");
     const root = document.querySelector(".pet-root");
     const petUi = document.getElementById("petUi");
@@ -417,8 +617,12 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
     const chatSelect = document.getElementById("chatSelect");
     const newChat = document.getElementById("newChat");
     const form = document.getElementById("form");
-    const play = document.getElementById("play");
-    const look = document.getElementById("look");
+    const liveMic = document.getElementById("liveMic");
+    const liveStatus = document.getElementById("liveStatus");
+    const addressToggle = document.getElementById("addressToggle");
+    const voiceToggle = document.getElementById("voiceToggle");
+    const visionToggle = document.getElementById("visionToggle");
+    const screenToggle = document.getElementById("screenToggle");
     const close = document.querySelector(".close");
     const lines = {
       soft: ["I'm here.", "I noticed you.", "Still with you.", "I'm listening."],
@@ -451,7 +655,18 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
     const emotionPresets = new Map((Array.isArray(config.emotions) ? config.emotions : []).map((preset) => [safeId(preset.id, ""), preset]));
     const baseSpriteUrl = clean(config.spriteUrl, 4000);
     const baseSpriteSheetUrl = clean(config.spriteSheetUrl, 4000);
-    const ttsEnabled = config.ttsEnabled === true;
+    let voiceReplies = config.ttsEnabled === true;
+    let addressMode = false;
+    let visionEnabled = true;
+    let screenContextEnabled = false;
+    let livePhase = "ready";
+    let liveBusy = false;
+    let microphoneRecorder = null;
+    let microphoneStream = null;
+    let microphoneChunks = [];
+    let microphoneTimer = 0;
+    let microphoneAudioContext = null;
+    let microphoneShouldSubmit = true;
     const sheetStates = {
       idle: { row: 0, frames: [280, 110, 110, 140, 140, 320] },
       "running-right": { row: 1, frames: [120, 120, 120, 120, 120, 120, 120, 220] },
@@ -558,6 +773,163 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
     function markInteraction() {
       lastInteractionAt = Date.now();
     }
+    function setToggle(button, enabled) {
+      button.classList.toggle("is-on", enabled);
+      button.setAttribute("aria-pressed", enabled ? "true" : "false");
+    }
+    function setLivePhase(phase) {
+      livePhase = phase;
+      ["ready", "listening", "transcribing", "thinking", "speaking"].forEach((name) => {
+        root.classList.toggle("phase-" + name, name === phase);
+      });
+      liveStatus.textContent = copy[phase] || copy.ready;
+      const listening = phase === "listening";
+      liveMic.querySelector(".mic-icon").hidden = listening;
+      liveMic.querySelector(".stop-icon").hidden = !listening;
+      liveMic.title = listening ? copy.stopListening : copy.startListening;
+      liveMic.setAttribute("aria-label", liveMic.title);
+      liveMic.disabled = liveBusy && !listening;
+    }
+    function setLiveBusy(busy) {
+      liveBusy = busy;
+      input.disabled = busy;
+      form.querySelector("button[type=submit]").disabled = busy;
+      liveMic.disabled = busy && livePhase !== "listening";
+    }
+    function blobToBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(reader.error || new Error("Could not read microphone audio"));
+        reader.onload = () => {
+          const result = String(reader.result || "");
+          const comma = result.indexOf(",");
+          if (comma < 0) reject(new Error("Could not encode microphone audio"));
+          else resolve(result.slice(comma + 1));
+        };
+        reader.readAsDataURL(blob);
+      });
+    }
+    function cleanupMicrophone() {
+      window.clearInterval(microphoneTimer);
+      microphoneTimer = 0;
+      void microphoneAudioContext?.close?.().catch(() => {});
+      microphoneAudioContext = null;
+      microphoneStream?.getTracks?.().forEach((track) => track.stop());
+      microphoneStream = null;
+      microphoneRecorder = null;
+      microphoneChunks = [];
+    }
+    async function transcribeMicrophoneAudio(audio) {
+      setLiveBusy(true);
+      setLivePhase("transcribing");
+      try {
+        const result = await window.electronAPI?.transcribeDesktopPetSpeech?.({
+          audioBase64: await blobToBase64(audio),
+          mimeType: audio.type || "audio/webm"
+        });
+        const transcript = clean(result?.text || "", 4000);
+        if (!result?.ok || !transcript) throw new Error(result?.error || copy.sttFailed);
+        const petName = clean(config.name, 32).toLocaleLowerCase();
+        if (addressMode && petName && !transcript.toLocaleLowerCase().includes(petName)) {
+          say(copy.addressHint, "idle", "calm");
+          return;
+        }
+        await sendMessageWithOptionalScreen(transcript, visionEnabled && screenContextEnabled);
+      } catch (error) {
+        say(clean(error?.message || error, 160) || copy.sttFailed, "sleepy", "sleepy");
+      } finally {
+        setLiveBusy(false);
+        setLivePhase("ready");
+        if (addressMode) window.setTimeout(() => void startMicrophone(), 260);
+      }
+    }
+    function stopMicrophone(submit = true) {
+      if (!microphoneRecorder) return;
+      microphoneShouldSubmit = submit;
+      if (microphoneRecorder.state !== "inactive") microphoneRecorder.stop();
+      else cleanupMicrophone();
+    }
+    async function startMicrophone() {
+      if (liveBusy || microphoneRecorder) return;
+      markInteraction();
+      await showUi();
+      try {
+        const permission = await window.electronAPI?.requestDesktopPetMicrophonePermission?.();
+        if (permission && !permission.granted) throw new Error(copy.micDenied);
+        if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+          throw new Error(copy.micUnavailable);
+        }
+        microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
+        const mimeType = candidates.find((value) => MediaRecorder.isTypeSupported(value)) || "";
+        microphoneChunks = [];
+        microphoneShouldSubmit = true;
+        microphoneRecorder = new MediaRecorder(microphoneStream, mimeType ? { mimeType } : undefined);
+        microphoneRecorder.ondataavailable = (event) => {
+          if (event.data?.size) microphoneChunks.push(event.data);
+        };
+        microphoneRecorder.onerror = () => {
+          cleanupMicrophone();
+          addressMode = false;
+          setToggle(addressToggle, false);
+          setLivePhase("ready");
+          say(copy.micUnavailable, "sleepy", "sleepy");
+        };
+        microphoneRecorder.onstop = () => {
+          const shouldSubmit = microphoneShouldSubmit;
+          const recordedType = microphoneRecorder?.mimeType || mimeType || "audio/webm";
+          const audio = new Blob(microphoneChunks, { type: recordedType });
+          cleanupMicrophone();
+          if (shouldSubmit && audio.size) void transcribeMicrophoneAudio(audio);
+          else {
+            setLivePhase("ready");
+            if (addressMode) window.setTimeout(() => void startMicrophone(), 260);
+          }
+        };
+        const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+        const startedAt = performance.now();
+        let speechStarted = false;
+        let lastSpeechAt = startedAt;
+        if (AudioContextConstructor) {
+          microphoneAudioContext = new AudioContextConstructor();
+          const source = microphoneAudioContext.createMediaStreamSource(microphoneStream);
+          const analyser = microphoneAudioContext.createAnalyser();
+          analyser.fftSize = 1024;
+          analyser.smoothingTimeConstant = 0.2;
+          source.connect(analyser);
+          const samples = new Float32Array(analyser.fftSize);
+          microphoneTimer = window.setInterval(() => {
+            const now = performance.now();
+            analyser.getFloatTimeDomainData(samples);
+            let energy = 0;
+            for (const sample of samples) energy += sample * sample;
+            const rms = Math.sqrt(energy / samples.length);
+            if (rms >= 0.022) {
+              speechStarted = true;
+              lastSpeechAt = now;
+            } else if (speechStarted && now - lastSpeechAt >= 1050) {
+              stopMicrophone(true);
+            } else if (!speechStarted && now - startedAt >= 12000) {
+              stopMicrophone(false);
+            }
+            if (now - startedAt >= 30000) stopMicrophone(speechStarted);
+          }, 80);
+        } else {
+          microphoneTimer = window.setInterval(() => {
+            if (performance.now() - startedAt >= 30000) stopMicrophone(true);
+          }, 250);
+        }
+        microphoneRecorder.start(250);
+        setLivePhase("listening");
+        pulsePresence("is-listening", "review", 30000);
+      } catch (error) {
+        cleanupMicrophone();
+        addressMode = false;
+        setToggle(addressToggle, false);
+        setLivePhase("ready");
+        say(clean(error?.message || error, 160) || copy.micUnavailable, "sleepy", "sleepy");
+      }
+    }
     function clearPresenceClasses() {
       stage.classList.remove("is-present", "is-listening", "is-resting");
     }
@@ -592,7 +964,7 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
     function queueHideUi() {
       clearTimeout(hideTimer);
       hideTimer = setTimeout(() => {
-        if (petUi.matches(":hover") || stage.matches(":hover") || document.activeElement === input) return;
+        if (petUi.matches(":hover") || stage.matches(":hover") || petUi.contains(document.activeElement)) return;
         uiRequestId += 1;
         root.classList.remove("ui-open");
         void window.electronAPI?.resizeDesktopPetUi?.(false);
@@ -678,19 +1050,26 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
     }
     let ttsAudio = null;
     async function speak(text) {
-      if (!ttsEnabled) return;
+      if (!voiceReplies) return false;
       const inputText = String(text || "").trim();
-      if (!inputText) return;
+      if (!inputText) return false;
       try {
         const result = await window.electronAPI?.speakDesktopPetText?.(inputText);
-        if (!result?.ok || !result.base64) return;
+        if (!result?.ok || !result.base64) return false;
         if (ttsAudio) {
           ttsAudio.pause();
           ttsAudio = null;
         }
         ttsAudio = new Audio("data:" + (result.contentType || "audio/mpeg") + ";base64," + result.base64);
-        await ttsAudio.play();
-      } catch {}
+        await new Promise((resolve) => {
+          ttsAudio.addEventListener("ended", resolve, { once: true });
+          ttsAudio.addEventListener("error", resolve, { once: true });
+          void ttsAudio.play().catch(resolve);
+        });
+        return true;
+      } catch {
+        return false;
+      }
     }
     function randomLine() {
       const list = lines[voice] || lines.soft;
@@ -699,19 +1078,27 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
     async function sendMessageWithOptionalScreen(text, includeScreen = false) {
       const messageText = clean(text, 4000);
       if (!messageText) return say(randomLine());
-      showUi();
-      say(includeScreen ? "Looking..." : "...", "running", "running");
+      setLiveBusy(true);
+      setLivePhase("thinking");
+      say(includeScreen ? copy.looking : "...", "running", "running");
       try {
         const screenContext = includeScreen
           ? await window.electronAPI?.captureDesktopPetScreenContext?.()
           : undefined;
         const result = await window.electronAPI?.sendDesktopPetMessage?.(messageText, screenContext?.ok ? screenContext : undefined);
+        if (!result?.ok) throw new Error(result?.reply || "LLM is unavailable.");
         void refreshChats();
         const parsed = parsePetTool(result?.reply || "");
         say(parsed.message || "...", parsed.action, parsed.emotion);
-        void speak(parsed.message || "");
+        if (voiceReplies) {
+          setLivePhase("speaking");
+          await speak(parsed.message || "");
+        }
       } catch (error) {
         say(clean(error?.message || error, 160) || "LLM is unavailable.", "sleepy", "sleepy");
+      } finally {
+        setLiveBusy(false);
+        setLivePhase("ready");
       }
     }
     function renderChats(payload) {
@@ -747,9 +1134,9 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
       }
     });
     window.addEventListener("beforeunload", () => offPeerNear?.(), { once: true });
-    say(clean(config.greeting, 140) || ("Hi, I'm " + clean(config.name, 32) + "."));
+    say(clean(config.greeting, 140) || copy.hello.replace("{name}", clean(config.name, 32)));
     function runAutonomyTick() {
-      if (!autonomyEnabled || dragging || root.classList.contains("ui-open") || document.activeElement === input) return;
+      if (!autonomyEnabled || dragging || liveBusy || microphoneRecorder || root.classList.contains("ui-open") || document.activeElement === input) return;
       const now = Date.now();
       if (now - lastPresenceAt > nextPresenceDelay) {
         lastPresenceAt = now;
@@ -794,16 +1181,48 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
     petUi.addEventListener("mouseenter", showUi);
     petUi.addEventListener("mouseleave", queueHideUi);
     stage.addEventListener("click", () => { markInteraction(); showUi(); acknowledgePresence(); });
-    play.addEventListener("click", () => {
+    liveMic.addEventListener("click", (event) => {
+      event.stopPropagation();
       markInteraction();
-      pulsePresence("is-present", "waving", 1200);
-      say(touchLines[Math.floor(Math.random() * touchLines.length)], "happy", "happy");
+      if (microphoneRecorder) stopMicrophone(true);
+      else void startMicrophone();
     });
-    look.addEventListener("click", () => {
+    addressToggle.addEventListener("click", () => {
       markInteraction();
-      const text = input.value.trim() || "Look at my screen and tell me what you notice.";
-      input.value = "";
-      void sendMessageWithOptionalScreen(text, true);
+      addressMode = !addressMode;
+      setToggle(addressToggle, addressMode);
+      if (addressMode) {
+        say(copy.addressHint, "idle", "calm");
+        void startMicrophone();
+      } else if (microphoneRecorder) {
+        stopMicrophone(false);
+      }
+    });
+    voiceToggle.addEventListener("click", () => {
+      markInteraction();
+      voiceReplies = !voiceReplies;
+      setToggle(voiceToggle, voiceReplies);
+      if (!voiceReplies && ttsAudio) {
+        ttsAudio.pause();
+        ttsAudio = null;
+        if (livePhase === "speaking") setLivePhase("ready");
+      }
+    });
+    visionToggle.addEventListener("click", () => {
+      markInteraction();
+      visionEnabled = !visionEnabled;
+      setToggle(visionToggle, visionEnabled);
+      screenToggle.disabled = !visionEnabled;
+      if (!visionEnabled) {
+        screenContextEnabled = false;
+        setToggle(screenToggle, false);
+      }
+    });
+    screenToggle.addEventListener("click", () => {
+      if (!visionEnabled) return;
+      markInteraction();
+      screenContextEnabled = !screenContextEnabled;
+      setToggle(screenToggle, screenContextEnabled);
     });
     newChat.addEventListener("click", async () => {
       markInteraction();
@@ -826,7 +1245,7 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
       const text = input.value.trim();
       if (!text) return say(randomLine());
       input.value = "";
-      void sendMessageWithOptionalScreen(text, false);
+      void sendMessageWithOptionalScreen(text, visionEnabled && screenContextEnabled);
     });
     let dragging = false;
     stage.addEventListener("pointerdown", async (event) => {
@@ -846,6 +1265,15 @@ export function buildDesktopPetHtml(config: DesktopPetConfig) {
     });
     stage.addEventListener("pointerup", () => { dragging = false; });
     stage.addEventListener("pointercancel", () => { dragging = false; });
+    setLivePhase("ready");
+    setToggle(addressToggle, addressMode);
+    setToggle(voiceToggle, voiceReplies);
+    setToggle(visionToggle, visionEnabled);
+    setToggle(screenToggle, screenContextEnabled);
+    window.addEventListener("beforeunload", () => {
+      stopMicrophone(false);
+      if (ttsAudio) ttsAudio.pause();
+    }, { once: true });
   </script>
 </body>
 </html>`;

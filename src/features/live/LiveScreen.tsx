@@ -127,6 +127,7 @@ export function LiveScreen() {
   const [showPersonaModal, setShowPersonaModal] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showChatControls, setShowChatControls] = useState(false);
+  const [showSessionControls, setShowSessionControls] = useState(false);
   const [editingPersona, setEditingPersona] = useState<UserPersona | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [applyingModel, setApplyingModel] = useState(false);
@@ -1476,20 +1477,26 @@ export function LiveScreen() {
       />
       <section className={`live-screen live-phase-${phase}`} aria-label={t("live.title")}>
       <header className="live-header">
-        <div>
-          <div className="live-kicker">
-            <span className="live-status-dot" aria-hidden="true" />
-            {t("live.title")} · {phaseLabel}
+        <div className="live-header-identity">
+          <AvatarBadge name={selectedCharacter?.name || t("live.title")} src={characterAvatarUrl}
+            alt="" className="live-header-avatar" />
+          <div className="live-header-copy">
+            <div className="live-kicker">
+              <span className="live-status-dot" aria-hidden="true" />
+              {t("live.title")} · {phaseLabel}
+            </div>
+            <h1>{selectedCharacter?.name || t("live.title")}</h1>
+            <p>{chat?.title || t("live.newSession")}</p>
           </div>
-          <h1>{selectedCharacter?.name || t("live.title")}</h1>
-          <p>{chat?.title || t("live.newSession")}</p>
         </div>
         <div className="live-header-actions">
-          <button type="button" className="live-quiet-button" onClick={() => setShowChatControls(true)}>
+          <button type="button" className="live-quiet-button" onClick={() => setShowChatControls(true)}
+            aria-label={t("live.chatControls")} title={t("live.chatControls")}>
             <LiveIcon name="settings" />
             <span>{t("live.chatControls")}</span>
           </button>
-          <button type="button" className="live-quiet-button" onClick={startNewSession} disabled={busy}>
+          <button type="button" className="live-quiet-button" onClick={startNewSession} disabled={busy}
+            aria-label={t("live.new")} title={t("live.new")}>
             <LiveIcon name="plus" />
             <span>{t("live.new")}</span>
           </button>
@@ -1515,102 +1522,147 @@ export function LiveScreen() {
       </header>
 
       <div className="live-context-bar" aria-label={t("live.context")}>
-        <button
-          type="button"
-          className="live-model-context live-entity-context"
-          onClick={() => setShowCharacterPicker(true)}
-          disabled={busy}
-          data-modal-trigger="live-character"
-        >
-          <span>{t("live.character")}</span>
-          <strong>{selectedCharacter?.name || t("live.noCharacter")}</strong>
-        </button>
-        <button
-          type="button"
-          className="live-model-context live-entity-context"
-          onClick={() => setShowPersonaModal(true)}
-          disabled={busy}
-          data-modal-trigger="persona"
-        >
-          <span>{t("live.persona")}</span>
-          <strong>{selectedPersona?.name || t("live.defaultPersona")}</strong>
-        </button>
-        <label className="live-context-session">
-          <span>{t("live.conversation")}</span>
-          <select
-            value={chat?.id || ""}
-            onChange={(event) => void selectSession(event.target.value)}
+        <div className="live-context-primary">
+          <button
+            type="button"
+            className="live-model-context live-entity-context"
+            onClick={() => setShowCharacterPicker(true)}
             disabled={busy}
+            data-modal-trigger="live-character"
           >
-            <option value="">{t("live.newConversation")}</option>
-            {availableSessions.map((session) => (
-              <option key={session.id} value={session.id}>{session.title}</option>
-            ))}
-          </select>
-        </label>
-        {chat && branches.length ? (
-          <BranchManager
-            branches={branches}
-            activeBranchId={activeBranchId}
-            disabled={busy}
-            simple
-            onSelect={(branchId) => { void selectBranch(branchId); }}
-            onRename={renameBranch}
-            onDelete={removeBranch}
-          />
+            <span>{t("live.character")}</span>
+            <strong>{selectedCharacter?.name || t("live.noCharacter")}</strong>
+          </button>
+          <button type="button" className="live-model-context live-entity-context"
+            onClick={() => setShowPersonaModal(true)} disabled={busy} data-modal-trigger="persona">
+            <span>{t("live.persona")}</span>
+            <strong>{selectedPersona?.name || t("live.defaultPersona")}</strong>
+          </button>
+          <label className="live-context-session">
+            <span>{t("live.conversation")}</span>
+            <select value={chat?.id || ""} onChange={(event) => void selectSession(event.target.value)}
+              disabled={busy}>
+              <option value="">{t("live.newConversation")}</option>
+              {availableSessions.map((session) => (
+                <option key={session.id} value={session.id}>{session.title}</option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="live-model-context" onClick={() => setShowModelSelector(true)}
+            data-modal-trigger="live-model">
+            <span>{t("live.model")}</span>
+            <strong>{settings?.activeModel || t("live.configure")}</strong>
+          </button>
+        </div>
+        <button
+          type="button"
+          className={`live-context-more${showSessionControls ? " is-open" : ""}`}
+          onClick={() => setShowSessionControls((current) => !current)}
+          aria-expanded={showSessionControls}
+          aria-controls="live-session-controls"
+          aria-label={t("live.controls")}
+          title={t("live.controls")}
+        >
+          <LiveIcon name="settings" />
+          <span>{t("live.controls")}</span>
+        </button>
+        {showSessionControls ? (
+          <div className="live-context-secondary" id="live-session-controls">
+            {chat && branches.length ? (
+              <BranchManager
+                branches={branches}
+                activeBranchId={activeBranchId}
+                disabled={busy}
+                simple
+                onSelect={(branchId) => { void selectBranch(branchId); }}
+                onRename={renameBranch}
+                onDelete={removeBranch}
+              />
+            ) : null}
+            <RpReasoningToggle
+              enabled={settings?.rpReasoningEnabled === true}
+              disabled={busy}
+              variant="status"
+              onToggle={() => { void toggleRpReasoning(); }}
+            />
+            <label className="live-tts-context">
+              <span>{t("live.tts")}</span>
+              <select value={ttsSource} onChange={(event) => selectTtsSource(event.target.value as LiveTtsSource)}
+                disabled={phase === "speaking"}
+                title={ttsSource === "custom" ? t("live.customTtsHint") : t("live.systemTtsHint")}>
+                <option value="system">{t("live.systemTts")}</option>
+                <option value="custom">
+                  {t("live.customTts")} · {customTtsConfigured
+                    ? (settings?.ttsVoice || settings?.ttsModel)
+                    : t("live.notConfigured")}
+                </option>
+              </select>
+            </label>
+            <label className="live-stt-context">
+              <span>{t("live.stt")}</span>
+              <select value={sttSource}
+                onChange={(event) => void selectSttSource(event.target.value as LiveSttSource)}
+                disabled={phase === "listening" || Boolean(sttRequestControllerRef.current)}
+                title={sttSource === "whisper" ? t("live.whisperSttHint") : t("live.sttHint")}>
+                <option value="system">
+                  {t("live.systemStt")} · {speechRecognitionAvailable ? t("live.available") : t("live.sttUnavailable")}
+                </option>
+                <option value="whisper">
+                  {t("live.whisperStt")} · {whisperSttConfigured
+                    ? (settings?.sttModel || "whisper-1")
+                    : t("live.notConfigured")}
+                </option>
+              </select>
+            </label>
+          </div>
         ) : null}
-        <RpReasoningToggle
-          enabled={settings?.rpReasoningEnabled === true}
-          disabled={busy}
-          variant="status"
-          onToggle={() => { void toggleRpReasoning(); }}
-        />
-        <button
-          type="button"
-          className="live-model-context"
-          onClick={() => setShowModelSelector(true)}
-          data-modal-trigger="live-model"
-        >
-          <span>{t("live.model")}</span>
-          <strong>{settings?.activeModel || t("live.configure")}</strong>
-        </button>
-        <label className="live-tts-context">
-          <span>{t("live.tts")}</span>
-          <select
-            value={ttsSource}
-            onChange={(event) => selectTtsSource(event.target.value as LiveTtsSource)}
-            disabled={phase === "speaking"}
-            title={ttsSource === "custom" ? t("live.customTtsHint") : t("live.systemTtsHint")}
-          >
-            <option value="system">{t("live.systemTts")}</option>
-            <option value="custom">
-              {t("live.customTts")} · {customTtsConfigured
-                ? (settings?.ttsVoice || settings?.ttsModel)
-                : t("live.notConfigured")}
-            </option>
-          </select>
-        </label>
-        <label className="live-stt-context">
-          <span>{t("live.stt")}</span>
-          <select
-            value={sttSource}
-            onChange={(event) => void selectSttSource(event.target.value as LiveSttSource)}
-            disabled={phase === "listening" || Boolean(sttRequestControllerRef.current)}
-            title={sttSource === "whisper" ? t("live.whisperSttHint") : t("live.sttHint")}
-          >
-            <option value="system">
-              {t("live.systemStt")} · {speechRecognitionAvailable ? t("live.available") : t("live.sttUnavailable")}
-            </option>
-            <option value="whisper">
-              {t("live.whisperStt")} · {whisperSttConfigured
-                ? (settings?.sttModel || "whisper-1")
-                : t("live.notConfigured")}
-            </option>
-          </select>
-        </label>
       </div>
 
       <div className="live-workspace">
+        <LiveTranscriptPanel
+          messages={visibleMessages}
+          character={selectedCharacter}
+          characterAvatarUrl={characterAvatarUrl}
+          persona={selectedPersona}
+          security={settings?.security}
+          busy={busy}
+          uploading={uploading}
+          error={error}
+          draft={draft}
+          attachments={attachments}
+          providerReady={providerReady}
+          speechInputAvailable={speechInputAvailable}
+          voicePhase={phase}
+          voiceActionLabel={phase === "listening"
+            ? t("live.stopListening")
+            : (busy ? t("live.stopResponse") : t("live.startListening"))}
+          screenAttached={screenContextEnabled && visionEnabled}
+          canRegenerate={Boolean(chat) && !busy && Boolean(latestAssistantText(messages))}
+          streamingReply={streamingReply}
+          toolCalls={streamingToolCalls}
+          reasoningCalls={streamingReasoningCalls}
+          reasoningText={streamingReasoningText}
+          translatedTexts={translatedTexts}
+          translatingId={translatingId}
+          ttsLoadingId={ttsLoadingId}
+          ttsPlayingId={ttsPlayingId}
+          onDraftChange={setDraft}
+          onSubmit={() => { void submitTurn(draft); }}
+          onVoiceAction={phase === "listening"
+            ? () => stopListening(handsFree)
+            : (busy ? stopResponse : () => { void startListening(false); })}
+          onUploadFiles={(files) => { void uploadComposerFiles(files); }}
+          onRemoveAttachment={(attachmentId) =>
+            setAttachments((current) => current.filter((item) => item.id !== attachmentId))}
+          onRegenerate={() => { void regenerateResponse(); }}
+          onOpenProviderSettings={openProviderSettings}
+          onEditMessage={editMessage}
+          onDeleteMessage={deleteMessage}
+          onTranslateMessage={async (messageId) => { await translateMessage(messageId, false); }}
+          onTtsMessage={handleTts}
+          onForkMessage={async (messageId) => { await forkBranch(messageId); }}
+          onPreviewAttachment={previewAttachment}
+        />
         <div className="live-stage">
           {characterAvatarUrl ? (
             <div
@@ -1713,43 +1765,6 @@ export function LiveScreen() {
           </div>
         </div>
 
-        <LiveTranscriptPanel
-          messages={visibleMessages}
-          character={selectedCharacter}
-          characterAvatarUrl={characterAvatarUrl}
-          persona={selectedPersona}
-          security={settings?.security}
-          busy={busy}
-          uploading={uploading}
-          error={error}
-          draft={draft}
-          attachments={attachments}
-          providerReady={providerReady}
-          speechInputAvailable={speechRecognitionAvailable}
-          screenAttached={screenContextEnabled && visionEnabled}
-          canRegenerate={Boolean(chat) && !busy && Boolean(latestAssistantText(messages))}
-          streamingReply={streamingReply}
-          toolCalls={streamingToolCalls}
-          reasoningCalls={streamingReasoningCalls}
-          reasoningText={streamingReasoningText}
-          translatedTexts={translatedTexts}
-          translatingId={translatingId}
-          ttsLoadingId={ttsLoadingId}
-          ttsPlayingId={ttsPlayingId}
-          onDraftChange={setDraft}
-          onSubmit={() => { void submitTurn(draft); }}
-          onUploadFiles={(files) => { void uploadComposerFiles(files); }}
-          onRemoveAttachment={(attachmentId) =>
-            setAttachments((current) => current.filter((item) => item.id !== attachmentId))}
-          onRegenerate={() => { void regenerateResponse(); }}
-          onOpenProviderSettings={openProviderSettings}
-          onEditMessage={editMessage}
-          onDeleteMessage={deleteMessage}
-          onTranslateMessage={async (messageId) => { await translateMessage(messageId, false); }}
-          onTtsMessage={handleTts}
-          onForkMessage={async (messageId) => { await forkBranch(messageId); }}
-          onPreviewAttachment={previewAttachment}
-        />
       </div>
       </section>
     </>

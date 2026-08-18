@@ -26,6 +26,8 @@ export interface ElectronAPI {
   selectDesktopPetChat: (chatId: string, config?: unknown) => Promise<DesktopPetChatsPayload>;
   sendDesktopPetMessage: (message: string, screenContext?: { dataUrl: string; width?: number; height?: number }) => Promise<{ ok: boolean; reply: string; chatId?: string }>;
   captureDesktopPetScreenContext: () => Promise<{ ok: boolean; dataUrl?: string; width?: number; height?: number; error?: string }>;
+  requestDesktopPetMicrophonePermission: () => Promise<{ granted: boolean; status: string }>;
+  transcribeDesktopPetSpeech: (payload: { audioBase64: string; mimeType: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
   speakDesktopPetText: (text: string) => Promise<{ ok: boolean; contentType?: string; base64?: string; error?: string }>;
   onDesktopPetPeerNear: (callback: (payload: { name?: string }) => void) => () => void;
   listManagedBackends: () => Promise<ManagedBackendRuntimeState[]>;

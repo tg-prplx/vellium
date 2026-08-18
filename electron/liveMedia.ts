@@ -5,7 +5,8 @@ import {
   systemPreferences,
   type BrowserWindow,
   type IpcMainInvokeEvent,
-  type Session
+  type Session,
+  type WebContents
 } from "electron";
 import {
   canGrantLiveAudioPermission,
@@ -16,13 +17,12 @@ import {
 let liveMediaIpcRegistered = false;
 
 export function registerLiveMediaIpc(
-  assertTrustedIpcSender: (event: IpcMainInvokeEvent) => void,
+  assertTrustedIpcSender: (event: IpcMainInvokeEvent, allowDesktopPet?: boolean) => void,
   getMainWindow: () => BrowserWindow | null
 ) {
   if (liveMediaIpcRegistered) return;
   liveMediaIpcRegistered = true;
-  ipcMain.handle("live:microphone-permission", async (event) => {
-    assertTrustedIpcSender(event);
+  const requestMicrophonePermission = async () => {
     if (process.platform !== "darwin") {
       return { granted: true, status: "granted" };
     }
@@ -36,6 +36,14 @@ export function registerLiveMediaIpc(
       granted,
       status: systemPreferences.getMediaAccessStatus("microphone")
     };
+  };
+  ipcMain.handle("live:microphone-permission", async (event) => {
+    assertTrustedIpcSender(event);
+    return requestMicrophonePermission();
+  });
+  ipcMain.handle("desktop-pet:microphone-permission", async (event) => {
+    assertTrustedIpcSender(event, true);
+    return requestMicrophonePermission();
   });
   ipcMain.handle("live:screen-context", async (event) => {
     assertTrustedIpcSender(event);
@@ -82,21 +90,31 @@ export function configureLiveMediaPermissions(options: {
   session: Session;
   getMainWindow: () => BrowserWindow | null;
   isAllowedAppUrl: (url: string) => boolean;
+  isTrustedDesktopPet: (webContents: WebContents, requestingUrl: string) => boolean;
 }) {
-  const { session, getMainWindow, isAllowedAppUrl } = options;
-  session.setPermissionCheckHandler?.((webContents, permission, requestingOrigin, details) => (
-    canGrantLiveAudioPermission({
+  const { session, getMainWindow, isAllowedAppUrl, isTrustedDesktopPet } = options;
+  session.setPermissionCheckHandler?.((webContents, permission, requestingOrigin, details) => {
+    if (!webContents) return false;
+    const trustedPet = isTrustedDesktopPet(webContents, webContents.getURL());
+    return canGrantLiveAudioPermission({
       trustedMainRenderer: webContents === getMainWindow()?.webContents && details.isMainFrame,
       allowedOrigin: isAllowedAppUrl(requestingOrigin),
       permission,
       mediaTypes: details.mediaType ? [details.mediaType] : [],
       allowUnknownMediaType: true
-    })
-  ));
+    }) || canGrantLiveAudioPermission({
+      trustedMainRenderer: trustedPet && details.isMainFrame,
+      allowedOrigin: trustedPet,
+      permission,
+      mediaTypes: details.mediaType ? [details.mediaType] : [],
+      allowUnknownMediaType: true
+    });
+  });
   session.setPermissionRequestHandler?.((webContents, permission, callback, details) => {
     const requestingUrl = "requestingUrl" in details && details.requestingUrl
       ? details.requestingUrl
       : webContents.getURL();
+    const trustedPet = isTrustedDesktopPet(webContents, requestingUrl);
     callback(canGrantLiveAudioPermission({
       trustedMainRenderer: isTrustedMainMediaRequest({
         sameWebContents: webContents === getMainWindow()?.webContents,
@@ -104,6 +122,11 @@ export function configureLiveMediaPermissions(options: {
         requestingUrl
       }),
       allowedOrigin: isAllowedAppUrl(requestingUrl),
+      permission,
+      mediaTypes: "mediaTypes" in details ? details.mediaTypes || [] : []
+    }) || canGrantLiveAudioPermission({
+      trustedMainRenderer: trustedPet,
+      allowedOrigin: trustedPet,
       permission,
       mediaTypes: "mediaTypes" in details ? details.mediaTypes || [] : []
     }));
