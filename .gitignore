@@ -6,6 +6,12 @@ DerivedData/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
+.agentcli/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 node_modules/
 dist/
 dist-electron/
@@ -15,9 +21,6 @@ server-bundle.mjs
 release/
 src-tauri/target/
 src-tauri/gen/
-data/*.db
-data/*.db-shm
-data/*.db-wal
 data/uploads/
 data/
 *.tsbuildinfo
