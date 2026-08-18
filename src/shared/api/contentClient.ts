@@ -1,18 +1,29 @@
 import type { CharacterDetail, FileAttachment, LoreBook, RagBinding, RagCollection, RagDocument, RagIngestResult, UserPersona } from "../types/contracts";
+import { notifyAfterCharacterCatalogMutation } from "../characterCatalog";
 import { del, get, patchReq, post, put, requestBlob } from "./core";
 
 export const contentClient = {
   characterList: () => get<CharacterDetail[]>("/characters"),
-  characterReorder: (characterIds: string[]) => patchReq<CharacterDetail[]>("/characters/reorder", { characterIds }),
+  characterReorder: (characterIds: string[]) => notifyAfterCharacterCatalogMutation(
+    patchReq<CharacterDetail[]>("/characters/reorder", { characterIds })
+  ),
   characterGet: (id: string) => get<CharacterDetail>(`/characters/${id}`),
-  characterImportV2: (rawJson: string) => post<CharacterDetail>("/characters/import", { rawJson }),
+  characterImportV2: (rawJson: string) => notifyAfterCharacterCatalogMutation(
+    post<CharacterDetail>("/characters/import", { rawJson })
+  ),
   characterTranslateCopy: (id: string, targetLanguage?: string, signal?: AbortSignal) =>
-    post<CharacterDetail>(`/characters/${id}/translate-copy`, { targetLanguage }, { timeoutMs: 0, signal }),
+    notifyAfterCharacterCatalogMutation(
+      post<CharacterDetail>(`/characters/${id}/translate-copy`, { targetLanguage }, { timeoutMs: 0, signal })
+    ),
   characterValidateV2: (rawJson: string) => post<{ valid: boolean; errors: string[] }>("/characters/validate", { rawJson }),
-  characterUpdate: (id: string, data: Partial<CharacterDetail>) => put<CharacterDetail>(`/characters/${id}`, data),
-  characterDelete: (id: string) => del<void>(`/characters/${id}`),
+  characterUpdate: (id: string, data: Partial<CharacterDetail>) => notifyAfterCharacterCatalogMutation(
+    put<CharacterDetail>(`/characters/${id}`, data)
+  ),
+  characterDelete: (id: string) => notifyAfterCharacterCatalogMutation(del<void>(`/characters/${id}`)),
   characterExportJson: (id: string) => requestBlob("GET", `/characters/${id}/export/json`),
-  characterUploadAvatar: (id: string, base64Data: string, filename: string) => post<{ avatarUrl: string }>(`/characters/${id}/avatar`, { base64Data, filename }),
+  characterUploadAvatar: (id: string, base64Data: string, filename: string) => notifyAfterCharacterCatalogMutation(
+    post<{ avatarUrl: string }>(`/characters/${id}/avatar`, { base64Data, filename })
+  ),
   lorebookList: () => get<LoreBook[]>("/lorebooks"),
   lorebookGet: (id: string) => get<LoreBook>(`/lorebooks/${id}`),
   lorebookCreate: (data: Partial<LoreBook>) => post<LoreBook>("/lorebooks", data),

@@ -15,8 +15,29 @@ import zipfile
 from pathlib import Path
 
 
-RUNTIME_VERSION = "1"
+RUNTIME_VERSION = "2"
 DEPENDENCIES = ("numpy", "onnxruntime", "transformers", "tokenizers", "num2words", "pyinstaller", "backports.tarfile")
+UTF8_PROBE = "Привет, Vellium — UTF-8 работает: ёжик ✓"
+
+
+def verify_utf8_protocol(executable: Path, cwd: Path) -> None:
+    request = (json.dumps({"text": UTF8_PROBE}, ensure_ascii=False) + "\n").encode("utf-8")
+    result = subprocess.run(
+        [str(executable), "--protocol-self-test"],
+        cwd=cwd,
+        input=request,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=True,
+        timeout=30,
+    )
+    try:
+        response = json.loads(result.stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        diagnostic = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"TeraTTS runtime returned invalid UTF-8 JSON: {diagnostic}") from error
+    if response.get("text") != UTF8_PROBE:
+        raise RuntimeError("TeraTTS runtime failed the Cyrillic UTF-8 protocol round trip")
 
 
 def copy_licenses(stage: Path) -> None:
@@ -64,6 +85,7 @@ def build(output_dir: Path, platform_name: str, arch: str) -> Path:
         if not executable.is_file():
             raise RuntimeError(f"PyInstaller output does not contain {executable.name}")
         subprocess.run([str(executable), "--version"], cwd=stage, check=True, timeout=30)
+        verify_utf8_protocol(executable, stage)
         copy_licenses(stage)
         (stage / "SOURCE.json").write_text(json.dumps({
             "name": "Vellium TeraTTSv2 runtime",

@@ -22,7 +22,7 @@ import onnxruntime  # noqa: F401
 from transformers import AutoTokenizer  # noqa: F401
 
 
-RUNTIME_VERSION = "1"
+RUNTIME_VERSION = "2"
 SAMPLE_RATE = 44_100
 VOICES = {
     "ru_f1", "ru_m5", "ru_f2", "ru_m1", "eng_f3", "eng_f4_whisper",
@@ -31,6 +31,23 @@ VOICES = {
 LANGUAGE_TAG = re.compile(r"<(?:ru|en)>.*?</(?:ru|en)>", re.DOTALL)
 CYRILLIC = re.compile(r"[А-Яа-яЁё]")
 SENTENCE = re.compile(r"[^\n.!?…]+(?:[.!?…]+|$)|\n+", re.UNICODE)
+
+
+def configure_utf8_stdio() -> None:
+    """Keep the JSONL protocol UTF-8 even under a Windows system code page."""
+    stdin_reconfigure = getattr(sys.stdin, "reconfigure", None)
+    if callable(stdin_reconfigure):
+        stdin_reconfigure(encoding="utf-8", errors="strict")
+    stdout_reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(stdout_reconfigure):
+        stdout_reconfigure(
+            encoding="utf-8", errors="strict", newline="\n", write_through=True
+        )
+    stderr_reconfigure = getattr(sys.stderr, "reconfigure", None)
+    if callable(stderr_reconfigure):
+        stderr_reconfigure(
+            encoding="utf-8", errors="backslashreplace", newline="\n", write_through=True
+        )
 
 
 def emit(payload: dict[str, Any]) -> None:
@@ -142,8 +159,10 @@ def serve(model_dir: Path, threads: int, ruaccent_mode: str) -> None:
 
 
 def main() -> None:
+    configure_utf8_stdio()
     parser = argparse.ArgumentParser(description="Vellium TeraTTSv2 runtime")
     parser.add_argument("--version", action="store_true")
+    parser.add_argument("--protocol-self-test", action="store_true")
     parser.add_argument("--model-dir", type=Path)
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--ruaccent-mode", choices=("full", "dictionary"), default="full")
@@ -151,6 +170,11 @@ def main() -> None:
     args = parser.parse_args()
     if args.version:
         print(RUNTIME_VERSION)
+        return
+    if args.protocol_self_test:
+        line = sys.stdin.readline()
+        request = json.loads(line)
+        emit({"type": "protocol-self-test", "text": str(request.get("text") or "")})
         return
     if args.command != "serve" or args.model_dir is None:
         parser.error("serve requires --model-dir")

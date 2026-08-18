@@ -1,5 +1,6 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { api } from "../../shared/api";
+import { subscribeCharacterCatalogChanged } from "../../shared/characterCatalog";
 import type {
   BranchNode,
   CharacterDetail,
@@ -58,6 +59,17 @@ interface ChatBootstrapParams {
 
 export function useChatBootstrap(params: ChatBootstrapParams) {
   useEffect(() => {
+    let disposed = false;
+    let characterRefreshSequence = 0;
+    const refreshCharacters = () => {
+      const sequence = ++characterRefreshSequence;
+      void api.characterList().then((list) => {
+        if (!disposed && sequence === characterRefreshSequence) {
+          params.setCharacters(list);
+        }
+      }).catch(() => {});
+    };
+
     api.chatList().then((list) => {
       params.setChats(list);
       if (list[0]) params.setActiveChat(list[0]);
@@ -96,7 +108,7 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
         params.setChatRagTopK(Math.max(1, Math.min(12, Math.floor(Number(settings.ragTopK)))));
       }
     }).catch(() => {});
-    api.characterList().then(params.setCharacters).catch(() => {});
+    refreshCharacters();
     api.lorebookList().then(params.setLorebooks).catch(() => {});
     api.ragCollectionList().then(params.setRagCollections).catch(() => {});
     api.providerList().then(params.setProviders).catch(() => {});
@@ -105,6 +117,13 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
       const def = list.find((p) => p.isDefault);
       if (def) params.setActivePersona(def);
     }).catch(() => {});
+
+    const unsubscribeCharacters = subscribeCharacterCatalogChanged(refreshCharacters);
+    return () => {
+      disposed = true;
+      characterRefreshSequence += 1;
+      unsubscribeCharacters();
+    };
   }, []);
 }
 

@@ -74,7 +74,8 @@ export const chatClient = {
     post<{ translation: string }>(`/chats/messages/${messageId}/translate`, { targetLanguage }, { timeoutMs: 0, signal }),
   chatTtsMessage: (messageId: string) =>
     requestBlob("POST", `/chats/messages/${messageId}/tts`, undefined, { timeoutMs: 0 }),
-  chatTtsText: (input: string) => requestBlob("POST", "/chats/tts", { input }, { timeoutMs: 0 }),
+  chatTtsText: (input: string, options?: { voice?: string }, signal?: AbortSignal) =>
+    requestBlob("POST", "/chats/tts", { input, ...options }, { timeoutMs: 0, signal }),
   chatTtsMessageRealtime: (messageId: string, onEvent: (event: TtsStreamEvent) => void | Promise<void>, signal?: AbortSignal) =>
     streamNdjson<TtsStreamEvent>(`/chats/messages/${messageId}/tts/realtime`, {}, onEvent, { timeoutMs: 0, signal }),
   chatTtsTextRealtime: (input: string, onEvent: (event: TtsStreamEvent) => void | Promise<void>, signal?: AbortSignal) =>

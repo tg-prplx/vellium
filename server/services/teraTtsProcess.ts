@@ -30,6 +30,10 @@ interface ActiveRequest {
 
 const MAX_STDERR_CHARS = 16_000;
 
+export function encodeTeraTtsRequest(payload: { id: string; text: string; voice: string; stream: boolean }) {
+  return Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
+}
+
 export class TeraTtsProcess {
   private child: ChildProcessWithoutNullStreams | null = null;
   private stdoutBuffer = "";
@@ -82,7 +86,7 @@ export class TeraTtsProcess {
       const cleanup = () => signal?.removeEventListener("abort", abort);
       this.active = { id, audio: [], onChunk, resolve, reject, cleanup };
       signal?.addEventListener("abort", abort, { once: true });
-      this.child!.stdin.write(`${JSON.stringify({ id, text, voice, stream })}\n`, "utf8", (error) => {
+      this.child!.stdin.write(encodeTeraTtsRequest({ id, text, voice, stream }), (error) => {
         if (error && this.active?.id === id) this.failActive(error);
       });
     });
@@ -106,6 +110,11 @@ export class TeraTtsProcess {
       "serve"
     ], {
       cwd: path.dirname(this.executable),
+      env: {
+        ...process.env,
+        PYTHONUTF8: "1",
+        PYTHONIOENCODING: "utf-8"
+      },
       shell: false,
       stdio: ["pipe", "pipe", "pipe"]
     });

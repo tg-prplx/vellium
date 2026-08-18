@@ -10,7 +10,11 @@ import {
   LOCAL_WHISPER_MODEL_ID,
   LOCAL_WHISPER_MODEL_REVISION,
   LOCAL_WHISPER_MODEL_SHA256,
+  LOCAL_TERATTS_DEFAULT_VOICE,
   LOCAL_TERATTS_MODEL_REVISION,
+  LOCAL_TERATTS_RUNTIME_VERSION,
+  LOCAL_TERATTS_VOICE_PROFILES,
+  LOCAL_TERATTS_VOICES,
   LOCAL_PIPER_VERSION
 } from "./localModelConfig";
 import { findLocalLlmVariant, LOCAL_LLM_VARIANTS } from "./localLlmVariants";
@@ -66,9 +70,18 @@ describe("local OHF Voice runtime identity", () => {
 
 describe("local TeraTTSv2 runtime identity", () => {
   it("pins the model revision, runtime generation, platform, and architecture", () => {
+    expect(LOCAL_TERATTS_RUNTIME_VERSION).toBe("2");
     expect(localTeraTtsRuntimeId("darwin", "arm64"))
       .toContain(LOCAL_TERATTS_MODEL_REVISION.slice(0, 8));
     expect(localTeraTtsRuntimeId("darwin", "x64"))
       .not.toBe(localTeraTtsRuntimeId("darwin", "arm64"));
+  });
+
+  it("exposes all ten selectable voices and marks the recommended Russian pair", () => {
+    expect(LOCAL_TERATTS_VOICES).toHaveLength(10);
+    expect(new Set(LOCAL_TERATTS_VOICES).size).toBe(10);
+    expect(LOCAL_TERATTS_VOICES).toContain(LOCAL_TERATTS_DEFAULT_VOICE);
+    expect(LOCAL_TERATTS_VOICE_PROFILES.filter((voice) => voice.recommended).map((voice) => voice.id))
+      .toEqual(["ru_f1", "ru_m5"]);
   });
 });

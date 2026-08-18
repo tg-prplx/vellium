@@ -14,6 +14,7 @@ import { ManagedBackendsSettings } from "./components/ManagedBackendsSettings";
 import { WallpaperThemePanel } from "./components/WallpaperThemePanel";
 import { RuntimeTuningSettings } from "./components/RuntimeTuningSettings";
 import { SpeechToTextSettings } from "./components/SpeechToTextSettings";
+import { TextToSpeechSettings } from "./components/TextToSpeechSettings";
 import { UpdateCheckSetting } from "./components/UpdateCheckSetting";
 import { LocalModelsSetup } from "../../components/LocalModelsSetup";
 import { LegacyScreen } from "../legacy/public";
@@ -158,8 +159,6 @@ export function SettingsScreen({
   const [ragModels, setRagModels] = useState<ProviderModel[]>([]);
   const [ragRerankModels, setRagRerankModels] = useState<ProviderModel[]>([]);
   const [compressModels, setCompressModels] = useState<ProviderModel[]>([]);
-  const [ttsModels, setTtsModels] = useState<ProviderModel[]>([]);
-  const [ttsVoices, setTtsVoices] = useState<ProviderModel[]>([]);
   const [managedBackendStates, setManagedBackendStates] = useState<ManagedBackendRuntimeState[]>([]);
   const [managedBackendLogsFor, setManagedBackendLogsFor] = useState<ManagedBackendConfig | null>(null);
   const [managedBackendLogs, setManagedBackendLogs] = useState<ManagedBackendLogEntry[]>([]);
@@ -919,36 +918,6 @@ export function SettingsScreen({
       setRagRerankModels(list);
     } catch {
       setRagRerankModels([]);
-    }
-  }
-
-  async function loadTtsModels() {
-    if (!settings) return;
-    try {
-      const list = await api.settingsFetchTtsModels(settings.ttsBaseUrl, settings.ttsApiKey, settings.ttsAdapterId);
-      setTtsModels(list);
-      showResult(
-        list.length ? `${t("settings.modelsLoaded")}: ${list.length}` : t("settings.noModelsReturned"),
-        list.length ? "success" : "info"
-      );
-    } catch (error) {
-      setTtsModels([]);
-      showResult(`${t("settings.loadModelsFailed")}: ${String(error)}`, "error");
-    }
-  }
-
-  async function loadTtsVoices() {
-    if (!settings) return;
-    try {
-      const list = await api.settingsFetchTtsVoices(settings.ttsBaseUrl, settings.ttsApiKey, settings.ttsAdapterId);
-      setTtsVoices(list);
-      showResult(
-        list.length ? `${t("settings.voicesLoaded")}: ${list.length}` : t("settings.noVoicesReturned"),
-        list.length ? "success" : "info"
-      );
-    } catch (error) {
-      setTtsVoices([]);
-      showResult(`${t("settings.loadVoicesFailed")}: ${String(error)}`, "error");
     }
   }
 
@@ -1717,56 +1686,7 @@ export function SettingsScreen({
                 </div>
               </div>
 
-              <div id="settings-tts" className="settings-section scroll-mt-24">
-                <div className="settings-section-header">
-                  <div>
-                    <div className="settings-section-title">{t("settings.tts")}</div>
-                    <p className="settings-section-desc">{t("settings.ttsDesc")}</p>
-                  </div>
-                  <label className="flex items-center gap-2 text-xs text-text-secondary" title={t("settings.ttsRealtimeHint")}><span>{t("settings.ttsRealtime")}</span><ToggleSwitch checked={settings.ttsRealtime === true} onChange={(e) => patch({ ttsRealtime: e.target.checked })} /></label>
-                </div>
-                <LocalModelsSetup locale={settings.interfaceLanguage || "en"} componentIds={["tts"]} />
-                <p className="mb-4 mt-2 text-[11px] leading-relaxed text-text-tertiary">{t("localModels.externalTtsHint")}</p>
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                  <div className="space-y-3">
-                    <div><FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel><InputField value={settings.ttsBaseUrl || ""} onChange={(v) => patch({ ttsBaseUrl: v })} placeholder="https://api.openai.com/v1" {...autosaveProps} /></div>
-                    <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField type="password" value={settings.ttsApiKey || ""} onChange={(v) => patch({ ttsApiKey: v })} placeholder={t("settings.apiKey")} {...autosaveProps} /></div>
-                    <div><FieldLabel>{t("settings.ttsAdapterId")}</FieldLabel><InputField value={settings.ttsAdapterId || ""} onChange={(v) => patch({ ttsAdapterId: v.trim() || null })} placeholder={t("settings.ttsAdapterIdPlaceholder")} {...autosaveProps} /></div>
-                  </div>
-                  <div className="space-y-3">
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <FieldLabel>{t("settings.ttsModel")}</FieldLabel>
-                        <button onClick={() => void loadTtsModels()} className={secondaryActionClass}><SettingsActionIcon name="models" />{t("settings.loadModels")}</button>
-                      </div>
-                      <SelectField value={settings.ttsModel || ""} onChange={(v) => patch({ ttsModel: v })}>
-                        <option value="">{t("settings.selectModel")}</option>
-                        {settings.ttsModel && !ttsModels.some((model) => model.id === settings.ttsModel) ? (
-                          <option value={settings.ttsModel}>{settings.ttsModel}</option>
-                        ) : null}
-                        {ttsModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
-                      </SelectField>
-                    </div>
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <FieldLabel>{t("settings.ttsVoice")}</FieldLabel>
-                        <button onClick={() => void loadTtsVoices()} className={secondaryActionClass}><SettingsActionIcon name="voice" />{t("settings.loadVoices")}</button>
-                      </div>
-                      <InputField
-                        value={settings.ttsVoice || ""}
-                        onChange={(v) => patch({ ttsVoice: v })}
-                        placeholder="alloy"
-                        list="tts-voice-options"
-                        {...autosaveProps}
-                      />
-                      <datalist id="tts-voice-options">
-                        <option value="alloy" /><option value="echo" /><option value="fable" /><option value="onyx" /><option value="nova" /><option value="shimmer" />
-                        {ttsVoices.map((v) => <option key={v.id} value={v.id} />)}
-                      </datalist>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <TextToSpeechSettings settings={settings} onPatch={patch} />
               <SpeechToTextSettings settings={settings} onPatch={patch} autosaveProps={autosaveProps} />
             </div>
           )}

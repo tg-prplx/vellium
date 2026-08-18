@@ -1940,6 +1940,14 @@ process.stdin.on("data", (chunk) => {
     const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
     expect(audioBuffer.toString("utf-8")).toBe("FAKE_MP3_DATA");
 
+    const previewResponse = await fetch(`${baseUrl}/api/chats/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ input: "Voice preview", voice: "nova" })
+    });
+    expect(previewResponse.ok).toBe(true);
+    expect(lastTtsRequestBody).toMatchObject({ input: "Voice preview", voice: "nova" });
+
     const realtimeResponse = await fetch(`${baseUrl}/api/chats/tts/realtime`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

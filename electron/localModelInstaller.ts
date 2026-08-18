@@ -574,7 +574,9 @@ export class LocalModelInstaller {
   private async validateTtsRuntime(executable: string, signal: AbortSignal) {
     await new Promise<void>((resolve, reject) => {
       let settled = false;
-      let output = "";
+      let stdout = "";
+      let stderr = "";
+      const probe = "Привет, Vellium — UTF-8 работает: ёжик ✓";
       const finish = (error?: Error) => {
         if (settled) return;
         settled = true;
@@ -583,22 +585,41 @@ export class LocalModelInstaller {
         if (error) reject(error);
         else resolve();
       };
-      const child = spawn(executable, ["--version"], {
+      const child = spawn(executable, ["--protocol-self-test"], {
         cwd: path.dirname(executable),
+        env: {
+          ...process.env,
+          PYTHONUTF8: "1",
+          PYTHONIOENCODING: "utf-8"
+        },
         shell: false,
-        stdio: ["ignore", "pipe", "pipe"]
+        stdio: ["pipe", "pipe", "pipe"]
       });
-      const collect = (chunk: Buffer) => {
-        output = `${output}${chunk.toString("utf8")}`.slice(-2_000);
-      };
-      child.stdout.on("data", collect);
-      child.stderr.on("data", collect);
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout = `${stdout}${chunk.toString("utf8")}`.slice(-2_000);
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr = `${stderr}${chunk.toString("utf8")}`.slice(-2_000);
+      });
       child.once("error", (error) => {
         finish(new Error(`TeraTTSv2 runtime cannot start on ${process.platform}/${process.arch}: ${error.message}`));
       });
+      child.stdin.once("error", (error) => {
+        child.kill("SIGKILL");
+        finish(new Error(`TeraTTSv2 runtime UTF-8 probe could not be written: ${error.message}`));
+      });
       child.once("exit", (code, exitSignal) => {
-        if (code === 0) finish();
-        else finish(new Error(`TeraTTSv2 runtime check failed with code ${code ?? "?"}${exitSignal ? ` (${exitSignal})` : ""}: ${output.trim()}`));
+        if (code !== 0) {
+          finish(new Error(`TeraTTSv2 runtime check failed with code ${code ?? "?"}${exitSignal ? ` (${exitSignal})` : ""}: ${stderr.trim()}`));
+          return;
+        }
+        try {
+          const response = JSON.parse(stdout.trim()) as { text?: unknown };
+          if (response.text !== probe) throw new Error("Cyrillic UTF-8 round trip did not match");
+          finish();
+        } catch (error) {
+          finish(new Error(`TeraTTSv2 runtime UTF-8 check failed: ${error instanceof Error ? error.message : String(error)}`));
+        }
       });
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
@@ -609,8 +630,12 @@ export class LocalModelInstaller {
         child.kill("SIGKILL");
         finish(new DOMException("Download cancelled", "AbortError"));
       };
-      if (signal.aborted) abort();
-      else signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) {
+        abort();
+        return;
+      }
+      signal.addEventListener("abort", abort, { once: true });
+      child.stdin.end(Buffer.from(`${JSON.stringify({ text: probe })}\n`, "utf8"));
     });
   }
 

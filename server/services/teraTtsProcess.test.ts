@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock("child_process", () => ({ spawn: mocks.spawn }));
 
-import { TeraTtsProcess } from "./teraTtsProcess";
+import { encodeTeraTtsRequest, TeraTtsProcess } from "./teraTtsProcess";
 
 function fakeRuntime() {
   const child = new EventEmitter() as EventEmitter & {
@@ -24,8 +24,8 @@ function fakeRuntime() {
   });
   child.stdin = Object.assign(new EventEmitter(), {
     writable: true,
-    write: vi.fn((line: string, _encoding: string, callback: (error?: Error) => void) => {
-      const request = JSON.parse(line) as { id: string; stream: boolean };
+    write: vi.fn((data: Buffer, callback: (error?: Error) => void) => {
+      const request = JSON.parse(data.toString("utf8")) as { id: string; stream: boolean };
       queueMicrotask(() => {
         const event = request.stream
           ? { id: request.id, type: "audio", format: "pcm", sampleRate: 44_100, audioBase64: "AQI=" }
@@ -46,11 +46,34 @@ describe("TeraTTSv2 persistent runtime protocol", () => {
     mocks.spawn.mockImplementation(() => fakeRuntime());
   });
 
+  it("encodes Cyrillic requests as UTF-8 bytes", () => {
+    const encoded = encodeTeraTtsRequest({
+      id: "utf8-test",
+      text: "Привет, ёжик — всё работает",
+      voice: "ru_f1",
+      stream: false
+    });
+    expect(Buffer.isBuffer(encoded)).toBe(true);
+    expect(JSON.parse(encoded.toString("utf8"))).toEqual({
+      id: "utf8-test",
+      text: "Привет, ёжик — всё работает",
+      voice: "ru_f1",
+      stream: false
+    });
+  });
+
   it("reuses one loaded child process for consecutive WAV requests", async () => {
     const runtime = new TeraTtsProcess("/runtime/teratts-runtime", "/models/teratts");
     await expect(runtime.synthesize("Hello", "eng_f3")).resolves.toEqual(Buffer.from("WAV"));
     await expect(runtime.synthesize("Привет", "ru_f1")).resolves.toEqual(Buffer.from("WAV"));
     expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      "/runtime/teratts-runtime",
+      expect.any(Array),
+      expect.objectContaining({
+        env: expect.objectContaining({ PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" })
+      })
+    );
     runtime.stop();
   });
 

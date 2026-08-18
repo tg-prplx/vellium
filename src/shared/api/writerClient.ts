@@ -19,6 +19,7 @@ import type {
   WriterSummaryLensRunResult,
   WriterSummaryLensScope
 } from "../types/contracts";
+import { notifyAfterCharacterCatalogMutation } from "../characterCatalog";
 import { del, get, patchReq, post, requestBlob } from "./core";
 
 const LONG_RUNNING_REQUEST_OPTIONS = { timeoutMs: 0 };
@@ -70,7 +71,11 @@ export const writerClient = {
   writerSceneUpdate: (sceneId: string, data: Partial<Scene>) => patchReq<Scene>(`/writer/scenes/${sceneId}`, data),
   writerSceneDelete: (sceneId: string) => del<{ ok: boolean; id: string }>(`/writer/scenes/${sceneId}`),
   writerGenerateCharacter: (payload: WriterCharacterGenerateRequest) =>
-    post<CharacterDetail>("/writer/characters/generate", payload, LONG_RUNNING_REQUEST_OPTIONS),
+    notifyAfterCharacterCatalogMutation(
+      post<CharacterDetail>("/writer/characters/generate", payload, LONG_RUNNING_REQUEST_OPTIONS)
+    ),
   writerEditCharacter: (characterId: string, payload: WriterCharacterEditRequest) =>
-    post<WriterCharacterEditResponse>(`/writer/characters/${characterId}/edit`, payload, LONG_RUNNING_REQUEST_OPTIONS)
+    notifyAfterCharacterCatalogMutation(
+      post<WriterCharacterEditResponse>(`/writer/characters/${characterId}/edit`, payload, LONG_RUNNING_REQUEST_OPTIONS)
+    )
 };

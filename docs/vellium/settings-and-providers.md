@@ -103,7 +103,11 @@ Vellium downloads the reviewed distilled snapshot pinned to commit
 data, plus the platform runtime shown in the installer. It supports Russian and
 English, exposes all ten bundled voices, supplies the model's required language
 tags automatically, applies the bundled Russian stress model, and streams
-44.1 kHz PCM chunks. The heavier unused teacher sampler is not downloaded.
+44.1 kHz PCM chunks. When the bundled runtime is active, Settings groups the
+voices by language, marks the recommended Russian pair, and provides a custom
+text preview with explicit Play and Stop controls. The selected preview voice is
+sent with that request, so testing a voice does not depend on a delayed settings
+refresh. The heavier unused teacher sampler is not downloaded.
 The runtime stays alive between utterances so the ONNX sessions are not reloaded
 for every sentence. Existing Piper installations remain readable only as a
 compatibility path until the user replaces or removes them.

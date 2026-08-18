@@ -48,7 +48,16 @@ async function loadManifest(componentId: "stt" | "tts") {
 
 async function runProcess(command: string, args: string[], options: { cwd: string; input?: string; timeoutMs: number }) {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { cwd: options.cwd, shell: false, stdio: ["pipe", "ignore", "pipe"] });
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: {
+        ...process.env,
+        PYTHONUTF8: "1",
+        PYTHONIOENCODING: "utf-8"
+      },
+      shell: false,
+      stdio: ["pipe", "ignore", "pipe"]
+    });
     let stderr = "";
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
@@ -67,7 +76,7 @@ async function runProcess(command: string, args: string[], options: { cwd: strin
       if (code === 0) resolve();
       else reject(new Error(`Local inference exited with code ${code ?? "?"}${signal ? ` (${signal})` : ""}: ${stderr.trim().slice(-1000)}`));
     });
-    child.stdin.end(options.input || undefined);
+    child.stdin.end(options.input ? Buffer.from(options.input, "utf8") : undefined);
   });
 }
 

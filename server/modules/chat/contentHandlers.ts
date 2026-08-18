@@ -155,7 +155,7 @@ export async function ttsMessage(req: Request, res: Response) {
     return;
   }
 
-  await synthesizeTtsText(String(message.content || ""), res);
+  await synthesizeTtsText(String(message.content || ""), req, res);
 }
 
 export async function ttsMessageRealtime(req: Request, res: Response) {
@@ -174,7 +174,7 @@ export async function ttsText(req: Request, res: Response) {
     res.status(400).json({ error: "TTS input is empty" });
     return;
   }
-  await synthesizeTtsText(input, res);
+  await synthesizeTtsText(input, req, res, { voice: normalizeTtsVoiceOverride(req.body?.voice) });
 }
 
 export async function ttsTextRealtime(req: Request, res: Response) {
@@ -194,7 +194,7 @@ async function streamTtsText(input: string, req: Request, res: Response) {
   const isLocalInference = rawBaseUrl === LOCAL_INFERENCE_URL;
   const baseUrl = adapterId || isLocalInference ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
   const model = String(settings.ttsModel || "").trim();
-  const voice = String(settings.ttsVoice || "alloy").trim() || "alloy";
+  const voice = normalizeTtsVoiceOverride(req.body?.voice) || String(settings.ttsVoice || "alloy").trim() || "alloy";
   if (!baseUrl || !model) {
     res.status(400).json({ error: "TTS endpoint/model not configured" });
     return;
@@ -206,6 +206,7 @@ async function streamTtsText(input: string, req: Request, res: Response) {
 
   const controller = new AbortController();
   const onClose = () => controller.abort(new Error("TTS client disconnected"));
+  req.once("aborted", onClose);
   res.once("close", onClose);
   res.status(200);
   res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
@@ -266,7 +267,7 @@ async function streamTtsText(input: string, req: Request, res: Response) {
     const chunks = splitRealtimeTtsInput(input);
     for (let index = 0; index < chunks.length; index += 1) {
       if (controller.signal.aborted || res.destroyed) break;
-      const audio = await synthesizeTtsAudio(chunks[index], controller.signal);
+      const audio = await synthesizeTtsAudio(chunks[index], controller.signal, { voice });
       res.write(`${JSON.stringify({
         type: "audio",
         index,
@@ -280,24 +281,42 @@ async function streamTtsText(input: string, req: Request, res: Response) {
       res.end(`${JSON.stringify({ type: "error", message: error instanceof Error ? error.message : "TTS request failed" })}\n`);
     }
   } finally {
+    req.removeListener("aborted", onClose);
     res.removeListener("close", onClose);
   }
 }
 
-async function synthesizeTtsText(input: string, res: Response) {
+interface TtsOverrides {
+  voice?: string;
+}
+
+function normalizeTtsVoiceOverride(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const voice = value.trim();
+  return voice ? voice.slice(0, 120) : undefined;
+}
+
+async function synthesizeTtsText(input: string, req: Request, res: Response, overrides: TtsOverrides = {}) {
+  const controller = new AbortController();
+  const onClose = () => controller.abort(new Error("TTS client disconnected"));
+  res.once("close", onClose);
   try {
-    const audio = await synthesizeTtsAudio(input);
+    const audio = await synthesizeTtsAudio(input, controller.signal, overrides);
+    if (controller.signal.aborted || res.destroyed) return;
     res.setHeader("Content-Type", audio.contentType);
     res.setHeader("Cache-Control", "no-store");
     res.send(audio.buffer);
   } catch (err) {
+    if (controller.signal.aborted || res.destroyed) return;
     const message = err instanceof Error ? err.message : "TTS request failed";
     const status = /not configured/i.test(message) ? 400 : /blocked by Full Local Mode/i.test(message) ? 403 : 500;
     res.status(status).json({ error: message });
+  } finally {
+    res.removeListener("close", onClose);
   }
 }
 
-async function synthesizeTtsAudio(input: string, signal?: AbortSignal): Promise<{ contentType: string; buffer: Buffer }> {
+async function synthesizeTtsAudio(input: string, signal?: AbortSignal, overrides: TtsOverrides = {}): Promise<{ contentType: string; buffer: Buffer }> {
   const settings = getSettings();
   const rawBaseUrl = String(settings.ttsBaseUrl || "").trim();
   const apiKey = String(settings.ttsApiKey || "").trim();
@@ -305,7 +324,7 @@ async function synthesizeTtsAudio(input: string, signal?: AbortSignal): Promise<
   const isLocalInference = rawBaseUrl === LOCAL_INFERENCE_URL;
   const baseUrl = adapterId || isLocalInference ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
   const model = String(settings.ttsModel || "").trim();
-  const voice = String(settings.ttsVoice || "alloy").trim() || "alloy";
+  const voice = overrides.voice || String(settings.ttsVoice || "alloy").trim() || "alloy";
   if (!baseUrl || !model) {
     throw new Error("TTS endpoint/model not configured");
   }

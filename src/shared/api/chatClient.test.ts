@@ -32,4 +32,18 @@ describe("chatClient TTS", () => {
       { timeoutMs: 0 }
     );
   });
+
+  it("sends an explicit voice for settings preview and allows cancellation", async () => {
+    core.requestBlob.mockResolvedValue(new Blob());
+    const controller = new AbortController();
+
+    await chatClient.chatTtsText("Preview", { voice: "ru_m5" }, controller.signal);
+
+    expect(core.requestBlob).toHaveBeenCalledWith(
+      "POST",
+      "/chats/tts",
+      { input: "Preview", voice: "ru_m5" },
+      { timeoutMs: 0, signal: controller.signal }
+    );
+  });
 });
