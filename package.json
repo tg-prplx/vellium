@@ -1,7 +1,7 @@
 {
   "name": "vellium",
   "private": true,
-  "version": "1.0.5",
+  "version": "1.0.6",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -20,7 +20,7 @@
     "build": "npm run check:architecture && npm run typecheck && vite build",
     "build:icons": "node scripts/run-build-icons.cjs",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --outfile=server-bundle.mjs --external:better-sqlite3 --packages=external",
-    "build:electron-main": "esbuild electron/main.ts --bundle --platform=node --format=cjs --outfile=dist-electron/main.cjs --external:electron",
+    "build:electron-main": "esbuild electron/main.ts --bundle --platform=node --format=cjs --outfile=dist-electron/main.cjs --external:electron --external:@electron-internal/extract-zip && node scripts/verify-electron-main.cjs",
     "build:electron-preload": "esbuild electron/preload.ts --bundle --platform=node --format=cjs --outfile=dist-electron/preload.cjs --external:electron",
     "build:desktop": "npm run build && npm run build:icons && npm run build:server && npm run build:electron-main && npm run build:electron-preload",
     "headless": "npm run build && npm run build:server && node server-bundle.mjs --headless",
@@ -119,6 +119,7 @@
     ],
     "asar": true,
     "asarUnpack": [
+      "node_modules/@electron-internal/extract-zip/*.node",
       "node_modules/better-sqlite3/build/Release/*.node",
       "node_modules/bindings/**",
       "node_modules/file-uri-to-path/**"
