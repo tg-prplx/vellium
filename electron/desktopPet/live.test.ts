@@ -21,4 +21,16 @@ describe("desktop pet Live audio", () => {
       .resolves.toMatchObject({ ok: false, error: "Unsupported microphone audio format" });
     expect(request).not.toHaveBeenCalled();
   });
+
+  it("preserves pet PCM WAV recordings for bundled local Whisper", async () => {
+    const request = vi.fn(async (_pathName: string, _init?: RequestInit) => ({ text: "ready" }));
+    const result = await transcribeDesktopPetAudio({
+      audioBase64: Buffer.from("RIFF-test-wave").toString("base64"),
+      mimeType: "audio/wav"
+    }, request);
+
+    expect(result).toEqual({ ok: true, text: "ready" });
+    const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({ mimeType: "audio/wav", filename: "desktop-pet-recording.wav" });
+  });
 });

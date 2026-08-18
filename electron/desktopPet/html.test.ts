@@ -33,6 +33,9 @@ describe("desktop pet Live panel", () => {
     expect(html).toContain('id="visionToggle"');
     expect(html).toContain('id="screenToggle"');
     expect(html).toContain('placeholder="Сообщение…"');
+    expect(html).toContain("convertMicrophoneAudioToWhisperWav(audio)");
+    expect(html).toContain('mimeType: wav.type || "audio/wav"');
+    expect(html).not.toContain('mimeType: audio.type || "audio/webm"');
 
     const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
     expect(script).toBeTruthy();
