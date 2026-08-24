@@ -14,11 +14,15 @@ DerivedData/
 *.sqlite3
 node_modules/
 dist/
+!/vendor/inochi2d-runtime/dist/
+!/vendor/inochi2d-runtime/dist/**
 dist-electron/
 build/
 server-bundle.cjs
 server-bundle.mjs
 release/
+output/
+.playwright-cli/
 src-tauri/target/
 src-tauri/gen/
 data/uploads/

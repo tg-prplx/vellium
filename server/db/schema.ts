@@ -63,6 +63,17 @@ const SCHEMA_SQL = `
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS inochi2d_avatars (
+    character_id TEXT PRIMARY KEY,
+    asset_id TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL DEFAULT '',
+    filename TEXT NOT NULL DEFAULT 'avatar.inp',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS lorebooks (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

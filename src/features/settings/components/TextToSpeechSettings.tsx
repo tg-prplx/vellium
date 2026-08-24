@@ -8,6 +8,7 @@ import {
   LOCAL_TERATTS_VOICE_PROFILES,
   type LocalTeraTtsVoiceProfile
 } from "../../../shared/localModelConfig";
+import { RealtimeTtsPlayer } from "../../../shared/realtimeTts";
 import type { AppSettings, ProviderModel } from "../../../shared/types/contracts";
 import { FieldLabel, InputField, SelectField, TextareaField, ToggleSwitch } from "./FormControls";
 
@@ -61,6 +62,7 @@ export function TextToSpeechSettings({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef("");
   const previewAbortRef = useRef<AbortController | null>(null);
+  const realtimePreviewRef = useRef<RealtimeTtsPlayer | null>(null);
 
   const bundledTeraActive = settings.ttsBaseUrl === LOCAL_INFERENCE_SETTINGS_URL
     && settings.ttsModel === LOCAL_TERATTS_MODEL_ID;
@@ -70,12 +72,15 @@ export function TextToSpeechSettings({
   );
 
   useEffect(() => () => {
+    realtimePreviewRef.current?.stop();
     previewAbortRef.current?.abort();
     audioRef.current?.pause();
     if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
   }, []);
 
   function stopPreview() {
+    realtimePreviewRef.current?.stop();
+    realtimePreviewRef.current = null;
     previewAbortRef.current?.abort();
     previewAbortRef.current = null;
     if (audioRef.current) {
@@ -110,6 +115,26 @@ export function TextToSpeechSettings({
     setPreviewState("loading");
     setStatus(null);
     try {
+      if (bundledTeraActive) {
+        const player = new RealtimeTtsPlayer({
+          onPlaybackStart: () => {
+            if (realtimePreviewRef.current === player) setPreviewState("playing");
+          }
+        });
+        realtimePreviewRef.current = player;
+        await player.play((onEvent, signal) => api.chatTtsTextRealtime(
+          input,
+          onEvent,
+          signal,
+          { voice: settings.ttsVoice }
+        ));
+        if (realtimePreviewRef.current === player) {
+          realtimePreviewRef.current = null;
+          previewAbortRef.current = null;
+          setPreviewState("idle");
+        }
+        return;
+      }
       const blob = await api.chatTtsText(input, { voice: settings.ttsVoice }, controller.signal);
       if (controller.signal.aborted) return;
       const objectUrl = URL.createObjectURL(blob);

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildManagedBackendLaunch } from "./managedBackends";
 import {
   buildLocalLlamaManagedBackend,
+  buildDetectedLlamaManagedBackend,
   localPiperRuntimeId,
   localTeraTtsRuntimeId,
   localWhisperModelUrl,
@@ -31,12 +32,20 @@ describe("local llama.cpp backend config", () => {
       heaviest
     );
     const launch = buildManagedBackendLaunch(config);
+    expect(config.backendKind).toBe("llamacpp");
     expect(launch.command).toBe("/Applications/Vellium Data/llama-server");
     expect(launch.args).toContain("/Applications/Vellium Data/model.gguf");
     expect(launch.args).toContain("--ctx-size");
     expect(launch.args).toContain(String(heaviest.contextSize));
     expect(launch.args).toContain("--n-gpu-layers");
     expect(launch.args).toContain("999");
+  });
+
+  it("creates a native managed profile for an auto-detected GGUF", () => {
+    const config = buildDetectedLlamaManagedBackend("/usr/local/bin/llama-server", "/models/roleplay.gguf", "metal", 12);
+    expect(config.backendKind).toBe("llamacpp");
+    expect(config.llamacpp).toMatchObject({ modelPath: "/models/roleplay.gguf", gpuLayers: 999, threads: 12 });
+    expect(buildManagedBackendLaunch(config).args).toContain("--jinja");
   });
 
   it("names the backend and default model after the installed variant", () => {

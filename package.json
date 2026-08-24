@@ -1,7 +1,7 @@
 {
   "name": "vellium",
   "private": true,
-  "version": "1.0.9",
+  "version": "1.1.0",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -33,18 +33,21 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@electron-internal/extract-zip": "^1.0.5",
+    "@pixi/sound": "^5.2.3",
+    "@vellium/inochi2d-runtime": "file:vendor/inochi2d-runtime",
     "better-sqlite3": "^12.9.0",
     "clsx": "^2.1.1",
     "cors": "^2.8.5",
     "docx": "^9.5.3",
     "express": "^4.22.2",
-    "@electron-internal/extract-zip": "^1.0.5",
     "mammoth": "^1.11.0",
     "marked": "^17.0.3",
     "pdf-parse": "^1.1.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tar": "7.5.22",
+    "unzipper": "^0.12.5",
     "uuid": "^11.1.1"
   },
   "devDependencies": {
@@ -54,6 +57,7 @@
     "@types/node": "^25.6.2",
     "@types/react": "^18.3.4",
     "@types/react-dom": "^18.3.0",
+    "@types/unzipper": "^0.10.11",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.20",
@@ -107,6 +111,7 @@
       "dist/**/*",
       "dist-electron/**/*",
       "server-bundle.mjs",
+      "THIRD_PARTY_NOTICES.md",
       "package.json"
     ],
     "extraResources": [

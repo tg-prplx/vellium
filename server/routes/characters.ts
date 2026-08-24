@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
-import { db, newId, now, AVATARS_DIR, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
+import { db, newId, now, AVATARS_DIR, DEFAULT_SETTINGS, isLocalhostUrl, INOCHI_MODELS_DIR } from "../db.js";
 import { parseCharacterLoreBook } from "../domain/lorebooks.js";
 import { buildOpenAiSamplingPayload, buildKoboldSamplerConfig, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
@@ -781,7 +781,16 @@ router.post("/:id/avatar", (req, res) => {
 
 // Delete character
 router.delete("/:id", (req, res) => {
+  const inochi = db.prepare("SELECT asset_id FROM inochi2d_avatars WHERE character_id = ?")
+    .get(req.params.id) as { asset_id: string } | undefined;
   db.prepare("DELETE FROM characters WHERE id = ?").run(req.params.id);
+  if (inochi?.asset_id) {
+    try {
+      rmSync(join(INOCHI_MODELS_DIR, inochi.asset_id), { recursive: true, force: true });
+    } catch {
+      // The DB delete is authoritative; a stale asset directory can be cleaned on a later maintenance pass.
+    }
+  }
   res.json({ ok: true });
 });
 

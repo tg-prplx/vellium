@@ -13,6 +13,7 @@ import characterRoutes from "../routes/characters.js";
 import chatRoutes from "../routes/chats.js";
 import lorebookRoutes from "../routes/lorebooks.js";
 import liveRoutes from "../routes/live.js";
+import inochiAvatarRoutes from "../routes/inochiAvatars.js";
 import messageRoutes from "../routes/messages.js";
 import personaRoutes from "../routes/personas.js";
 import pluginRoutes from "../routes/plugins.js";
@@ -25,6 +26,7 @@ import settingsRoutes from "../routes/settings.js";
 import updateRoutes from "../routes/updates.js";
 import writerRoutes from "../routes/writer.js";
 import { isAllowedRequestOrigin } from "./requestOrigin.js";
+import { buildContentSecurityPolicy } from "./contentSecurityPolicy.js";
 import { buildPermissionsPolicy } from "./permissionsPolicy.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -63,24 +65,6 @@ function requestOriginAllowed(origin: string | undefined): boolean {
       .map((value) => value.trim())
       .filter(Boolean)
   });
-}
-
-function buildContentSecurityPolicy() {
-  const connectSrc = isHeadlessPublicModeEnabled()
-    ? "'self'"
-    : "'self' http://127.0.0.1:3001 http://localhost:3001";
-  return [
-    "default-src 'self'",
-    "script-src 'self'",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https: http:",
-    `connect-src ${connectSrc}`,
-    "font-src 'self' data:",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "frame-ancestors 'none'",
-    "form-action 'self'"
-  ].join("; ");
 }
 
 function resolveBasicAuthSecret() {
@@ -302,6 +286,7 @@ function registerRoutes(app: express.Express) {
   app.use("/api/characters", characterRoutes);
   app.use("/api/lorebooks", lorebookRoutes);
   app.use("/api/live", liveRoutes);
+  app.use("/api/inochi-avatars", inochiAvatarRoutes);
   app.use("/api/rag", ragRoutes);
   app.use("/api/writer", writerRoutes);
   app.use("/api/personas", personaRoutes);
@@ -364,7 +349,7 @@ export function createApp() {
       res.setHeader("Cache-Control", "no-store");
     }
     if (!req.path.startsWith("/api")) {
-      res.setHeader("Content-Security-Policy", buildContentSecurityPolicy());
+      res.setHeader("Content-Security-Policy", buildContentSecurityPolicy(isHeadlessPublicModeEnabled()));
     }
     next();
   });

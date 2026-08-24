@@ -1,0 +1,16 @@
+{
+  "name": "@vellium/inochi2d-runtime",
+  "version": "0.1.0-alpha.1-vellium.1",
+  "private": true,
+  "type": "module",
+  "license": "BSD-2-Clause",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  }
+}

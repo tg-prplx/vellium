@@ -1,5 +1,6 @@
 import type { ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState } from "./shared/types/contracts";
 import type { LocalModelCatalog, LocalModelComponentId, LocalModelInstallRequest, LocalModelInstallResult, LocalModelProgress } from "./shared/types/localModels";
+import type { LlamaCppDiscoveryResult, LlamaCppPickedFile } from "./shared/types/llamaCpp";
 
 export interface ElectronAPI {
   minimize: () => Promise<void>;
@@ -36,7 +37,10 @@ export interface ElectronAPI {
   stopActiveManagedBackend: () => Promise<{ ok: boolean }>;
   getManagedBackendLogs: (backendId: string) => Promise<ManagedBackendLogEntry[]>;
   onMaximizedChange: (callback: (maximized: boolean) => void) => void;
-  onManagedBackendsUpdate: (callback: (states: ManagedBackendRuntimeState[]) => void) => void;
+  onManagedBackendsUpdate: (callback: (states: ManagedBackendRuntimeState[]) => void) => () => void;
+  discoverLlamaCpp: () => Promise<LlamaCppDiscoveryResult>;
+  pickLlamaCppExecutable: () => Promise<LlamaCppPickedFile>;
+  pickLlamaCppModel: () => Promise<LlamaCppPickedFile>;
   getLocalModelCatalog: () => Promise<LocalModelCatalog>;
   installLocalModels: (request: LocalModelInstallRequest) => Promise<LocalModelInstallResult>;
   cancelLocalModelInstall: (componentId?: LocalModelComponentId) => Promise<{ ok: boolean }>;

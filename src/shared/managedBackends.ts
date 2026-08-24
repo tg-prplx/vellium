@@ -1,4 +1,5 @@
 import type { ManagedBackendConfig, ManagedBackendKoboldOptions, ManagedBackendOllamaOptions, ManagedBackendStatusMode } from "./types/contracts";
+import type { ManagedBackendLlamaCppOptions } from "./types/managedBackends";
 
 declare const process: { env?: { HOME?: string } } | undefined;
 
@@ -90,6 +91,14 @@ function splitCommandPrefix(rawCommand: string, fallback: string): { command: st
   };
 }
 
+function splitExecutablePath(rawCommand: string, fallback: string): { command: string; args: string[] } {
+  const expanded = expandUserPath(rawCommand || fallback);
+  if (expanded.startsWith("/") || expanded.startsWith("\\\\") || /^[a-zA-Z]:[\\/]/.test(expanded)) {
+    return { command: expanded, args: [] };
+  }
+  return splitCommandPrefix(expanded, fallback);
+}
+
 export function resolveManagedBackendBaseUrl(config: ManagedBackendConfig): string {
   const explicit = String(config.baseUrl || "").trim().replace(/\/+$/, "");
   if (explicit) return explicit;
@@ -101,7 +110,27 @@ export function resolveManagedBackendBaseUrl(config: ManagedBackendConfig): stri
     const options = config.ollama || defaultManagedBackendOllamaOptions();
     return `http://${options.host || "127.0.0.1"}:${options.port || 11434}`;
   }
+  if (config.backendKind === "llamacpp") {
+    const options = config.llamacpp || defaultManagedBackendLlamaCppOptions();
+    return `http://${options.host || "127.0.0.1"}:${options.port || 8088}`;
+  }
   return "http://127.0.0.1:5001";
+}
+
+export function defaultManagedBackendLlamaCppOptions(): ManagedBackendLlamaCppOptions {
+  return {
+    executable: "llama-server",
+    modelPath: "",
+    host: "127.0.0.1",
+    port: 8088,
+    contextSize: 8192,
+    gpuLayers: 999,
+    threads: 8,
+    batchSize: 512,
+    ubatchSize: 256,
+    flashAttention: true,
+    jinja: true
+  };
 }
 
 export function defaultManagedBackendKoboldOptions(): ManagedBackendKoboldOptions {
@@ -169,6 +198,7 @@ export function defaultManagedBackendConfig(index = 1): ManagedBackendConfig {
     statusTextPath: "",
     statusProgressPath: "",
     stdoutProgressRegex: "",
+    llamacpp: defaultManagedBackendLlamaCppOptions(),
     koboldcpp,
     ollama: defaultManagedBackendOllamaOptions()
   };
@@ -184,12 +214,14 @@ export function normalizeManagedBackendConfig(raw: unknown, index = 1): ManagedB
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
   const fallback = defaultManagedBackendConfig(index);
-  const backendKind = row.backendKind === "ollama" || row.backendKind === "generic" ? row.backendKind : "koboldcpp";
+  const backendKind = row.backendKind === "llamacpp" || row.backendKind === "ollama" || row.backendKind === "generic" ? row.backendKind : "koboldcpp";
   const providerType = row.providerType === "openai" || row.providerType === "custom" ? row.providerType : backendKind === "koboldcpp" ? "koboldcpp" : "openai";
   const koboldDefaults = defaultManagedBackendKoboldOptions();
   const ollamaDefaults = defaultManagedBackendOllamaOptions();
+  const llamaDefaults = defaultManagedBackendLlamaCppOptions();
   const koboldRaw = row.koboldcpp && typeof row.koboldcpp === "object" ? row.koboldcpp as Record<string, unknown> : {};
   const ollamaRaw = row.ollama && typeof row.ollama === "object" ? row.ollama as Record<string, unknown> : {};
+  const llamaRaw = row.llamacpp && typeof row.llamacpp === "object" ? row.llamacpp as Record<string, unknown> : {};
   const config: ManagedBackendConfig = {
     ...fallback,
     id: String(row.id || fallback.id).trim() || fallback.id,
@@ -214,6 +246,19 @@ export function normalizeManagedBackendConfig(raw: unknown, index = 1): ManagedB
     statusTextPath: String(row.statusTextPath || "").trim(),
     statusProgressPath: String(row.statusProgressPath || "").trim(),
     stdoutProgressRegex: String(row.stdoutProgressRegex || "").trim(),
+    llamacpp: {
+      executable: String(llamaRaw.executable || llamaDefaults.executable).trim() || llamaDefaults.executable,
+      modelPath: String(llamaRaw.modelPath || "").trim(),
+      host: String(llamaRaw.host || llamaDefaults.host).trim() || llamaDefaults.host,
+      port: parseNumeric(llamaRaw.port, llamaDefaults.port, 1, 65535),
+      contextSize: parseNumeric(llamaRaw.contextSize, llamaDefaults.contextSize, 512, 262144),
+      gpuLayers: parseNumeric(llamaRaw.gpuLayers, llamaDefaults.gpuLayers, 0, 999),
+      threads: parseNumeric(llamaRaw.threads, llamaDefaults.threads, 1, 256),
+      batchSize: parseNumeric(llamaRaw.batchSize, llamaDefaults.batchSize, 1, 4096),
+      ubatchSize: parseNumeric(llamaRaw.ubatchSize, llamaDefaults.ubatchSize, 1, 4096),
+      flashAttention: llamaRaw.flashAttention !== false,
+      jinja: llamaRaw.jinja !== false
+    },
     koboldcpp: {
       executable: String(koboldRaw.executable || koboldDefaults.executable).trim() || koboldDefaults.executable,
       modelPath: String(koboldRaw.modelPath || "").trim(),
@@ -292,6 +337,28 @@ export function buildManagedBackendCommand(config: ManagedBackendConfig): { comm
     };
   }
 
+  if (config.backendKind === "llamacpp") {
+    const options = config.llamacpp || defaultManagedBackendLlamaCppOptions();
+    const parts: string[] = [emitCommandPrefix(options.executable || "llama-server")];
+    appendFlag(parts, "--model", expandUserPath(options.modelPath));
+    appendFlag(parts, "--host", options.host || "127.0.0.1");
+    appendFlag(parts, "--port", options.port || 8088);
+    appendFlag(parts, "--ctx-size", options.contextSize || 8192);
+    appendFlag(parts, "--threads", options.threads || 8);
+    appendFlag(parts, "--threads-batch", options.threads || 8);
+    appendFlag(parts, "--batch-size", options.batchSize || 512);
+    appendFlag(parts, "--ubatch-size", options.ubatchSize || 256);
+    appendFlag(parts, "--n-gpu-layers", options.gpuLayers);
+    appendFlag(parts, "--flash-attn", options.flashAttention ? "on" : "off");
+    appendFlag(parts, "--jinja", options.jinja);
+    if (config.extraArgs.trim()) parts.push(config.extraArgs.trim());
+    return {
+      command: parts.join(" "),
+      env: parseManagedBackendEnv(config.envText),
+      cwd: expandUserPath(config.workingDirectory || "") || undefined
+    };
+  }
+
   if (config.backendKind === "ollama") {
     const options = config.ollama || defaultManagedBackendOllamaOptions();
     const env = parseManagedBackendEnv(config.envText);
@@ -356,6 +423,31 @@ export function buildManagedBackendLaunch(config: ManagedBackendConfig): { comma
     };
   }
 
+  if (config.backendKind === "llamacpp") {
+    const options = config.llamacpp || defaultManagedBackendLlamaCppOptions();
+    const prefix = splitExecutablePath(options.executable || "llama-server", "llama-server");
+    const args = [...prefix.args];
+    appendArg(args, "--model", expandUserPath(options.modelPath));
+    appendArg(args, "--host", options.host || "127.0.0.1");
+    appendArg(args, "--port", options.port || 8088);
+    appendArg(args, "--ctx-size", options.contextSize || 8192);
+    appendArg(args, "--threads", options.threads || 8);
+    appendArg(args, "--threads-batch", options.threads || 8);
+    appendArg(args, "--batch-size", options.batchSize || 512);
+    appendArg(args, "--ubatch-size", options.ubatchSize || 256);
+    appendArg(args, "--n-gpu-layers", options.gpuLayers);
+    appendArg(args, "--flash-attn", options.flashAttention ? "on" : "off");
+    appendArg(args, "--jinja", options.jinja);
+    args.push(...tokenizeShellCommand(config.extraArgs || ""));
+    return {
+      command: prefix.command,
+      args,
+      env: parseManagedBackendEnv(config.envText),
+      cwd: expandUserPath(config.workingDirectory || "") || undefined,
+      commandPreview: shellJoin([prefix.command, ...args])
+    };
+  }
+
   if (config.backendKind === "ollama") {
     const options = config.ollama || defaultManagedBackendOllamaOptions();
     const env = parseManagedBackendEnv(config.envText);
@@ -397,7 +489,7 @@ export function parseManagedBackendEnv(raw: string | undefined): Record<string, 
   return out;
 }
 
-export function parseManagedBackendCommand(command: string, kind: "koboldcpp" | "ollama" | "generic"): Partial<ManagedBackendConfig> | null {
+export function parseManagedBackendCommand(command: string, kind: "llamacpp" | "koboldcpp" | "ollama" | "generic"): Partial<ManagedBackendConfig> | null {
   const tokens = tokenizeShellCommand(command);
   if (tokens.length === 0) return null;
 
@@ -417,6 +509,45 @@ export function parseManagedBackendCommand(command: string, kind: "koboldcpp" | 
       ...(Object.keys(ollamaPatch).length > 0 ? { ollama: ollamaPatch } : {}),
       extraArgs: shellJoin(rest)
     } as Partial<ManagedBackendConfig>;
+  }
+
+  if (kind === "llamacpp") {
+    const firstFlagIndex = tokens.findIndex((token) => token.startsWith("-"));
+    const prefix = firstFlagIndex >= 0 ? tokens.slice(0, firstFlagIndex) : tokens.slice();
+    const rest = firstFlagIndex >= 0 ? tokens.slice(firstFlagIndex) : [];
+    const next: Partial<ManagedBackendLlamaCppOptions> = {};
+    const extra: string[] = [];
+    const valueFlags = new Map([
+      ["--model", "modelPath"], ["-m", "modelPath"], ["--host", "host"], ["--port", "port"],
+      ["--ctx-size", "contextSize"], ["-c", "contextSize"], ["--threads", "threads"], ["-t", "threads"],
+      ["--n-gpu-layers", "gpuLayers"], ["--gpu-layers", "gpuLayers"], ["-ngl", "gpuLayers"],
+      ["--batch-size", "batchSize"], ["-b", "batchSize"], ["--ubatch-size", "ubatchSize"], ["-ub", "ubatchSize"]
+    ]);
+    for (let index = 0; index < rest.length; index += 1) {
+      const token = rest[index];
+      const key = valueFlags.get(token);
+      if (key) {
+        const value = rest[index + 1];
+        if (value === undefined) { extra.push(token); continue; }
+        index += 1;
+        if (key === "modelPath") next.modelPath = value;
+        else if (key === "host") next.host = value;
+        else (next as Record<string, unknown>)[key] = Number(value);
+        continue;
+      }
+      if (token === "--jinja") { next.jinja = true; continue; }
+      if (token === "--flash-attn") {
+        const value = rest[index + 1];
+        next.flashAttention = value !== "off";
+        if (value && !value.startsWith("-")) index += 1;
+        continue;
+      }
+      extra.push(token);
+      const maybeValue = rest[index + 1];
+      if (maybeValue && !maybeValue.startsWith("-")) { extra.push(maybeValue); index += 1; }
+    }
+    if (prefix.length > 0) next.executable = prefix.join(" ");
+    return { llamacpp: next, extraArgs: shellJoin(extra) } as Partial<ManagedBackendConfig>;
   }
 
   const knownValueFlags = new Map<string, string>([

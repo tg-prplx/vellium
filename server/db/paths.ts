@@ -44,6 +44,8 @@ export const DATA_DIR = resolveDefaultDataDir();
 export const AVATARS_DIR = join(DATA_DIR, "avatars");
 export const UPLOADS_DIR = join(DATA_DIR, "uploads");
 export const PLUGINS_DIR = join(DATA_DIR, "plugins");
+export const INOCHI_DIR = join(DATA_DIR, "inochi2d");
+export const INOCHI_MODELS_DIR = join(INOCHI_DIR, "models");
 export const BUNDLED_PLUGINS_DIR = resolveBundledPluginsDir();
 
 const VELLIUM_DB_PATH = join(DATA_DIR, "vellum.db");
@@ -54,6 +56,7 @@ export function ensureDataDirs() {
   mkdirSync(AVATARS_DIR, { recursive: true });
   mkdirSync(UPLOADS_DIR, { recursive: true });
   mkdirSync(PLUGINS_DIR, { recursive: true });
+  mkdirSync(INOCHI_MODELS_DIR, { recursive: true });
 }
 
 export function resolveDbPath() {

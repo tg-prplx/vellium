@@ -36,8 +36,9 @@ stored locally in SQLite.
 - **Reasoning-aware context:** provider reasoning fields and `<think>` traces can
   be displayed, bounded, persisted, and optionally returned to the model as
   context. RP Reasoning is a separate simulated prompt mode.
-- **Live voice:** microphone input, Whisper-compatible STT, streaming TTS, model
-  and RP controls, attachments, screen context, and chat tools in Live mode.
+- **Live voice and Inochi2D avatars:** microphone input, Whisper-compatible STT,
+  streaming TTS, parameter-driven lip sync/emotions for `.inp`/`.inx` puppets,
+  model and RP controls, attachments, screen context, and chat tools in Live mode.
 - **Writing:** projects, chapters, scenes, Character Forge, summaries, rewrite
   and expansion actions, RAG context, DOCX import, and DOCX/Markdown export.
 - **Characters and world data:** character-card import/editing, manual character

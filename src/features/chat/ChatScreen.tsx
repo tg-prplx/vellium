@@ -84,6 +84,8 @@ import { useChatJsonExport } from "./hooks/useChatJsonExport";
 import { useBranchManagement } from "./hooks/useBranchManagement";
 import { useRpReasoningToggle } from "./hooks/useRpReasoningToggle";
 import { useTtsPlayback } from "./hooks/useTtsPlayback";
+import { useComposerFileDrop } from "./hooks/useComposerFileDrop";
+import { useLiveChatContextSync } from "./hooks/useLiveChatContextSync";
 
 interface StreamingToolCall {
   callId: string;
@@ -269,6 +271,10 @@ export function ChatScreen() {
     [backgroundTasks]
   );
   const chatGenerationBusy = streaming || autoConvoRunning || Boolean(activeBackgroundChatTask);
+  const { isFileDropActive, composerFileDropProps } = useComposerFileDrop({
+    disabled: chatGenerationBusy || uploading,
+    onFiles: (files) => { void uploadComposerFiles(files); }
+  });
   const simpleHomeComposerWidth = useMemo(() => {
     return calcSimpleHomeComposerWidth(simpleHomeState, input, attachments.length);
   }, [simpleHomeState, input, attachments.length]);
@@ -509,20 +515,18 @@ export function ChatScreen() {
     return () => window.removeEventListener("chat-list-refresh", refreshChatList);
   }, []);
 
-  useEffect(() => {
-    const provideLiveContext = () => {
-      window.dispatchEvent(new CustomEvent("chat-context-for-live", {
-        detail: {
-          chatId: activeChat?.id || "",
-          personaId: activePersona?.id || "",
-          branchId: activeBranchId || ""
-        }
-      }));
-    };
-    window.addEventListener("live-request-chat-context", provideLiveContext);
-    provideLiveContext();
-    return () => window.removeEventListener("live-request-chat-context", provideLiveContext);
-  }, [activeBranchId, activeChat?.id, activePersona?.id]);
+  useLiveChatContextSync({
+    activeChat,
+    activePersona,
+    activeBranchId,
+    personas,
+    setChats,
+    setActiveChat,
+    setBranches,
+    setActiveBranchId,
+    setMessages,
+    setActivePersona
+  });
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -3065,6 +3069,7 @@ export function ChatScreen() {
             <div
               ref={simpleBottomChromeRef}
               className={simpleModeActive && !simpleHomeState ? "chat-simple-bottom-chrome" : "chat-composer-stack"}
+              {...composerFileDropProps}
             >
             {attachments.length > 0 && (
               <div
@@ -3089,7 +3094,12 @@ export function ChatScreen() {
               className={`mt-2 ${simpleModeActive ? `chat-simple-composer ${simpleHomeState ? "is-home" : "is-docked"}` : "flex gap-2"}`}
               style={simpleModeActive && simpleHomeState ? ({ ["--simple-home-composer-width"]: simpleHomeComposerWidth } as Record<string, string>) : undefined}
             >
-              <div className={simpleModeActive ? "chat-simple-composer-shell" : "relative flex-1"}>
+              <div className={`${simpleModeActive ? "chat-simple-composer-shell" : "relative flex-1"}${isFileDropActive ? " is-file-drop-active" : ""}`}>
+                {isFileDropActive ? (
+                  <div className="composer-file-drop-overlay" aria-hidden="true">
+                    <span>{t("chat.dropFiles")}</span>
+                  </div>
+                ) : null}
                 <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   onPaste={handleComposerPaste}

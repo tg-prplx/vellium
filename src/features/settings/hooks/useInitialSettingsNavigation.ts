@@ -5,6 +5,7 @@ import { revealSettingsSearchTarget } from "../utils";
 const SETTINGS_CATEGORIES = new Set<SettingsCategory>([
   "connection",
   "backends",
+  "voice",
   "interface",
   "generation",
   "context",

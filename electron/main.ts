@@ -8,6 +8,7 @@ import { ManagedBackendManager } from "./managedBackends";
 import { registerManagedBackendIpc } from "./managedBackendIpc";
 import { LocalModelInstaller } from "./localModelInstaller";
 import { registerLocalModelIpc } from "./localModelIpc";
+import { registerLlamaCppIpc } from "./llamaCppIpc";
 import { createIpcSenderGuard, decodeBoundedBase64, isAllowedExternalUrl } from "./security";
 import { buildDesktopPetHtml } from "./desktopPet/html";
 import { transcribeDesktopPetAudio } from "./desktopPet/live";
@@ -101,6 +102,7 @@ const assertTrustedIpcSender = createIpcSenderGuard({
 registerLiveMediaIpc(assertTrustedIpcSender, () => mainWindow);
 registerLocalModelIpc(localModelInstaller, assertTrustedIpcSender);
 registerManagedBackendIpc(managedBackendManager, assertTrustedIpcSender);
+registerLlamaCppIpc(assertTrustedIpcSender, () => mainWindow);
 
 const SERVER_PORT = runtimeOptions.port;
 const SERVER_HOST = runtimeOptions.host;

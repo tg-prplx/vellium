@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import { buildManagedBackendCommand, defaultManagedBackendConfig, resolveManagedBackendBaseUrl } from "../../../shared/managedBackends";
+import { buildManagedBackendCommand, defaultManagedBackendConfig, defaultManagedBackendLlamaCppOptions, resolveManagedBackendBaseUrl } from "../../../shared/managedBackends";
 import type { TranslationKey } from "../../../shared/i18n";
 import type { ManagedBackendConfig, ManagedBackendRuntimeState, ProviderProfile } from "../../../shared/types/contracts";
 import { FieldLabel, InputField, SelectField, TextareaField, ToggleSwitch } from "./FormControls";
@@ -54,12 +54,18 @@ export function ManagedBackendsSettings({
                   {managedBackends.map((backend) => {
                     const runtime = managedBackendStateMap.get(backend.id);
                     const koboldOptions = backend.koboldcpp || defaultManagedBackendConfig().koboldcpp!;
+                    const llamaOptions = backend.llamacpp || defaultManagedBackendLlamaCppOptions();
                     const ollamaOptions = backend.ollama || defaultManagedBackendConfig().ollama!;
                     const isStarting = runtime?.status === "starting";
                     const isRunning = runtime?.status === "running" || isStarting;
                     const commandPreview = runtime?.commandPreview || buildManagedBackendCommand(backend).command;
                     const envText = backend.envText || "";
                     const runtimeStatus = runtime?.status || "idle";
+                    const runtimeStatusLabel = runtimeStatus === "running" ? t("settings.backendStatusRunning")
+                      : runtimeStatus === "starting" ? t("settings.backendStatusStarting")
+                        : runtimeStatus === "stopping" ? t("settings.backendStatusStopping")
+                          : runtimeStatus === "error" ? t("settings.backendStatusError")
+                            : t("settings.backendStatusStopped");
 
                     return (
                       <div key={backend.id} className="rounded-2xl border border-border bg-bg-secondary p-4">
@@ -72,14 +78,14 @@ export function ManagedBackendsSettings({
                               </span>
                               <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                                 runtimeStatus === "running"
-                                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                                  ? "border-success-border bg-success-subtle text-success"
                                   : isStarting
-                                    ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                                    ? "border-warning-border bg-warning-subtle text-warning"
                                     : runtimeStatus === "error"
-                                      ? "border-rose-500/30 bg-rose-500/10 text-rose-300"
+                                      ? "border-danger-border bg-danger-subtle text-danger"
                                       : "border-border-subtle bg-bg-primary text-text-tertiary"
                               }`}>
-                                {runtimeStatus}
+                                {runtimeStatusLabel}
                               </span>
                               {runtime?.pid ? (
                                 <span className="rounded-full border border-border-subtle bg-bg-primary px-2 py-0.5 text-[10px] text-text-tertiary">
@@ -164,6 +170,8 @@ export function ManagedBackendsSettings({
                           </div>
                         ) : null}
 
+                        <details className="managed-backend-advanced mt-4">
+                          <summary>{t("settings.advancedBackendSettings")}</summary>
                         <div className="mt-4 grid gap-3 md:grid-cols-2">
                           <div>
                             <FieldLabel>{t("settings.backendName")}</FieldLabel>
@@ -179,12 +187,28 @@ export function ManagedBackendsSettings({
                               value={backend.backendKind}
                               onChange={(value) => updateManagedBackend(backend.id, { backendKind: value as ManagedBackendConfig["backendKind"] })}
                             >
+                              <option value="llamacpp">llama.cpp</option>
                               <option value="koboldcpp">KoboldCpp</option>
                               <option value="ollama">Ollama</option>
                               <option value="generic">Generic</option>
                             </SelectField>
                           </div>
                         </div>
+
+                        {backend.backendKind === "llamacpp" && (
+                          <>
+                            <div className="mt-4 grid gap-3 md:grid-cols-2">
+                              <div><FieldLabel>{t("settings.executable")}</FieldLabel><InputField value={llamaOptions.executable} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, executable: value } })} /></div>
+                              <div><FieldLabel>{t("settings.modelPath")}</FieldLabel><InputField value={llamaOptions.modelPath} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, modelPath: value } })} /></div>
+                            </div>
+                            <div className="mt-4 grid gap-3 md:grid-cols-4">
+                              <div><FieldLabel>{t("settings.contextWindow")}</FieldLabel><InputField type="number" value={String(llamaOptions.contextSize)} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, contextSize: Number(value) || 8192 } })} /></div>
+                              <div><FieldLabel>{t("settings.gpuLayers")}</FieldLabel><InputField type="number" value={String(llamaOptions.gpuLayers)} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, gpuLayers: Math.max(0, Number(value) || 0) } })} /></div>
+                              <div><FieldLabel>{t("settings.threads")}</FieldLabel><InputField type="number" value={String(llamaOptions.threads)} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, threads: Number(value) || 8 } })} /></div>
+                              <div><FieldLabel>{t("settings.port")}</FieldLabel><InputField type="number" value={String(llamaOptions.port)} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, port: Number(value) || 8088 } })} /></div>
+                            </div>
+                          </>
+                        )}
 
                         <div className="mt-4 grid gap-3 md:grid-cols-3">
                           <div>
@@ -455,6 +479,7 @@ export function ManagedBackendsSettings({
                             {commandPreview}
                           </div>
                         </div>
+                        </details>
                       </div>
                     );
                   })}

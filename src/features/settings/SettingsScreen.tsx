@@ -4,13 +4,14 @@ import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { triggerBlobDownload } from "../../shared/download";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
-import { buildManagedBackendCommand, defaultManagedBackendConfig, normalizeManagedBackends, parseManagedBackendCommand, resolveManagedBackendBaseUrl } from "../../shared/managedBackends";
+import { buildManagedBackendCommand, defaultManagedBackendConfig, defaultManagedBackendLlamaCppOptions, normalizeManagedBackends, parseManagedBackendCommand, resolveManagedBackendBaseUrl } from "../../shared/managedBackends";
 import type { ApiParamPolicy, AppSettings, ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
 import { FieldLabel, InputField, SelectField, TextareaField, ToggleSwitch } from "./components/FormControls";
 import { ModalShell } from "../../components/ModalShell";
 import { IconButton } from "../../components/IconButton";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { ManagedBackendsSettings } from "./components/ManagedBackendsSettings";
+import { LlamaCppQuickSetup } from "../../components/LlamaCppQuickSetup";
 import { WallpaperThemePanel } from "./components/WallpaperThemePanel";
 import { RuntimeTuningSettings } from "./components/RuntimeTuningSettings";
 import { SpeechToTextSettings } from "./components/SpeechToTextSettings";
@@ -242,7 +243,6 @@ export function SettingsScreen({
   const [mcpDiscoveredTools, setMcpDiscoveredTools] = useState<McpDiscoveredTool[]>([]);
   const [mcpDiscoveryLoading, setMcpDiscoveryLoading] = useState(false);
   const [koboldBansInput, setKoboldBansInput] = useState("");
-  const [quickJumpFilter, setQuickJumpFilter] = useState("");
   const [draggedPromptBlockId, setDraggedPromptBlockId] = useState<string | null>(null);
   const [pluginDevAutoRefresh, setPluginDevAutoRefresh] = useState<boolean>(isPluginDevAutoRefreshEnabled());
   const [pluginSettingsPlugin, setPluginSettingsPlugin] = useState<PluginDescriptor | null>(null);
@@ -295,11 +295,12 @@ export function SettingsScreen({
     void window.electronAPI.listManagedBackends().then((states) => {
       if (active) setManagedBackendStates(states);
     }).catch(() => {});
-    window.electronAPI.onManagedBackendsUpdate?.((states) => {
+    const unsubscribe = window.electronAPI.onManagedBackendsUpdate?.((states) => {
       if (active) setManagedBackendStates(states);
     });
     return () => {
       active = false;
+      unsubscribe?.();
     };
   }, []);
 
@@ -674,6 +675,10 @@ export function SettingsScreen({
       const merged: ManagedBackendConfig = {
         ...backend,
         ...patchData,
+        llamacpp: {
+          ...(backend.llamacpp || defaultManagedBackendLlamaCppOptions()),
+          ...(patchData.llamacpp || {})
+        },
         koboldcpp: {
           ...(backend.koboldcpp || defaultManagedBackendConfig().koboldcpp!),
           ...(patchData.koboldcpp || {})
@@ -683,10 +688,9 @@ export function SettingsScreen({
           ...(patchData.ollama || {})
         }
       };
-      return {
-        ...merged,
-        baseUrl: merged.baseUrl.trim() || resolveManagedBackendBaseUrl(merged)
-      };
+      const derivesBaseUrl = Boolean(patchData.llamacpp || patchData.koboldcpp || patchData.ollama || patchData.backendKind);
+      const normalized = derivesBaseUrl ? { ...merged, baseUrl: "" } : merged;
+      return { ...normalized, baseUrl: normalized.baseUrl.trim() || resolveManagedBackendBaseUrl(normalized) };
     });
     managedBackendsDraftRef.current = next;
     scheduleManagedBackendsSave(next);
@@ -1242,11 +1246,6 @@ export function SettingsScreen({
   const { categoryNav, categorySections } = useMemo(() => buildSettingsNavigation(t), [t]);
 
   const activeCategoryConfig = categoryNav.find((item) => item.id === activeCategory) ?? categoryNav[0];
-  const visibleQuickSections = categorySections[activeCategory].filter((section) => {
-    const query = quickJumpFilter.trim().toLowerCase();
-    if (!query) return true;
-    return section.label.toLowerCase().includes(query);
-  });
   const draftHasApiKey = Boolean(providerApiKey.trim()) || Boolean(editingProvider?.apiKeyMasked);
   const canTestProvider = Boolean(providerBaseUrl.trim());
   const canActivateSelectedModel = Boolean(selectedProviderId && selectedModelId);
@@ -1276,8 +1275,6 @@ export function SettingsScreen({
         activeCategory={activeCategory}
         categoryNav={categoryNav}
         categorySections={categorySections}
-        quickJumpFilter={quickJumpFilter}
-        visibleQuickSections={visibleQuickSections}
         statusText={providerResult || autosaveText}
         statusVariant={providerResult ? resultVariant : autosaveVariant}
         onCategoryChange={setActiveCategory}
@@ -1285,7 +1282,7 @@ export function SettingsScreen({
           setActiveCategory("tools");
           window.setTimeout(() => scrollToSettingsSection("settings-danger-zone"), 0);
         }}
-        onQuickJumpFilterChange={setQuickJumpFilter}
+        onOpenSearch={() => window.dispatchEvent(new CustomEvent("open-settings-search"))}
         onQuickSectionClick={scrollToSettingsSection}
         t={t}
       />
@@ -1294,10 +1291,10 @@ export function SettingsScreen({
         <div className="settings-content-inner">
           <div className="settings-workbench-header">
             <div>
-              <div className="settings-workbench-kicker">{t("settings.autosaveLabel")}</div>
+              <div className="settings-workbench-kicker">{t("settings.settingsLabel")}</div>
               <h1 className="settings-workbench-title">{activeCategoryConfig.label}</h1>
               <p className="settings-workbench-desc">
-                {autosaveText}
+                {activeCategoryConfig.description}
               </p>
             </div>
             <div className="settings-workbench-meta">
@@ -1686,12 +1683,17 @@ export function SettingsScreen({
                 </div>
               </div>
 
+            </div>
+          )}
+          {activeCategory === "voice" && (
+            <div className="space-y-4">
               <TextToSpeechSettings settings={settings} onPatch={patch} />
               <SpeechToTextSettings settings={settings} onPatch={patch} autosaveProps={autosaveProps} />
             </div>
           )}
           {activeCategory === "backends" && (
             <div className="space-y-4">
+              <div id="settings-llama-cpp" className="scroll-mt-24"><LlamaCppQuickSetup /></div>
               <LocalModelsSetup locale={settings.interfaceLanguage || "en"} />
               <ManagedBackendsSettings
               backends={managedBackends}

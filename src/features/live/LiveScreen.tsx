@@ -21,6 +21,14 @@ import {
   startBackgroundTask
 } from "../../shared/backgroundTasks";
 import { useI18n } from "../../shared/i18n";
+import {
+  CHAT_CONTEXT_FOR_LIVE_EVENT,
+  LIVE_CHAT_CONTEXT_CHANGED_EVENT,
+  LIVE_REQUEST_CHAT_CONTEXT_EVENT,
+  dispatchSharedChatContext,
+  normalizeSharedChatContext,
+  type SharedChatContext
+} from "../../shared/chatContextBridge";
 import { RealtimeTtsPlayer } from "../../shared/realtimeTts";
 import { StreamingTextTtsSession } from "../../shared/streamingTextTts";
 import type {
@@ -35,6 +43,7 @@ import type {
 } from "../../shared/types/contracts";
 import { LiveCharacterPickerModal } from "./components/LiveCharacterPickerModal";
 import { LiveChatControlPanel } from "./components/LiveChatControlPanel";
+import { LiveAvatarStage } from "./components/LiveAvatarStage";
 import { LiveIcon } from "./components/LiveIcon";
 import { type LiveModelActivityCall } from "./components/LiveModelActivity";
 import { LiveModelSelectorModal } from "./components/LiveModelSelectorModal";
@@ -47,12 +56,16 @@ import {
   normalizeLiveSttSource,
   normalizeLiveTtsSource,
   resolveLiveTtsSource,
+  trimForSpeech,
   type LiveSttSource,
   type LiveTtsSource
 } from "./utils";
 import { createWhisperRecorder, type WhisperRecorderController } from "./whisperRecorder";
+import { useLiveAvatar } from "./useLiveAvatar";
+import { useInochiAvatar } from "./useInochiAvatar";
+import { useLiveAvatarControls } from "./useLiveAvatarControls";
 type LivePhase = "ready" | "listening" | "thinking" | "speaking";
-type InheritedChatContext = { chatId: string; personaId: string; branchId: string };
+type InheritedChatContext = SharedChatContext;
 type LiveStreamingCall = LiveModelActivityCall;
 type SpeechRecognitionResultEventLike = {
   resultIndex: number;
@@ -89,14 +102,6 @@ function localeToSpeechLanguage(locale: string): string {
   if (locale === "zh") return "zh-CN";
   if (locale === "ja") return "ja-JP";
   return "en-US";
-}
-function trimForSpeech(text: string): string {
-  return text
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/[*_~`>#]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 4000);
 }
 async function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -156,6 +161,7 @@ export function LiveScreen() {
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [attachmentViewer, setAttachmentViewer] = useState<AttachmentViewerState | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [speechLevel, setSpeechLevel] = useState(0);
   const [autoConversationRunning, setAutoConversationRunning] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const whisperRecorderRef = useRef<WhisperRecorderController | null>(null);
@@ -208,15 +214,31 @@ export function LiveScreen() {
     translateMessage
   } = useMessageTranslation(setError);
   const { ttsLoadingId, ttsPlayingId, handleTts } = useTtsPlayback(settings?.ttsRealtime === true, setError);
-  const availableSessions = useMemo(() => sessions.filter((session) => {
-    const participantIds = session.characterIds?.length
-      ? session.characterIds
-      : (session.characterId ? [session.characterId] : []);
-    return selectedCharacterId
-      ? participantIds.includes(selectedCharacterId)
-      : participantIds.length === 0;
-  }).slice(0, 30), [sessions, selectedCharacterId]);
-  const characterAvatarUrl = resolveApiAssetUrl(selectedCharacter?.avatarUrl);
+  const availableSessions = useMemo(() => {
+    const recent = sessions.slice(0, 30);
+    if (!chat || recent.some((session) => session.id === chat.id)) return recent;
+    return [chat, ...recent.slice(0, 29)];
+  }, [chat, sessions]);
+  const {
+    avatarUrl: characterAvatarUrl,
+    overrideUrl: avatarOverrideUrl,
+    uploading: avatarUploading,
+    upload: uploadLiveAvatar,
+    reset: resetLiveAvatar
+  } = useLiveAvatar({
+    characterId: selectedCharacterId,
+    fallbackUrl: selectedCharacter?.avatarUrl,
+    imageOnlyError: t("live.avatarImageOnly"),
+    onError: setError
+  });
+  const {
+    status: inochiStatus,
+    loading: inochiLoading,
+    uploading: inochiUploading,
+    uploadModel: uploadInochiModel,
+    removeModel: removeInochiModel
+  } = useInochiAvatar(selectedCharacterId, setError);
+  const { capabilities: liveAvatarCapabilities, cue: liveAvatarCue, createStreamParser: createAvatarStreamParser } = useLiveAvatarControls(inochiStatus.avatar);
   const phaseLabel = useMemo(() => {
     if (phase === "listening") return t("live.listening");
     if (phase === "thinking") return t("live.thinking");
@@ -278,20 +300,18 @@ export function LiveScreen() {
       audioUrlRef.current = "";
     }
     window.speechSynthesis?.cancel();
+    setSpeechLevel(0);
   }, []);
 
   useEffect(() => {
     mountedRef.current = true;
     const receiveChatContext = (event: Event) => {
-      const detail = (event as CustomEvent<Partial<InheritedChatContext>>).detail;
-      inheritedChatContextRef.current = {
-        chatId: typeof detail?.chatId === "string" ? detail.chatId : "",
-        personaId: typeof detail?.personaId === "string" ? detail.personaId : "",
-        branchId: typeof detail?.branchId === "string" ? detail.branchId : ""
-      };
+      inheritedChatContextRef.current = normalizeSharedChatContext(
+        (event as CustomEvent<Partial<InheritedChatContext>>).detail
+      );
     };
-    window.addEventListener("chat-context-for-live", receiveChatContext);
-    window.dispatchEvent(new Event("live-request-chat-context"));
+    window.addEventListener(CHAT_CONTEXT_FOR_LIVE_EVENT, receiveChatContext);
+    window.dispatchEvent(new Event(LIVE_REQUEST_CHAT_CONTEXT_EVENT));
     void Promise.all([
       api.settingsGet(),
       api.characterList().catch(() => []),
@@ -342,7 +362,7 @@ export function LiveScreen() {
       .catch((cause) => setError(cause instanceof Error ? cause.message : t("live.settingsError")));
     return () => {
       mountedRef.current = false;
-      window.removeEventListener("chat-context-for-live", receiveChatContext);
+      window.removeEventListener(CHAT_CONTEXT_FOR_LIVE_EVENT, receiveChatContext);
       if (restartTimerRef.current !== null) window.clearTimeout(restartTimerRef.current);
       recognitionRef.current?.abort();
       recognitionRef.current = null;
@@ -358,6 +378,17 @@ export function LiveScreen() {
       if (generationTaskRef.current) failGenerationTask(generationTaskRef.current, t("chat.stop"));
     };
   }, [stopAudio, t]);
+
+  useEffect(() => {
+    if (!chat?.id) return;
+    const lastMessage = messages[messages.length - 1];
+    dispatchSharedChatContext(LIVE_CHAT_CONTEXT_CHANGED_EVENT, {
+      chatId: chat.id,
+      personaId: selectedPersonaId,
+      branchId: activeBranchId || "",
+      revision: `${messages.length}:${lastMessage?.id || ""}`
+    });
+  }, [activeBranchId, chat?.id, messages, selectedPersonaId]);
 
   useEffect(() => {
     handsFreeRef.current = handsFree;
@@ -613,7 +644,7 @@ export function LiveScreen() {
       }
       try {
         if (settings?.ttsRealtime) {
-          const player = new RealtimeTtsPlayer();
+          const player = new RealtimeTtsPlayer({ onAudioLevel: setSpeechLevel });
           realtimeTtsPlayerRef.current = player;
           await player.play((onEvent, signal) => api.chatTtsTextRealtime(input, onEvent, signal));
           if (realtimeTtsPlayerRef.current === player) realtimeTtsPlayerRef.current = null;
@@ -683,6 +714,9 @@ export function LiveScreen() {
         normalizeText: trimForSpeech,
         onPlaybackStart: () => {
           if (mountedRef.current) setPhase("speaking");
+        },
+        onAudioLevel: (level) => {
+          if (mountedRef.current) setSpeechLevel(level);
         },
         onError: () => {
           if (mountedRef.current) setError(t("live.customTtsError"));
@@ -854,15 +888,19 @@ export function LiveScreen() {
       taskId = startGenerationTask(activeChat.id, activeChat.title || t("live.title"));
       let streamed = "";
       const streamingTts = startStreamingResponseTts();
+      const avatarStream = liveAvatarCapabilities ? createAvatarStreamParser() : null;
       const timeline = await api.chatSend(activeChat.id, text, branchId || undefined, {
         onDelta: (delta) => {
-          streamed += delta;
-          streamingTts?.push(delta);
+          const visibleDelta = avatarStream?.push(delta) ?? delta;
+          streamed += visibleDelta;
+          streamingTts?.push(visibleDelta);
           if (mountedRef.current) setStreamingReply(streamed);
         },
         onReasoningDelta: (delta) => setStreamingReasoningText((current) => `${current}${delta}`),
         onToolEvent: handleStreamingToolEvent
-      }, activePersonaPayload(), requestAttachments);
+      }, activePersonaPayload(), requestAttachments, liveAvatarCapabilities);
+      const trailingDelta = avatarStream?.finish() || "";
+      if (trailingDelta) { streamed += trailingDelta; streamingTts?.push(trailingDelta); }
       if (!mountedRef.current) return;
       setMessages(timeline);
       setStreamingReply("");
@@ -878,7 +916,6 @@ export function LiveScreen() {
       setError(cause instanceof Error ? cause.message : t("live.sendError"));
     }
   }
-
   async function requestMicrophonePermission(): Promise<boolean> {
     if (!window.electronAPI?.requestLiveMicrophonePermission) return true;
     if (microphonePermissionRequestRef.current) return microphonePermissionRequestRef.current;
@@ -1004,7 +1041,6 @@ export function LiveScreen() {
       setHandsFree(false);
     }
   }
-
   async function startListening(forHandsFree = handsFreeRef.current) {
     if (listeningStartRef.current) return;
     listeningStartRef.current = true;
@@ -1169,7 +1205,6 @@ export function LiveScreen() {
       finishTurn();
     }
   }
-
   async function regenerateResponse() {
     if (!chat || busy) return;
     stopAudio();
@@ -1182,15 +1217,19 @@ export function LiveScreen() {
     try {
       let streamed = "";
       const streamingTts = startStreamingResponseTts();
+      const avatarStream = liveAvatarCapabilities ? createAvatarStreamParser() : null;
       const timeline = await api.chatRegenerate(chat.id, activeBranchId || undefined, {
         onDelta: (delta) => {
-          streamed += delta;
-          streamingTts?.push(delta);
+          const visibleDelta = avatarStream?.push(delta) ?? delta;
+          streamed += visibleDelta;
+          streamingTts?.push(visibleDelta);
           if (mountedRef.current) setStreamingReply(streamed);
         },
         onReasoningDelta: (delta) => setStreamingReasoningText((current) => `${current}${delta}`),
         onToolEvent: handleStreamingToolEvent
-      });
+      }, liveAvatarCapabilities);
+      const trailingDelta = avatarStream?.finish() || "";
+      if (trailingDelta) { streamed += trailingDelta; streamingTts?.push(trailingDelta); }
       if (!mountedRef.current) return;
       setMessages(timeline);
       setStreamingReply("");
@@ -1218,15 +1257,19 @@ export function LiveScreen() {
     try {
       let streamed = "";
       const streamingTts = startStreamingResponseTts();
+      const avatarStream = liveAvatarCapabilities ? createAvatarStreamParser() : null;
       const timeline = await api.chatNextTurn(chat.id, characterName, activeBranchId || undefined, {
         onDelta: (delta) => {
-          streamed += delta;
-          streamingTts?.push(delta);
+          const visibleDelta = avatarStream?.push(delta) ?? delta;
+          streamed += visibleDelta;
+          streamingTts?.push(visibleDelta);
           if (mountedRef.current) setStreamingReply(streamed);
         },
         onReasoningDelta: (delta) => setStreamingReasoningText((current) => `${current}${delta}`),
         onToolEvent: handleStreamingToolEvent
-      }, auto, activePersonaPayload());
+      }, auto, activePersonaPayload(), liveAvatarCapabilities);
+      const trailingDelta = avatarStream?.finish() || "";
+      if (trailingDelta) { streamed += trailingDelta; streamingTts?.push(trailingDelta); }
       if (!mountedRef.current) return false;
       setMessages(timeline);
       setStreamingReply("");
@@ -1664,51 +1707,35 @@ export function LiveScreen() {
           onPreviewAttachment={previewAttachment}
         />
         <div className="live-stage">
-          {characterAvatarUrl ? (
-            <div
-              className="live-character-backdrop"
-              style={{ backgroundImage: `url(${JSON.stringify(characterAvatarUrl)})` }}
-              aria-hidden="true"
-            />
-          ) : null}
-          <div className="live-stage-shade" aria-hidden="true" />
-          <div className="live-focus">
-            <div className="live-orbit live-orbit-one" aria-hidden="true" />
-            <div className="live-orbit live-orbit-two" aria-hidden="true" />
-            <button
-              type="button"
-              className="live-mic-button"
-              onClick={phase === "listening"
-                ? () => stopListening(handsFree)
-                : (busy ? stopResponse : () => { void startListening(false); })}
-              aria-label={phase === "listening" ? t("live.stopListening") : (busy ? t("live.stopResponse") : t("live.startListening"))}
-            >
-              {characterAvatarUrl && selectedCharacter ? (
-                <AvatarBadge
-                  name={selectedCharacter.name}
-                  src={characterAvatarUrl}
-                  alt=""
-                  className="live-character-avatar"
-                />
-              ) : null}
-              <span className="live-mic-icon">
-                <LiveIcon name={phase === "listening" || busy ? "stop" : "mic"} />
-              </span>
-              <span className="live-wave" aria-hidden="true">
-                {Array.from({ length: 7 }, (_, index) => <i key={index} />)}
-              </span>
-            </button>
-            <div className="live-focus-copy">
-              <strong>{phaseLabel}</strong>
-              <span>
-                {interimTranscript
-                  || heardStatus
-                  || (handsFree
-                    ? t("live.handsFreeHint").replace("{name}", selectedCharacter?.name || t("live.character"))
-                    : (phase === "listening" ? t("live.listeningHint") : t("live.readyHint")))}
-              </span>
-            </div>
-          </div>
+          <LiveAvatarStage
+            avatarUrl={characterAvatarUrl}
+            characterName={selectedCharacter?.name || t("live.assistant")}
+            characterSelected={Boolean(selectedCharacterId)}
+            phase={phase}
+            audioLevel={speechLevel}
+            avatarCue={liveAvatarCue}
+            phaseLabel={phaseLabel}
+            hint={interimTranscript
+              || heardStatus
+              || (handsFree
+                ? t("live.handsFreeHint").replace("{name}", selectedCharacter?.name || t("live.character"))
+                : (phase === "listening" ? t("live.listeningHint") : t("live.readyHint")))}
+            micActionLabel={phase === "listening"
+              ? t("live.stopListening")
+              : (busy ? t("live.stopResponse") : t("live.startListening"))}
+            fallbackUploading={avatarUploading}
+            inochiStatus={inochiStatus}
+            inochiBusy={inochiLoading || inochiUploading}
+            onMicAction={phase === "listening"
+              ? () => stopListening(handsFree)
+              : (busy ? stopResponse : () => { void startListening(false); })}
+            onFallbackFile={(file) => { void uploadLiveAvatar(file); }}
+            onResetFallback={resetLiveAvatar}
+            canResetFallback={Boolean(avatarOverrideUrl)}
+            onInochiFile={(file) => { void uploadInochiModel(file); }}
+            onRemoveInochi={() => { void removeInochiModel(); }}
+            onRenderError={setError}
+          />
 
           <div className="live-controls" aria-label={t("live.controls")}>
             <button

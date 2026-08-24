@@ -12,6 +12,7 @@ import { LiveAttachmentButton, LiveAttachmentChips } from "./LiveAttachmentQueue
 import { LiveIcon } from "./LiveIcon";
 import { LiveModelActivity, type LiveModelActivityCall } from "./LiveModelActivity";
 import { LiveTranscriptMessage } from "./LiveTranscriptMessage";
+import { useComposerFileDrop } from "../../chat/public";
 
 /** Distance from the bottom, in pixels, within which the transcript keeps following new turns. */
 const STICK_TO_BOTTOM_THRESHOLD = 120;
@@ -101,6 +102,10 @@ export function LiveTranscriptPanel({
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const userName = persona?.name || t("live.you");
   const voiceActive = voicePhase !== "ready" || busy;
+  const { isFileDropActive, composerFileDropProps } = useComposerFileDrop({
+    disabled: busy || uploading,
+    onFiles: onUploadFiles
+  });
 
   const scrollToLatest = () => {
     const scroller = scrollRef.current;
@@ -204,12 +209,18 @@ export function LiveTranscriptPanel({
       </div>
 
       <form
-        className="live-compose"
+        className={`live-compose${isFileDropActive ? " is-file-drop-active" : ""}`}
+        {...composerFileDropProps}
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit();
         }}
       >
+        {isFileDropActive ? (
+          <div className="composer-file-drop-overlay" aria-hidden="true">
+            <span>{t("chat.dropFiles")}</span>
+          </div>
+        ) : null}
         {error ? (
           <div className="live-error" role="alert">
             <span>{error}</span>

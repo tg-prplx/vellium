@@ -2019,6 +2019,52 @@ process.stdin.on("data", (chunk) => {
     expect(lastSttMultipartBody).toContain("fake webm audio");
   });
 
+  it("imports and serves a character Inochi2D model", async () => {
+    const characterId = newId();
+    db.prepare("INSERT INTO characters (id, name, card_json, sort_order, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(characterId, "Inochi2D Test", "{}", 1, new Date().toISOString());
+    const payload = Buffer.from(JSON.stringify({
+      meta: { name: "Mira", artist: "Test" },
+      physics: {},
+      nodes: {},
+      param: [{ name: "Mouth:: Smile", is_vec2: false, min: [-1, 0], max: [1, 0], defaults: [0, 0] }]
+    }), "utf8");
+    const payloadLength = Buffer.alloc(4);
+    payloadLength.writeUInt32BE(payload.length);
+    const body = Buffer.concat([
+      Buffer.from("TRNSRTS\0"), payloadLength, payload, Buffer.from("TEX_SECT"), Buffer.alloc(4)
+    ]);
+
+    const upload = await fetch(`${baseUrl}/api/inochi-avatars/character/${characterId}/model?filename=mira.inp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer
+    });
+    expect(upload.status).toBe(200);
+    const imported = await upload.json() as {
+      avatar: { modelUrl: string; displayName: string; emotionParameters: unknown[] };
+      runtime: { available: boolean; wasmUrl: string };
+    };
+    expect(imported.avatar.displayName).toBe("Mira");
+    expect(imported.avatar.emotionParameters).toHaveLength(1);
+    expect(imported.avatar.modelUrl).toContain("?v=inochi2d-original-v1");
+    expect(imported.runtime.available).toBe(true);
+
+    const modelResponse = await fetch(`${baseUrl}${imported.avatar.modelUrl}`);
+    expect(modelResponse.status).toBe(200);
+    expect(modelResponse.headers.get("content-type")).toContain("application/octet-stream");
+    expect(Buffer.from(await modelResponse.arrayBuffer())).toEqual(body);
+
+    const runtimeResponse = await fetch(`${baseUrl}${imported.runtime.wasmUrl}`);
+    expect(runtimeResponse.status).toBe(200);
+    expect(runtimeResponse.headers.get("content-type")).toContain("application/wasm");
+    expect(Buffer.from(await runtimeResponse.arrayBuffer()).subarray(0, 4)).toEqual(Buffer.from([0, 97, 115, 109]));
+
+    const removed = await requestJson(`/api/inochi-avatars/character/${characterId}`, { method: "DELETE" });
+    expect(removed.ok).toBe(true);
+    expect((await removed.json()).avatar).toBeNull();
+  });
+
   it("generates writer drafts through the mock provider and exports markdown", async () => {
     await updateSettings({
       activeProviderId: "mock-openai",

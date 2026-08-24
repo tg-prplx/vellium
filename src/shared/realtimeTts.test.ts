@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RealtimeTtsPlayer } from "./realtimeTts";
+import { RealtimeTtsPlayer, pcm16AudioLevel, speechEnvelopeTarget } from "./realtimeTts";
 
 class FakeAudio {
   onended: (() => void) | null = null;
@@ -15,6 +15,18 @@ afterEach(() => {
 });
 
 describe("RealtimeTtsPlayer", () => {
+  it("derives a bounded lip-sync level from PCM16 samples", () => {
+    expect(pcm16AudioLevel(new Uint8Array([0, 0, 0, 0]))).toBe(0);
+    expect(pcm16AudioLevel(new Uint8Array([255, 127, 0, 128]))).toBeGreaterThan(0.9);
+  });
+
+  it("gates silence but preserves speech attacks for avatar articulation", () => {
+    expect(speechEnvelopeTarget(new Uint8Array(128).fill(128))).toBe(0);
+    const speech = Uint8Array.from({ length: 128 }, (_, index) => 128 + Math.round(Math.sin(index / 3) * 35));
+    expect(speechEnvelopeTarget(speech)).toBeGreaterThan(0.4);
+    expect(speechEnvelopeTarget(speech)).toBeLessThanOrEqual(1);
+  });
+
   it("starts on the first chunk and plays later chunks in order", async () => {
     const audioInstances: FakeAudio[] = [];
     vi.stubGlobal("window", { atob: globalThis.atob });

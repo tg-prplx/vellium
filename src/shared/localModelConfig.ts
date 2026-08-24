@@ -4,6 +4,8 @@ import type { LocalLlmVariant } from "./localLlmVariants";
 
 export const LOCAL_LLAMA_BACKEND_ID = "vellium-local-llama-backend";
 export const LOCAL_LLAMA_PROVIDER_ID = "vellium-local-llama";
+export const DETECTED_LLAMA_BACKEND_ID = "vellium-detected-llama-backend";
+export const DETECTED_LLAMA_PROVIDER_ID = "vellium-detected-llama";
 export const LOCAL_INFERENCE_SETTINGS_URL = "vellium-local://inference";
 export const LOCAL_WHISPER_MODEL_REVISION = "5359861c739e955e79d9a303bcbc70fb988958b1";
 export const LOCAL_WHISPER_MODEL_FILE = "ggml-large-v3-turbo-q5_0.bin";
@@ -54,7 +56,6 @@ export function buildLocalLlamaManagedBackend(
   variant: LocalLlmVariant
 ): ManagedBackendConfig {
   const threads = Math.max(2, Math.min(16, Math.floor(threadCount)));
-  const launchArgs = `--model "${model}" --host 127.0.0.1 --port 8088 --ctx-size ${variant.contextSize} --threads ${threads} --threads-batch ${threads} --batch-size 512 --ubatch-size 256 --jinja --flash-attn on --n-gpu-layers ${hardware.accelerator === "cpu" ? 0 : 999}`;
   return {
     id: LOCAL_LLAMA_BACKEND_ID,
     name: `${variant.label} (llama.cpp)`,
@@ -62,9 +63,8 @@ export function buildLocalLlamaManagedBackend(
     providerId: LOCAL_LLAMA_PROVIDER_ID,
     providerType: "openai",
     adapterId: null,
-    backendKind: "generic",
+    backendKind: "llamacpp",
     baseUrl: "http://127.0.0.1:8088",
-    commandOverride: `"${executable}" ${launchArgs}`,
     extraArgs: "",
     workingDirectory: executable.replace(/[\\/][^\\/]+$/, ""),
     envText: "",
@@ -77,6 +77,66 @@ export function buildLocalLlamaManagedBackend(
     statusPath: "",
     statusTextPath: "",
     statusProgressPath: "",
-    stdoutProgressRegex: ""
+    stdoutProgressRegex: "",
+    llamacpp: {
+      executable,
+      modelPath: model,
+      host: "127.0.0.1",
+      port: 8088,
+      contextSize: variant.contextSize,
+      gpuLayers: hardware.accelerator === "cpu" ? 0 : 999,
+      threads,
+      batchSize: 512,
+      ubatchSize: 256,
+      flashAttention: true,
+      jinja: true
+    }
+  };
+}
+
+export function buildDetectedLlamaManagedBackend(
+  executable: string,
+  model: string,
+  accelerator: "metal" | "vulkan" | "cpu",
+  threadCount: number,
+  contextSize = 8192
+): ManagedBackendConfig {
+  const threads = Math.max(2, Math.min(16, Math.floor(threadCount)));
+  const modelName = model.split(/[\\/]/).pop() || "GGUF model";
+  return {
+    id: DETECTED_LLAMA_BACKEND_ID,
+    name: `Local ${modelName}`,
+    enabled: true,
+    providerId: DETECTED_LLAMA_PROVIDER_ID,
+    providerType: "openai",
+    adapterId: null,
+    backendKind: "llamacpp",
+    baseUrl: "http://127.0.0.1:8088",
+    extraArgs: "",
+    workingDirectory: executable.replace(/[\\/][^\\/]+$/, ""),
+    envText: "",
+    defaultModel: modelName,
+    autoStopOnSwitch: true,
+    startTimeoutSeconds: 600,
+    statusMode: "api",
+    healthPath: "/health",
+    modelsPath: "/v1/models",
+    statusPath: "",
+    statusTextPath: "",
+    statusProgressPath: "",
+    stdoutProgressRegex: "",
+    llamacpp: {
+      executable,
+      modelPath: model,
+      host: "127.0.0.1",
+      port: 8088,
+      contextSize,
+      gpuLayers: accelerator === "cpu" ? 0 : 999,
+      threads,
+      batchSize: 512,
+      ubatchSize: 256,
+      flashAttention: true,
+      jinja: true
+    }
   };
 }

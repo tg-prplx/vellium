@@ -2,7 +2,35 @@ import type { TtsStreamEvent } from "./api/chatClient";
 
 interface RealtimeTtsPlayerOptions {
   onPlaybackStart?: () => void;
+  onAudioLevel?: (level: number) => void;
   onError?: (error: Error) => void;
+}
+
+export function pcm16AudioLevel(bytes: Uint8Array): number {
+  const sampleCount = Math.floor(bytes.byteLength / 2);
+  if (sampleCount === 0) return 0;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, sampleCount * 2);
+  let squareSum = 0;
+  for (let index = 0; index < sampleCount; index += 1) {
+    const sample = view.getInt16(index * 2, true) / 32_768;
+    squareSum += sample * sample;
+  }
+  return Math.min(1, Math.sqrt(squareSum / sampleCount) * 2.8);
+}
+
+export function speechEnvelopeTarget(samples: Uint8Array, noiseFloor = 0.008): number {
+  if (!samples.length) return 0;
+  let squareSum = 0;
+  let peak = 0;
+  for (const sample of samples) {
+    const normalized = Math.abs((sample - 128) / 128);
+    squareSum += normalized * normalized;
+    peak = Math.max(peak, normalized);
+  }
+  const rms = Math.sqrt(squareSum / samples.length);
+  const active = Math.max(0, rms - Math.max(0.004, noiseFloor) * 1.35);
+  if (active < 0.004 && peak < 0.025) return 0;
+  return Math.min(1, Math.pow(Math.min(1, active * 6.2 + peak * 0.32), 0.68));
 }
 
 function decodeBase64Bytes(value: string) {
@@ -46,11 +74,16 @@ export class RealtimeTtsPlayer {
   private currentAudio: HTMLAudioElement | null = null;
   private currentUrl = "";
   private audioContext: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private currentMediaSource: MediaElementAudioSourceNode | null = null;
+  private levelAnimationFrame: number | null = null;
   private pcmScheduledUntil = 0;
   private streamFinished = false;
   private playbackStarted = false;
   private stopped = false;
   private settled = false;
+  private lipLevel = 0;
+  private noiseFloor = 0.008;
   private resolveCompletion!: () => void;
   private rejectCompletion!: (error: Error) => void;
   private readonly completion = new Promise<void>((resolve, reject) => {
@@ -113,7 +146,40 @@ export class RealtimeTtsPlayer {
       || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) return;
     this.audioContext = new AudioContextClass();
+    if (this.options.onAudioLevel) {
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 1024;
+      this.analyser.smoothingTimeConstant = 0.18;
+      this.analyser.connect(this.audioContext.destination);
+      this.startLevelMeter();
+    }
     void this.audioContext.resume().catch(() => {});
+  }
+
+  private startLevelMeter() {
+    if (!this.analyser || !this.options.onAudioLevel || this.levelAnimationFrame !== null) return;
+    const samples = new Uint8Array(this.analyser.fftSize);
+    const update = () => {
+      if (!this.analyser || this.stopped || this.settled) {
+        this.levelAnimationFrame = null;
+        return;
+      }
+      this.analyser.getByteTimeDomainData(samples);
+      let squareSum = 0;
+      for (const sample of samples) {
+        const normalized = (sample - 128) / 128;
+        squareSum += normalized * normalized;
+      }
+      const rms = Math.sqrt(squareSum / samples.length);
+      if (rms < this.noiseFloor * 2.2) this.noiseFloor = this.noiseFloor * 0.96 + rms * 0.04;
+      else this.noiseFloor = Math.max(0.006, this.noiseFloor * 0.9995);
+      const target = speechEnvelopeTarget(samples, this.noiseFloor);
+      this.lipLevel += (target - this.lipLevel) * (target > this.lipLevel ? 0.68 : 0.52);
+      if (this.lipLevel < 0.008) this.lipLevel = 0;
+      this.options.onAudioLevel?.(this.lipLevel);
+      this.levelAnimationFrame = window.requestAnimationFrame(update);
+    };
+    this.levelAnimationFrame = window.requestAnimationFrame(update);
   }
 
   private acceptPcm(value: string, sampleRate: number) {
@@ -135,7 +201,7 @@ export class RealtimeTtsPlayer {
 
     const source = this.audioContext.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.audioContext.destination);
+    source.connect(this.analyser || this.audioContext.destination);
     const startsAt = Math.max(this.audioContext.currentTime + 0.025, this.pcmScheduledUntil);
     this.pcmScheduledUntil = startsAt + buffer.duration;
     this.pcmSources.add(source);
@@ -162,6 +228,10 @@ export class RealtimeTtsPlayer {
     const audio = new Audio(url);
     this.currentAudio = audio;
     this.currentUrl = url;
+    if (this.audioContext && this.analyser) {
+      this.currentMediaSource = this.audioContext.createMediaElementSource(audio);
+      this.currentMediaSource.connect(this.analyser);
+    }
     audio.onended = () => {
       this.cleanupCurrent();
       this.playNext();
@@ -182,6 +252,10 @@ export class RealtimeTtsPlayer {
   }
 
   private cleanupCurrent() {
+    if (this.currentMediaSource) {
+      this.currentMediaSource.disconnect();
+      this.currentMediaSource = null;
+    }
     if (this.currentAudio) {
       this.currentAudio.onended = null;
       this.currentAudio.onerror = null;
@@ -225,6 +299,15 @@ export class RealtimeTtsPlayer {
       source.disconnect();
     }
     this.pcmSources.clear();
+    if (this.levelAnimationFrame !== null) {
+      window.cancelAnimationFrame(this.levelAnimationFrame);
+      this.levelAnimationFrame = null;
+    }
+    this.options.onAudioLevel?.(0);
+    if (this.analyser) {
+      this.analyser.disconnect();
+      this.analyser = null;
+    }
     if (this.audioContext) {
       void this.audioContext.close().catch(() => {});
       this.audioContext = null;

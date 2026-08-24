@@ -44,6 +44,12 @@ import {
   type ToolCallTrace
 } from "./tooling.js";
 import { appendRpReasoningTurnGuard, inlineRpReasoningHistory, RP_REASONING_SYSTEM_PROMPT } from "./rpReasoning.js";
+import {
+  buildLiveAvatarControlPrompt,
+  normalizeLiveAvatarCapabilities,
+  stripLiveAvatarControlMarkup
+} from "../../../src/shared/liveAvatarControl.js";
+import type { LiveAvatarControlCapabilities } from "../../../src/shared/types/inochiAvatar.js";
 
 export const activeAbortControllers = new Map<string, AbortController>();
 
@@ -104,8 +110,10 @@ async function persistAssistantTurn(params: {
     generationCompletedAt: string | null;
     generationDurationMs: number | null;
   };
+  liveAvatarControls?: boolean;
 }) {
-  if (!params.content && params.toolTraces.length === 0) return;
+  const content = params.liveAvatarControls ? stripLiveAvatarControlMarkup(params.content) : params.content;
+  if (!content && params.toolTraces.length === 0) return;
 
   const assistantId = newId();
   db.prepare(
@@ -115,8 +123,8 @@ async function persistAssistantTurn(params: {
     params.chatId,
     params.branchId,
     "assistant",
-    params.content,
-    await countProviderTokens(params.provider, params.content),
+    content,
+    await countProviderTokens(params.provider, content),
     params.parentMsgId,
     now(),
     params.generationMeta.generationStartedAt,
@@ -162,6 +170,7 @@ export async function streamLlmResponse(params: {
   isAutoConvo?: boolean;
   userPersona?: UserPersonaPayload;
   runtimeSystemPrompt?: string;
+  liveAvatar?: LiveAvatarControlCapabilities;
 }) {
   const settings = getSettings();
   const providerId = settings.activeProviderId;
@@ -192,9 +201,11 @@ export async function streamLlmResponse(params: {
     params.userPersona?.personality ? `Personality: ${params.userPersona.personality}` : "",
     params.userPersona?.scenario ? `Scenario: ${params.userPersona.scenario}` : ""
   ].filter(Boolean).join("\n");
+  const liveAvatar = normalizeLiveAvatarCapabilities(params.liveAvatar);
   const runtimeSystemPrompt = [
     rpReasoningEnabled ? RP_REASONING_SYSTEM_PROMPT : "",
-    String(params.runtimeSystemPrompt || "").trim()
+    String(params.runtimeSystemPrompt || "").trim(),
+    liveAvatar ? buildLiveAvatarControlPrompt(liveAvatar) : ""
   ].filter(Boolean).join("\n\n").slice(0, 4000);
 
   let characterIds: string[] = [];
@@ -590,7 +601,8 @@ export async function streamLlmResponse(params: {
           ragSources: ragSourcesForAssistant,
           toolTraces: combinedToolTraces,
           reasoningMaxChars: settings.reasoningMaxChars,
-          generationMeta
+          generationMeta,
+          liveAvatarControls: Boolean(liveAvatar)
         });
 
         params.res.write(`data: ${JSON.stringify({ type: "done", chatId: params.chatId })}\n\n`);
@@ -628,7 +640,8 @@ export async function streamLlmResponse(params: {
         generationStartedAt: streamResult.generationStartedAt,
         generationCompletedAt: streamResult.generationCompletedAt,
         generationDurationMs: streamResult.generationDurationMs
-      }
+      },
+      liveAvatarControls: Boolean(liveAvatar)
     });
 
     params.res.write(`data: ${JSON.stringify({ type: "done", chatId: params.chatId })}\n\n`);

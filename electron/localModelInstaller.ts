@@ -6,7 +6,7 @@ import { chmod, mkdir, readFile, rename, rm, statfs } from "fs/promises";
 import path from "path";
 import { pipeline } from "stream/promises";
 import extractZip from "@electron-internal/extract-zip";
-import { x as extractTar } from "tar";
+import { extractTarPortable } from "./archiveExtraction";
 import type {
   LocalLlmVariantId,
   LocalModelCatalog,
@@ -390,7 +390,7 @@ export class LocalModelInstaller {
           const destination = path.join(staging, "runtime");
           await mkdir(destination, { recursive: true });
           if (item.archive === "zip") await extractZip(target, { dir: destination });
-          else await extractTar({ file: target, cwd: destination, strict: true, preservePaths: false });
+          else await extractTarPortable(target, destination);
           await rm(target, { force: true });
         } else {
           const destination = path.join(staging, "models", item.filename);

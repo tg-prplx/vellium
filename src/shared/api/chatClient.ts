@@ -1,4 +1,5 @@
 import type { BranchNode, ChatMessage, ChatSession, FileAttachment, PromptBlock, RagBinding, RpSceneState, SamplerConfig, UserPersona } from "../types/contracts";
+import type { LiveAvatarControlCapabilities } from "../types/inochiAvatar";
 import { del, get, patchReq, post, put, requestBlob, streamNdjson, streamPost, type StreamCallbacks } from "./core";
 
 type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
@@ -45,26 +46,26 @@ export const chatClient = {
     get<ChatMessage[]>(`/chats/${chatId}/timeline${branchId ? `?branchId=${branchId}` : ""}`),
   chatExportJson: (chatId: string, branchId?: string) =>
     requestBlob("GET", `/chats/${chatId}/export/json${branchId ? `?branchId=${encodeURIComponent(branchId)}` : ""}`, undefined, { timeoutMs: 0 }),
-  chatNextTurn: async (chatId: string, characterName: string, branchId?: string, callbacks?: StreamCallbacks, isAutoConvo?: boolean, userPersona?: UserPersonaPayload | null): Promise<ChatMessage[]> => {
+  chatNextTurn: async (chatId: string, characterName: string, branchId?: string, callbacks?: StreamCallbacks, isAutoConvo?: boolean, userPersona?: UserPersonaPayload | null, liveAvatar?: LiveAvatarControlCapabilities | null): Promise<ChatMessage[]> => {
     if (callbacks) {
-      await streamPost(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userPersona }, callbacks);
+      await streamPost(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userPersona, liveAvatar }, callbacks);
       return loadTimelineAfterStream(chatId, branchId);
     }
-    return post<ChatMessage[]>(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userPersona });
+    return post<ChatMessage[]>(`/chats/${chatId}/next-turn`, { characterName, branchId, isAutoConvo, userPersona, liveAvatar });
   },
-  chatSend: async (chatId: string, content: string, branchId?: string, callbacks?: StreamCallbacks, userPersona?: UserPersonaPayload | null, attachments?: FileAttachment[]): Promise<ChatMessage[]> => {
+  chatSend: async (chatId: string, content: string, branchId?: string, callbacks?: StreamCallbacks, userPersona?: UserPersonaPayload | null, attachments?: FileAttachment[], liveAvatar?: LiveAvatarControlCapabilities | null): Promise<ChatMessage[]> => {
     if (callbacks) {
-      await streamPost(`/chats/${chatId}/send`, { content, branchId, userPersona, attachments }, callbacks);
+      await streamPost(`/chats/${chatId}/send`, { content, branchId, userPersona, attachments, liveAvatar }, callbacks);
       return loadTimelineAfterStream(chatId, branchId);
     }
-    return post<ChatMessage[]>(`/chats/${chatId}/send`, { content, branchId, userPersona, attachments });
+    return post<ChatMessage[]>(`/chats/${chatId}/send`, { content, branchId, userPersona, attachments, liveAvatar });
   },
-  chatRegenerate: async (chatId: string, branchId?: string, callbacks?: StreamCallbacks): Promise<ChatMessage[]> => {
+  chatRegenerate: async (chatId: string, branchId?: string, callbacks?: StreamCallbacks, liveAvatar?: LiveAvatarControlCapabilities | null): Promise<ChatMessage[]> => {
     if (callbacks) {
-      await streamPost(`/chats/${chatId}/regenerate`, { branchId }, callbacks);
+      await streamPost(`/chats/${chatId}/regenerate`, { branchId, liveAvatar }, callbacks);
       return loadTimelineAfterStream(chatId, branchId);
     }
-    return post<ChatMessage[]>(`/chats/${chatId}/regenerate`, { branchId });
+    return post<ChatMessage[]>(`/chats/${chatId}/regenerate`, { branchId, liveAvatar });
   },
   chatCompressContext: (chatId: string, branchId?: string) => post<{ summary: string }>(`/chats/${chatId}/compress`, { branchId }),
   chatFork: (chatId: string, parentMessageId: string, name: string) => post<BranchNode>(`/chats/${chatId}/fork`, { parentMessageId, name }),
@@ -78,8 +79,8 @@ export const chatClient = {
     requestBlob("POST", "/chats/tts", { input, ...options }, { timeoutMs: 0, signal }),
   chatTtsMessageRealtime: (messageId: string, onEvent: (event: TtsStreamEvent) => void | Promise<void>, signal?: AbortSignal) =>
     streamNdjson<TtsStreamEvent>(`/chats/messages/${messageId}/tts/realtime`, {}, onEvent, { timeoutMs: 0, signal }),
-  chatTtsTextRealtime: (input: string, onEvent: (event: TtsStreamEvent) => void | Promise<void>, signal?: AbortSignal) =>
-    streamNdjson<TtsStreamEvent>("/chats/tts/realtime", { input }, onEvent, { timeoutMs: 0, signal }),
+  chatTtsTextRealtime: (input: string, onEvent: (event: TtsStreamEvent) => void | Promise<void>, signal?: AbortSignal, options?: { voice?: string }) =>
+    streamNdjson<TtsStreamEvent>("/chats/tts/realtime", { input, ...options }, onEvent, { timeoutMs: 0, signal }),
   chatSaveSampler: (chatId: string, samplerConfig: SamplerConfig) => patchReq<{ ok: boolean }>(`/chats/${chatId}/sampler`, { samplerConfig }),
   chatGetSampler: (chatId: string) => get<SamplerConfig | null>(`/chats/${chatId}/sampler`),
   chatSavePreset: (chatId: string, presetId: string | null) => patchReq<{ ok: boolean }>(`/chats/${chatId}/preset`, { presetId }),

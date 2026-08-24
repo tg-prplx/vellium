@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState } from "../src/shared/types/contracts";
 import type { LocalModelCatalog, LocalModelComponentId, LocalModelInstallRequest, LocalModelInstallResult, LocalModelProgress } from "../src/shared/types/localModels";
+import type { LlamaCppDiscoveryResult, LlamaCppPickedFile } from "../src/shared/types/llamaCpp";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   minimize: () => ipcRenderer.invoke("window:minimize"),
@@ -51,10 +52,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     });
   },
   onManagedBackendsUpdate: (callback: (states: ManagedBackendRuntimeState[]) => void) => {
-    ipcRenderer.on("managed-backends:update", (_event, states: ManagedBackendRuntimeState[]) => {
-      callback(states);
-    });
+    const listener = (_event: IpcRendererEvent, states: ManagedBackendRuntimeState[]) => callback(states);
+    ipcRenderer.on("managed-backends:update", listener);
+    return () => ipcRenderer.removeListener("managed-backends:update", listener);
   },
+  discoverLlamaCpp: () => ipcRenderer.invoke("llama-cpp:discover") as Promise<LlamaCppDiscoveryResult>,
+  pickLlamaCppExecutable: () => ipcRenderer.invoke("llama-cpp:pick-executable") as Promise<LlamaCppPickedFile>,
+  pickLlamaCppModel: () => ipcRenderer.invoke("llama-cpp:pick-model") as Promise<LlamaCppPickedFile>,
   getLocalModelCatalog: () => ipcRenderer.invoke("local-models:catalog") as Promise<LocalModelCatalog>,
   installLocalModels: (request: LocalModelInstallRequest) => ipcRenderer.invoke("local-models:install", request) as Promise<LocalModelInstallResult>,
   cancelLocalModelInstall: (componentId?: LocalModelComponentId) => ipcRenderer.invoke("local-models:cancel", componentId) as Promise<{ ok: boolean }>,

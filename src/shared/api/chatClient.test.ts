@@ -46,4 +46,19 @@ describe("chatClient TTS", () => {
       { timeoutMs: 0, signal: controller.signal }
     );
   });
+
+  it("sends an explicit voice through realtime settings preview", async () => {
+    core.streamNdjson.mockResolvedValue(undefined);
+    const controller = new AbortController();
+    const onEvent = vi.fn();
+
+    await chatClient.chatTtsTextRealtime("Preview", onEvent, controller.signal, { voice: "eng_f4_whisper" });
+
+    expect(core.streamNdjson).toHaveBeenCalledWith(
+      "/chats/tts/realtime",
+      { input: "Preview", voice: "eng_f4_whisper" },
+      onEvent,
+      { timeoutMs: 0, signal: controller.signal }
+    );
+  });
 });

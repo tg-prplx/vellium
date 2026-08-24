@@ -63,7 +63,7 @@ flowchart LR
 | Area | Main job | Usually configured together with |
 | --- | --- | --- |
 | `Chat` | Dialogues, RP, tool calling, translation, TTS | `Characters`, `LoreBooks`, `Knowledge`, `Settings` |
-| `Live` | Voice-first conversation with STT/TTS and chat capabilities | `Chat`, `Characters`, `Settings` |
+| `Live` | Voice-first conversation with STT/TTS, Inochi2D `.inp`/`.inx` avatars, and chat capabilities | `Chat`, `Characters`, `Settings` |
 | `Writing` | Books, chapters, scenes, drafts, summaries, lenses | `Characters`, `Knowledge`, `Settings` |
 | `Characters` | Importing and editing character cards | `Chat`, `Writing` |
 | `LoreBooks` | World facts, trigger keys, scripted prompt injections | `Chat` |

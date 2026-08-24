@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { StatusMessage } from "./FormControls";
 import type { SettingsCategory, SettingsCategoryNavItem, SettingsSectionLink } from "../config";
 
@@ -7,13 +8,11 @@ interface SettingsSidebarProps {
   activeCategory: SettingsCategory;
   categoryNav: SettingsCategoryNavItem[];
   categorySections: Record<SettingsCategory, SettingsSectionLink[]>;
-  quickJumpFilter: string;
-  visibleQuickSections: SettingsSectionLink[];
   statusText: string;
   statusVariant: "info" | "success" | "error";
   onCategoryChange: (category: SettingsCategory) => void;
   onDangerZoneClick: () => void;
-  onQuickJumpFilterChange: (value: string) => void;
+  onOpenSearch: () => void;
   onQuickSectionClick: (sectionId: string) => void;
   t: (key: any) => string;
 }
@@ -24,21 +23,53 @@ export function SettingsSidebar({
   activeCategory,
   categoryNav,
   categorySections,
-  quickJumpFilter,
-  visibleQuickSections,
   statusText,
   statusVariant,
   onCategoryChange,
   onDangerZoneClick,
-  onQuickJumpFilterChange,
+  onOpenSearch,
   onQuickSectionClick,
   t
 }: SettingsSidebarProps) {
+  const [sectionsExpanded, setSectionsExpanded] = useState(false);
+  const mainCategories = categoryNav.filter((category) => category.group === "main");
+  const advancedCategories = categoryNav.filter((category) => category.group === "advanced");
+  const currentSections = categorySections[activeCategory];
+
+  useEffect(() => {
+    setSectionsExpanded(false);
+  }, [activeCategory]);
+
+  function renderCategory(category: SettingsCategoryNavItem) {
+    return (
+      <button
+        key={category.id}
+        type="button"
+        onClick={() => onCategoryChange(category.id)}
+        className={`settings-nav-item ${activeCategory === category.id ? "is-active" : ""}`}
+        title={category.description}
+      >
+        <svg className="settings-nav-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d={category.icon} />
+        </svg>
+        <span className="min-w-0 flex-1 truncate">{category.label}</span>
+      </button>
+    );
+  }
+
   return (
     <aside className="settings-sidebar">
+      <button type="button" className="settings-sidebar-search" onClick={onOpenSearch}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.1-5.15a6.25 6.25 0 11-12.5 0 6.25 6.25 0 0112.5 0z" />
+        </svg>
+        <span>{t("settings.searchSettings")}</span>
+        <kbd>⌘⇧P</kbd>
+      </button>
+
       <div className="settings-sidebar-status">
         <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-          {t("settings.activeModel")}
+          {t("settings.currentSetup")}
         </div>
         <div className="space-y-1.5">
           <div className="rounded-lg border border-border-subtle bg-bg-primary px-2.5 py-1.5">
@@ -53,21 +84,13 @@ export function SettingsSidebar({
       </div>
 
       <nav className="settings-sidebar-nav">
-        {categoryNav.map((category) => (
-          <button
-            key={category.id}
-            onClick={() => onCategoryChange(category.id)}
-            className={`settings-nav-item ${activeCategory === category.id ? "is-active" : ""}`}
-          >
-            <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d={category.icon} />
-            </svg>
-            <span className="min-w-0 flex-1 truncate">{category.label}</span>
-            <span className="settings-nav-count">{categorySections[category.id].length}</span>
-          </button>
-        ))}
+        <div className="settings-nav-group-label">{t("settings.mainSettings")}</div>
+        {mainCategories.map(renderCategory)}
+        <div className="settings-nav-group-label">{t("settings.advancedSettings")}</div>
+        {advancedCategories.map(renderCategory)}
         <div className="settings-nav-divider" />
         <button
+          type="button"
           onClick={onDangerZoneClick}
           className="settings-nav-item"
           style={{ color: "var(--color-danger)" }}
@@ -79,26 +102,25 @@ export function SettingsSidebar({
         </button>
       </nav>
 
-      <div className="settings-sidebar-jump">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-          {t("settings.quickJump")}
-        </div>
-        <div className="settings-quick-search">
+      <div className={`settings-sidebar-jump${sectionsExpanded ? " is-expanded" : ""}`}>
+        <button
+          type="button"
+          className="settings-sidebar-jump-toggle"
+          aria-expanded={sectionsExpanded}
+          aria-controls="settings-sidebar-section-links"
+          onClick={() => setSectionsExpanded((current) => !current)}
+        >
+          <span>{t("settings.onThisPage")}</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.1-5.15a6.25 6.25 0 11-12.5 0 6.25 6.25 0 0112.5 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
-          <input
-            type="text"
-            value={quickJumpFilter}
-            onChange={(event) => onQuickJumpFilterChange(event.target.value)}
-            placeholder={t("settings.searchSections")}
-          />
-        </div>
-        <div className="mt-2 max-h-[220px] space-y-1 overflow-y-auto pr-1">
-          {visibleQuickSections.length > 0 ? (
-            visibleQuickSections.map((section) => (
+        </button>
+        {sectionsExpanded ? (
+          <div id="settings-sidebar-section-links" className="settings-sidebar-jump-list">
+            {currentSections.map((section) => (
               <button
                 key={section.id}
+                type="button"
                 onClick={() => onQuickSectionClick(section.id)}
                 className="settings-quick-jump-item"
               >
@@ -107,13 +129,9 @@ export function SettingsSidebar({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
               </button>
-            ))
-          ) : (
-            <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-tertiary">
-              {t("settings.noMatchingSections")}
-            </div>
-          )}
-        </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="settings-sidebar-footer">

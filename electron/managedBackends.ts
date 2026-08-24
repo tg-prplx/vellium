@@ -131,6 +131,26 @@ async function testOllama(baseUrl: string) {
   }
 }
 
+async function fetchOpenAiModels(baseUrl: string) {
+  const body = await fetchJson(`${normalizeUrl(baseUrl)}/v1/models`) as { data?: Array<{ id?: unknown }> };
+  return [...new Set((Array.isArray(body.data) ? body.data : [])
+    .map((item) => String(item?.id || "").trim())
+    .filter(Boolean))];
+}
+
+async function testLlamaCpp(baseUrl: string) {
+  const base = normalizeUrl(baseUrl);
+  for (const path of ["/health", "/v1/models"]) {
+    try {
+      const response = await fetch(`${base}${path}`, { method: "GET", cache: "no-store" });
+      if (response.ok) return true;
+    } catch {
+      // Try the next native llama.cpp endpoint.
+    }
+  }
+  return false;
+}
+
 interface ManagedProcessState {
   config: ManagedBackendConfig;
   child: ChildProcessWithoutNullStreams | null;
@@ -365,7 +385,7 @@ export class ManagedBackendManager {
         // ignore invalid regex
       }
     }
-    if (state.config.backendKind === "koboldcpp") {
+    if (state.config.backendKind === "koboldcpp" || state.config.backendKind === "llamacpp") {
       const percent = line.match(/(\d{1,3})\s*%/);
       if (percent) {
         const value = Number(percent[1]);
@@ -374,6 +394,11 @@ export class ManagedBackendManager {
           state.runtime.progressLabel = line;
         }
       }
+    }
+    if (state.config.backendKind === "llamacpp") {
+      if (/load_tensors|loading model/i.test(line)) state.runtime.progressLabel = "Loading model into memory…";
+      else if (/warming up|warmup/i.test(line)) state.runtime.progressLabel = "Warming up model…";
+      else if (/server is listening|listening on|HTTP server listening/i.test(line)) state.runtime.progressLabel = "llama.cpp is accepting requests";
     }
   }
 
@@ -398,6 +423,7 @@ export class ManagedBackendManager {
     if (config.statusMode === "none") return true;
     if (config.backendKind === "koboldcpp") return testKobold(baseUrl);
     if (config.backendKind === "ollama") return testOllama(baseUrl);
+    if (config.backendKind === "llamacpp") return testLlamaCpp(baseUrl);
     if (config.healthPath) {
       try {
         const response = await fetch(joinUrl(baseUrl, config.healthPath), { method: "GET", cache: "no-store" });
@@ -417,6 +443,7 @@ export class ManagedBackendManager {
   private async fetchModels(config: ManagedBackendConfig, baseUrl: string) {
     if (config.backendKind === "koboldcpp") return fetchKoboldModels(baseUrl);
     if (config.backendKind === "ollama") return fetchOllamaModels(baseUrl);
+    if (config.backendKind === "llamacpp") return fetchOpenAiModels(baseUrl);
     if (config.modelsPath) {
       const payload = await fetchJson(joinUrl(baseUrl, config.modelsPath));
       return [...new Set(extractStrings(payload).filter(Boolean))];

@@ -10,6 +10,29 @@ function requestBases(): string[] {
   return import.meta.env.DEV ? [BASE] : [BASE, ...PROD_FALLBACK_BASES];
 }
 
+export async function uploadBinary<T>(path: string, body: Blob, contentType: string, options?: RequestOptions): Promise<T> {
+  let lastErr: unknown = new Error("Upload failed");
+  for (const base of requestBases()) {
+    try {
+      const response = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": contentType },
+        body,
+        cache: "no-store",
+        credentials: "same-origin",
+        referrerPolicy: "no-referrer",
+        signal: options?.signal
+      });
+      if (!response.ok) throw new Error(await readErrorResponseMessage(response));
+      return response.json() as Promise<T>;
+    } catch (error) {
+      lastErr = error;
+      if (!isNetworkError(error) || import.meta.env.DEV) throw error;
+    }
+  }
+  throw lastErr;
+}
+
 function resolveDesktopApiBase(): string | null {
   if (typeof window === "undefined") return null;
   if (window.location?.protocol !== "file:") return null;

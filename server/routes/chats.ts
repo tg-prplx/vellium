@@ -357,7 +357,7 @@ router.get("/:id/timeline", (req, res) => {
 
 router.post("/:id/send", async (req, res: Response) => {
   const chatId = req.params.id;
-  const { content, branchId: reqBranchId, userName, userPersona, attachments: rawAttachments, runtimeSystemPrompt } = req.body;
+  const { content, branchId: reqBranchId, userName, userPersona, attachments: rawAttachments, runtimeSystemPrompt, liveAvatar } = req.body;
   const branchId = resolveBranch(chatId, reqBranchId);
   const persona: UserPersonaPayload = {
     name: String(userPersona?.name || userName || "User"),
@@ -426,7 +426,8 @@ router.post("/:id/send", async (req, res: Response) => {
       overrideCharacterName: firstResponder,
       isAutoConvo: false,
       userPersona: persona,
-      runtimeSystemPrompt: typeof runtimeSystemPrompt === "string" ? runtimeSystemPrompt : undefined
+      runtimeSystemPrompt: typeof runtimeSystemPrompt === "string" ? runtimeSystemPrompt : undefined,
+      liveAvatar
     });
   } else {
     await streamLlmResponse({
@@ -436,7 +437,8 @@ router.post("/:id/send", async (req, res: Response) => {
       parentMsgId: userId,
       isAutoConvo: false,
       userPersona: persona,
-      runtimeSystemPrompt: typeof runtimeSystemPrompt === "string" ? runtimeSystemPrompt : undefined
+      runtimeSystemPrompt: typeof runtimeSystemPrompt === "string" ? runtimeSystemPrompt : undefined,
+      liveAvatar
     });
   }
 });
@@ -459,7 +461,7 @@ router.post("/:id/fork", (req, res) => {
 
 router.post("/:id/regenerate", async (req, res: Response) => {
   const chatId = req.params.id;
-  const { branchId: reqBranchId } = req.body ?? {};
+  const { branchId: reqBranchId, liveAvatar } = req.body ?? {};
   const branchId = resolveBranch(chatId, reqBranchId);
 
   // Regenerate must operate on the timeline tail only:
@@ -491,14 +493,15 @@ router.post("/:id/regenerate", async (req, res: Response) => {
     branchId,
     res,
     parentMsgId,
-    overrideCharacterName
+    overrideCharacterName,
+    liveAvatar
   });
 });
 
 // Multi-character: generate next turn for a specific character
 router.post("/:id/next-turn", async (req, res: Response) => {
   const chatId = req.params.id;
-  const { characterName, branchId: reqBranchId, isAutoConvo, userName, userPersona, runtimeSystemPrompt } = req.body;
+  const { characterName, branchId: reqBranchId, isAutoConvo, userName, userPersona, runtimeSystemPrompt, liveAvatar } = req.body;
   const branchId = resolveBranch(chatId, reqBranchId);
   const persona: UserPersonaPayload = {
     name: String(userPersona?.name || userName || "User"),
@@ -515,7 +518,8 @@ router.post("/:id/next-turn", async (req, res: Response) => {
     overrideCharacterName: characterName,
     isAutoConvo,
     userPersona: persona,
-    runtimeSystemPrompt: typeof runtimeSystemPrompt === "string" ? runtimeSystemPrompt : undefined
+    runtimeSystemPrompt: typeof runtimeSystemPrompt === "string" ? runtimeSystemPrompt : undefined,
+    liveAvatar
   });
 });
 

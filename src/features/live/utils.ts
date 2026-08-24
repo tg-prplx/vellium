@@ -18,6 +18,15 @@ export function normalizeLiveSttSource(value: unknown): LiveSttSource {
   return value === "whisper" ? "whisper" : "system";
 }
 
+export function trimForSpeech(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[*_~`>#]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 4000);
+}
+
 export function makeLiveSessionTitle(date = new Date(), characterName = ""): string {
   const stamp = new Intl.DateTimeFormat("en", {
     month: "short",

@@ -932,7 +932,7 @@ export function CharactersScreen() {
           </label>
 
           {createPickerOpen ? (
-            <div className="mb-3 rounded-[22px] border border-accent-border/45 bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.16),transparent_55%),var(--color-bg-primary)] p-3">
+            <div className="mb-3 rounded-[22px] border border-accent-border/45 bg-[radial-gradient(circle_at_top_left,color-mix(in_srgb,var(--color-accent-secondary)_16%,transparent),transparent_55%),var(--color-bg-primary)] p-3">
               <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-tertiary">{t("chat.new")}</div>
               <div className="mt-1 text-sm font-semibold text-text-primary">{t("chars.createChooseTitle")}</div>
               <div className="mt-1 text-xs leading-5 text-text-tertiary">{t("chars.createChooseDesc")}</div>
@@ -1106,7 +1106,7 @@ export function CharactersScreen() {
                         onClick={() => setCharacterKind("agent")}
                         className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
                           editorKind === "agent"
-                            ? "bg-accent text-text-inverse shadow-[0_10px_24px_rgba(168,85,247,0.28)]"
+                            ? "bg-accent text-text-inverse shadow-[0_10px_24px_var(--color-accent-border)]"
                             : "text-text-secondary hover:text-text-primary"
                         }`}
                       >
@@ -1304,7 +1304,7 @@ export function CharactersScreen() {
                     <div className="char-editor-section-body">
                       {editorKind === "agent" ? (
                         <>
-                          <div className="rounded-[22px] border border-accent-border/45 bg-[radial-gradient(circle_at_top_left,rgba(168,85,247,0.16),transparent_60%),var(--color-bg-secondary)] px-4 py-4">
+                          <div className="rounded-[22px] border border-accent-border/45 bg-[radial-gradient(circle_at_top_left,color-mix(in_srgb,var(--color-accent-secondary)_16%,transparent),transparent_60%),var(--color-bg-secondary)] px-4 py-4">
                             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                               <div>
                                 <div className="text-sm font-semibold text-text-primary">{t("chars.agentHeroTitle")}</div>

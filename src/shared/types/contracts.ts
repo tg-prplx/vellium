@@ -1,7 +1,6 @@
+import type { ManagedBackendLlamaCppOptions } from "./managedBackends";
 export type Id = string;
-
 export type CensorshipMode = "Filtered" | "Unfiltered";
-
 export interface ProviderProfile {
   id: Id;
   name: string;
@@ -14,7 +13,7 @@ export interface ProviderProfile {
   manualModels?: string[];
 }
 
-export type ManagedBackendKind = "koboldcpp" | "ollama" | "generic";
+export type ManagedBackendKind = "llamacpp" | "koboldcpp" | "ollama" | "generic";
 export type ManagedBackendStatusMode = "auto" | "api" | "stdout" | "none";
 export type ManagedBackendRuntimeStatus = "stopped" | "starting" | "running" | "stopping" | "error";
 
@@ -64,6 +63,7 @@ export interface ManagedBackendConfig {
   statusTextPath?: string;
   statusProgressPath?: string;
   stdoutProgressRegex?: string;
+  llamacpp?: ManagedBackendLlamaCppOptions;
   koboldcpp?: ManagedBackendKoboldOptions;
   ollama?: ManagedBackendOllamaOptions;
 }

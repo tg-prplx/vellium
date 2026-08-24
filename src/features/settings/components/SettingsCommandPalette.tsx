@@ -57,6 +57,15 @@ export function SettingsCommandPalette({ onNavigate }: SettingsCommandPalettePro
   }, []);
 
   useEffect(() => {
+    const handleOpen = () => {
+      restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setOpen(true);
+    };
+    window.addEventListener("open-settings-search", handleOpen);
+    return () => window.removeEventListener("open-settings-search", handleOpen);
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
     setQuery("");
     setActiveIndex(0);

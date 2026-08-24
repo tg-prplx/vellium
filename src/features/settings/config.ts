@@ -1,6 +1,6 @@
 import type { ApiParamPolicy, AppSettings, PromptBlock } from "../../shared/types/contracts";
 
-export type SettingsCategory = "connection" | "backends" | "interface" | "generation" | "context" | "prompts" | "tools" | "legacy";
+export type SettingsCategory = "connection" | "backends" | "voice" | "interface" | "generation" | "context" | "prompts" | "tools" | "legacy";
 
 export interface SettingsSectionLink {
   id: string;
@@ -10,6 +10,8 @@ export interface SettingsSectionLink {
 export interface SettingsCategoryNavItem {
   id: SettingsCategory;
   label: string;
+  description: string;
+  group: "main" | "advanced";
   icon: string;
 }
 
@@ -75,14 +77,15 @@ export const PROMPT_STACK_COLORS: Record<PromptBlock["kind"], string> = {
 
 export function buildSettingsNavigation(t: (key: any) => string) {
   const categoryNav: SettingsCategoryNavItem[] = [
-    { id: "connection", label: t("settings.categoryConnection"), icon: "M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" },
-    { id: "backends", label: t("settings.categoryBackends"), icon: "M4 7h16M4 12h16M4 17h16M8 4v16m8-16v16" },
-    { id: "interface", label: t("settings.categoryInterface"), icon: "M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" },
-    { id: "generation", label: t("settings.categoryGeneration"), icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" },
-    { id: "context", label: t("settings.categoryContext"), icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" },
-    { id: "prompts", label: t("settings.categoryPrompts"), icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
-    { id: "tools", label: t("settings.categoryTools"), icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
-    { id: "legacy", label: t("tab.legacy"), icon: "M12 8v4l3 2m6-2a9 9 0 11-9-9 9 9 0 019 9z" }
+    { id: "connection", label: t("settings.categoryConnection"), description: t("settings.categoryConnectionDesc"), group: "main", icon: "M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" },
+    { id: "backends", label: t("settings.categoryBackends"), description: t("settings.categoryBackendsDesc"), group: "main", icon: "M4 7h16M4 12h16M4 17h16M8 4v16m8-16v16" },
+    { id: "voice", label: t("settings.categoryVoice"), description: t("settings.categoryVoiceDesc"), group: "main", icon: "M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zm-6 9a6 6 0 0012 0M12 18v3m-3 0h6" },
+    { id: "interface", label: t("settings.categoryInterface"), description: t("settings.categoryInterfaceDesc"), group: "main", icon: "M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" },
+    { id: "context", label: t("settings.categoryContext"), description: t("settings.categoryContextDesc"), group: "main", icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" },
+    { id: "generation", label: t("settings.categoryGeneration"), description: t("settings.categoryGenerationDesc"), group: "advanced", icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" },
+    { id: "prompts", label: t("settings.categoryPrompts"), description: t("settings.categoryPromptsDesc"), group: "advanced", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
+    { id: "tools", label: t("settings.categoryTools"), description: t("settings.categoryToolsDesc"), group: "advanced", icon: "M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" },
+    { id: "legacy", label: t("tab.legacy"), description: t("settings.categoryLegacyDesc"), group: "advanced", icon: "M12 8v4l3 2m6-2a9 9 0 11-9-9 9 9 0 019 9z" }
   ];
 
   const categorySections: Record<SettingsCategory, SettingsSectionLink[]> = {
@@ -92,12 +95,15 @@ export function buildSettingsNavigation(t: (key: any) => string) {
       { id: "settings-runtime-mode", label: t("settings.runtimeMode") },
       { id: "settings-active-model", label: t("settings.activeModel") },
       { id: "settings-translation-model", label: t("settings.translateModel") },
-      { id: "settings-compress-model", label: t("settings.compressModel") },
-      { id: "settings-tts", label: t("settings.tts") },
-      { id: "settings-stt", label: t("settings.stt") }
+      { id: "settings-compress-model", label: t("settings.compressModel") }
     ],
     backends: [
+      { id: "settings-llama-cpp", label: t("llamaCpp.title") },
       { id: "settings-managed-backends", label: t("settings.managedBackends") }
+    ],
+    voice: [
+      { id: "settings-tts", label: t("settings.tts") },
+      { id: "settings-stt", label: t("settings.stt") }
     ],
     interface: [
       { id: "settings-general", label: t("settings.general") },

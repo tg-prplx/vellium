@@ -11,6 +11,7 @@ export { useChatJsonExport } from "./hooks/useChatJsonExport";
 export { useMessageTranslation } from "./hooks/useMessageTranslation";
 export { useRpReasoningToggle } from "./hooks/useRpReasoningToggle";
 export { useTtsPlayback } from "./hooks/useTtsPlayback";
+export { useComposerFileDrop } from "./hooks/useComposerFileDrop";
 export { REASONING_CALL_NAME, RP_PRESETS } from "./constants";
 export {
   guessMimeType,

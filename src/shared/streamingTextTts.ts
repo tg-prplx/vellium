@@ -11,6 +11,7 @@ interface StreamingTextTtsOptions {
   maxBufferedChars?: number;
   normalizeText?: (text: string) => string;
   onPlaybackStart?: () => void;
+  onAudioLevel?: (level: number) => void;
   onError?: (error: Error) => void;
 }
 
@@ -70,6 +71,7 @@ export class StreamingTextTtsSession {
   ) {
     this.player = new RealtimeTtsPlayer({
       onPlaybackStart: options.onPlaybackStart,
+      onAudioLevel: options.onAudioLevel,
       onError: options.onError
     });
     this.completion = this.player.play((onEvent, signal) => this.consume(onEvent, signal));
