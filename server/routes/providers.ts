@@ -1,10 +1,11 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { db, maskApiKey, isLocalhostUrl, DEFAULT_SETTINGS } from "../db.js";
 import { fetchCustomAdapterModels } from "../services/customProviderAdapters.js";
 import { fetchKoboldModels, normalizeProviderType } from "../services/providerApi.js";
 import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { normalizeRuntimeTuningSettings } from "../services/runtimeTuning.js";
 import { createRequestTimeout } from "../services/requestTimeout.js";
+import { probeLlamaCppEndpoint, setLlamaCppModelLoaded } from "../services/llamaCppApi.js";
 
 const router = Router();
 const MODEL_FETCH_RETRY_DELAYS_MS = [0, 250, 750];
@@ -19,15 +20,46 @@ interface ProviderRow {
   provider_type: string;
   adapter_id: string | null;
   manual_models: string | null;
+  llama_cpp_management_enabled: number;
 }
 
 interface ProviderPreviewInput {
+  providerId?: unknown;
   baseUrl?: unknown;
   apiKey?: unknown;
   fullLocalOnly?: unknown;
   providerType?: unknown;
   adapterId?: unknown;
   manualModels?: unknown;
+}
+
+async function probeLlamaCppProvider(row: Pick<ProviderRow, "base_url" | "api_key_cipher" | "full_local_only">) {
+  assertProviderAllowed(row.base_url, Boolean(row.full_local_only));
+  const timeout = createRequestTimeout(getSettings().endpointDiscoveryTimeoutSeconds, "llama.cpp status check");
+  try {
+    return await probeLlamaCppEndpoint({
+      baseUrl: row.base_url,
+      apiKey: row.api_key_cipher,
+      signal: timeout.signal
+    });
+  } finally {
+    timeout.dispose();
+  }
+}
+
+function llamaCppPreviewProvider(body: ProviderPreviewInput) {
+  const providerId = String(body.providerId || "").trim();
+  const saved = providerId
+    ? db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined
+    : undefined;
+  const suppliedApiKey = String(body.apiKey || "").trim();
+  return {
+    base_url: String(body.baseUrl || saved?.base_url || "").trim(),
+    api_key_cipher: suppliedApiKey || saved?.api_key_cipher || "local-key",
+    full_local_only: body.fullLocalOnly === undefined
+      ? saved?.full_local_only || 0
+      : body.fullLocalOnly === true || body.fullLocalOnly === 1 ? 1 : 0
+  };
 }
 
 function parseManualModels(raw: string | null | undefined): string[] {
@@ -50,7 +82,8 @@ function rowToProfile(row: ProviderRow) {
     fullLocalOnly: Boolean(row.full_local_only),
     providerType: normalizeProviderType(row.provider_type),
     adapterId: row.adapter_id,
-    manualModels: parseManualModels(row.manual_models)
+    manualModels: parseManualModels(row.manual_models),
+    llamaCppManagementEnabled: Boolean(row.llama_cpp_management_enabled)
   };
 }
 
@@ -244,7 +277,7 @@ async function resolveProviderModels(row: Pick<ProviderRow, "base_url" | "api_ke
 }
 
 router.post("/", (req, res) => {
-  const { id, name, baseUrl, apiKey, proxyUrl, fullLocalOnly, providerType, adapterId, manualModels } = req.body;
+  const { id, name, baseUrl, apiKey, proxyUrl, fullLocalOnly, providerType, adapterId, manualModels, llamaCppManagementEnabled } = req.body;
   const normalizedType = normalizeProviderType(providerType);
   const normalizedAdapterId = normalizedType === "custom" ? String(adapterId || "").trim() : null;
   const normalizedManualModels = Array.isArray(manualModels)
@@ -252,8 +285,8 @@ router.post("/", (req, res) => {
     : [];
 
   db.prepare(`
-    INSERT INTO providers (id, name, base_url, api_key_cipher, proxy_url, full_local_only, provider_type, adapter_id, manual_models)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO providers (id, name, base_url, api_key_cipher, proxy_url, full_local_only, provider_type, adapter_id, manual_models, llama_cpp_management_enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       base_url = excluded.base_url,
@@ -262,7 +295,8 @@ router.post("/", (req, res) => {
       full_local_only = excluded.full_local_only,
       provider_type = excluded.provider_type,
       adapter_id = excluded.adapter_id,
-      manual_models = excluded.manual_models
+      manual_models = excluded.manual_models,
+      llama_cpp_management_enabled = excluded.llama_cpp_management_enabled
   `).run(
     id,
     name,
@@ -272,7 +306,8 @@ router.post("/", (req, res) => {
     fullLocalOnly ? 1 : 0,
     normalizedType,
     normalizedAdapterId,
-    JSON.stringify(normalizedManualModels)
+    JSON.stringify(normalizedManualModels),
+    llamaCppManagementEnabled ? 1 : 0
   );
 
   const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(id) as ProviderRow;
@@ -305,6 +340,55 @@ router.post("/preview/test", async (req, res) => {
     res.json({ ok: false, error: message || "Connection check failed" });
   }
 });
+
+router.post("/preview/llama-cpp/status", async (req, res) => {
+  try {
+    res.json(await probeLlamaCppProvider(llamaCppPreviewProvider((req.body ?? {}) as ProviderPreviewInput)));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(400).json({ error: message || "Failed to inspect llama.cpp endpoint" });
+  }
+});
+
+router.get("/:id/llama-cpp/status", async (req, res) => {
+  const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
+  if (!row) { res.status(404).json({ error: "Provider not found" }); return; }
+  try {
+    res.json(await probeLlamaCppProvider(row));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(400).json({ error: message || "Failed to inspect llama.cpp endpoint" });
+  }
+});
+
+async function changeLlamaCppModel(req: Request, res: Response, loaded: boolean) {
+  const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
+  if (!row) { res.status(404).json({ error: "Provider not found" }); return; }
+  if (!row.llama_cpp_management_enabled) {
+    res.status(409).json({ error: "Enable llama.cpp API management for this provider first" });
+    return;
+  }
+  const timeout = createRequestTimeout(getSettings().endpointDiscoveryTimeoutSeconds, loaded ? "llama.cpp model load" : "llama.cpp model unload");
+  try {
+    assertProviderAllowed(row.base_url, Boolean(row.full_local_only));
+    await setLlamaCppModelLoaded({
+      baseUrl: row.base_url,
+      apiKey: row.api_key_cipher,
+      model: String(req.body?.model || ""),
+      loaded,
+      signal: timeout.signal
+    });
+    res.json(await probeLlamaCppEndpoint({ baseUrl: row.base_url, apiKey: row.api_key_cipher, signal: timeout.signal }));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(400).json({ error: message || `Failed to ${loaded ? "load" : "unload"} llama.cpp model` });
+  } finally {
+    timeout.dispose();
+  }
+}
+
+router.post("/:id/llama-cpp/models/load", (req, res) => void changeLlamaCppModel(req, res, true));
+router.post("/:id/llama-cpp/models/unload", (req, res) => void changeLlamaCppModel(req, res, false));
 
 router.get("/:id/models", async (req, res) => {
   const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;

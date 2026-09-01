@@ -34,6 +34,7 @@ const MIGRATIONS = [
   "ALTER TABLE providers ADD COLUMN provider_type TEXT NOT NULL DEFAULT 'openai'",
   "ALTER TABLE providers ADD COLUMN adapter_id TEXT",
   "ALTER TABLE providers ADD COLUMN manual_models TEXT NOT NULL DEFAULT '[]'",
+  "ALTER TABLE providers ADD COLUMN llama_cpp_management_enabled INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE agent_threads ADD COLUMN mode TEXT NOT NULL DEFAULT 'build'",
   "ALTER TABLE agent_threads ADD COLUMN hero_character_id TEXT",
   "ALTER TABLE agent_threads ADD COLUMN workspace_root TEXT NOT NULL DEFAULT ''",

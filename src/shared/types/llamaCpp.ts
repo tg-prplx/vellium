@@ -30,3 +30,38 @@ export interface LlamaCppPickedFile {
   canceled: boolean;
   path?: string;
 }
+
+export type LlamaCppEndpointState = "ready" | "loading" | "sleeping" | "unreachable" | "unauthorized" | "not-detected";
+
+export interface LlamaCppEndpointModel {
+  id: string;
+  path?: string;
+  state: "loaded" | "loading" | "sleeping" | "unloaded" | "unknown";
+  args: string[];
+  failed: boolean;
+  exitCode?: number;
+}
+
+export interface LlamaCppEndpointStatus {
+  detected: boolean;
+  state: LlamaCppEndpointState;
+  baseUrl: string;
+  modelPath?: string;
+  contextSize?: number;
+  chatTemplate?: string;
+  modalities: string[];
+  slotCount: number;
+  busySlots: number;
+  samplerDefaults: {
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    minP?: number;
+    repeatPenalty?: number;
+    maxTokens?: number;
+  };
+  models: LlamaCppEndpointModel[];
+  supportsModelControl: boolean;
+  checkedAt: string;
+  error?: string;
+}

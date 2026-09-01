@@ -83,7 +83,8 @@ export function LlamaCppQuickSetup({ compact = false, onConfigured }: LlamaCppQu
         apiKey: "local-key",
         proxyUrl: null,
         fullLocalOnly: true,
-        providerType: "openai"
+        providerType: "openai",
+        llamaCppManagementEnabled: true
       });
       await activateSettings({
         activeProviderId: DETECTED_LLAMA_PROVIDER_ID,
@@ -116,7 +117,8 @@ export function LlamaCppQuickSetup({ compact = false, onConfigured }: LlamaCppQu
         apiKey: "local-key",
         proxyUrl: null,
         fullLocalOnly: true,
-        providerType: "openai"
+        providerType: "openai",
+        llamaCppManagementEnabled: true
       });
       const current = await api.settingsGet();
       await activateSettings({

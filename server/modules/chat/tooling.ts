@@ -1,4 +1,4 @@
-import { buildOpenAiSamplingPayload } from "../../services/apiParamPolicy.js";
+import { buildLlamaCppSamplingPayload, buildOpenAiSamplingPayload } from "../../services/apiParamPolicy.js";
 import { coalesceSystemMessages } from "../../domain/rpEngine.js";
 import { prepareMcpTools, type McpServerConfig } from "../../services/mcp.js";
 import { fetchProviderResponse } from "../../services/providerHttp.js";
@@ -1051,6 +1051,9 @@ export async function runToolCallingCompletion(params: {
         maxTokens: 2048
       }
     });
+    const llamaCppSampling = params.provider.llama_cpp_management_enabled
+      ? buildLlamaCppSamplingPayload({ samplerConfig: sc, apiParamPolicy: params.settings.apiParamPolicy })
+      : {};
     const toolTraces: ToolCallTrace[] = [];
     const reasoningTrace: ToolCallTrace = {
       callId: `reasoning_${Date.now()}`,
@@ -1106,6 +1109,7 @@ export async function runToolCallingCompletion(params: {
       const completionRequest = {
         messages: workingMessages,
         ...openAiSampling,
+        ...llamaCppSampling,
         tools: exposedTools,
         ...(policy === "aggressive" ? { tool_choice: "auto" } : {})
       };

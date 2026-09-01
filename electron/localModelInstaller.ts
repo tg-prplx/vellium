@@ -329,7 +329,7 @@ export class LocalModelInstaller {
           const runtime = path.join(componentRoot(id), manifest.executable);
           const model = path.join(componentRoot(id), manifest.modelFiles[0]);
           result.managedBackend = this.managedBackend(runtime, model, hardware, variant);
-          result.provider = { id: LOCAL_LLAMA_PROVIDER_ID, name: "Vellium Local (llama.cpp)", baseUrl: "http://127.0.0.1:8088/v1", apiKey: "local-key", fullLocalOnly: true, providerType: "openai" };
+          result.provider = { id: LOCAL_LLAMA_PROVIDER_ID, name: "Vellium Local (llama.cpp)", baseUrl: "http://127.0.0.1:8088/v1", apiKey: "local-key", fullLocalOnly: true, providerType: "openai", llamaCppManagementEnabled: true };
         } else if (id === "stt") {
           Object.assign(result.settingsPatch, { sttSource: "whisper", sttBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, sttApiKey: "", sttModel: LOCAL_WHISPER_MODEL_ID });
         } else {

@@ -4767,6 +4767,65 @@ button.attachment-card:hover {
 }
 
 /* Native llama.cpp discovery and first-run setup */
+.llama-api-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--color-bg-primary);
+}
+
+.llama-api-panel-header,
+.llama-api-status-title,
+.llama-api-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.llama-api-panel-header button,
+.llama-api-model-row button {
+  min-height: 32px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  padding: 0 11px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.llama-api-panel button:disabled { cursor: not-allowed; opacity: 0.5; }
+.llama-api-status, .llama-api-samplers, .llama-api-models { display: grid; gap: 10px; border-top: 1px solid var(--color-border-subtle); padding-top: 12px; }
+.llama-api-status-title > span:last-child { min-width: 0; overflow: hidden; color: var(--color-text-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.llama-api-state { flex: 0 0 auto; border-radius: 999px; padding: 4px 8px; color: var(--color-text-tertiary); background: var(--color-bg-tertiary); font-size: 9px; font-weight: 750; text-transform: uppercase; }
+.llama-api-state.is-ready { color: var(--color-success); background: var(--color-success-subtle); }
+.llama-api-state.is-loading { color: var(--color-warning); background: var(--color-warning-subtle); }
+.llama-api-state.is-unreachable, .llama-api-state.is-unauthorized { color: var(--color-danger); background: var(--color-danger-subtle); }
+.llama-api-error { border: 1px solid var(--color-danger-border); border-radius: 9px; padding: 8px 10px; color: var(--color-danger); background: var(--color-danger-subtle); font-size: 10px; line-height: 1.45; }
+.llama-api-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; overflow: hidden; border: 1px solid var(--color-border-subtle); border-radius: 10px; background: var(--color-border-subtle); }
+.llama-api-facts > div { display: grid; min-width: 0; gap: 4px; padding: 9px 10px; background: var(--color-bg-secondary); }
+.llama-api-facts span { color: var(--color-text-tertiary); font-size: 9px; }
+.llama-api-facts strong { overflow: hidden; color: var(--color-text-secondary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.llama-api-server-defaults { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--color-text-tertiary); font-size: 9px; }
+.llama-api-server-defaults code { border-radius: 6px; padding: 3px 6px; color: var(--color-text-secondary); background: var(--color-bg-tertiary); font-family: var(--font-mono); font-size: 9px; }
+.llama-api-samplers > div:first-child { display: grid; gap: 3px; }
+.llama-api-samplers > div:first-child strong { color: var(--color-text-secondary); font-size: 11px; }
+.llama-api-samplers > div:first-child span, .llama-api-samplers > p, .llama-api-help { margin: 0; color: var(--color-text-tertiary); font-size: 10px; line-height: 1.5; }
+.llama-api-model-row { border: 1px solid var(--color-border-subtle); border-radius: 10px; padding: 9px 10px; background: var(--color-bg-secondary); }
+.llama-api-model-row > div { display: grid; gap: 3px; }
+.llama-api-model-row strong, .llama-api-model-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.llama-api-model-row strong { color: var(--color-text-secondary); font-size: 10px; }
+.llama-api-model-row span { color: var(--color-text-tertiary); font-family: var(--font-mono); font-size: 9px; }
+
+@media (max-width: 620px) {
+  .llama-api-panel-header { align-items: stretch; flex-direction: column; }
+  .llama-api-facts { grid-template-columns: 1fr; }
+}
+
 .welcome-first-run {
   display: grid;
   grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1.8fr);

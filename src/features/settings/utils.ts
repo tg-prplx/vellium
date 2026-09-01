@@ -25,6 +25,10 @@ export function normalizeApiParamPolicy(raw: ApiParamPolicy | null | undefined):
       ...DEFAULT_API_PARAM_POLICY.openai,
       ...(raw?.openai ?? {})
     },
+    llamaCpp: {
+      ...DEFAULT_API_PARAM_POLICY.llamaCpp,
+      ...(raw?.llamaCpp ?? {})
+    },
     kobold: {
       ...DEFAULT_API_PARAM_POLICY.kobold,
       ...(raw?.kobold ?? {})

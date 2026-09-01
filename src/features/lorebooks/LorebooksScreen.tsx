@@ -398,11 +398,17 @@ export function LorebooksScreen() {
                 {draft.entries.map((entry, index) => (
                   <div key={entry.id} className="lore-entry-row px-4 py-3">
                     <div className="mb-2.5 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
                         <span className={`flex h-5 w-5 items-center justify-center rounded-md text-[10px] font-bold ${
                           entry.enabled ? "bg-accent-subtle text-accent" : "bg-bg-tertiary text-text-tertiary"
                         }`}>{index + 1}</span>
-                        <span className="text-xs font-medium text-text-primary">{entry.name || `${t("lore.entry")} ${index + 1}`}</span>
+                        <input
+                          value={entry.name}
+                          onChange={(event) => updateEntry(entry.id, { name: event.target.value })}
+                          aria-label={t("lore.entryName")}
+                          placeholder={`${t("lore.entry")} ${index + 1}`}
+                          className="min-w-0 max-w-sm flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-xs font-medium text-text-primary placeholder:text-text-tertiary hover:border-border-subtle focus:border-accent focus:bg-bg-secondary focus:outline-none focus:ring-1 focus:ring-accent-subtle"
+                        />
                         {entry.constant && (
                           <span className="rounded-md bg-warning-subtle px-1.5 py-0.5 text-[9px] font-semibold text-warning">CONST</span>
                         )}

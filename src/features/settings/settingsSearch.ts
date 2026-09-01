@@ -38,6 +38,7 @@ const SEARCH_DEFINITIONS: SearchDefinition[] = [
   ["connection", "settings-manual-provider", "settings.proxyUrl", "proxy прокси"],
   ["connection", "settings-manual-provider", "settings.providerManualFallback", "manual models модели вручную"],
   ["connection", "settings-manual-provider", "settings.localOnly", "local only локальный"],
+  ["connection", "settings-manual-provider", "settings.llamaApiTitle", "llama cpp api model loading hyperparameters параметры загрузка модели"],
   ["connection", "settings-runtime-mode", "settings.fullLocalMode", "offline local mode локальный режим"],
   ["connection", "settings-active-model", "settings.activeModel", "chat model active model модель чата"],
   ["connection", "settings-translation-model", "settings.translateModel", "translation model перевод модель"],

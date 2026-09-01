@@ -45,6 +45,7 @@ export interface ProviderRow {
   full_local_only: number;
   provider_type: string;
   adapter_id?: string | null;
+  llama_cpp_management_enabled?: number;
 }
 
 export interface LoreBookRow {

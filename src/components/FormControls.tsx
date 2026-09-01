@@ -17,6 +17,9 @@ interface InputFieldProps {
   disabled?: boolean;
   className?: string;
   list?: string;
+  min?: number;
+  max?: number;
+  step?: number;
 }
 
 function useCommittedTextField({
@@ -111,7 +114,10 @@ export function InputField({
   debounceMs = 420,
   disabled = false,
   className = "",
-  list
+  list,
+  min,
+  max,
+  step
 }: InputFieldProps) {
   const { draftValue, handleBlur, handleChange, handleFocus } = useCommittedTextField({
     value,
@@ -124,6 +130,9 @@ export function InputField({
     <input
       type={type}
       list={list}
+      min={min}
+      max={max}
+      step={step}
       value={draftValue}
       disabled={disabled}
       onFocus={handleFocus}

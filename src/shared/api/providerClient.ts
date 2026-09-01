@@ -2,6 +2,7 @@ import type { AppSettings, ManagedBackendConfig, ManagedBackendRuntimeState, Pro
 import { managedBackendModelId, normalizeManagedBackends, parseManagedBackendModelId, resolveManagedBackendBaseUrl } from "../managedBackends";
 import { get, post } from "./core";
 import { accountSettingsClient } from "./accountSettingsClient";
+import type { LlamaCppEndpointStatus } from "../types/llamaCpp";
 
 const LONG_RUNNING_REQUEST_OPTIONS = { timeoutMs: 0 };
 
@@ -135,6 +136,18 @@ export const providerClient = {
     adapterId?: string | null;
     manualModels?: string[];
   }) => post<{ ok: boolean; error?: string }>("/providers/preview/test", payload, LONG_RUNNING_REQUEST_OPTIONS),
+  providerPreviewLlamaCppStatus: (payload: {
+    providerId?: string;
+    baseUrl: string;
+    apiKey?: string;
+    fullLocalOnly: boolean;
+  }) => post<LlamaCppEndpointStatus>("/providers/preview/llama-cpp/status", payload, LONG_RUNNING_REQUEST_OPTIONS),
+  providerLlamaCppStatus: (providerId: string) =>
+    get<LlamaCppEndpointStatus>(`/providers/${encodeURIComponent(providerId)}/llama-cpp/status`, LONG_RUNNING_REQUEST_OPTIONS),
+  providerLlamaCppLoadModel: (providerId: string, model: string) =>
+    post<LlamaCppEndpointStatus>(`/providers/${encodeURIComponent(providerId)}/llama-cpp/models/load`, { model }, LONG_RUNNING_REQUEST_OPTIONS),
+  providerLlamaCppUnloadModel: (providerId: string, model: string) =>
+    post<LlamaCppEndpointStatus>(`/providers/${encodeURIComponent(providerId)}/llama-cpp/models/unload`, { model }, LONG_RUNNING_REQUEST_OPTIONS),
   providerSetActive: (providerId: string, modelId: string) =>
     post<AppSettings>("/providers/set-active", { providerId, modelId }),
   providerActivateModel: async (providerId: string, modelId: string) => {

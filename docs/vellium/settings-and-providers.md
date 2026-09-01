@@ -60,6 +60,34 @@ Vellium distinguishes between:
 
 That matters because not every feature behaves the same across all provider types.
 
+### Native llama.cpp API management
+
+An OpenAI-compatible profile can point to either a local or remote
+`llama-server`. In `Manual setup`, use `Detect and refresh` to probe the native
+llama.cpp endpoints in addition to `/v1/models`, then save the profile with
+`Use native llama.cpp management` enabled.
+
+When enabled, Vellium can:
+
+- distinguish ready, loading, sleeping, unauthorized, and unreachable servers;
+- show the loaded model, context size, modalities, slot activity, server sampler
+  defaults, and router model launch arguments exposed by the server;
+- load or unload models when the endpoint runs llama.cpp's model-router mode;
+- send Vellium's temperature, Top-P, Top-K, Min-P, repetition penalty, and maximum
+  output-token values using llama.cpp request fields.
+
+Leave the switch disabled for ordinary OpenAI-compatible APIs. Detection alone
+does not permanently change the provider; saving the enabled switch is what opts
+that profile into llama.cpp-specific requests and model actions. The profile's
+API key and local-only policy also apply to native status and model-control
+requests.
+
+Launch-time settings such as GPU layers, server context allocation, threads, and
+parallel slots are reported when llama.cpp exposes them, but the standard server
+API cannot mutate them in place. Change those in the process that starts
+`llama-server`, then restart the server. Request-time sampler values remain
+editable in Vellium without a restart.
+
 ### Active model routing
 
 `Settings` does not only store provider profiles. It also stores the active model used by `Chat` right now.

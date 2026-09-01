@@ -77,6 +77,7 @@ export interface LocalModelInstallResult {
     apiKey: string;
     fullLocalOnly: boolean;
     providerType: "openai";
+    llamaCppManagementEnabled?: boolean;
   };
   settingsPatch: {
     sttSource?: "whisper";

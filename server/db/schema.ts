@@ -22,7 +22,8 @@ const SCHEMA_SQL = `
     full_local_only INTEGER NOT NULL DEFAULT 0,
     provider_type TEXT NOT NULL DEFAULT 'openai',
     adapter_id TEXT,
-    manual_models TEXT NOT NULL DEFAULT '[]'
+    manual_models TEXT NOT NULL DEFAULT '[]',
+    llama_cpp_management_enabled INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS chats (

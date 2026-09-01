@@ -1,4 +1,6 @@
 import type { ManagedBackendLlamaCppOptions } from "./managedBackends";
+import type { ApiParamPolicy } from "./apiParamPolicy";
+export type { ApiParamPolicy, KoboldApiParamPolicy, LlamaCppApiParamPolicy, OpenAiApiParamPolicy } from "./apiParamPolicy";
 export type Id = string;
 export type CensorshipMode = "Filtered" | "Unfiltered";
 export interface ProviderProfile {
@@ -11,8 +13,8 @@ export interface ProviderProfile {
   providerType?: "openai" | "koboldcpp" | "custom";
   adapterId?: string | null;
   manualModels?: string[];
+  llamaCppManagementEnabled?: boolean;
 }
-
 export type ManagedBackendKind = "llamacpp" | "koboldcpp" | "ollama" | "generic";
 export type ManagedBackendStatusMode = "auto" | "api" | "stdout" | "none";
 export type ManagedBackendRuntimeStatus = "stopped" | "starting" | "running" | "stopping" | "error";
@@ -117,42 +119,27 @@ export interface SamplerConfig {
   koboldMemory?: string;
   koboldBannedPhrases?: string[];
   koboldUseDefaultBadwords?: boolean;
-}
-
-export interface OpenAiApiParamPolicy {
-  sendSampler: boolean;
-  temperature: boolean;
-  topP: boolean;
-  frequencyPenalty: boolean;
-  presencePenalty: boolean;
-  maxTokens: boolean;
-  stop: boolean;
-}
-
-export interface KoboldApiParamPolicy {
-  sendSampler: boolean;
-  memory: boolean;
-  maxTokens: boolean;
-  temperature: boolean;
-  topP: boolean;
-  topK: boolean;
-  topA: boolean;
-  minP: boolean;
-  typical: boolean;
-  tfs: boolean;
-  nSigma: boolean;
-  repetitionPenalty: boolean;
-  repetitionPenaltyRange: boolean;
-  repetitionPenaltySlope: boolean;
-  samplerOrder: boolean;
-  stop: boolean;
-  phraseBans: boolean;
-  useDefaultBadwords: boolean;
-}
-
-export interface ApiParamPolicy {
-  openai: OpenAiApiParamPolicy;
-  kobold: KoboldApiParamPolicy;
+  llamaCppDynatempRange?: number;
+  llamaCppDynatempExponent?: number;
+  llamaCppTopNSigma?: number;
+  llamaCppXtcProbability?: number;
+  llamaCppXtcThreshold?: number;
+  llamaCppRepeatLastN?: number;
+  llamaCppDryMultiplier?: number;
+  llamaCppDryBase?: number;
+  llamaCppDryAllowedLength?: number;
+  llamaCppDryPenaltyLastN?: number;
+  llamaCppDrySequenceBreakers?: string[];
+  llamaCppMirostat?: 0 | 1 | 2;
+  llamaCppMirostatTau?: number;
+  llamaCppMirostatEta?: number;
+  llamaCppSeed?: number;
+  llamaCppIgnoreEos?: boolean;
+  llamaCppMinKeep?: number;
+  llamaCppReasoningEffort?: "default" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  llamaCppReasoningFormat?: "auto" | "none" | "deepseek" | "deepseek-legacy";
+  llamaCppThinkingMode?: "auto" | "on" | "off";
+  llamaCppReasoningControl?: boolean;
 }
 
 export interface PromptBlock {

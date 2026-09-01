@@ -23,6 +23,7 @@ describe.sequential("createApp integration", () => {
   let lastChatTemplateMessages: Array<{ role?: unknown; content?: unknown }> = [];
   let lastSttMultipartBody = "";
   let lastTtsRequestBody: Record<string, unknown> = {};
+  let mockLlamaModelState: "loaded" | "unloaded" = "unloaded";
   let createApp: typeof import("./createApp.js").createApp;
   let db: typeof import("../db.js").db;
   let newId: typeof import("../db.js").newId;
@@ -166,6 +167,43 @@ process.stdin.on("data", (chunk) => {
     baseUrl = toBaseUrl(appServer);
 
     mockProviderServer = await listen(createServer(async (req, res) => {
+      if (req.method === "GET" && req.url === "/health") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ status: "ok" }));
+        return;
+      }
+      if (req.method === "GET" && req.url === "/props") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          model_path: mockLlamaModelState === "loaded" ? "/models/mock-model.gguf" : "",
+          modalities: ["text"],
+          default_generation_settings: {
+            n_ctx: 16384,
+            params: { temperature: 0.8, top_p: 0.95, top_k: 40, min_p: 0.05, repeat_penalty: 1.1 }
+          }
+        }));
+        return;
+      }
+      if (req.method === "GET" && req.url === "/slots") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify([{ id: 0, is_processing: false }]));
+        return;
+      }
+      if (req.method === "GET" && req.url === "/models") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({
+          data: [{ id: "mock-model", path: "/models/mock-model.gguf", status: { value: mockLlamaModelState, args: ["llama-server", "-c", "16384"] } }]
+        }));
+        return;
+      }
+      if (req.method === "POST" && (req.url === "/models/load" || req.url === "/models/unload")) {
+        const body = await readJsonBody(req);
+        if (body.model !== "mock-model") { res.statusCode = 400; res.end("Unknown model"); return; }
+        mockLlamaModelState = req.url.endsWith("/load") ? "loaded" : "unloaded";
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ success: true }));
+        return;
+      }
       if (req.method === "GET" && req.url === "/v1/models") {
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({
@@ -3926,6 +3964,43 @@ process.stdin.on("data", (chunk) => {
       ok: false,
       error: "Provider is set to Local-only. Disable Local-only for external URLs."
     });
+  });
+
+  it("detects and manages an external llama.cpp API provider", async () => {
+    mockLlamaModelState = "unloaded";
+    const preview = await postJson("/api/providers/preview/llama-cpp/status", {
+      baseUrl: `${mockProviderBaseUrl}/v1`,
+      apiKey: "test-key",
+      fullLocalOnly: false
+    });
+    expect(preview).toMatchObject({
+      detected: true,
+      state: "sleeping",
+      contextSize: 16384,
+      slotCount: 1,
+      supportsModelControl: true
+    });
+
+    const saved = await postJson("/api/providers", {
+      id: "remote-llama-provider",
+      name: "Remote llama.cpp",
+      baseUrl: `${mockProviderBaseUrl}/v1`,
+      apiKey: "test-key",
+      proxyUrl: null,
+      fullLocalOnly: false,
+      providerType: "openai",
+      adapterId: null,
+      manualModels: [],
+      llamaCppManagementEnabled: true
+    });
+    expect(saved.llamaCppManagementEnabled).toBe(true);
+
+    const loaded = await postJson("/api/providers/remote-llama-provider/llama-cpp/models/load", { model: "mock-model" });
+    expect(loaded).toMatchObject({ detected: true, state: "ready" });
+    expect(loaded.models[0]).toMatchObject({ id: "mock-model", state: "loaded" });
+
+    const unloaded = await postJson("/api/providers/remote-llama-provider/llama-cpp/models/unload", { model: "mock-model" });
+    expect(unloaded.models[0]).toMatchObject({ id: "mock-model", state: "unloaded" });
   });
 
   it("uses manual fallback models when a provider model endpoint cannot be loaded", async () => {

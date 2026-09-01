@@ -31,8 +31,44 @@ interface KoboldApiParamPolicy {
   useDefaultBadwords: boolean;
 }
 
+interface LlamaCppApiParamPolicy {
+  sendSampler: boolean;
+  temperature: boolean;
+  dynatempRange: boolean;
+  dynatempExponent: boolean;
+  topP: boolean;
+  topK: boolean;
+  minP: boolean;
+  topNSigma: boolean;
+  xtcProbability: boolean;
+  xtcThreshold: boolean;
+  typical: boolean;
+  repeatPenalty: boolean;
+  repeatLastN: boolean;
+  presencePenalty: boolean;
+  frequencyPenalty: boolean;
+  dryMultiplier: boolean;
+  dryBase: boolean;
+  dryAllowedLength: boolean;
+  dryPenaltyLastN: boolean;
+  drySequenceBreakers: boolean;
+  mirostat: boolean;
+  mirostatTau: boolean;
+  mirostatEta: boolean;
+  seed: boolean;
+  ignoreEos: boolean;
+  minKeep: boolean;
+  maxTokens: boolean;
+  stop: boolean;
+  reasoningEffort: boolean;
+  reasoningFormat: boolean;
+  thinkingMode: boolean;
+  reasoningControl: boolean;
+}
+
 export interface ApiParamPolicy {
   openai: OpenAiApiParamPolicy;
+  llamaCpp: LlamaCppApiParamPolicy;
   kobold: KoboldApiParamPolicy;
 }
 
@@ -45,6 +81,40 @@ const DEFAULT_API_PARAM_POLICY: ApiParamPolicy = {
     presencePenalty: true,
     maxTokens: true,
     stop: true
+  },
+  llamaCpp: {
+    sendSampler: true,
+    temperature: true,
+    dynatempRange: true,
+    dynatempExponent: true,
+    topP: true,
+    topK: true,
+    minP: true,
+    topNSigma: true,
+    xtcProbability: true,
+    xtcThreshold: true,
+    typical: true,
+    repeatPenalty: true,
+    repeatLastN: true,
+    presencePenalty: true,
+    frequencyPenalty: true,
+    dryMultiplier: true,
+    dryBase: true,
+    dryAllowedLength: true,
+    dryPenaltyLastN: true,
+    drySequenceBreakers: true,
+    mirostat: true,
+    mirostatTau: true,
+    mirostatEta: true,
+    seed: true,
+    ignoreEos: true,
+    minKeep: true,
+    maxTokens: true,
+    stop: true,
+    reasoningEffort: true,
+    reasoningFormat: true,
+    thinkingMode: true,
+    reasoningControl: true
   },
   kobold: {
     sendSampler: true,
@@ -104,6 +174,7 @@ function asSamplerOrder(raw: unknown): number[] {
 export function normalizeApiParamPolicy(raw: unknown): ApiParamPolicy {
   const root = asObject(raw);
   const openaiRaw = asObject(root.openai);
+  const llamaCppRaw = asObject(root.llamaCpp);
   const koboldRaw = asObject(root.kobold);
   return {
     openai: {
@@ -115,6 +186,12 @@ export function normalizeApiParamPolicy(raw: unknown): ApiParamPolicy {
       maxTokens: asBoolean(openaiRaw.maxTokens, DEFAULT_API_PARAM_POLICY.openai.maxTokens),
       stop: asBoolean(openaiRaw.stop, DEFAULT_API_PARAM_POLICY.openai.stop)
     },
+    llamaCpp: Object.fromEntries(
+      Object.entries(DEFAULT_API_PARAM_POLICY.llamaCpp).map(([key, fallback]) => [
+        key,
+        asBoolean(llamaCppRaw[key], fallback)
+      ])
+    ) as unknown as LlamaCppApiParamPolicy,
     kobold: {
       sendSampler: asBoolean(koboldRaw.sendSampler, DEFAULT_API_PARAM_POLICY.kobold.sendSampler),
       memory: asBoolean(koboldRaw.memory, DEFAULT_API_PARAM_POLICY.kobold.memory),
@@ -188,6 +265,63 @@ export function buildOpenAiSamplingPayload(options: OpenAiSamplerOptions): Unkno
     const stop = asStop(sc.stop);
     if (stop.length > 0) out.stop = stop;
   }
+  return out;
+}
+
+export function buildLlamaCppSamplingPayload(options: {
+  samplerConfig: UnknownRecord;
+  apiParamPolicy?: unknown;
+}): UnknownRecord {
+  const policy = normalizeApiParamPolicy(options.apiParamPolicy).llamaCpp;
+  if (!policy.sendSampler) return {};
+  const sc = options.samplerConfig || {};
+  const out: UnknownRecord = {};
+  const set = (enabled: boolean, key: string, value: unknown) => {
+    if (enabled) out[key] = value;
+  };
+
+  set(policy.temperature, "temperature", asNumber(sc.temperature, 0.9));
+  set(policy.dynatempRange, "dynatemp_range", Math.max(0, asNumber(sc.llamaCppDynatempRange, 0)));
+  set(policy.dynatempExponent, "dynatemp_exponent", Math.max(0, asNumber(sc.llamaCppDynatempExponent, 1)));
+  set(policy.topP, "top_p", Math.max(0, Math.min(1, asNumber(sc.topP, 1))));
+  set(policy.topK, "top_k", Math.max(0, Math.floor(asNumber(sc.topK, 40))));
+  set(policy.minP, "min_p", Math.max(0, Math.min(1, asNumber(sc.minP, 0.05))));
+  set(policy.topNSigma, "top_n_sigma", asNumber(sc.llamaCppTopNSigma, -1));
+  set(policy.xtcProbability, "xtc_probability", Math.max(0, Math.min(1, asNumber(sc.llamaCppXtcProbability, 0))));
+  set(policy.xtcThreshold, "xtc_threshold", Math.max(0, Math.min(1, asNumber(sc.llamaCppXtcThreshold, 0.1))));
+  set(policy.typical, "typical_p", Math.max(0, Math.min(1, asNumber(sc.typical, 1))));
+  set(policy.repeatPenalty, "repeat_penalty", Math.max(0, asNumber(sc.repetitionPenalty, 1.1)));
+  set(policy.repeatLastN, "repeat_last_n", Math.floor(asNumber(sc.llamaCppRepeatLastN, 64)));
+  set(policy.presencePenalty, "presence_penalty", asNumber(sc.presencePenalty, 0));
+  set(policy.frequencyPenalty, "frequency_penalty", asNumber(sc.frequencyPenalty, 0));
+  set(policy.dryMultiplier, "dry_multiplier", Math.max(0, asNumber(sc.llamaCppDryMultiplier, 0)));
+  set(policy.dryBase, "dry_base", Math.max(0, asNumber(sc.llamaCppDryBase, 1.75)));
+  set(policy.dryAllowedLength, "dry_allowed_length", Math.max(0, Math.floor(asNumber(sc.llamaCppDryAllowedLength, 2))));
+  set(policy.dryPenaltyLastN, "dry_penalty_last_n", Math.floor(asNumber(sc.llamaCppDryPenaltyLastN, 64)));
+  if (policy.drySequenceBreakers) {
+    out.dry_sequence_breakers = asStop(sc.llamaCppDrySequenceBreakers).slice(0, 16);
+  }
+  set(policy.mirostat, "mirostat", Math.max(0, Math.min(2, Math.floor(asNumber(sc.llamaCppMirostat, 0)))));
+  set(policy.mirostatTau, "mirostat_tau", Math.max(0, asNumber(sc.llamaCppMirostatTau, 5)));
+  set(policy.mirostatEta, "mirostat_eta", Math.max(0, asNumber(sc.llamaCppMirostatEta, 0.1)));
+  set(policy.seed, "seed", Math.floor(asNumber(sc.llamaCppSeed, -1)));
+  set(policy.ignoreEos, "ignore_eos", sc.llamaCppIgnoreEos === true);
+  set(policy.minKeep, "min_keep", Math.max(0, Math.floor(asNumber(sc.llamaCppMinKeep, 0))));
+  set(policy.maxTokens, "max_tokens", Math.max(1, Math.floor(asNumber(sc.maxTokens, 2048))));
+  if (policy.stop) {
+    const stop = asStop(sc.stop);
+    if (stop.length > 0) out.stop = stop;
+  }
+
+  const reasoningEffort = String(sc.llamaCppReasoningEffort || "default");
+  if (policy.reasoningEffort && reasoningEffort !== "default") out.reasoning_effort = reasoningEffort;
+  const reasoningFormat = String(sc.llamaCppReasoningFormat || "auto");
+  if (policy.reasoningFormat && reasoningFormat !== "auto") out.reasoning_format = reasoningFormat;
+  const thinkingMode = String(sc.llamaCppThinkingMode || "auto");
+  if (policy.thinkingMode && thinkingMode !== "auto") {
+    out.chat_template_kwargs = { enable_thinking: thinkingMode === "on" };
+  }
+  set(policy.reasoningControl, "reasoning_control", sc.llamaCppReasoningControl === true);
   return out;
 }
 
@@ -316,4 +450,3 @@ export function buildKoboldSamplerConfig(options: KoboldSamplerOptions): Unknown
 
   return out;
 }
-

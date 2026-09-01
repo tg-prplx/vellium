@@ -1,7 +1,7 @@
 import type { Response } from "express";
 import { roughTokenCount } from "../../db.js";
 import { coalesceSystemMessages } from "../../domain/rpEngine.js";
-import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../../services/apiParamPolicy.js";
+import { buildKoboldSamplerConfig, buildLlamaCppSamplingPayload, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../../services/apiParamPolicy.js";
 import { completeCustomAdapter } from "../../services/customProviderAdapters.js";
 import { fetchProviderResponse } from "../../services/providerHttp.js";
 import {
@@ -279,6 +279,9 @@ export async function streamProviderCompletion(
       maxTokens: 2048
     }
   });
+  const llamaCppSampling = params.provider.llama_cpp_management_enabled
+    ? buildLlamaCppSamplingPayload({ samplerConfig: sc, apiParamPolicy: params.apiParamPolicy })
+    : {};
   const response = await fetchProviderResponse(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -289,7 +292,8 @@ export async function streamProviderCompletion(
       model: params.modelId,
       messages: openAiMessages,
       stream: true,
-      ...openAiSampling
+      ...openAiSampling,
+      ...llamaCppSampling
     }),
     signal: params.signal
   });
@@ -446,6 +450,9 @@ export async function completeProviderOnce(params: CompleteProviderOnceParams): 
       maxTokens: 1024
     }
   });
+  const llamaCppSampling = params.provider.llama_cpp_management_enabled
+    ? buildLlamaCppSamplingPayload({ samplerConfig: sc, apiParamPolicy: params.apiParamPolicy })
+    : {};
   const response = await fetchProviderResponse(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -466,7 +473,8 @@ export async function completeProviderOnce(params: CompleteProviderOnceParams): 
           }
           : { role: "user", content: params.userPrompt }
       ],
-      ...openAiSampling
+      ...openAiSampling,
+      ...llamaCppSampling
     }),
     signal: params.signal
   });

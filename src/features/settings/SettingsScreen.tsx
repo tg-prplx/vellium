@@ -11,6 +11,7 @@ import { ModalShell } from "../../components/ModalShell";
 import { IconButton } from "../../components/IconButton";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { ManagedBackendsSettings } from "./components/ManagedBackendsSettings";
+import { LlamaCppEndpointSettings } from "./components/LlamaCppEndpointSettings";
 import { LlamaCppQuickSetup } from "../../components/LlamaCppQuickSetup";
 import { WallpaperThemePanel } from "./components/WallpaperThemePanel";
 import { RuntimeTuningSettings } from "./components/RuntimeTuningSettings";
@@ -22,6 +23,7 @@ import { LegacyScreen } from "../legacy/public";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
 import { buildPluginPermissionDraft, buildPluginSettingsDraft, hasHighRiskPluginPermissions, normalizeApiParamPolicy, normalizePromptStack, pluginPermissionDescription, pluginPermissionTone, promptBlockLabel, scrollToSettingsSection, sanitizePluginSettingsFieldValue } from "./utils";
 import { useInitialSettingsNavigation } from "./hooks/useInitialSettingsNavigation";
+import { useLlamaCppEndpointEditor } from "./hooks/useLlamaCppEndpointEditor";
 import { applyWallpaperThemePalette, clearWallpaperTheme, generateWallpaperThemePalette, isWallpaperThemeEnabled, readWallpaperThemePalette, setWallpaperThemeEnabled, storeWallpaperThemePalette } from "../../shared/wallpaperTheme";
 function isLocalProviderEndpoint(url: string): boolean {
   try {
@@ -218,6 +220,14 @@ export function SettingsScreen({
     () => providers.find((provider) => provider.id === selectedProviderId) ?? null,
     [providers, selectedProviderId]
   );
+  const llamaCppEditor = useLlamaCppEndpointEditor({
+    baseUrl: providerBaseUrl,
+    apiKey: providerApiKey,
+    fullLocalOnly: providerLocalOnly,
+    editingProvider,
+    t,
+    showResult
+  });
   const draftManualModels = useMemo(() => parseManualModels(providerManualModels), [providerManualModels]);
   const draftProviderIsLocalEndpoint = useMemo(
     () => isLocalProviderEndpoint(providerBaseUrl.trim()),
@@ -462,6 +472,7 @@ export function SettingsScreen({
     setProviderType(preset.providerType);
     setProviderAdapterId("");
     setProviderManualModels("");
+    llamaCppEditor.reset();
     if (preset.key === "openai") {
       void patchApiParamPolicy({ openai: { sendSampler: false } });
     }
@@ -479,6 +490,7 @@ export function SettingsScreen({
     setProviderType(profile.providerType === "koboldcpp" || profile.providerType === "custom" ? profile.providerType : "openai");
     setProviderAdapterId(profile.adapterId || "");
     setProviderManualModels(Array.isArray(profile.manualModels) ? profile.manualModels.join("\n") : "");
+    llamaCppEditor.loadProfile(profile);
     setSelectedProviderId(profile.id);
     showResult(`${t("settings.providerLoadedIntoEditor")}: ${profile.name}`, "info");
   }
@@ -793,7 +805,8 @@ export function SettingsScreen({
       const saved = await api.providerUpsert({ id: providerId.trim(), name: providerName.trim(), baseUrl: providerBaseUrl.trim(),
         apiKey: providerApiKey.trim() || "local-key", proxyUrl: providerProxyUrl.trim() || null,
         fullLocalOnly: providerLocalOnly, providerType,
-        adapterId: providerType === "custom" ? providerAdapterId.trim() || null : null, manualModels: draftManualModels
+        adapterId: providerType === "custom" ? providerAdapterId.trim() || null : null, manualModels: draftManualModels,
+        llamaCppManagementEnabled: providerType === "openai" && llamaCppEditor.enabled
       });
       setProviders(await api.providerList());
       setSelectedProviderId(saved.id);
@@ -817,7 +830,8 @@ export function SettingsScreen({
     await runSettingsAction(async () => {
       await api.providerUpsert({ id: selectedPreset.defaultId, name: selectedPreset.defaultName, baseUrl: selectedPreset.baseUrl,
         apiKey: providerApiKey.trim() || (selectedPreset.localOnly ? "local-key" : ""),
-        proxyUrl: null, fullLocalOnly: selectedPreset.localOnly, providerType: selectedPreset.providerType, adapterId: null
+        proxyUrl: null, fullLocalOnly: selectedPreset.localOnly, providerType: selectedPreset.providerType, adapterId: null,
+        llamaCppManagementEnabled: false
       });
       setProviders(await api.providerList()); setSelectedProviderId(selectedPreset.defaultId);
       showResult(`${t("settings.presetProviderAdded")}: ${selectedPreset.label}`, "success");
@@ -831,7 +845,17 @@ export function SettingsScreen({
     }
     try {
       const result = await api.providerPreviewTest(buildProviderDraftPayload());
-      showResult(result.ok ? t("settings.connectionCheckOk") : (result.error || t("settings.providerBlockedOrInvalid")), result.ok ? "success" : "error");
+      if (!result.ok) {
+        showResult(result.error || t("settings.providerBlockedOrInvalid"), "error");
+        return;
+      }
+      const llamaStatus = providerType === "openai" ? await llamaCppEditor.refresh(false).catch(() => null) : null;
+      showResult(
+        llamaStatus?.detected
+          ? `${t("settings.connectionCheckOk")} · llama.cpp: ${t(`settings.llamaApiState.${llamaStatus.state}` as any)}`
+          : t("settings.connectionCheckOk"),
+        "success"
+      );
     } catch (error) {
       showResult(error instanceof Error ? error.message : String(error), "error");
     }
@@ -943,6 +967,7 @@ export function SettingsScreen({
 
   async function patchApiParamPolicy(policyPatch: {
     openai?: Partial<ApiParamPolicy["openai"]>;
+    llamaCpp?: Partial<ApiParamPolicy["llamaCpp"]>;
     kobold?: Partial<ApiParamPolicy["kobold"]>;
   }) {
     if (!settings) return;
@@ -951,6 +976,10 @@ export function SettingsScreen({
       openai: {
         ...currentPolicy.openai,
         ...(policyPatch.openai ?? {})
+      },
+      llamaCpp: {
+        ...currentPolicy.llamaCpp,
+        ...(policyPatch.llamaCpp ?? {})
       },
       kobold: {
         ...currentPolicy.kobold,
@@ -1478,6 +1507,23 @@ export function SettingsScreen({
                         {t("settings.localOnlyExternalWarning")}
                       </div>
                     )}
+                    {providerType === "openai" ? (
+                      <LlamaCppEndpointSettings
+                        enabled={llamaCppEditor.enabled}
+                        busy={llamaCppEditor.busy}
+                        status={llamaCppEditor.status}
+                        canManageModels={Boolean(
+                          editingProvider
+                          && editingProvider.baseUrl.trim().replace(/\/+$/, "") === providerBaseUrl.trim().replace(/\/+$/, "")
+                          && editingProvider.llamaCppManagementEnabled
+                        )}
+                        onEnabledChange={llamaCppEditor.setEnabled}
+                        onRefresh={async () => { await llamaCppEditor.refresh(); }}
+                        onLoadModel={(model) => llamaCppEditor.changeModel(model, true)}
+                        onUnloadModel={(model) => llamaCppEditor.changeModel(model, false)}
+                        t={t}
+                      />
+                    ) : null}
                     <div className="flex flex-wrap gap-2">
                       <button onClick={saveProvider} disabled={settingsActionBusy} className={primaryActionClass}><SettingsActionIcon name="save" />{t("settings.saveProvider")}</button>
                       <button onClick={testProvider} disabled={!canTestProvider} className={secondaryActionClass}><SettingsActionIcon name="test" />{t("settings.test")}</button>
