@@ -36,6 +36,7 @@ From both `Settings` and `Welcome`, you can create a provider profile from a pre
 - `Ollama`
 - `KoboldCpp`
 - `OpenRouter`
+- `A2Agent`
 - `Custom`
 
 ### Manual provider setup
@@ -49,6 +50,23 @@ If no preset fits, configure the provider manually. Typical fields include:
 - provider type
 - local-only flag
 - manual fallback models
+
+### A2Agent setup
+
+Choose `A2Agent` from the quick presets, enter your A2Agent API key, save the
+profile, and use `Load models`. Vellium queries the authenticated
+`https://api.a2agent.me/v1/models` endpoint at configuration time, so the model
+IDs shown in the app are the current catalog rather than a hardcoded list.
+Select one of the returned models as the active model. If the catalog is empty
+or temporarily unavailable, add one or more model IDs to `manual fallback
+models`; Vellium keeps those IDs available and uses them when discovery cannot
+provide a catalog.
+
+A2Agent uses the existing `OpenAI-compatible` provider path. Streaming chat,
+tool calls, and provider authentication are handled by the same Chat
+Completions integration as the other OpenAI-compatible presets. Keep the API
+key in the provider profile and do not paste it into prompts or manual model
+names.
 
 ### Provider types
 

@@ -67,6 +67,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     providerType: "openai"
   },
   {
+    key: "a2agent",
+    label: "A2Agent",
+    description: "A2Agent OpenAI-compatible API gateway",
+    baseUrl: "https://api.a2agent.me/v1",
+    defaultId: "a2agent",
+    defaultName: "A2Agent",
+    apiKeyHint: "A2Agent API key",
+    localOnly: false,
+    providerType: "openai"
+  },
+  {
     key: "custom",
     label: "Custom",
     description: "Any OpenAI-compatible provider",

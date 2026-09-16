@@ -24,6 +24,11 @@ describe.sequential("createApp integration", () => {
   let lastSttMultipartBody = "";
   let lastTtsRequestBody: Record<string, unknown> = {};
   let mockLlamaModelState: "loaded" | "unloaded" = "unloaded";
+  let a2AgentModels: Array<{ id: string }> = [
+    { id: "a2agent-test-model" },
+    { id: "a2agent-test-model-large" }
+  ];
+  let lastA2AgentAuthorization = "";
   let createApp: typeof import("./createApp.js").createApp;
   let db: typeof import("../db.js").db;
   let newId: typeof import("../db.js").newId;
@@ -202,6 +207,83 @@ process.stdin.on("data", (chunk) => {
         mockLlamaModelState = req.url.endsWith("/load") ? "loaded" : "unloaded";
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ success: true }));
+        return;
+      }
+      if (req.method === "GET" && req.url === "/a2agent/v1/models") {
+        lastA2AgentAuthorization = String(req.headers.authorization || "");
+        res.setHeader("Content-Type", "application/json");
+        if (lastA2AgentAuthorization !== "Bearer a2agent-test-key") {
+          res.statusCode = 401;
+          res.end(JSON.stringify({
+            error: {
+              message: "Invalid API key",
+              type: "authentication_error",
+              code: "invalid_api_key"
+            }
+          }));
+          return;
+        }
+        res.end(JSON.stringify({ object: "list", data: a2AgentModels }));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/a2agent/v1/chat/completions") {
+        const body = await readJsonBody(req);
+        const authorization = String(req.headers.authorization || "");
+        res.setHeader("Content-Type", "application/json");
+        if (authorization !== "Bearer a2agent-test-key") {
+          res.statusCode = 401;
+          res.end(JSON.stringify({
+            error: {
+              message: "Invalid API key",
+              type: "authentication_error",
+              code: "invalid_api_key"
+            }
+          }));
+          return;
+        }
+        const modelId = String(body.model || "");
+        if (!a2AgentModels.some((model) => model.id === modelId)) {
+          res.statusCode = 404;
+          res.end(JSON.stringify({
+            error: {
+              message: `The model '${modelId}' does not exist`,
+              type: "invalid_request_error",
+              code: "model_not_found"
+            }
+          }));
+          return;
+        }
+
+        const messages = Array.isArray(body.messages) ? body.messages : [];
+        const toolMessages = messages.filter((message) => (
+          message && typeof message === "object" && (message as { role?: unknown }).role === "tool"
+        ));
+        const toolDefinitions = Array.isArray(body.tools) ? body.tools : [];
+        if (body.stream === true) {
+          res.setHeader("Content-Type", "text/event-stream");
+          if (toolDefinitions.length > 0 && toolMessages.length === 0) {
+            const toolName = String((toolDefinitions[0] as { function?: { name?: unknown } })?.function?.name || "");
+            if (toolName) {
+              res.write(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{
+                index: 0,
+                id: "a2agent-tool-call-1",
+                type: "function",
+                function: { name: toolName, arguments: JSON.stringify({ query: "a2agent compatibility" }) }
+              }] } }] })}\n\n`);
+              res.end("data: [DONE]\n\n");
+              return;
+            }
+          }
+          const content = toolMessages.length > 0
+            ? ["A2Agent tool ", "call completed."]
+            : ["A2Agent stream ", "works."];
+          for (const delta of content) {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: delta } }] })}\n\n`);
+          }
+          res.end("data: [DONE]\n\n");
+          return;
+        }
+        res.end(JSON.stringify({ choices: [{ message: { content: "A2Agent response" } }] }));
         return;
       }
       if (req.method === "GET" && req.url === "/v1/models") {
@@ -4037,6 +4119,148 @@ process.stdin.on("data", (chunk) => {
       await fetch(`${baseUrl}/api/providers/manual-fallback-provider/models`)
     );
     expect(savedModels).toEqual([{ id: "featherless/manual-model" }]);
+  });
+
+  it("covers authenticated A2Agent model discovery and Chat Completions compatibility", async () => {
+    a2AgentModels = [
+      { id: "a2agent-test-model" },
+      { id: "a2agent-test-model-large" }
+    ];
+    const a2AgentPayload = {
+      baseUrl: `${mockProviderBaseUrl}/a2agent/v1`,
+      apiKey: "a2agent-test-key",
+      fullLocalOnly: false,
+      providerType: "openai",
+      adapterId: null,
+      manualModels: []
+    };
+
+    const discovered = await postJson("/api/providers/preview/models", a2AgentPayload);
+    expect(discovered).toEqual(a2AgentModels);
+    expect(lastA2AgentAuthorization).toBe("Bearer a2agent-test-key");
+
+    const authFailureResponse = await requestJson("/api/providers/preview/models", {
+      method: "POST",
+      body: { ...a2AgentPayload, apiKey: "wrong-key" }
+    });
+    const authFailure = await parseJsonResponse("/api/providers/preview/models", authFailureResponse);
+    expect(authFailureResponse.status).toBe(400);
+    expect(String(authFailure.error)).toContain("authentication_error");
+    expect(String(authFailure.error)).toContain("invalid_api_key");
+
+    a2AgentModels = [];
+    const emptyCatalog = await postJson("/api/providers/preview/models", {
+      ...a2AgentPayload,
+      manualModels: ["a2agent/manual-fallback"]
+    });
+    expect(emptyCatalog).toEqual([{ id: "a2agent/manual-fallback" }]);
+
+    a2AgentModels = Array.from({ length: 512 }, (_, index) => ({ id: `a2agent-model-${index + 1}` }));
+    const largeCatalog = await postJson("/api/providers/preview/models", a2AgentPayload);
+    expect(largeCatalog).toHaveLength(512);
+    expect(largeCatalog[0]).toEqual({ id: "a2agent-model-1" });
+    expect(largeCatalog[511]).toEqual({ id: "a2agent-model-512" });
+
+    a2AgentModels = [
+      { id: "a2agent-test-model" },
+      { id: "a2agent-test-model-large" }
+    ];
+    const saved = await postJson("/api/providers", {
+      id: "a2agent-test-provider",
+      name: "A2Agent (integration)",
+      ...a2AgentPayload
+    });
+    expect(saved).toMatchObject({
+      id: "a2agent-test-provider",
+      providerType: "openai",
+      baseUrl: `${mockProviderBaseUrl}/a2agent/v1`
+    });
+    const savedModelsResponse = await requestJson("/api/providers/a2agent-test-provider/models");
+    expect(savedModelsResponse.ok).toBe(true);
+    expect(await savedModelsResponse.json()).toEqual(a2AgentModels);
+
+    await updateSettings({
+      activeProviderId: "a2agent-test-provider",
+      activeModel: "a2agent-test-model",
+      toolCallingEnabled: false
+    });
+    const streamingChat = await postJson("/api/chats", { title: "A2Agent Streaming Chat" });
+    const streamingResponse = await requestJson(`/api/chats/${streamingChat.id}/send`, {
+      method: "POST",
+      body: { content: "Verify the A2Agent stream." }
+    });
+    const streamingBody = await streamingResponse.text();
+    expect(streamingResponse.ok).toBe(true);
+    expect(collectSseDeltas(streamingBody)).toBe("A2Agent stream works.");
+    expect(streamingBody).toContain('"type":"done"');
+
+    await updateSettings({ activeModel: "missing-a2agent-model", toolCallingEnabled: false });
+    const modelErrorChat = await postJson("/api/chats", { title: "A2Agent Model Error" });
+    const modelErrorResponse = await requestJson(`/api/chats/${modelErrorChat.id}/send`, {
+      method: "POST",
+      body: { content: "Return the model error." }
+    });
+    const modelErrorBody = await modelErrorResponse.text();
+    expect(modelErrorBody).toContain('"type":"done"');
+    const modelErrorTimeline = await parseJsonResponse(
+      `/api/chats/${modelErrorChat.id}/timeline`,
+      await fetch(`${baseUrl}/api/chats/${modelErrorChat.id}/timeline`)
+    );
+    expect(String(modelErrorTimeline[1]?.content || "")).toContain("model_not_found");
+    expect(String(modelErrorTimeline[1]?.content || "")).toContain("invalid_request_error");
+
+    await postJson("/api/providers", {
+      id: "a2agent-auth-error-provider",
+      name: "A2Agent Auth Error (integration)",
+      ...a2AgentPayload,
+      apiKey: "wrong-key"
+    });
+    await updateSettings({ activeProviderId: "a2agent-auth-error-provider", activeModel: "a2agent-test-model" });
+    const authErrorChat = await postJson("/api/chats", { title: "A2Agent Auth Error" });
+    const authErrorResponse = await requestJson(`/api/chats/${authErrorChat.id}/send`, {
+      method: "POST",
+      body: { content: "Return the auth error." }
+    });
+    const authErrorBody = await authErrorResponse.text();
+    expect(authErrorBody).toContain('"type":"done"');
+    const authErrorTimeline = await parseJsonResponse(
+      `/api/chats/${authErrorChat.id}/timeline`,
+      await fetch(`${baseUrl}/api/chats/${authErrorChat.id}/timeline`)
+    );
+    expect(String(authErrorTimeline[1]?.content || "")).toContain("authentication_error");
+    expect(String(authErrorTimeline[1]?.content || "")).toContain("invalid_api_key");
+
+    await updateSettings({
+      activeProviderId: "a2agent-test-provider",
+      activeModel: "a2agent-test-model",
+      toolCallingEnabled: true,
+      toolCallingPolicy: "aggressive",
+      maxToolCallsPerTurn: 2,
+      mcpServers: [{
+        id: "mockserver",
+        name: "Mock MCP",
+        command: process.execPath,
+        args: mockMcpScriptPath,
+        env: "",
+        enabled: true,
+        timeoutMs: 5000
+      }]
+    });
+    const toolChat = await postJson("/api/chats", { title: "A2Agent Tool Chat" });
+    const toolResponse = await requestJson(`/api/chats/${toolChat.id}/send`, {
+      method: "POST",
+      body: { content: "a2agent tool call" }
+    });
+    const toolBody = await toolResponse.text();
+    expect(toolBody).toContain("a2agent-tool-call-1");
+    expect(collectSseDeltas(toolBody)).toBe("A2Agent tool call completed.");
+    expect(toolBody).toContain('"phase":"done"');
+
+    await updateSettings({
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      toolCallingEnabled: false
+    });
   });
 
   it("streams tool-calling turns through an MCP server and persists tool traces", async () => {

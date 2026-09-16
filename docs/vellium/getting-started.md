@@ -83,6 +83,7 @@ Vellium can create a provider profile quickly from either `Welcome` or later in 
 | `Ollama` | You use Ollama's OpenAI-compatible endpoint | OpenAI-compatible, local |
 | `KoboldCpp` | You run an RP-heavy local stack with KoboldCpp | KoboldCpp |
 | `OpenRouter` | You want a unified model catalog through OpenRouter | OpenAI-compatible |
+| `A2Agent` | You use the A2Agent OpenAI-compatible API gateway | OpenAI-compatible |
 | `Custom` | You use another compatible API that the presets do not cover | OpenAI-compatible |
 
 ## Minimal Working Setup
@@ -105,7 +106,7 @@ If the active model is missing, the chat UI will tell you directly.
 If your goal is only to confirm that the app works:
 
 1. Start Vellium.
-2. In `Settings`, choose `OpenAI`, `LM Studio`, `Ollama`, or `KoboldCpp`.
+2. In `Settings`, choose `OpenAI`, `A2Agent`, `LM Studio`, `Ollama`, or `KoboldCpp`.
 3. Assign an active model.
 4. Open `Chat`.
 5. Start a new chat without a character.
