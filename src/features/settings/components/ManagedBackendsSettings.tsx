@@ -305,7 +305,7 @@ export function ManagedBackendsSettings({
                                 />
                               </div>
                             </div>
-                            <div className="mt-4 grid gap-3 md:grid-cols-3">
+                            <div className="mt-4 grid gap-3 md:grid-cols-4">
                               <div>
                                 <FieldLabel>{t("settings.threads")}</FieldLabel>
                                 <InputField
@@ -328,6 +328,14 @@ export function ManagedBackendsSettings({
                                   type="number"
                                   value={String(koboldOptions.batchSize || 0)}
                                   onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, batchSize: Number(value || 0) || 0 } })}
+                                />
+                              </div>
+                              <div>
+                                <FieldLabel>{t("settings.smartCacheSlots")}</FieldLabel>
+                                <InputField
+                                  type="number"
+                                  value={String(koboldOptions.smartCacheSlots || 0)}
+                                  onChange={(value) => updateManagedBackend(backend.id, { koboldcpp: { ...koboldOptions, smartCacheSlots: Math.max(0, Number(value || 0) || 0) } })}
                                 />
                               </div>
                             </div>

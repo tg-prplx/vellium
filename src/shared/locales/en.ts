@@ -1276,6 +1276,7 @@ export const en = {
   "settings.batchSize": "Batch Size",
   "settings.highPriority": "High Priority",
   "settings.smartContext": "Smart Context",
+  "settings.smartCacheSlots": "SmartCache slots (0 = off)",
   "settings.useMmap": "Use mmap",
   "settings.gpuLayers": "GPU Layers",
   "settings.flashAttention": "Flash Attention",

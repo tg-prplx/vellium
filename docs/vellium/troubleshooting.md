@@ -109,6 +109,35 @@ Check:
 - whether the prompt stack is overloaded
 - whether some world information should move into a LoreBook or knowledge collection
 
+## If KoboldCpp repeatedly reprocesses the whole RP prompt
+
+Vellium rebuilds the request on every turn, but a normal unchanged RP stack is
+serialized deterministically: the system, character, scene, author note, and
+custom Kobold memory stay in the `memory` prefix, while the conversation prompt
+is extended with the next turn. A short KoboldCpp log such as
+`Processing Prompt ... (190 / 190 tokens)` means that prefix reuse worked.
+
+A full prompt pass is expected when the prefix can no longer be reused. Common
+causes are:
+
+- changing the character, scene, author note, prompt stack, summary, RAG, or
+  active speaker;
+- reaching Vellium's history budget, which moves the start of the retained
+  timeline;
+- editing, regenerating, branching, or switching chats;
+- sending translation, compression, pet, agent, or another generation request
+  through the same KoboldCpp process between chat turns;
+- launching KoboldCpp with FastForwarding or ContextShift disabled, or using a
+  model/runtime mode that cannot shift its KV cache.
+
+KoboldCpp normally keeps one active context. For KoboldCpp versions that support
+SmartCache, launch the server with `--smartcache 4` (adjust the slot count for
+available RAM) so several recent contexts can be restored instead of fully
+reprocessed. Managed KoboldCpp profiles expose the same value as `SmartCache
+slots`; `0` leaves it disabled. For an external native provider, add the flag to
+the command or launcher that starts KoboldCpp. SmartCache requires
+FastForwarding, so do not combine it with `--nofastforward`.
+
 ## If you need to reset everything
 
 `Settings -> Danger Zone` contains a full settings reset.

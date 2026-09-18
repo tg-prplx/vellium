@@ -185,6 +185,13 @@ From the code and UI structure, this section is built around:
 
 Use it when your self-hosted stack is complex enough that you want launch control close to the app.
 
+Managed KoboldCpp profiles also expose `SmartCache slots`. A value above zero
+adds `--smartcache <slots>` to the launch command, allowing recent KV-cache
+snapshots to survive chat or task switches. This can reduce full RP prompt
+reprocessing when several Vellium features share one KoboldCpp process, at the
+cost of additional RAM. Leave it at `0` when the installed KoboldCpp version does
+not support SmartCache or memory use matters more than context switching speed.
+
 ## Interface
 
 The `Interface` section usually contains:

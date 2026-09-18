@@ -146,6 +146,7 @@ export function defaultManagedBackendKoboldOptions(): ManagedBackendKoboldOption
     batchSize: 512,
     highPriority: false,
     smartContext: false,
+    smartCacheSlots: 0,
     useMmap: false,
     flashAttention: false,
     noMmap: false,
@@ -271,6 +272,7 @@ export function normalizeManagedBackendConfig(raw: unknown, index = 1): ManagedB
       batchSize: parseNumeric(koboldRaw.batchSize, koboldDefaults.batchSize, -1, 4096),
       highPriority: koboldRaw.highPriority === true,
       smartContext: koboldRaw.smartContext === true,
+      smartCacheSlots: parseNumeric(koboldRaw.smartCacheSlots, koboldDefaults.smartCacheSlots, 0, 256),
       useMmap: koboldRaw.useMmap === true,
       flashAttention: koboldRaw.flashAttention === true,
       noMmap: koboldRaw.noMmap === true,
@@ -325,6 +327,7 @@ export function buildManagedBackendCommand(config: ManagedBackendConfig): { comm
     appendFlag(parts, "--batchsize", options.batchSize ?? 512);
     appendFlag(parts, "--highpriority", options.highPriority);
     appendFlag(parts, "--smartcontext", options.smartContext);
+    appendFlag(parts, "--smartcache", options.smartCacheSlots > 0 ? options.smartCacheSlots : false);
     appendFlag(parts, "--usemmap", options.useMmap && !options.noMmap);
     appendFlag(parts, "--flashattention", options.flashAttention);
     appendFlag(parts, "--nommap", options.noMmap);
@@ -409,6 +412,7 @@ export function buildManagedBackendLaunch(config: ManagedBackendConfig): { comma
     appendArg(args, "--batchsize", options.batchSize ?? 512);
     appendArg(args, "--highpriority", options.highPriority);
     appendArg(args, "--smartcontext", options.smartContext);
+    appendArg(args, "--smartcache", options.smartCacheSlots > 0 ? options.smartCacheSlots : false);
     appendArg(args, "--usemmap", options.useMmap && !options.noMmap);
     appendArg(args, "--flashattention", options.flashAttention);
     appendArg(args, "--nommap", options.noMmap);
@@ -589,6 +593,16 @@ export function parseManagedBackendCommand(command: string, kind: "llamacpp" | "
 
   for (let index = 0; index < rest.length; index += 1) {
     const token = rest[index];
+    if (token === "--smartcache") {
+      const value = rest[index + 1];
+      if (value && !value.startsWith("-")) {
+        next.smartCacheSlots = Number(value);
+        index += 1;
+      } else {
+        next.smartCacheSlots = 1;
+      }
+      continue;
+    }
     const valueKey = knownValueFlags.get(token);
     if (valueKey) {
       const value = rest[index + 1];

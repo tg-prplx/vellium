@@ -875,6 +875,7 @@ export const zh = {
   "settings.batchSize": "Batch Size",
   "settings.highPriority": "高优先级",
   "settings.smartContext": "Smart Context",
+  "settings.smartCacheSlots": "SmartCache 槽位（0 = 关闭）",
   "settings.useMmap": "使用 mmap",
   "settings.gpuLayers": "GPU 层数",
   "settings.flashAttention": "Flash Attention",

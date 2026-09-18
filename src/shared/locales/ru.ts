@@ -1276,6 +1276,7 @@ export const ru = {
   "settings.batchSize": "Batch Size",
   "settings.highPriority": "Высокий приоритет",
   "settings.smartContext": "Smart Context",
+  "settings.smartCacheSlots": "Слоты SmartCache (0 = выкл.)",
   "settings.useMmap": "Использовать mmap",
   "settings.gpuLayers": "GPU Layers",
   "settings.flashAttention": "Flash Attention",

@@ -53,3 +53,33 @@ describe("native llama.cpp managed backend", () => {
     });
   });
 });
+
+describe("managed KoboldCpp context cache", () => {
+  it("normalizes SmartCache slots and adds the launch flag", () => {
+    const normalized = normalizeManagedBackendConfig({
+      id: "kobold",
+      name: "KoboldCpp",
+      backendKind: "koboldcpp",
+      providerType: "koboldcpp",
+      koboldcpp: {
+        smartCacheSlots: 4
+      }
+    });
+
+    expect(normalized?.koboldcpp?.smartCacheSlots).toBe(4);
+    const launch = buildManagedBackendLaunch(normalized!);
+    expect(launch.args).toContain("--smartcache");
+    expect(launch.args).toContain("4");
+  });
+
+  it("imports SmartCache with an explicit or default slot count", () => {
+    expect(parseManagedBackendCommand(
+      "koboldcpp --model /models/rp.gguf --smartcache 6",
+      "koboldcpp"
+    )?.koboldcpp).toMatchObject({ smartCacheSlots: 6 });
+    expect(parseManagedBackendCommand(
+      "koboldcpp --model /models/rp.gguf --smartcache --flashattention",
+      "koboldcpp"
+    )?.koboldcpp).toMatchObject({ smartCacheSlots: 1, flashAttention: true });
+  });
+});

@@ -875,6 +875,7 @@ export const ja = {
   "settings.batchSize": "Batch Size",
   "settings.highPriority": "高優先度",
   "settings.smartContext": "Smart Context",
+  "settings.smartCacheSlots": "SmartCache スロット（0 = 無効）",
   "settings.useMmap": "mmap を使う",
   "settings.gpuLayers": "GPU Layers",
   "settings.flashAttention": "Flash Attention",

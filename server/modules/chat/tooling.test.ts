@@ -87,6 +87,22 @@ describe("appendMissingToolImageMarkdown", () => {
 });
 
 describe("buildKoboldPromptFromMessages", () => {
+  it("keeps memory stable and extends the previous prompt for consecutive RP turns", () => {
+    const firstTurn = buildKoboldPromptFromMessages([
+      { role: "system", content: "Stable character and scene" },
+      { role: "user", content: "First turn" }
+    ], {});
+    const secondTurn = buildKoboldPromptFromMessages([
+      { role: "system", content: "Stable character and scene" },
+      { role: "user", content: "First turn" },
+      { role: "assistant", content: "First answer" },
+      { role: "user", content: "Second turn" }
+    ], {});
+
+    expect(secondTurn.memory).toBe(firstTurn.memory);
+    expect(secondTurn.prompt.startsWith(firstTurn.prompt)).toBe(true);
+  });
+
   it("adapts structured assistant reasoning to think tags", () => {
     const { prompt } = buildKoboldPromptFromMessages([
       { role: "user", content: "Question" },

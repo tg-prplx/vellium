@@ -31,6 +31,7 @@ export interface ManagedBackendKoboldOptions {
   batchSize: number;
   highPriority: boolean;
   smartContext: boolean;
+  smartCacheSlots: number;
   useMmap: boolean;
   flashAttention: boolean;
   noMmap: boolean;
