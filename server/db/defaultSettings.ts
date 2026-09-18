@@ -143,6 +143,7 @@ export const DEFAULT_SETTINGS = {
     llamaCppThinkingMode: "auto" as const,
     llamaCppReasoningControl: false
   },
+  samplerPresets: [],
   apiParamPolicy: {
     openai: {
       sendSampler: true,

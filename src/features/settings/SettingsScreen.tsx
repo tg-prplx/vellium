@@ -18,6 +18,7 @@ import { RuntimeTuningSettings } from "./components/RuntimeTuningSettings";
 import { SpeechToTextSettings } from "./components/SpeechToTextSettings";
 import { TextToSpeechSettings } from "./components/TextToSpeechSettings";
 import { UpdateCheckSetting } from "./components/UpdateCheckSetting";
+import { SamplerPresetSettings } from "./components/SamplerPresetSettings";
 import { LocalModelsSetup } from "../../components/LocalModelsSetup";
 import { LegacyScreen } from "../legacy/public";
 import { buildSettingsNavigation, DEFAULT_PROMPT_STACK, DEFAULT_SCENE_FIELD_VISIBILITY, PROMPT_STACK_COLORS, type SettingsCategory } from "./config";
@@ -955,6 +956,8 @@ export function SettingsScreen({
     await runSettingsAction(async () => {
       const result = await api.providerActivateModel(selectedProviderId, selectedModelId);
       setSettings(result.settings); setSelectedModelId(result.actualModelId || selectedModelId);
+      window.dispatchEvent(new CustomEvent("settings-change", { detail: result.settings }));
+      window.dispatchEvent(new CustomEvent("active-model-change", { detail: result.settings }));
       showResult(`${t("settings.activeModelSet")}: ${selectedProviderId} / ${result.activeModelLabel || result.actualModelId || selectedModelId}`, "success");
     });
   }
@@ -2056,6 +2059,7 @@ export function SettingsScreen({
               <div id="settings-sampler-defaults" className="settings-section scroll-mt-24">
                 <div className="settings-section-title">{t("settings.samplerDefaults")}</div>
                 <div className="space-y-4">
+                  <SamplerPresetSettings settings={settings} onPatch={patch} />
                   {([
                     { key: "temperature" as const, label: t("inspector.temperature"), min: 0, max: 2 },
                     { key: "topP" as const, label: t("inspector.topP"), min: 0, max: 1 },

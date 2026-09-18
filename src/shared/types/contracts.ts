@@ -143,6 +143,14 @@ export interface SamplerConfig {
   llamaCppReasoningControl?: boolean;
 }
 
+export interface SamplerPreset {
+  id: string;
+  name: string;
+  samplerConfig: SamplerConfig;
+  providerId?: string | null;
+  modelId?: string | null;
+}
+
 export interface PromptBlock {
   id: Id;
   kind: "system" | "jailbreak" | "character" | "author_note" | "lore" | "scene" | "history";
@@ -753,6 +761,7 @@ export interface AppSettings {
   autoConversationDefaultTurns: number;
   mergeConsecutiveRoles: boolean;
   samplerConfig: SamplerConfig;
+  samplerPresets: SamplerPreset[];
   apiParamPolicy: ApiParamPolicy;
   defaultSystemPrompt: string;
   strictGrounding: boolean;

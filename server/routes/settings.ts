@@ -10,6 +10,7 @@ import { normalizeRuntimeTuningSettings } from "../services/runtimeTuning.js";
 import { createRequestTimeout } from "../services/requestTimeout.js";
 import { LOCAL_INFERENCE_URL } from "../services/localInference.js";
 import { LOCAL_TERATTS_MODEL_ID, LOCAL_TERATTS_VOICES } from "../../src/shared/localModelConfig.js";
+import { normalizeSamplerPresets } from "../../src/shared/samplerPresets.js";
 
 const router = Router();
 
@@ -183,6 +184,7 @@ function getSettings() {
     ),
     simpleModeWallpaperPosition: normalizeWallpaperPosition(stored.simpleModeWallpaperPosition),
     samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
+    samplerPresets: normalizeSamplerPresets(stored.samplerPresets, DEFAULT_SETTINGS.samplerConfig),
     apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) },
     promptStack,
@@ -509,6 +511,10 @@ router.patch("/", (req, res) => {
     sttModel: String(patchData.sttModel ?? current.sttModel ?? "whisper-1").trim().slice(0, 200),
     sttLanguage: String(patchData.sttLanguage ?? current.sttLanguage ?? "").trim().slice(0, 24),
     samplerConfig: { ...current.samplerConfig, ...(patchData.samplerConfig ?? {}) },
+    samplerPresets: normalizeSamplerPresets(
+      patchData.samplerPresets ?? current.samplerPresets,
+      DEFAULT_SETTINGS.samplerConfig
+    ),
     apiParamPolicy: normalizeApiParamPolicy({
       ...(current.apiParamPolicy ?? {}),
       ...((patchData as { apiParamPolicy?: unknown }).apiParamPolicy ?? {})

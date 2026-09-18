@@ -6,6 +6,7 @@ import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { normalizeRuntimeTuningSettings } from "../services/runtimeTuning.js";
 import { createRequestTimeout } from "../services/requestTimeout.js";
 import { probeLlamaCppEndpoint, setLlamaCppModelLoaded } from "../services/llamaCppApi.js";
+import { normalizeSamplerPresets, resolveModelSamplerPreset } from "../../src/shared/samplerPresets.js";
 
 const router = Router();
 const MODEL_FETCH_RETRY_DELAYS_MS = [0, 250, 750];
@@ -95,6 +96,7 @@ function getSettings() {
     ...stored,
     ...normalizeRuntimeTuningSettings(stored),
     samplerConfig: { ...DEFAULT_SETTINGS.samplerConfig, ...(stored.samplerConfig ?? {}) },
+    samplerPresets: normalizeSamplerPresets(stored.samplerPresets, DEFAULT_SETTINGS.samplerConfig),
     apiParamPolicy: normalizeApiParamPolicy(stored.apiParamPolicy),
     promptTemplates: { ...DEFAULT_SETTINGS.promptTemplates, ...(stored.promptTemplates ?? {}) }
   };
@@ -402,9 +404,16 @@ router.get("/:id/models", async (req, res) => {
 });
 
 router.post("/set-active", (req, res) => {
-  const { providerId, modelId } = req.body;
+  const providerId = String(req.body?.providerId || "").trim();
+  const modelId = String(req.body?.modelId || "").trim();
   const settings = getSettings();
-  const updated = { ...settings, activeProviderId: providerId, activeModel: modelId };
+  const modelPreset = resolveModelSamplerPreset(settings.samplerPresets, providerId, modelId);
+  const updated = {
+    ...settings,
+    activeProviderId: providerId,
+    activeModel: modelId,
+    samplerConfig: modelPreset ? { ...modelPreset.samplerConfig } : settings.samplerConfig
+  };
   db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(updated));
   res.json(updated);
 });

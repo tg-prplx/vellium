@@ -14,6 +14,7 @@ import type {
   RagCollection,
   RpSceneState,
   SamplerConfig,
+  SamplerPreset,
   SecuritySettings,
   UserPersona
 } from "../../shared/types/contracts";
@@ -33,6 +34,7 @@ interface ChatBootstrapParams {
   setActiveModelLabel: Dispatch<SetStateAction<string>>;
   setChatModelId: Dispatch<SetStateAction<string>>;
   setSamplerConfig: Dispatch<SetStateAction<SamplerConfig>>;
+  setSamplerPresets: Dispatch<SetStateAction<SamplerPreset[]>>;
   setPromptStack: Dispatch<SetStateAction<PromptBlock[]>>;
   setAlternateSimpleMode: Dispatch<SetStateAction<boolean>>;
   setTtsRealtime: Dispatch<SetStateAction<boolean>>;
@@ -89,6 +91,7 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
         params.setChatModelId("");
       }
       if (settings.samplerConfig) params.setSamplerConfig(settings.samplerConfig);
+      params.setSamplerPresets(settings.samplerPresets || []);
       params.setPromptStack(normalizePromptStack(settings.promptStack));
       params.setAlternateSimpleMode(settings.alternateSimpleMode === true);
       params.setTtsRealtime(settings.ttsRealtime === true);

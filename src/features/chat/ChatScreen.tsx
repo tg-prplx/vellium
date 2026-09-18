@@ -19,6 +19,7 @@ import type {
   LoreBook,
   RagCollection,
   SamplerConfig,
+  SamplerPreset,
   ProviderProfile,
   ProviderModel,
   SecuritySettings,
@@ -72,6 +73,7 @@ import { SceneControlsEditor } from "./components/SceneControlsEditor";
 import { SimpleSceneModal } from "./components/SimpleSceneModal";
 import { BranchManager } from "./components/BranchManager";
 import { RpReasoningToggle } from "./components/RpReasoningToggle";
+import { SamplerPresetSelect } from "./components/SamplerPresetSelect";
 import {
   failBackgroundTask,
   finishBackgroundTask,
@@ -167,6 +169,7 @@ export function ChatScreen() {
     koboldBannedPhrases: [],
     koboldUseDefaultBadwords: false
   });
+  const [samplerPresets, setSamplerPresets] = useState<SamplerPreset[]>([]);
 
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -489,6 +492,7 @@ export function ChatScreen() {
     setActiveModelLabel,
     setChatModelId,
     setSamplerConfig,
+    setSamplerPresets,
     setPromptStack,
     setAlternateSimpleMode,
     setTtsRealtime,
@@ -536,12 +540,26 @@ export function ChatScreen() {
       setTtsRealtime(detail.ttsRealtime === true);
       setRpReasoningEnabled(detail.rpReasoningEnabled === true);
       setAutoConversationConfig({ turns: detail.autoConversationDefaultTurns, delayMs: detail.autoConversationDelayMs });
+      setSamplerPresets(detail.samplerPresets || []);
       if (detail.alternateSimpleMode !== true) {
         setSimpleSidebarOpen(true);
       }
     };
     window.addEventListener("settings-change", handler);
     return () => window.removeEventListener("settings-change", handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<AppSettings>).detail;
+      if (!detail) return;
+      setChatProviderId(detail.activeProviderId || "");
+      setChatModelId(detail.activeModel || "");
+      setActiveModelLabel(detail.activeModel || "");
+      if (detail.samplerConfig) setSamplerConfig(detail.samplerConfig);
+    };
+    window.addEventListener("active-model-change", handler);
+    return () => window.removeEventListener("active-model-change", handler);
   }, []);
 
   useEffect(() => {
@@ -2362,6 +2380,7 @@ export function ChatScreen() {
                           </span>
                         )}
                         {loadingModels && <span>{t("chat.loading")}</span>}
+                        <SamplerPresetSelect presets={samplerPresets} samplerConfig={samplerConfig} disabled={chatGenerationBusy} onApply={(preset) => setSamplerConfig({ ...preset.samplerConfig })} />
                         <RpReasoningToggle enabled={rpReasoningEnabled} disabled={chatGenerationBusy || savingRpReasoning} variant="status" onToggle={() => { void toggleRpReasoning(); }} />
                         {chatMode === "light_rp" && <span>{t("inspector.modeLightRpHint")}</span>}
                       </div>
@@ -3209,6 +3228,7 @@ export function ChatScreen() {
                         <option value="">{t("settings.selectModel")}</option>
                         {models.map((m) => (<option key={m.id} value={m.id}>{m.label || m.id}</option>))}
                       </select>
+                      <SamplerPresetSelect presets={samplerPresets} samplerConfig={samplerConfig} disabled={chatGenerationBusy} variant="simple" onApply={(preset) => setSamplerConfig({ ...preset.samplerConfig })} />
                     </div>
                     <div className="chat-simple-model-footer">
                       <span className="text-[10px] text-text-tertiary">{loadingModels ? t("chat.loading") : `${models.length} ${t("chat.model")}`}</span>

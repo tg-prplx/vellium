@@ -2372,6 +2372,61 @@ process.stdin.on("data", (chunk) => {
     });
   });
 
+  it("stores sampler presets and applies the preset bound to an activated model", async () => {
+    const originalResponse = await fetch(`${baseUrl}/api/settings`);
+    const original = await originalResponse.json() as Record<string, unknown>;
+
+    try {
+      const presetResponse = await requestJson("/api/settings", {
+        method: "PATCH",
+        body: {
+          samplerPresets: [{
+            id: "nemo-rp",
+            name: "Nemo RP",
+            providerId: "local-provider",
+            modelId: "mistral-nemo",
+            samplerConfig: { temperature: 0.42, topP: 0.88, unsupported: { value: true } }
+          }]
+        }
+      });
+      expect(presetResponse.ok).toBe(true);
+      const presetSettings = await presetResponse.json();
+      expect(presetSettings.samplerPresets).toHaveLength(1);
+      expect(presetSettings.samplerPresets[0]).toMatchObject({
+        id: "nemo-rp",
+        name: "Nemo RP",
+        providerId: "local-provider",
+        modelId: "mistral-nemo",
+        samplerConfig: { temperature: 0.42, topP: 0.88 }
+      });
+      expect(presetSettings.samplerPresets[0].samplerConfig.unsupported).toBeUndefined();
+
+      const activateBound = await postJson("/api/providers/set-active", {
+        providerId: "local-provider",
+        modelId: "mistral-nemo"
+      });
+      expect(activateBound).toMatchObject({
+        activeProviderId: "local-provider",
+        activeModel: "mistral-nemo",
+        samplerConfig: { temperature: 0.42, topP: 0.88 }
+      });
+
+      await requestJson("/api/settings", { method: "PATCH", body: { samplerConfig: { temperature: 0.77 } } });
+      const activateUnbound = await postJson("/api/providers/set-active", {
+        providerId: "local-provider",
+        modelId: "another-model"
+      });
+      expect(activateUnbound.samplerConfig.temperature).toBe(0.77);
+    } finally {
+      await updateSettings({
+        samplerPresets: original.samplerPresets,
+        samplerConfig: original.samplerConfig,
+        activeProviderId: original.activeProviderId,
+        activeModel: original.activeModel
+      });
+    }
+  });
+
   it("keeps agent routes disabled until the feature flag is enabled", async () => {
     await updateSettings({
       agentsEnabled: false
