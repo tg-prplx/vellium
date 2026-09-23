@@ -1,6 +1,6 @@
-import { EmptyState } from "../../../components/Panels";
 import type { Chapter, Scene } from "../../../shared/types/contracts";
 import type { TranslationKey } from "../../../shared/i18n";
+import { WriterEmptyState } from "./WriterEmptyState";
 
 interface SimpleWriterEditorProps {
   t: (key: TranslationKey) => string;
@@ -13,6 +13,11 @@ interface SimpleWriterEditorProps {
   simpleSceneDraftContent: string;
   simpleSceneDraftDirty: boolean;
   simpleSceneDraftSaving: boolean;
+  showProjectActions: boolean;
+  projectActionsBusy: boolean;
+  onCreateChapter: () => void;
+  onCreateProject: () => void;
+  onImportDocxAsBook: () => void;
   onSelectChapter: (value: string | null) => void;
   onSelectScene: (value: string | null) => void;
   onDeleteScene: (scene: Scene) => void;
@@ -32,6 +37,11 @@ export function SimpleWriterEditor({
   simpleSceneDraftContent,
   simpleSceneDraftDirty,
   simpleSceneDraftSaving,
+  showProjectActions,
+  projectActionsBusy,
+  onCreateChapter,
+  onCreateProject,
+  onImportDocxAsBook,
   onSelectChapter,
   onSelectScene,
   onDeleteScene,
@@ -120,7 +130,7 @@ export function SimpleWriterEditor({
           </div>
         ) : (
           <div className="flex h-full min-h-0 flex-col">
-            <div className="mb-2 grid min-w-0 grid-cols-1 gap-1.5 md:grid-cols-2">
+            {chapters.length > 0 ? <div className="mb-2 grid min-w-0 grid-cols-1 gap-1.5 md:grid-cols-2">
               <select
                 value={selectedChapterId || ""}
                 onChange={(e) => onSelectChapter(e.target.value || null)}
@@ -141,11 +151,16 @@ export function SimpleWriterEditor({
                   <option key={scene.id} value={scene.id}>{scene.title}</option>
                 ))}
               </select>
-            </div>
+            </div> : null}
             <div className="flex-1 rounded-lg border border-border-subtle bg-bg-secondary">
-              <EmptyState
-                title={t("writing.noChapters")}
-                description={chapters.length > 0 ? t("writing.noChaptersDesc") : t("writing.selectProject")}
+              <WriterEmptyState
+                t={t}
+                hasProject={!showProjectActions}
+                chapterCount={chapters.length}
+                busy={projectActionsBusy}
+                onCreateProject={onCreateProject}
+                onImportDocxAsBook={onImportDocxAsBook}
+                onCreateChapter={onCreateChapter}
               />
             </div>
           </div>

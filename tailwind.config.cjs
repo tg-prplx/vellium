@@ -48,10 +48,11 @@ module.exports = {
         mono: ["JetBrains Mono", "ui-monospace", "monospace"]
       },
       borderRadius: {
-        "2xl": "16px",
-        "xl": "12px",
-        "lg": "8px",
-        "md": "6px"
+        "2xl": "18px",
+        "xl": "14px",
+        "lg": "10px",
+        "md": "7px",
+        "sm": "5px"
       },
       boxShadow: {
         "soft": "0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2)",

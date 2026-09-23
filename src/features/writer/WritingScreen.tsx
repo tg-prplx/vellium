@@ -7,6 +7,7 @@ import { AvatarBadge } from "../../components/AvatarBadge";
 import { triggerBlobDownload } from "../../shared/download";
 import { CollapsibleSection } from "./components/CollapsibleSection";
 import { WritingWorkspaceModeSwitch } from "./components/WritingWorkspaceModeSwitch";
+import { WriterCastEmptyState, WriterEmptyState } from "./components/WriterEmptyState";
 import { SimpleWriterEditor } from "./components/SimpleWriterEditor";
 import {
   CHARACTER_AI_EDIT_FIELDS,
@@ -1209,6 +1210,8 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
       leftClassName={writingSimpleModeActive ? "writing-simple-left-panel" : ""}
       centerClassName={writingSimpleModeActive ? "writing-simple-center-panel" : ""}
       rightClassName={writingSimpleModeActive ? "writing-simple-right-panel" : ""}
+      leftInert={writingSimpleModeActive && !simpleWritingLibraryOpen}
+      rightInert={writingSimpleModeActive && !simpleWritingInspectorOpen}
       left={
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-0.5">
           <div className="flex items-center justify-between gap-2">
@@ -1489,9 +1492,11 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
               <Badge>{activeProject?.characterIds?.length ?? 0}</Badge>
             </div>
             {characters.length === 0 ? (
-              <div className="rounded-md border border-border-subtle bg-bg-secondary px-2 py-2 text-[11px] text-text-tertiary">
-                {t("writing.castImportHint")}
-              </div>
+              <WriterCastEmptyState
+                description={t("writing.castImportHint")}
+                actionLabel={t("writing.openCharacterLibrary")}
+                onOpen={() => window.dispatchEvent(new CustomEvent("open-app-tab", { detail: { tabId: "characters" } }))}
+              />
             ) : (
               <div className="max-h-40 space-y-1 overflow-y-auto">
                 {characters.map((character) => {
@@ -1831,6 +1836,9 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
               simpleSceneDraftContent={simpleSceneDraftContent}
               simpleSceneDraftDirty={simpleSceneDraftDirty}
               simpleSceneDraftSaving={simpleSceneDraftSaving}
+              showProjectActions={!activeProject} projectActionsBusy={busy}
+              onCreateChapter={() => { void createChapter(); }}
+              onCreateProject={() => { void createProject(); }} onImportDocxAsBook={() => { setDocxImportAsBook(true); openDocxPicker(); }}
               onSelectChapter={setSelectedChapterId}
               onSelectScene={setSelectedSceneId}
               onDeleteScene={(scene) => { void deleteScene(scene); }}
@@ -1846,9 +1854,14 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
             <>
               <div>
                 {chapters.length === 0 ? (
-                  <EmptyState
-                    title={t("writing.noChapters")}
-                    description={activeProject ? t("writing.noChaptersDesc") : t("writing.selectProject")}
+                  <WriterEmptyState
+                    t={t}
+                    hasProject={Boolean(activeProject)}
+                    chapterCount={chapters.length}
+                    busy={busy}
+                    onCreateProject={() => { void createProject(); }}
+                    onImportDocxAsBook={() => { setDocxImportAsBook(true); openDocxPicker(); }}
+                    onCreateChapter={() => { void createChapter(); }}
                   />
                 ) : (
                   <div className="list-animate space-y-3">
@@ -2032,22 +2045,12 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
           )}
           <PluginSlotMount
             slotId="writing.editor.bottom"
-            contextPayload={{
-              projectId: activeProject?.id || null,
-              chapterId: selectedChapterId,
-              sceneId: selectedSceneId,
-              simpleMode: writingSimpleModeActive
-            }}
+            contextPayload={{ projectId: activeProject?.id || null, chapterId: selectedChapterId, sceneId: selectedSceneId, simpleMode: writingSimpleModeActive }}
           />
           <PluginActionBar
             location="writing.editor"
             className="mt-2 flex flex-wrap items-center gap-1.5"
-            contextPayload={{
-              projectId: activeProject?.id || null,
-              chapterId: selectedChapterId,
-              sceneId: selectedSceneId,
-              simpleMode: writingSimpleModeActive
-            }}
+            contextPayload={{ projectId: activeProject?.id || null, chapterId: selectedChapterId, sceneId: selectedSceneId, simpleMode: writingSimpleModeActive }}
           />
         </div>
       }

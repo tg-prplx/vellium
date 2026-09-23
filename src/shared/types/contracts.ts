@@ -710,7 +710,7 @@ export interface AppSettings {
   agentToolContextChars: number;
   /** @deprecated The non-Simple workspace can be enabled only through the Legacy tab. */
   alternateSimpleMode: boolean;
-  theme: "dark" | "light" | "custom";
+  theme: "dark" | "light" | "cream-rose" | "custom";
   pluginThemeId?: string | null;
   fontScale: number;
   density: "comfortable" | "compact";

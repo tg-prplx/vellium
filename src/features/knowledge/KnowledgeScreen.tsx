@@ -191,7 +191,7 @@ export function KnowledgeScreen() {
       left={
         <>
           <PanelTitle
-            action={(
+            action={collections.length > 0 ? (
               <button
                 onClick={() => { void createCollection(); }}
                 disabled={mutatingCollection}
@@ -199,7 +199,7 @@ export function KnowledgeScreen() {
               >
                 + {t("chat.new")}
               </button>
-            )}
+            ) : undefined}
           >
             {t("knowledge.title")}
           </PanelTitle>
@@ -227,8 +227,9 @@ export function KnowledgeScreen() {
           )}
         </>
       }
-      center={
-        selectedCollection ? (
+      center={loading ? (
+        <EmptyState title={t("knowledge.loading")} />
+      ) : selectedCollection ? (
           <div className="knowledge-editor-scroll">
             <div className="knowledge-editor-section knowledge-collection-section">
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("knowledge.collectionName")}</label>
@@ -321,17 +322,30 @@ export function KnowledgeScreen() {
             </div>
           </div>
         ) : (
-          <EmptyState title={t("knowledge.selectCollection")} description={t("knowledge.selectCollectionDesc")} />
+          <EmptyState
+            title={t("knowledge.selectCollection")}
+            description={t("knowledge.selectCollectionDesc")}
+            action={collections.length === 0 && (
+              <button
+                type="button"
+                onClick={() => { void createCollection(); }}
+                disabled={mutatingCollection}
+                className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40"
+              >
+                {t("knowledge.createCollection")}
+              </button>
+            )}
+          />
         )
       }
       right={
-        <div className="knowledge-help-content space-y-3 text-xs text-text-secondary">
+        <div className="knowledge-help-content space-y-4 text-xs text-text-secondary">
           <PanelTitle>{t("knowledge.howItWorks")}</PanelTitle>
-          <div className="knowledge-help-card rounded-lg border border-border-subtle bg-bg-primary p-3 leading-relaxed">
+          <div className="border-b border-border-subtle pb-3 leading-relaxed">
             <div className="font-medium text-text-primary">{t("knowledge.howItWorksLexical")}</div>
             <div className="mt-1">{t("knowledge.howItWorksLexicalDesc")}</div>
           </div>
-          <div className="knowledge-help-card rounded-lg border border-border-subtle bg-bg-primary p-3 leading-relaxed">
+          <div className="leading-relaxed">
             <div className="font-medium text-text-primary">{t("knowledge.howItWorksVector")}</div>
             <div className="mt-1">{t("knowledge.howItWorksVectorDesc")}</div>
           </div>

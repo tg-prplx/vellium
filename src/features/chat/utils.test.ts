@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FileAttachment } from "../../shared/types/contracts";
-import { imageSourceFromAttachment, normalizeReasoningDisplayText, parseToolCallContent, parseToolResultDisplay, renderContentWithFallback } from "./utils";
+import { imageSourceFromAttachment, normalizeReasoningDisplayText, parseToolCallContent, parseToolResultDisplay, renderContentWithFallback, renderMarkdown } from "./utils";
 
 const originalWindow = globalThis.window;
 
@@ -82,6 +82,20 @@ describe("tool result display parsing", () => {
 });
 
 describe("chat content rendering", () => {
+  it("keeps a soft markdown newline in the same paragraph", () => {
+    const html = renderMarkdown("A sentence that wraps\non the next source line.");
+
+    expect(html).toMatch(/A sentence that wraps\s+on the next source line\./);
+    expect(html).not.toContain("<br");
+  });
+
+  it("keeps paragraph breaks and explicit markdown hard breaks", () => {
+    const html = renderMarkdown("First paragraph.\n\nSecond line.  \nHard break.");
+
+    expect(html).toContain("<p>First paragraph.</p>");
+    expect(html).toContain("<p>Second line.<br>Hard break.</p>");
+  });
+
   it("falls back to escaped plain text when sanitized markdown renders empty", () => {
     const html = renderContentWithFallback("![generated](data:image/png;base64,abc)", undefined, undefined, {
       sanitizeMarkdown: true,

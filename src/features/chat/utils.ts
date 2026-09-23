@@ -90,7 +90,7 @@ function sanitizeImageUrl(raw: string | null | undefined, allowRemoteImages: boo
 
 function renderMarkdownSafe(text: string, security: AppSettings["security"]): string {
   if (security.sanitizeMarkdown === false) {
-    return marked.parse(text, { async: false, breaks: true, gfm: true }) as string;
+    return marked.parse(text, { async: false, breaks: false, gfm: true }) as string;
   }
 
   const renderer = new marked.Renderer();
@@ -119,7 +119,7 @@ function renderMarkdownSafe(text: string, security: AppSettings["security"]): st
 
   return marked.parse(text, {
     async: false,
-    breaks: true,
+    breaks: false,
     gfm: true,
     renderer
   }) as string;
@@ -156,7 +156,10 @@ export function renderContentWithFallback(
   if (renderedHtmlHasVisibleContent(html) || !String(replaced || "").trim()) {
     return html;
   }
-  return `<p>${escapeHtml(replaced).replace(/\r?\n/g, "<br />")}</p>`;
+  const paragraphs = String(replaced).trim().split(/\r?\n(?:[ \t]*\r?\n)+/);
+  return paragraphs
+    .map((paragraph) => `<p>${escapeHtml(paragraph.trim()).replace(/ {2,}\r?\n/g, "<br />").replace(/\r?\n/g, " ")}</p>`)
+    .join("\n");
 }
 
 export function guessMimeType(filename: string): string {

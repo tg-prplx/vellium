@@ -29,6 +29,21 @@ const KnowledgeScreen = lazy(() => import("./features/knowledge/KnowledgeScreen"
 const SettingsScreen = lazy(() => import("./features/settings/SettingsScreen").then((module) => ({ default: module.SettingsScreen })));
 const WelcomeScreen = lazy(() => import("./features/welcome/WelcomeScreen").then((module) => ({ default: module.WelcomeScreen })));
 
+const CACHED_SCREEN_IDS = ["writing", "characters", "character-forge", "pets", "lorebooks", "knowledge", "settings"] as const;
+type CachedScreenId = typeof CACHED_SCREEN_IDS[number];
+const CORE_SCREEN_IDS = new Set<string>(["chat", "live", ...CACHED_SCREEN_IDS]);
+
+const preloadScreenModules: Partial<Record<string, () => Promise<unknown>>> = {
+  live: () => import("./features/live/LiveScreen"),
+  writing: () => import("./features/writer/WritingScreen"),
+  characters: () => import("./features/characters/CharactersScreen"),
+  "character-forge": () => import("./features/writer/WritingScreen"),
+  pets: () => import("./features/pets/PetsScreen"),
+  lorebooks: () => import("./features/lorebooks/LorebooksScreen"),
+  knowledge: () => import("./features/knowledge/KnowledgeScreen"),
+  settings: () => import("./features/settings/SettingsScreen")
+};
+
 type AppTab = {
   id: string;
   label: string;
@@ -73,7 +88,39 @@ function AppContent({
   } | null>(null);
   const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
   const [compactNavigation, setCompactNavigation] = useState(() => window.matchMedia("(max-width: 480px)").matches);
+  const [visitedScreens, setVisitedScreens] = useState<Set<string>>(() => new Set(["chat"]));
+  const preloadedScreensRef = useRef(new Set<string>());
   const navRef = useRef<HTMLElement | null>(null);
+
+  const navigateToTab = useCallback((tabId: string) => {
+    if (CORE_SCREEN_IDS.has(tabId)) {
+      setVisitedScreens((current) => {
+        if (current.has(tabId)) return current;
+        const next = new Set(current);
+        next.add(tabId);
+        return next;
+      });
+    }
+    setActiveTab(tabId);
+  }, [setActiveTab]);
+
+  useEffect(() => {
+    if (!CACHED_SCREEN_IDS.includes(activeTab as CachedScreenId)) return;
+    setVisitedScreens((current) => {
+      if (current.has(activeTab)) return current;
+      const next = new Set(current);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
+
+  const preloadScreen = useCallback((tabId: string) => {
+    if (preloadedScreensRef.current.has(tabId)) return;
+    const load = preloadScreenModules[tabId];
+    if (!load) return;
+    preloadedScreensRef.current.add(tabId);
+    void load().catch(() => preloadedScreensRef.current.delete(tabId));
+  }, []);
 
   const coreTabs = useMemo<AppTab[]>(() => {
     return [
@@ -103,8 +150,8 @@ function AppContent({
 
   useEffect(() => {
     if (tabs.some((tab) => tab.id === activeTab)) return;
-    setActiveTab("chat");
-  }, [tabs, activeTab]);
+    navigateToTab("chat");
+  }, [tabs, activeTab, navigateToTab]);
 
   useEffect(() => {
     setOpenNavGroup(null);
@@ -145,11 +192,20 @@ function AppContent({
       if (!threadId) return;
       setPendingAgentThreadId(threadId);
       setPendingSettingsView({ category: "legacy", sectionId: "settings-legacy" });
-      setActiveTab("settings");
+      navigateToTab("settings");
     };
     window.addEventListener("open-agents-thread", handler);
     return () => window.removeEventListener("open-agents-thread", handler);
-  }, [setActiveTab]);
+  }, [navigateToTab]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const tabId = (event as CustomEvent<{ tabId?: unknown }>).detail?.tabId;
+      if (typeof tabId === "string" && CORE_SCREEN_IDS.has(tabId)) navigateToTab(tabId);
+    };
+    window.addEventListener("open-app-tab", handler);
+    return () => window.removeEventListener("open-app-tab", handler);
+  }, [navigateToTab]);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -160,7 +216,7 @@ function AppContent({
       }>).detail;
       if (detail?.category === "agents") {
         setPendingSettingsView({ category: "legacy", sectionId: "settings-legacy" });
-        setActiveTab("settings");
+        navigateToTab("settings");
         window.setTimeout(() => window.dispatchEvent(new CustomEvent("open-legacy-view")), 0);
         return;
       }
@@ -169,35 +225,36 @@ function AppContent({
         sectionId: typeof detail?.sectionId === "string" ? detail.sectionId : undefined,
         targetLabel: typeof detail?.targetLabel === "string" ? detail.targetLabel : undefined
       });
-      setActiveTab("settings");
+      navigateToTab("settings");
     };
     window.addEventListener("open-settings-view", handler);
     return () => window.removeEventListener("open-settings-view", handler);
-  }, [setActiveTab]);
+  }, [navigateToTab]);
 
-  const content = useMemo(() => {
-    if (activeTab === "chat") return null;
-    if (activeTab === "live") return <LiveScreen />;
-    if (activeTab === "writing") return <WritingScreen key="writing-books" initialWorkspaceMode="books" lockWorkspaceMode />;
-    if (activeTab === "characters") return <CharactersScreen />;
-    if (activeTab === "character-forge") return <WritingScreen key="character-forge" initialWorkspaceMode="characters" lockWorkspaceMode />;
-    if (activeTab === "pets") return <PetsScreen />;
-    if (activeTab === "lorebooks") return <LorebooksScreen />;
-    if (activeTab === "knowledge") return <KnowledgeScreen />;
-    if (activeTab === "settings") {
-      return (
-        <SettingsScreen
-          initialCategory={pendingSettingsView?.category}
-          initialSectionId={pendingSettingsView?.sectionId}
-          initialTargetLabel={pendingSettingsView?.targetLabel}
-          onInitialViewHandled={() => setPendingSettingsView(null)}
-          initialLegacyAgentThreadId={pendingAgentThreadId}
-          onInitialLegacyAgentThreadHandled={() => setPendingAgentThreadId(null)}
-        />
-      );
-    }
+  const cachedScreens = useMemo<Record<CachedScreenId, React.ReactNode>>(() => ({
+    writing: <WritingScreen key="writing-books" initialWorkspaceMode="books" lockWorkspaceMode />,
+    characters: <CharactersScreen />,
+    "character-forge": <WritingScreen key="character-forge" initialWorkspaceMode="characters" lockWorkspaceMode />,
+    pets: <PetsScreen />,
+    lorebooks: <LorebooksScreen />,
+    knowledge: <KnowledgeScreen />,
+    settings: (
+      <SettingsScreen
+        initialCategory={pendingSettingsView?.category}
+        initialSectionId={pendingSettingsView?.sectionId}
+        initialTargetLabel={pendingSettingsView?.targetLabel}
+        onInitialViewHandled={() => setPendingSettingsView(null)}
+        initialLegacyAgentThreadId={pendingAgentThreadId}
+        onInitialLegacyAgentThreadHandled={() => setPendingAgentThreadId(null)}
+        isActive={activeTab === "settings"}
+      />
+    )
+  }), [pendingSettingsView, pendingAgentThreadId, activeTab]);
+
+  const pluginContent = useMemo(() => {
+    if (CORE_SCREEN_IDS.has(activeTab)) return null;
     const pluginTab = tabs.find((tab) => tab.id === activeTab && tab.kind === "plugin");
-    if (!pluginTab?.plugin || !pluginTab.pluginUrl) return <SettingsScreen />;
+    if (!pluginTab?.plugin || !pluginTab.pluginUrl) return null;
     return (
       <PluginFrame
         plugin={pluginTab.plugin}
@@ -209,20 +266,20 @@ function AppContent({
         className="plugin-tab-frame"
       />
     );
-  }, [activeTab, tabs, locale, pendingAgentThreadId, pendingSettingsView]);
+  }, [activeTab, tabs, locale, catalogRevision]);
 
   const isElectron = !!window.electronAPI;
 
   function openTaskScope(scope: BackgroundTaskScope) {
     if (scope === "agents") {
       setPendingSettingsView({ category: "legacy", sectionId: "settings-legacy" });
-      setActiveTab("settings");
+      navigateToTab("settings");
       window.setTimeout(() => {
         window.dispatchEvent(new CustomEvent("open-legacy-view", { detail: { view: "agents" } }));
       }, 0);
       return;
     }
-    setActiveTab(scope);
+    navigateToTab(scope);
   }
 
   const noDrag = isElectron
@@ -248,8 +305,7 @@ function AppContent({
     });
     return [
       { id: "work", label: t("tab.groupWork"), tabs: pick(["chat", "live", "writing"]) },
-      { id: "characters", label: t("tab.groupCharacters"), tabs: pick(["characters", "character-forge", "pets"]) },
-      { id: "knowledge", label: t("tab.groupKnowledge"), tabs: pick(["knowledge", "lorebooks"]) },
+      { id: "library", label: t("tab.groupLibrary"), tabs: pick(["characters", "lorebooks", "knowledge", "character-forge", "pets"]) },
       { id: "settings", label: t("tab.settings"), tabs: pick(["settings"]) },
       { id: "plugins", label: t("tab.groupPlugins"), tabs: tabs.filter((tab) => tab.kind === "plugin") }
     ].filter((group) => group.tabs.length > 0);
@@ -279,7 +335,14 @@ function AppContent({
                   setOpenNavGroup((current) => current === group.id ? null : group.id);
                   return;
                 }
-                setActiveTab(triggerTab.id);
+                preloadScreen(triggerTab.id);
+                navigateToTab(triggerTab.id);
+              }}
+              onPointerEnter={() => {
+                if (group.tabs.length === 1) preloadScreen(triggerTab.id);
+              }}
+              onFocus={() => {
+                if (group.tabs.length === 1) preloadScreen(triggerTab.id);
               }}
               className={`app-tab-button app-nav-trigger flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                 isGroupActive
@@ -289,7 +352,9 @@ function AppContent({
             >
               <TabIcon path={triggerTab.icon} />
               <span>{group.label}</span>
-              {activeGroupTab && group.tabs.length > 1 ? <span className="app-nav-current">{activeGroupTab.label}</span> : null}
+              {activeGroupTab && group.tabs.length > 1 && activeGroupTab.label !== group.label
+                ? <span className="app-nav-current">{activeGroupTab.label}</span>
+                : null}
               {group.tabs.length > 1 ? <span className="app-nav-chevron" aria-hidden="true">⌄</span> : null}
             </button>
             {group.tabs.length > 1 && isMenuOpen ? (
@@ -300,8 +365,10 @@ function AppContent({
                     key={tab.id}
                     type="button"
                     role="menuitem"
+                    onPointerEnter={() => preloadScreen(tab.id)}
+                    onFocus={() => preloadScreen(tab.id)}
                     onClick={() => {
-                      setActiveTab(tab.id);
+                      navigateToTab(tab.id);
                       setOpenNavGroup(null);
                     }}
                     className={`app-nav-menu-item ${activeTab === tab.id ? "is-active" : ""}`}
@@ -362,15 +429,32 @@ function AppContent({
 
       <main className="app-main w-full flex-1 overflow-hidden p-4">
         <div className="tab-content-enter h-full">
-          <Suspense fallback={<ScreenFallback />}>
+          <div
+            className={`app-screen-keepalive h-full ${activeTab === "chat" ? "is-active" : "is-hidden"}`}
+            aria-hidden={activeTab === "chat" ? undefined : true}
+          >
+            <Suspense fallback={<ScreenFallback />}><ChatScreen /></Suspense>
+          </div>
+          <div
+            className={`app-screen-keepalive h-full ${activeTab === "live" ? "is-active" : "is-hidden"}`}
+            aria-hidden={activeTab === "live" ? undefined : true}
+          >
+            {activeTab === "live" ? <Suspense fallback={<ScreenFallback />}><LiveScreen /></Suspense> : null}
+          </div>
+          {CACHED_SCREEN_IDS.map((tabId) => visitedScreens.has(tabId) || activeTab === tabId ? (
             <div
-              className={`app-screen-keepalive h-full ${activeTab === "chat" ? "is-active" : "is-hidden"}`}
-              aria-hidden={activeTab === "chat" ? undefined : true}
+              key={tabId}
+              className={`app-screen-keepalive h-full ${activeTab === tabId ? "is-active" : "is-hidden"}`}
+              aria-hidden={activeTab === tabId ? undefined : true}
             >
-              <ChatScreen />
+              <Suspense fallback={<ScreenFallback />}>{cachedScreens[tabId]}</Suspense>
             </div>
-            {activeTab !== "chat" ? content : null}
-          </Suspense>
+          ) : null)}
+          {pluginContent && activeTab !== "chat" ? (
+            <Suspense fallback={<ScreenFallback />}>
+              <div className="app-screen-keepalive is-active h-full">{pluginContent}</div>
+            </Suspense>
+          ) : null}
         </div>
       </main>
       {compactNavigation ? renderTabsNode(true) : null}
@@ -381,7 +465,7 @@ function AppContent({
             sectionId: entry.sectionId,
             targetLabel: entry.targetLabel
           });
-          setActiveTab("settings");
+          navigateToTab("settings");
         }}
       />
     </div>
@@ -443,10 +527,15 @@ function applyTheme(theme: string, customTheme?: { base: "dark" | "light"; varia
   const wallpaperPresent = root.dataset.simpleWallpaper === "active";
   clearWallpaperTheme(root);
   clearCustomThemeVariables();
-  root.classList.remove("theme-light");
-  const effectiveTheme = theme === "custom" ? customTheme?.base ?? "dark" : theme;
+  root.classList.remove("theme-light", "theme-cream-rose");
+  const effectiveTheme = theme === "custom"
+    ? customTheme?.base ?? "dark"
+    : theme === "cream-rose" ? "light" : theme;
   if (effectiveTheme === "light") {
     root.classList.add("theme-light");
+  }
+  if (theme === "cream-rose") {
+    root.classList.add("theme-cream-rose");
   }
   if (theme === "custom" && customTheme) {
     for (const [key, value] of Object.entries(customTheme.variables)) {

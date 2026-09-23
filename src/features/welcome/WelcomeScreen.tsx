@@ -120,7 +120,7 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
               <header><span>{t("welcome.stepBasics")}</span><h2>{t("welcome.basicsTitle")}</h2><p>{t("welcome.basicsDesc")}</p></header>
               <div className="welcome-basics-grid">
                 <label><span>{t("welcome.interfaceLanguage")}</span><select value={interfaceLanguage} onChange={(event) => changeLocale(event.target.value as typeof interfaceLanguage)}><option value="en">English</option><option value="ru">Русский</option><option value="zh">中文</option><option value="ja">日本語</option></select></label>
-                <fieldset><legend>{t("welcome.theme")}</legend><div className="welcome-theme-picker">{(["dark", "light"] as const).map((value) => <button key={value} type="button" className={theme === value ? "is-active" : ""} onClick={() => setTheme(value)}><i className={`theme-${value}`} />{t(value === "dark" ? "settings.dark" : "settings.light")}</button>)}</div></fieldset>
+                <fieldset><legend>{t("welcome.theme")}</legend><div className="welcome-theme-picker">{(["dark", "light", "cream-rose"] as const).map((value) => <button key={value} type="button" className={theme === value ? "is-active" : ""} onClick={() => setTheme(value)}><i className={`theme-${value}`} />{t(value === "dark" ? "settings.dark" : value === "light" ? "settings.light" : "settings.creamRose")}</button>)}</div></fieldset>
               </div>
               <div className="welcome-simple-note"><span>✓</span><div><b>{t("welcome.simpleReadyTitle")}</b><p>{t("welcome.simpleReadyDesc")}</p></div></div>
             </>

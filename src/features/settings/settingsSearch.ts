@@ -58,7 +58,7 @@ const SEARCH_DEFINITIONS: SearchDefinition[] = [
   ["voice", "settings-stt", "localModels.bundledSttTitle", "bundled local whisper встроенное локальное распознавание установить скачать"],
   ["backends", "settings-managed-backends", "settings.managedBackends", "llama cpp backend local server бекенд"],
   ["backends", "settings-managed-backends", "settings.backendStartTimeout", "backend startup timeout запуск модели таймаут"],
-  ["interface", "settings-general", "settings.theme", "theme dark light тема"],
+  ["interface", "settings-general", "settings.theme", "theme dark light cream rose розовая кремовая тема"],
   ["interface", "settings-general", "settings.pluginTheme", "plugin theme тема плагина"],
   ["interface", "settings-wallpaper", "settings.wallpaperActive", "wallpaper background обои фон"],
   ["interface", "settings-wallpaper", "settings.wallpaperDim", "wallpaper dim затемнение обоев"],

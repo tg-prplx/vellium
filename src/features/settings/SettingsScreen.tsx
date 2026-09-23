@@ -143,7 +143,8 @@ export function SettingsScreen({
   initialTargetLabel,
   onInitialViewHandled,
   initialLegacyAgentThreadId,
-  onInitialLegacyAgentThreadHandled
+  onInitialLegacyAgentThreadHandled,
+  isActive = true
 }: {
   initialCategory?: string;
   initialSectionId?: string;
@@ -151,6 +152,7 @@ export function SettingsScreen({
   onInitialViewHandled?: () => void;
   initialLegacyAgentThreadId?: string | null;
   onInitialLegacyAgentThreadHandled?: () => void;
+  isActive?: boolean;
 } = {}) {
   const { t } = useI18n();
   const { catalog: pluginCatalog, plugins, loading: pluginsLoading, error: pluginError, setPluginEnabled, refresh: refreshPlugins, pendingPluginStates } = usePlugins();
@@ -1330,7 +1332,6 @@ export function SettingsScreen({
               </p>
             </div>
             <div className="settings-workbench-meta">
-              <span className={`settings-workbench-pill is-status is-${autosaveVariant}`}>{autosaveText}</span>
               <span className="settings-workbench-pill">{activeProvider?.name || t("settings.provider")}</span>
               <span className="settings-workbench-pill">{settings.activeModel || t("settings.selectModel")}</span>
             </div>
@@ -1396,19 +1397,10 @@ export function SettingsScreen({
                     <div className="mt-1 break-all text-[11px] leading-relaxed text-text-tertiary">
                       {activeProvider?.baseUrl || t("settings.connectionOverviewDesc")}
                     </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      <div className="rounded-md border border-border-subtle bg-bg-secondary px-2.5 py-2">
-                        <div className="text-[9px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.providerCount")}</div>
-                        <div className="mt-1 text-sm font-semibold text-text-primary">{providerStats.total}</div>
-                      </div>
-                      <div className="rounded-md border border-border-subtle bg-bg-secondary px-2.5 py-2">
-                        <div className="text-[9px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.localEndpoints")}</div>
-                        <div className="mt-1 text-sm font-semibold text-text-primary">{providerStats.local}</div>
-                      </div>
-                      <div className="rounded-md border border-border-subtle bg-bg-secondary px-2.5 py-2">
-                        <div className="text-[9px] uppercase tracking-[0.06em] text-text-tertiary">{t("settings.remoteEndpoints")}</div>
-                        <div className="mt-1 text-sm font-semibold text-text-primary">{providerStats.remote}</div>
-                      </div>
+                    <div className="settings-provider-counts" aria-label={t("settings.providerCount")}>
+                      <span><strong>{providerStats.total}</strong> {t("settings.providerCount")}</span>
+                      <span><strong>{providerStats.local}</strong> {t("settings.localEndpoints")}</span>
+                      <span><strong>{providerStats.remote}</strong> {t("settings.remoteEndpoints")}</span>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {activeProvider && <span className={subtleChipClass}>{getProviderTypeLabel(activeProvider.providerType)}</span>}
@@ -1472,61 +1464,66 @@ export function SettingsScreen({
                         )}
                       </div>
                     </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {providerType === "custom" && (
-                        <div>
-                          <FieldLabel>{t("settings.apiKey")}</FieldLabel>
-                          <InputField value={providerApiKey} onChange={setProviderApiKey} placeholder={selectedPreset.apiKeyHint} />
+                    <details className="settings-provider-advanced">
+                      <summary>{t("settings.providerAdvancedOptions")}</summary>
+                      <div className="settings-provider-advanced-body">
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {providerType === "custom" && (
+                            <div>
+                              <FieldLabel>{t("settings.apiKey")}</FieldLabel>
+                              <InputField value={providerApiKey} onChange={setProviderApiKey} placeholder={selectedPreset.apiKeyHint} />
+                            </div>
+                          )}
+                          <div className={providerType === "custom" ? "" : "md:col-span-2"}>
+                            <FieldLabel>{t("settings.proxyUrl")}</FieldLabel>
+                            <InputField value={providerProxyUrl} onChange={setProviderProxyUrl} placeholder={t("settings.proxyUrlPlaceholder")} />
+                          </div>
                         </div>
-                      )}
-                      <div className={providerType === "custom" ? "" : "md:col-span-2"}>
-                        <FieldLabel>{t("settings.proxyUrl")}</FieldLabel>
-                        <InputField value={providerProxyUrl} onChange={setProviderProxyUrl} placeholder={t("settings.proxyUrlPlaceholder")} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between gap-3">
-                        <FieldLabel>{t("settings.providerManualFallback")}</FieldLabel>
-                        <span className="text-[11px] text-text-tertiary">{draftManualModels.length}</span>
-                      </div>
-                      <textarea
-                        value={providerManualModels}
-                        onChange={(e) => setProviderManualModels(e.target.value)}
-                        placeholder={"gpt-4.1\nmy-local-model\nclaude-sonnet"}
-                        rows={4}
-                        className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary outline-none transition focus:border-accent"
-                      />
-                      <div className="mt-1 text-[11px] text-text-tertiary">{t("settings.providerManualFallbackDesc")}</div>
-                    </div>
-                    <label className="settings-toggle-row cursor-pointer">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-text-primary">{t("settings.localOnly")}</div>
-                        <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.fullLocalDesc")}</div>
-                      </div>
-                      <ToggleSwitch checked={providerLocalOnly} onChange={(e) => setProviderLocalOnly(e.target.checked)} />
-                    </label>
-                    {showExternalProviderWarning && (
-                      <div className="rounded-lg border border-danger-border bg-danger-subtle px-3 py-2 text-xs text-danger">
-                        {t("settings.localOnlyExternalWarning")}
-                      </div>
-                    )}
-                    {providerType === "openai" ? (
-                      <LlamaCppEndpointSettings
-                        enabled={llamaCppEditor.enabled}
-                        busy={llamaCppEditor.busy}
-                        status={llamaCppEditor.status}
-                        canManageModels={Boolean(
-                          editingProvider
-                          && editingProvider.baseUrl.trim().replace(/\/+$/, "") === providerBaseUrl.trim().replace(/\/+$/, "")
-                          && editingProvider.llamaCppManagementEnabled
+                        <div>
+                          <div className="mb-1.5 flex items-center justify-between gap-3">
+                            <FieldLabel>{t("settings.providerManualFallback")}</FieldLabel>
+                            <span className="text-[11px] text-text-tertiary">{draftManualModels.length}</span>
+                          </div>
+                          <textarea
+                            value={providerManualModels}
+                            onChange={(e) => setProviderManualModels(e.target.value)}
+                            placeholder={"gpt-4.1\nmy-local-model\nclaude-sonnet"}
+                            rows={4}
+                            className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary outline-none transition focus:border-accent"
+                          />
+                          <div className="mt-1 text-[11px] text-text-tertiary">{t("settings.providerManualFallbackDesc")}</div>
+                        </div>
+                        <label className="settings-toggle-row cursor-pointer">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-text-primary">{t("settings.localOnly")}</div>
+                            <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.fullLocalDesc")}</div>
+                          </div>
+                          <ToggleSwitch checked={providerLocalOnly} onChange={(e) => setProviderLocalOnly(e.target.checked)} />
+                        </label>
+                        {showExternalProviderWarning && (
+                          <div className="rounded-lg border border-danger-border bg-danger-subtle px-3 py-2 text-xs text-danger">
+                            {t("settings.localOnlyExternalWarning")}
+                          </div>
                         )}
-                        onEnabledChange={llamaCppEditor.setEnabled}
-                        onRefresh={async () => { await llamaCppEditor.refresh(); }}
-                        onLoadModel={(model) => llamaCppEditor.changeModel(model, true)}
-                        onUnloadModel={(model) => llamaCppEditor.changeModel(model, false)}
-                        t={t}
-                      />
-                    ) : null}
+                        {providerType === "openai" ? (
+                          <LlamaCppEndpointSettings
+                            enabled={llamaCppEditor.enabled}
+                            busy={llamaCppEditor.busy}
+                            status={llamaCppEditor.status}
+                            canManageModels={Boolean(
+                              editingProvider
+                              && editingProvider.baseUrl.trim().replace(/\/+$/, "") === providerBaseUrl.trim().replace(/\/+$/, "")
+                              && editingProvider.llamaCppManagementEnabled
+                            )}
+                            onEnabledChange={llamaCppEditor.setEnabled}
+                            onRefresh={async () => { await llamaCppEditor.refresh(); }}
+                            onLoadModel={(model) => llamaCppEditor.changeModel(model, true)}
+                            onUnloadModel={(model) => llamaCppEditor.changeModel(model, false)}
+                            t={t}
+                          />
+                        ) : null}
+                      </div>
+                    </details>
                     <div className="flex flex-wrap gap-2">
                       <button onClick={saveProvider} disabled={settingsActionBusy} className={primaryActionClass}><SettingsActionIcon name="save" />{t("settings.saveProvider")}</button>
                       <button onClick={testProvider} disabled={!canTestProvider} className={secondaryActionClass}><SettingsActionIcon name="test" />{t("settings.test")}</button>
@@ -1773,6 +1770,7 @@ export function SettingsScreen({
                     <SelectField value={settings.theme} onChange={handleThemeModeChange}>
                       <option value="dark">{t("settings.dark")}</option>
                       <option value="light">{t("settings.light")}</option>
+                      <option value="cream-rose">{t("settings.creamRose")}</option>
                       <option value="custom">{t("settings.themePlugin")}</option>
                     </SelectField>
                   </div>
@@ -2764,7 +2762,7 @@ export function SettingsScreen({
             </div>
           )}
 
-          {pluginPermissionsPlugin && (
+          {isActive && pluginPermissionsPlugin && (
             <ModalShell
               title={pluginPermissionsPlugin.name}
               description={t("settings.pluginPermissionsDesc")}
@@ -2835,7 +2833,7 @@ export function SettingsScreen({
             </ModalShell>
           )}
 
-          {pluginSettingsPlugin && (
+          {isActive && pluginSettingsPlugin && (
             <ModalShell
               title={pluginSettingsPlugin.name}
               description={t("settings.pluginSettingsDesc")}
@@ -2932,7 +2930,7 @@ export function SettingsScreen({
             </ModalShell>
           )}
 
-          {managedBackendLogsFor && (
+          {isActive && managedBackendLogsFor && (
             <ModalShell
               title={managedBackendLogsFor.name}
               description={t("settings.backendLogsDesc")}

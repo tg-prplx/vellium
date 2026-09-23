@@ -72,6 +72,7 @@ import { ToolResultPreview, type ToolResultMediaItem } from "./components/ToolRe
 import { SceneControlsEditor } from "./components/SceneControlsEditor";
 import { SimpleSceneModal } from "./components/SimpleSceneModal";
 import { BranchManager } from "./components/BranchManager";
+import { SimpleChatActionsMenu } from "./components/SimpleChatActionsMenu";
 import { RpReasoningToggle } from "./components/RpReasoningToggle";
 import { SamplerPresetSelect } from "./components/SamplerPresetSelect";
 import {
@@ -1782,6 +1783,7 @@ export function ChatScreen() {
         leftClassName={simpleModeActive ? "chat-simple-sidebar-panel" : ""}
         centerClassName={simpleModeActive ? "chat-simple-center-panel" : ""}
         rightClassName={simpleModeActive ? "chat-simple-right-panel" : ""}
+        rightInert={simpleModeActive && !simpleInspectorOpen}
         left={
           <>
             {simpleModeActive ? (
@@ -2468,25 +2470,14 @@ export function ChatScreen() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h4.586M20 20v-5h-4.586M4.93 9A8 8 0 0119.07 9M19.07 15A8 8 0 014.93 15" />
                       </svg>
                     </button>
-                    <button onClick={handleCompress}
-                      disabled={compressing || chatGenerationBusy || !activeChat || messages.length < 4}
-                      className={`chat-simple-thread-action-btn ${compressing ? "is-active" : ""}`}
-                      title={compressing ? t("chat.compressing") : t("chat.compress")}>
-                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => { void handleExportChatJson(); }}
-                      disabled={exportingChat || !activeChat}
-                      className="chat-simple-thread-action-btn"
-                      title={exportingChat ? t("chat.exporting") : t("chat.exportJson")} aria-label={exportingChat ? t("chat.exporting") : t("chat.exportJson")}
-                    >
-                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.7}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 3.75h7.25L18 8v12.25H6.5V3.75Z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.75 3.75V8H18M10.25 11c-.9 0-1.25.55-1.25 1.5S8.65 14 7.75 14m6-3c.9 0 1.25.55 1.25 1.5s.35 1.5 1.25 1.5" />
-                      </svg>
-                    </button>
+                    <SimpleChatActionsMenu
+                      compressDisabled={chatGenerationBusy || !activeChat || messages.length < 4}
+                      compressing={compressing}
+                      exportDisabled={!activeChat}
+                      exporting={exportingChat}
+                      onCompress={handleCompress}
+                      onExport={() => { void handleExportChatJson(); }}
+                    />
                     <span className="chat-simple-thread-divider" />
                     <button
                       onClick={() => {
@@ -3210,7 +3201,7 @@ export function ChatScreen() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="chat-simple-model-current-label">{t("settings.activeModel")}</div>
-                        <div className="truncate text-sm font-medium text-text-primary">
+                        <div className="truncate text-sm font-medium text-text-primary" title={activeModelLabel || t("chat.noModel")}>
                           {activeModelLabel || t("chat.noModel")}
                         </div>
                       </div>

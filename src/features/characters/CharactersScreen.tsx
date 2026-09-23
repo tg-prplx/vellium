@@ -21,6 +21,7 @@ import {
 } from "../../shared/backgroundTasks";
 import { CharacterLibraryList } from "./components/CharacterLibraryList";
 import { CharacterSceneStateEditor } from "./components/CharacterSceneStateEditor";
+import { CharacterActionsMenu } from "./components/CharacterActionsMenu";
 
 const ALT_GREETING_SEPARATOR = "\n\n---\n\n";
 const HERO_AGENT_EXTENSION_KEY = "vellium_agent";
@@ -293,6 +294,7 @@ export function CharactersScreen() {
     normalizeCharacterSceneDefaults(null)
   );
   const [editorTab, setEditorTab] = useState<CharacterEditorTab>("profile");
+  const [inspectorTab, setInspectorTab] = useState<"preview" | "json">("preview");
 
   // Raw JSON panel
   const [rawJson, setRawJson] = useState("{}");
@@ -328,6 +330,10 @@ export function CharactersScreen() {
     advanced: false
   });
   const [createPickerOpen, setCreatePickerOpen] = useState(false);
+  useEffect(() => {
+    if (!selected) setInspectorTab("preview");
+  }, [selected]);
+
   const translateCopyBusy = translateCopyLoading || backgroundTasks.some((task) => (
     task.scope === "characters" && task.type === "translate" && task.status === "running"
   ));
@@ -608,6 +614,7 @@ export function CharactersScreen() {
 
   async function handleDelete() {
     if (!selected || deletingCharacter) return;
+    if (!window.confirm(t("chars.confirmDelete").replace("{name}", selected.name))) return;
     const id = selected.id;
     setDeletingCharacter(true);
     try {
@@ -889,14 +896,16 @@ export function CharactersScreen() {
       leftClassName="characters-library-panel"
       centerClassName="characters-editor-panel"
       rightClassName="characters-inspector-panel"
-      mobileTabs={{ left: t("chars.characters"), center: t("mobilePane.editor"), right: t("chars.rawJson"), ariaLabel: t("chars.characters") }}
+      hideRight={!selected}
+      mobileTabs={{ left: t("chars.characters"), center: t("mobilePane.editor"), right: t("chars.preview"), ariaLabel: t("chars.characters") }}
       mobileSelectionKey={selected?.id}
       left={
         <>
           <PanelTitle
-            action={(
+            action={characters.length > 0 ? (
               <button
-                onClick={() => setCreatePickerOpen((prev) => !prev)}
+                aria-expanded={createPickerOpen}
+                onClick={() => { setCreatePickerOpen((prev) => !prev); setImportOpen(false); }}
                 className={`rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${
                   createPickerOpen
                     ? "border border-border bg-bg-primary text-text-secondary hover:bg-bg-hover hover:text-text-primary"
@@ -905,17 +914,19 @@ export function CharactersScreen() {
               >
                 {createPickerOpen ? t("chat.cancel") : `+ ${t("chat.new")}`}
               </button>
-            )}
+            ) : undefined}
           >
             {t("chars.characters")}
           </PanelTitle>
 
-          <div className="mb-3 flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
-            <span>{filteredCharacters.length}/{characters.length} {t("chars.countSuffix")}</span>
-            <span>{libraryQuery ? t("chars.reorderSearchDisabled") : reorderingCharacters ? t("chars.reorderSaving") : t("chars.reorderHint")}</span>
-          </div>
+          {characters.length > 0 ? (
+            <div className="mb-3 flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
+              <span>{filteredCharacters.length}/{characters.length} {t("chars.countSuffix")}</span>
+              <span>{libraryQuery ? t("chars.reorderSearchDisabled") : reorderingCharacters ? t("chars.reorderSaving") : t("chars.reorderHint")}</span>
+            </div>
+          ) : null}
 
-          <label className="characters-library-search">
+          {characters.length > 0 ? <label className="characters-library-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.1-5.15a6.25 6.25 0 11-12.5 0 6.25 6.25 0 0112.5 0z" />
             </svg>
@@ -929,7 +940,7 @@ export function CharactersScreen() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             ) : null}
-          </label>
+          </label> : null}
 
           {createPickerOpen ? (
             <div className="mb-3 rounded-[22px] border border-accent-border/45 bg-[radial-gradient(circle_at_top_left,color-mix(in_srgb,var(--color-accent-secondary)_16%,transparent),transparent_55%),var(--color-bg-primary)] p-3">
@@ -981,7 +992,7 @@ export function CharactersScreen() {
 
           {/* Import section */}
           <div className={`characters-import ${importOpen ? "is-open" : ""}`}>
-            <button type="button" className="characters-import-trigger" onClick={() => setImportOpen((current) => !current)}>
+            <button type="button" className="characters-import-trigger" aria-expanded={importOpen} onClick={() => { setImportOpen((current) => !current); setCreatePickerOpen(false); }}>
               <span className="inline-flex items-center gap-2">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" />
@@ -1030,7 +1041,7 @@ export function CharactersScreen() {
             </div> : null}
           </div>
 
-          <CharacterLibraryList characters={characters} visibleCharacters={filteredCharacters} selectedId={selected?.id} loading={loading} queryActive={Boolean(libraryQuery.trim())} reordering={reorderingCharacters} avatarSrc={avatarSrc} onSelect={(character) => { setCreatePickerOpen(false); setSelected(character); }} onReorder={(sourceId, targetId) => { void reorderCharacters(sourceId, targetId); }} t={t} />
+          {characters.length > 0 || loading ? <CharacterLibraryList characters={characters} visibleCharacters={filteredCharacters} selectedId={selected?.id} loading={loading} queryActive={Boolean(libraryQuery.trim())} reordering={reorderingCharacters} avatarSrc={avatarSrc} onSelect={(character) => { setCreatePickerOpen(false); setSelected(character); }} onReorder={(sourceId, targetId) => { void reorderCharacters(sourceId, targetId); }} t={t} /> : null}
         </>
       }
       center={
@@ -1131,28 +1142,15 @@ export function CharactersScreen() {
                     {creatingAgentThread ? t("chars.creatingAgentWorkspace") : t("chars.createAgentWorkspace")}
                   </button>
                 )}
-                <button
-                  onClick={handleTranslateCopy}
-                  disabled={translateCopyBusy}
-                  className="char-editor-btn"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 5h9M8.5 3v2m-2 0c.7 3.2 2.8 5.8 6.5 7M6 12c2.4-1.2 4.3-3.2 5.4-6M14 14h6m-3-3l4 9m-8 0l4-9" /></svg>
-                  {translateCopyBusy ? t("chars.translatingCopy") : t("chars.translateCopy")}
-                </button>
-                <button
-                  onClick={() => { void handleExportJson(); }}
-                  className="char-editor-btn"
-                  title={t("chars.exportJson")}
-                >
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  {t("chars.exportJson")}
-                </button>
-                <button onClick={handleDelete} disabled={deletingCharacter || savingCharacter} className="char-editor-btn is-danger">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 7h14M9 7V4h6v3m-8 0l1 13h8l1-13M10 11v5m4-5v5" /></svg>
-                  {t("chat.delete")}
-                </button>
+                <CharacterActionsMenu
+                  deleteDisabled={deletingCharacter || savingCharacter}
+                  exportDisabled={!selected}
+                  translateDisabled={translateCopyBusy || !selected}
+                  translating={translateCopyBusy}
+                  onDelete={() => { void handleDelete(); }}
+                  onExport={() => { void handleExportJson(); }}
+                  onTranslate={() => { void handleTranslateCopy(); }}
+                />
               </div>
             </div>
 
@@ -1522,64 +1520,116 @@ export function CharactersScreen() {
               </div>
             )}
           </div>
+        ) : loading ? (
+          <EmptyState title={t("chars.loading")} />
+        ) : characters.length === 0 ? (
+          <EmptyState
+            title={t("chars.noChars")}
+            description={t("chars.noCharsDesc")}
+            action={(
+              <div className="flex flex-wrap justify-center gap-2">
+                <button
+                  type="button"
+                  aria-expanded={createPickerOpen}
+                  onClick={() => { setCreatePickerOpen((current) => !current); setImportOpen(false); }}
+                  className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${createPickerOpen ? "border border-border text-text-secondary hover:bg-bg-hover" : "bg-accent text-text-inverse hover:bg-accent-hover"}`}
+                >
+                  {createPickerOpen ? t("chat.cancel") : t("chars.createCharacterCta")}
+                </button>
+                <button
+                  type="button"
+                  aria-expanded={importOpen}
+                  onClick={() => { setImportOpen((current) => !current); setCreatePickerOpen(false); }}
+                  className={`rounded-lg border border-border px-3 py-2 text-xs font-medium transition-colors ${importOpen ? "bg-bg-hover text-text-primary" : "text-text-secondary hover:bg-bg-hover"}`}
+                >
+                  {importOpen ? t("chat.cancel") : t("chars.import")}
+                </button>
+              </div>
+            )}
+          />
         ) : (
           <EmptyState title={t("chars.selectCharacter")} description={t("chars.selectCharacterDesc")} />
         )
       }
       right={
         <div className="flex h-full flex-col">
-          <div className="mb-3 flex items-center justify-between">
-            <PanelTitle>{t("chars.rawJson")}</PanelTitle>
-            <div className="flex items-center gap-2">
-              {!jsonValid && rawJson !== "{}" && <Badge variant="danger">{t("chars.invalid")}</Badge>}
-              {jsonValid && rawJson !== "{}" && <Badge variant="success">{t("chars.valid")}</Badge>}
-            </div>
-          </div>
-
-          <textarea
-            value={rawJson}
-            onChange={(e) => { setRawJson(e.target.value); setJsonSyncDirection("json"); }}
-            className="flex-1 rounded-lg border border-border bg-bg-primary p-3 font-mono text-[10px] leading-relaxed text-text-primary placeholder:text-text-tertiary"
-            placeholder={t("chars.rawJsonPlaceholder")}
-            spellCheck={false}
-          />
-
-          <div className="mt-3 flex gap-2">
-            <button onClick={applyJsonToGui} disabled={!jsonValid || !selected}
-              className="flex-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-40">
-              {t("chars.jsonToGui")}
+          <div className="characters-inspector-tabs" role="group" aria-label={t("chars.inspectorTabs")}>
+            <button
+              type="button"
+              aria-pressed={inspectorTab === "preview"}
+              className={inspectorTab === "preview" ? "is-active" : ""}
+              onClick={() => setInspectorTab("preview")}
+            >
+              {t("chars.preview")}
             </button>
-            <button onClick={() => setJsonSyncDirection("gui")} disabled={!selected}
-              className="flex-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-40">
-              {t("chars.guiToJson")}
+            <button
+              type="button"
+              aria-pressed={inspectorTab === "json"}
+              className={inspectorTab === "json" ? "is-active" : ""}
+              disabled={!selected}
+              onClick={() => setInspectorTab("json")}
+            >
+              {t("chars.rawJson")}
             </button>
           </div>
 
-          {selected && (
-            <div className="float-card mt-3 rounded-lg border border-border-subtle bg-bg-primary p-3">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{t("chars.preview")}</div>
-              <div className="flex items-center gap-2">
-                <AvatarBadge
-                  name={name || selected.name || t("chars.unnamed")}
-                  src={avatarSrc(selected.avatarUrl, selected.id)}
-                  className="h-8 w-8 rounded-full"
-                  fallbackClassName="bg-accent-subtle text-xs font-bold text-accent"
-                />
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{name || t("chars.unnamed")}</div>
-                  {tags && (
-                    <div className="mt-0.5 flex flex-wrap gap-1">
-                      {tags.split(",").filter(Boolean).slice(0, 5).map((t) => (
-                        <Badge key={t.trim()}>{t.trim()}</Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
+          {inspectorTab === "json" ? (
+            <div className="characters-inspector-panel-body">
+              <div className="mb-3 flex items-center justify-end gap-2">
+                {!jsonValid && rawJson !== "{}" && <Badge variant="danger">{t("chars.invalid")}</Badge>}
+                {jsonValid && rawJson !== "{}" && <Badge variant="success">{t("chars.valid")}</Badge>}
               </div>
-              {greeting && (
-                <div className="mt-2 rounded-md border border-border-subtle bg-bg-secondary p-2 text-[11px] italic text-text-secondary">
-                  {greeting.slice(0, 200)}{greeting.length > 200 ? "..." : ""}
-                </div>
+
+              <textarea
+                value={rawJson}
+                onChange={(e) => { setRawJson(e.target.value); setJsonSyncDirection("json"); }}
+                className="min-h-0 flex-1 rounded-lg border border-border bg-bg-primary p-3 font-mono text-[10px] leading-relaxed text-text-primary placeholder:text-text-tertiary"
+                placeholder={t("chars.rawJsonPlaceholder")}
+                spellCheck={false}
+              />
+
+              <div className="mt-3 flex gap-2">
+                <button onClick={applyJsonToGui} disabled={!jsonValid || !selected}
+                  className="flex-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-40">
+                  {t("chars.jsonToGui")}
+                </button>
+                <button onClick={() => setJsonSyncDirection("gui")} disabled={!selected}
+                  className="flex-1 rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-40">
+                  {t("chars.guiToJson")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="characters-inspector-panel-body characters-preview">
+              {selected ? (
+                <>
+                  <div className="flex items-center gap-3">
+                    <AvatarBadge
+                      name={name || selected.name || t("chars.unnamed")}
+                      src={avatarSrc(selected.avatarUrl, selected.id)}
+                      className="h-12 w-12 rounded-2xl"
+                      fallbackClassName="bg-accent-subtle text-base font-bold text-accent"
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate text-lg font-semibold tracking-tight text-text-primary">{name || t("chars.unnamed")}</div>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {tags && (
+                          tags.split(",").filter(Boolean).slice(0, 5).map((tag) => (
+                            <Badge key={tag.trim()}>{tag.trim()}</Badge>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {description ? <p className="characters-preview-description">{description}</p> : null}
+                  {greeting && (
+                    <blockquote className="characters-preview-greeting">
+                      {greeting.slice(0, 320)}{greeting.length > 320 ? "…" : ""}
+                    </blockquote>
+                  )}
+                </>
+              ) : (
+                <EmptyState title={t("chars.selectCharacter")} description={t("chars.selectCharacterDesc")} />
               )}
             </div>
           )}

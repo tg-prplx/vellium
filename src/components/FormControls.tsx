@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "r
 type CommitMode = "immediate" | "debounced" | "blur";
 
 export function FieldLabel({ children }: { children: ReactNode }) {
-  return <label className="mb-1.5 block text-xs font-medium text-text-secondary">{children}</label>;
+  return <label className="ui-field-label">{children}</label>;
 }
 
 interface InputFieldProps {
@@ -142,7 +142,7 @@ export function InputField({
         handleBlur();
         onBlur?.();
       }}
-      className={`w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary ${className}`.trim()}
+      className={`ui-field w-full px-3 py-2 text-sm placeholder:text-text-tertiary ${className}`.trim()}
     />
   );
 }
@@ -189,7 +189,7 @@ export function TextareaField({
         handleBlur();
         onBlur?.();
       }}
-      className={`w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary ${className}`.trim()}
+      className={`ui-field w-full px-3 py-2 text-sm placeholder:text-text-tertiary ${className}`.trim()}
     />
   );
 }
@@ -207,7 +207,7 @@ export function SelectField({ value, onChange, children, disabled = false }: Sel
       value={value}
       onChange={(event) => onChange(event.target.value)}
       disabled={disabled}
-      className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary"
+      className="ui-field w-full px-3 py-2 text-sm"
     >
       {children}
     </select>

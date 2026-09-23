@@ -540,7 +540,20 @@ export function LorebooksScreen() {
             </div>
           </div>
         ) : (
-          <EmptyState title={t("lore.selectTitle")} description={t("lore.selectDesc")} />
+          <EmptyState
+            title={t("lore.selectTitle")}
+            description={t("lore.selectDesc")}
+            action={lorebooks.length === 0 && (
+              <button
+                type="button"
+                onClick={() => { void createLorebook(); }}
+                disabled={mutating}
+                className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40"
+              >
+                {t("lore.createBook")}
+              </button>
+            )}
+          />
         )
       }
       right={

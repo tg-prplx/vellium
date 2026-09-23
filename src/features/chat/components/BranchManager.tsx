@@ -24,8 +24,19 @@ export function BranchManager({ branches, activeBranchId, disabled, simple, onSe
     const closeOutside = (event: PointerEvent) => {
       if (!detailsRef.current?.contains(event.target as Node)) detailsRef.current?.removeAttribute("open");
     };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !detailsRef.current?.open) return;
+      event.preventDefault();
+      event.stopPropagation();
+      detailsRef.current.removeAttribute("open");
+      detailsRef.current.querySelector("summary")?.focus();
+    };
     document.addEventListener("pointerdown", closeOutside);
-    return () => document.removeEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
   }, []);
 
   function beginRename(branch: BranchNode) {
