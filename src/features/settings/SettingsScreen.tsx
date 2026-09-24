@@ -1423,8 +1423,8 @@ export function SettingsScreen({
                 </div>
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_320px]">
-                <div id="settings-manual-provider" className="settings-section scroll-mt-24">
+              <div className="settings-provider-layout">
+                <div id="settings-manual-provider" className="settings-section settings-provider-editor scroll-mt-24">
                   <div className="settings-section-header">
                     <div>
                       <div className="settings-section-title">{t("settings.manualConfig")}</div>
@@ -1532,7 +1532,7 @@ export function SettingsScreen({
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="settings-provider-library-column">
                   <div className="settings-section">
                     <div className="settings-section-header">
                       <div>
@@ -1541,7 +1541,7 @@ export function SettingsScreen({
                       </div>
                     </div>
                     {providers.length > 0 ? (
-                      <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+                      <div className="settings-provider-list">
                         {providers.map((provider) => {
                           const isEditing = provider.id === providerId;
                           const isActive = provider.id === settings.activeProviderId;
@@ -1557,12 +1557,12 @@ export function SettingsScreen({
                                     : "border-border-subtle bg-bg-primary hover:bg-bg-hover"
                               }`}
                             >
-                              <div className="flex items-start justify-between gap-3">
+                              <div className="flex min-w-0 items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <div className="truncate text-xs font-semibold text-text-primary">{provider.name}</div>
                                   <div className="mt-0.5 truncate text-[10px] text-text-tertiary">{provider.id}</div>
                                 </div>
-                                {isActive && <span className={subtleChipClass}>{t("settings.activeModelSet")}</span>}
+                                {isActive && <span className={`${subtleChipClass} shrink-0`}>{t("settings.activeModelSet")}</span>}
                               </div>
                               <div className="mt-2 break-all text-[10px] leading-relaxed text-text-tertiary">{provider.baseUrl}</div>
                             </button>
@@ -1576,11 +1576,10 @@ export function SettingsScreen({
                     )}
                   </div>
 
-                  <div className="settings-section">
+                  <div className="settings-provider-draft-summary">
                     <div className="settings-section-header">
                       <div>
-                        <div className="settings-section-title">{providerName || t("settings.provider")}</div>
-                        <p className="settings-section-desc">{t("settings.providerEditorDesc")}</p>
+                        <div className="settings-provider-summary-title">{providerName || t("settings.provider")}</div>
                       </div>
                     </div>
                     <div className="space-y-2">

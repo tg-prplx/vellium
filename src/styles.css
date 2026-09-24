@@ -13135,3 +13135,243 @@ body > .vellium-modal-layer {
 :root[data-simple-wallpaper="active"] .chat-streaming::after {
   display: none;
 }
+
+/* Keep Simple Mode panels readable over custom wallpaper without a costly blur layer. */
+.chat-simple-layout .chat-simple-sidebar-panel,
+.chat-simple-layout .chat-simple-right-panel {
+  background: var(--color-bg-secondary) !important;
+  border-color: var(--color-border-subtle) !important;
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.2) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-simple-sidebar-panel,
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-simple-right-panel {
+  background: linear-gradient(145deg, var(--color-bg-secondary), var(--color-bg-primary)) !important;
+}
+
+@supports (background: color-mix(in srgb, black 50%, white)) {
+  :root[data-simple-wallpaper="active"] .chat-simple-layout .chat-simple-sidebar-panel,
+  :root[data-simple-wallpaper="active"] .chat-simple-layout .chat-simple-right-panel {
+    background:
+      linear-gradient(
+        145deg,
+        color-mix(in srgb, var(--color-bg-secondary) 97%, white 3%),
+        var(--color-bg-primary)
+      ),
+      var(--color-bg-secondary) !important;
+  }
+}
+
+/* One uninterrupted two-row silhouette for the thread header and character strip. */
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome {
+  gap: 0;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome .chat-simple-thread-header {
+  margin: 0 !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome .chat-simple-thread-bar {
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 14px 14px 0 0;
+  background: var(--color-bg-secondary) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome .chat-multi-bar {
+  align-self: stretch;
+  width: 100%;
+  margin: 0 0 10px !important;
+  border: 0 !important;
+  border-radius: 0 0 14px 14px;
+  background: var(--wallpaper-ui-multi-surface) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome .chat-multi-bar:hover {
+  box-shadow: none !important;
+}
+
+@supports (background: color-mix(in srgb, black 50%, transparent)) {
+  :root[data-simple-wallpaper="active"] {
+    --wallpaper-ui-multi-surface: color-mix(in srgb, var(--color-bg-tertiary) 92%, var(--color-accent) 8%);
+  }
+}
+
+/* Provider editing and saved profiles share one responsive, overflow-safe layout. */
+.settings-provider-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  min-width: 0;
+}
+
+.settings-provider-editor,
+.settings-provider-library-column {
+  min-width: 0;
+}
+
+.settings-provider-library-column {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.settings-provider-library-column > .settings-section {
+  min-width: 0;
+  margin: 0;
+  padding: 14px 0;
+  border-bottom: 0;
+}
+
+.settings-provider-list {
+  display: grid;
+  max-height: min(320px, 42vh);
+  gap: 8px;
+  overflow: auto;
+  padding: 1px 4px 2px 1px;
+  scrollbar-gutter: stable;
+}
+
+.settings-provider-draft-summary {
+  min-width: 0;
+  padding: 14px 0 18px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.settings-provider-draft-summary .settings-section-header {
+  margin-bottom: 12px;
+}
+
+.settings-provider-summary-title {
+  overflow-wrap: anywhere;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+@media (min-width: 1280px) {
+  .settings-provider-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+    align-items: start;
+  }
+}
+
+/* Floating Simple Mode sidebars use the same surface treatment as ModalShell. */
+.chat-simple-layout .chat-simple-right-panel {
+  border: 1px solid var(--color-border-strong) !important;
+  border-color: color-mix(in srgb, var(--color-border-strong) 76%, transparent) !important;
+  border-radius: 24px !important;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary) !important;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--color-bg-secondary) 97%, white 3%),
+      var(--color-bg-primary)
+    ),
+    var(--color-bg-secondary) !important;
+  box-shadow:
+    0 36px 110px rgb(0 0 0 / 0.56),
+    0 10px 34px rgb(0 0 0 / 0.32),
+    inset 0 1px 0 rgb(255 255 255 / 0.055) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+@media (max-width: 1279px) {
+  .chat-simple-layout .chat-simple-sidebar-panel {
+    border: 1px solid var(--color-border-strong) !important;
+    border-color: color-mix(in srgb, var(--color-border-strong) 76%, transparent) !important;
+    border-radius: 24px !important;
+    color: var(--color-text-primary);
+    background: var(--color-bg-secondary) !important;
+    background:
+      linear-gradient(
+        145deg,
+        color-mix(in srgb, var(--color-bg-secondary) 97%, white 3%),
+        var(--color-bg-primary)
+      ),
+      var(--color-bg-secondary) !important;
+    box-shadow:
+      0 36px 110px rgb(0 0 0 / 0.56),
+      0 10px 34px rgb(0 0 0 / 0.32),
+      inset 0 1px 0 rgb(255 255 255 / 0.055) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+.chat-simple-layout .chat-simple-right-panel::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 12%;
+  width: 42%;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 58%, white), transparent);
+  opacity: 0.7;
+}
+
+@media (max-width: 1279px) {
+  .chat-simple-layout .chat-simple-sidebar-panel::before {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    left: 12%;
+    width: 42%;
+    height: 1px;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 58%, white), transparent);
+    opacity: 0.7;
+  }
+}
+
+/* The Simple Mode thread header keeps the same shape with or without wallpaper. */
+.chat-simple-thread-chrome {
+  gap: 0;
+}
+
+.chat-simple-thread-chrome .chat-simple-thread-header {
+  margin: 0 !important;
+}
+
+.chat-simple-thread-chrome .chat-simple-thread-bar {
+  min-height: 46px;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 14px 14px 0 0;
+  background: var(--color-bg-secondary) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+.chat-simple-thread-chrome .chat-multi-bar {
+  align-self: stretch;
+  width: 100%;
+  margin: 0 0 10px !important;
+  border: 0 !important;
+  border-radius: 0 0 14px 14px;
+  background: var(--color-bg-tertiary) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+@supports (background: color-mix(in srgb, black 50%, white)) {
+  .chat-simple-thread-chrome .chat-multi-bar {
+    background: color-mix(in srgb, var(--color-bg-tertiary) 92%, var(--color-accent) 8%) !important;
+  }
+}
