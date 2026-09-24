@@ -1,0 +1,34 @@
+.chat-simple-sidebar-panel {
+  width: 76px;
+  padding: 8px !important;
+  border: none !important;
+  border-right: 1px solid var(--color-border-subtle) !important;
+  border-radius: 0 !important;
+  background: var(--color-bg-primary) !important;
+  overflow: hidden;
+  will-change: width, transform;
+  transition:
+    width var(--motion-base) var(--motion-spring),
+    padding var(--motion-base) var(--motion-spring),
+    transform var(--motion-base) var(--motion-spring),
+    opacity var(--motion-fast) ease;
+}
+
+.chat-simple-right-panel {
+  position: fixed !important;
+  top: 66px;
+  right: 12px;
+  bottom: 12px;
+  width: min(380px, calc(100vw - 24px));
+  border: 1px solid var(--color-border-subtle) !important;
+  border-radius: 18px !important;
+  background: color-mix(in srgb, var(--color-bg-primary) 97%, transparent) !important;
+  transform: translateX(calc(100% + 20px));
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--motion-base) var(--motion-spring),
+    opacity var(--motion-fast) ease;
+  z-index: 50;
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
+}

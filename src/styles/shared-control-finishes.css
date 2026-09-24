@@ -1,0 +1,149 @@
+/* Shared control finish: one focus language and one quiet hover response. */
+.ui-field:hover:not(:disabled):not(:focus) {
+  border-color: var(--color-border-strong);
+}
+
+.ui-field:focus {
+  border-color: var(--color-accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+  animation: none;
+}
+
+.ui-field:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.ui-icon-button:focus-visible,
+.vellium-button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--color-accent-subtle);
+}
+
+.chat-simple-action-button,
+.chat-simple-action-button.is-primary,
+.chat-simple-action-button.is-active {
+  border-radius: var(--control-radius);
+}
+
+.chat-simple-home-control,
+.chat-simple-home-control:first-child,
+.chat-simple-sidebar-toggle,
+.chat-simple-top-button,
+.chat-simple-quick-chip {
+  border-radius: var(--control-radius);
+}
+
+.settings-command-footer kbd {
+  min-width: 20px;
+  padding: 4px;
+  text-align: center;
+}
+
+.settings-search-target {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 82%, white);
+  outline-offset: 5px;
+  border-radius: 10px;
+  animation: settings-search-target-pulse 2.5s ease-out both;
+}
+
+@keyframes settings-command-layer-in {
+  from { opacity: 0; }
+}
+
+@keyframes settings-command-palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+}
+
+@keyframes settings-search-target-pulse {
+  0% {
+    outline-color: var(--color-accent);
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--color-accent) 20%, transparent);
+  }
+  65% {
+    outline-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
+    box-shadow: 0 0 0 12px transparent;
+  }
+  100% {
+    outline-color: transparent;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .settings-command-layer {
+    padding-top: 48px;
+  }
+
+  .settings-command-palette {
+    max-height: calc(100dvh - 72px);
+  }
+
+  .settings-command-search kbd,
+  .settings-command-result-kind {
+    display: none;
+  }
+
+  .settings-command-search {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .settings-command-footer {
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-command-layer,
+  .settings-command-palette,
+  .settings-search-target {
+    animation: none !important;
+  }
+}
+
+/* Let spacing and surface tone separate large groups; keep control and focus outlines. */
+.three-panel-layout > .panel-shell {
+  border: 0 !important;
+}
+
+.settings-root {
+  border: 0;
+}
+
+.settings-sidebar-status,
+.settings-workbench-header,
+.settings-toggle-row,
+.settings-field-group {
+  border-color: transparent;
+}
+
+.settings-sidebar-status > div:last-child > div {
+  border-color: transparent;
+}
+
+.settings-workbench-pill:not(.is-success):not(.is-error) {
+  border-color: transparent;
+}
+
+.settings-nav-item.is-active {
+  border-color: transparent;
+}
+
+.ui-icon-button {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.vellium-button-secondary {
+  border-color: transparent;
+}
+
+.ui-icon-button:focus-visible,
+.vellium-button:focus-visible {
+  box-shadow: none;
+}

@@ -1,0 +1,267 @@
+.writing-simple-root {
+  background: var(--color-bg-primary);
+}
+
+.writing-simple-layout {
+  gap: 0 !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.writing-simple-layout .panel-shell {
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  animation: none !important;
+}
+
+.writing-simple-center-panel {
+  border: none !important;
+  border-radius: 0 !important;
+  background: var(--color-bg-primary) !important;
+  padding: 10px 14px 12px !important;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.writing-simple-center-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.writing-simple-left-panel,
+.writing-simple-right-panel {
+  position: fixed !important;
+  top: 66px;
+  bottom: 12px;
+  width: min(360px, calc(100vw - 24px));
+  border: 1px solid var(--color-border-subtle) !important;
+  border-radius: 16px !important;
+  background: var(--simple-ui-glass-strong) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.12) !important;
+  backdrop-filter: blur(20px) saturate(1.12) !important;
+  z-index: 52;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform var(--motion-base) var(--motion-spring),
+    opacity var(--motion-fast) ease;
+  box-shadow: 0 28px 58px rgba(0, 0, 0, 0.36);
+}
+
+.writing-simple-left-panel {
+  left: 12px;
+  transform: translateX(calc(-100% - 18px));
+}
+
+.writing-simple-right-panel {
+  right: 12px;
+  transform: translateX(calc(100% + 18px));
+}
+
+.writing-simple-layout.is-library-open .writing-simple-left-panel {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.writing-simple-layout.is-outline-open .writing-simple-right-panel {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.writing-simple-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  border: 0;
+  background: rgba(8, 10, 15, 0.16);
+  animation: overlayFade 180ms ease both;
+}
+
+.writing-simple-top-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 13px;
+  background: var(--simple-ui-glass);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: blur(14px) saturate(1.1);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.writing-simple-top-button {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  gap: 6px;
+  min-height: 32px;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 6px 11px;
+  transition:
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--motion-soft),
+    box-shadow var(--motion-fast) ease;
+}
+
+.writing-simple-top-button svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.writing-simple-top-button.is-active {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.writing-simple-top-button:hover:not(.is-active) {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
+}
+
+.writing-simple-top-button:hover {
+  transform: none;
+}
+
+.writing-simple-character-shell {
+  border: none !important;
+  border-radius: 0 !important;
+  background: var(--color-bg-primary) !important;
+  padding: 10px 14px 12px !important;
+  box-shadow: none !important;
+}
+
+.writing-simple-editor-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.writing-simple-editor-main {
+  flex: 1;
+  min-height: 0;
+}
+
+.writing-simple-editor-textarea {
+  flex: 1;
+  min-height: 0;
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+}
+
+.writing-simple-editor-textarea:focus {
+  outline: none;
+}
+
+.writing-workspace-heading {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 3px 9px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.writing-library-search {
+  width: 100%;
+  min-height: 35px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  padding: 0 10px;
+  outline: none;
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-bg-primary) 68%, transparent);
+  font-size: 11px;
+  transition: border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease;
+}
+
+.writing-library-search:focus {
+  border-color: var(--color-accent-border);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.writing-library-import,
+.writing-control-panel {
+  border: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-bg-secondary) 68%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 3.5%, transparent);
+}
+
+.writing-library-import {
+  padding: 10px;
+}
+
+.writing-control-panel {
+  padding: 11px;
+}
+
+.writing-library-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 48px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  padding: 9px 10px;
+  color: var(--color-text-secondary);
+  transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-fast) ease;
+}
+
+.writing-library-item:hover {
+  transform: translateX(2px);
+  border-color: var(--color-border-subtle);
+  background: var(--color-bg-hover);
+}
+
+.writing-library-item.is-active {
+  border-color: var(--color-accent-border);
+  color: var(--color-text-primary);
+  background: var(--color-accent-subtle);
+}
+
+@media (min-width: 1280px) {
+  .chat-simple-layout {
+    grid-template-columns: auto minmax(0, 1fr) 0 !important;
+  }
+
+  .chat-simple-layout.is-sidebar-open .chat-simple-sidebar-panel {
+    width: 296px;
+  }
+
+  .chat-simple-layout.is-sidebar-closed .chat-simple-sidebar-panel {
+    width: 76px;
+  }
+
+  .writing-simple-center-panel {
+    padding-top: 14px !important;
+  }
+
+  .writing-simple-root .float-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  .writing-simple-overlay {
+    background: rgba(8, 10, 15, 0.3);
+  }
+
+  .writing-simple-editor-shell {
+    min-height: 0;
+  }
+}

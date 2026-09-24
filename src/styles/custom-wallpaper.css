@@ -1,0 +1,158 @@
+/* Custom wallpapers: make the conversation chrome calm, legible surfaces. */
+:root[data-simple-wallpaper="active"] {
+  --wallpaper-ui-surface: var(--color-bg-secondary);
+  --wallpaper-ui-surface-soft: var(--color-bg-primary);
+  --wallpaper-ui-multi-surface: var(--color-bg-tertiary);
+}
+
+@supports (color: color-mix(in srgb, black 50%, transparent)) {
+  :root[data-simple-wallpaper="active"] {
+    --wallpaper-ui-surface: color-mix(in srgb, var(--color-bg-secondary) 97%, transparent);
+    --wallpaper-ui-surface-soft: color-mix(in srgb, var(--color-bg-secondary) 94%, transparent);
+    --wallpaper-ui-multi-surface: color-mix(in srgb, var(--color-bg-tertiary) 82%, var(--color-accent) 18%);
+  }
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-center-panel::before {
+  background-image:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-bg-primary) 18%, transparent),
+      color-mix(in srgb, var(--color-bg-primary) 24%, transparent)
+    ),
+    linear-gradient(
+      180deg,
+      rgb(var(--simple-wallpaper-tint) / calc(var(--simple-wallpaper-dim) * 0.82)) 0%,
+      rgb(var(--simple-wallpaper-tint) / var(--simple-wallpaper-dim)) 54%,
+      rgb(var(--simple-wallpaper-tint) / calc(var(--simple-wallpaper-dim) + 0.12)) 100%
+    ),
+    var(--simple-wallpaper-image);
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-bar {
+  min-height: 46px;
+  border: 0 !important;
+  border-radius: 13px 13px 0 0;
+  background: var(--wallpaper-ui-surface) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.02) !important;
+  backdrop-filter: blur(16px) saturate(1.02) !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-bar:hover {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-divider {
+  display: none;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-action-btn,
+:root[data-simple-wallpaper="active"] .chat-simple-thread-sidebar {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-action-btn:hover:not(:disabled),
+:root[data-simple-wallpaper="active"] .chat-simple-thread-sidebar:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+  color: var(--color-text-primary);
+  transform: none;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-action-btn.is-active {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-model-badge {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome .chat-multi-bar {
+  border: 0 !important;
+  border-radius: 0 0 13px 13px;
+  background: var(--wallpaper-ui-multi-surface) !important;
+  box-shadow: 0 14px 30px rgb(0 0 0 / 0.16) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.02) !important;
+  backdrop-filter: blur(16px) saturate(1.02) !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome .chat-multi-bar:hover {
+  box-shadow: 0 14px 30px rgb(0 0 0 / 0.16) !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome .chat-multi-bar-chip {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-text-primary) 6%, transparent);
+  color: var(--color-text-primary);
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome .chat-multi-bar-chip:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-text-primary) 11%, transparent);
+  transform: none;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome .chat-multi-bar-add {
+  border: 0;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-text-primary) 7%, transparent);
+  color: var(--color-text-secondary);
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-thread-chrome .chat-multi-bar-add:hover {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-composer-shell {
+  border-color: transparent !important;
+  border-radius: 15px;
+  background: var(--wallpaper-ui-surface) !important;
+  box-shadow: 0 14px 32px rgb(0 0 0 / 0.17) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.02) !important;
+  backdrop-filter: blur(16px) saturate(1.02) !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-composer-shell:focus-within {
+  border-color: color-mix(in srgb, var(--color-accent) 54%, transparent) !important;
+  box-shadow: 0 0 0 2px var(--color-accent-subtle), 0 14px 32px rgb(0 0 0 / 0.17) !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-composer-bar {
+  border-top-color: transparent;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-message-assistant,
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-message-user {
+  border: 1px solid color-mix(in srgb, var(--color-border) 24%, transparent) !important;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.12) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.02) !important;
+  backdrop-filter: blur(14px) saturate(1.02) !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-message-assistant {
+  background: var(--wallpaper-ui-surface-soft) !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-message-user {
+  background: color-mix(in srgb, var(--color-accent) 13%, var(--wallpaper-ui-surface)) !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-streaming {
+  border-color: color-mix(in srgb, var(--color-border) 30%, transparent) !important;
+  background: var(--wallpaper-ui-surface) !important;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.12);
+  -webkit-backdrop-filter: blur(14px) saturate(1.02);
+  backdrop-filter: blur(14px) saturate(1.02);
+}
+
+:root[data-simple-wallpaper="active"] .chat-streaming::before,
+:root[data-simple-wallpaper="active"] .chat-streaming::after {
+  display: none;
+}

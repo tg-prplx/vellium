@@ -1,0 +1,589 @@
+/* ── Unified motion + dialog system ─────────────────────────────────── */
+:root {
+  --motion-fast: 150ms;
+  --motion-base: 260ms;
+  --motion-slow: 420ms;
+  --motion-dialog: cubic-bezier(0.2, 0.86, 0.24, 1);
+  --modal-border-color: color-mix(in srgb, var(--color-border-strong) 76%, transparent);
+}
+
+button {
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--motion-soft),
+    box-shadow var(--motion-fast) ease;
+}
+
+button:not(:disabled):active {
+  transform: translateY(0) scale(0.985);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  animation: none;
+}
+
+.chat-simple-action-button,
+.chat-simple-home-control {
+  animation: none;
+}
+
+.vellium-modal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  display: grid;
+  place-items: center;
+  padding: clamp(12px, 3vw, 32px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background:
+    radial-gradient(circle at var(--modal-origin-x, 50%) var(--modal-origin-y, 50%), color-mix(in srgb, var(--color-accent) 8%, transparent), transparent 34%),
+    rgb(5 5 10 / 0.76);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  animation: velliumBackdropIn 180ms ease-out both;
+}
+
+:root[data-modal-open="true"] #root {
+  pointer-events: none;
+}
+
+:root[data-modal-open="true"] .app-shell > .app-main {
+  filter: blur(7px) saturate(0.9) brightness(0.74);
+  transform: scale(1.012);
+  transform-origin: 50% 50%;
+  transition:
+    filter 180ms ease-out,
+    transform 240ms var(--motion-soft);
+}
+
+:root:not([data-modal-open="true"]) .app-shell > .app-main {
+  filter: none;
+  transform: none;
+  transition:
+    filter 160ms ease-in,
+    transform 200ms var(--motion-soft);
+}
+
+body > .vellium-modal-layer {
+  width: 100vw;
+  height: 100dvh;
+  min-height: 100vh;
+  margin: 0;
+  isolation: isolate;
+}
+
+.vellium-modal-surface[aria-hidden="true"] {
+  filter: blur(4px) brightness(0.7);
+  transform: scale(0.985);
+  pointer-events: none;
+}
+
+.vellium-modal-layer-elevated { z-index: 170; }
+
+.vellium-modal-surface {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 680px);
+  max-height: 100%;
+  overflow: hidden;
+  outline: none;
+  border: 1px solid var(--modal-border-color);
+  border-radius: 24px;
+  color: var(--color-text-primary);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--color-bg-secondary) 97%, white 3%), color-mix(in srgb, var(--color-bg-primary) 96%, transparent)),
+    var(--color-bg-secondary);
+  box-shadow:
+    0 36px 110px rgb(0 0 0 / 0.56),
+    0 10px 34px rgb(0 0 0 / 0.32),
+    inset 0 1px 0 rgb(255 255 255 / 0.055);
+  transform-origin: var(--modal-origin-x, 50%) var(--modal-origin-y, 50%);
+  contain: layout paint;
+  animation: velliumModalMorphIn 300ms var(--motion-dialog) both;
+}
+
+.vellium-modal-surface::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 12%;
+  width: 42%;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 58%, white), transparent);
+  opacity: 0.7;
+}
+
+.vellium-modal-sm { width: min(100%, 480px); }
+.vellium-modal-md { width: min(100%, 640px); }
+.vellium-modal-lg { width: min(100%, 800px); }
+.vellium-modal-xl { width: min(100%, 1040px); }
+.vellium-modal-viewport { width: min(100%, 1240px); }
+
+.vellium-modal-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 84px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-secondary) 84%, transparent);
+}
+
+.vellium-modal-heading,
+.vellium-modal-header-actions,
+.vellium-modal-footer {
+  display: flex;
+  align-items: center;
+}
+
+.vellium-modal-heading {
+  min-width: 0;
+  gap: 13px;
+}
+
+.vellium-modal-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-accent-border);
+  border-radius: 14px;
+  color: color-mix(in srgb, var(--color-accent) 84%, white);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--color-accent-subtle) 90%, white 4%), var(--color-accent-subtle));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 10px 24px color-mix(in srgb, var(--color-accent) 13%, transparent);
+}
+
+.vellium-modal-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.vellium-modal-eyebrow {
+  margin-bottom: 3px;
+  color: var(--color-accent);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.vellium-modal-title {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vellium-modal-description {
+  max-width: 680px;
+  margin: 4px 0 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.vellium-modal-header-actions {
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.vellium-modal-close {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border);
+  border-radius: 11px;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-primary);
+}
+
+.vellium-modal-close:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+  box-shadow: 0 8px 18px rgb(0 0 0 / 0.2);
+}
+
+.vellium-modal-close svg {
+  width: 17px;
+  height: 17px;
+}
+
+.vellium-modal-body {
+  min-height: 0;
+  padding: 20px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.vellium-modal-footer {
+  justify-content: flex-end;
+  gap: 9px;
+  min-height: 68px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-secondary) 90%, var(--color-bg-primary));
+}
+
+.vellium-modal-footer-note {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.vellium-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: var(--control-height);
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.vellium-button-primary {
+  border-color: color-mix(in srgb, var(--color-accent) 82%, white 8%);
+  color: var(--color-text-inverse);
+  background: var(--color-accent);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--color-accent) 16%, transparent), inset 0 1px 0 rgb(255 255 255 / 0.12);
+}
+
+.vellium-button-primary:hover:not(:disabled) { background: var(--color-accent-hover); }
+
+.vellium-button-secondary {
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-primary);
+}
+
+.vellium-button-secondary:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.vellium-button-danger {
+  border-color: var(--color-danger-border);
+  color: var(--color-danger);
+  background: var(--color-danger-subtle);
+}
+
+.vellium-button:disabled {
+  opacity: 0.48;
+  box-shadow: none;
+}
+
+/* Persona dialog */
+.persona-modal-body { padding: 14px; }
+
+.persona-list {
+  display: grid;
+  gap: 8px;
+}
+
+.persona-list-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--color-bg-primary) 78%, transparent);
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-fast) ease, transform var(--motion-fast) var(--motion-soft);
+}
+
+.persona-list-item:hover,
+.persona-list-item.is-active {
+  border-color: var(--color-accent-border);
+  background: color-mix(in srgb, var(--color-bg-primary) 80%, var(--color-accent-subtle));
+}
+
+.persona-list-main {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  padding: 5px;
+  text-align: left;
+}
+
+.persona-list-avatar,
+.persona-empty-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.persona-list-avatar {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--color-accent-border);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.persona-list-name,
+.persona-list-description {
+  display: flex;
+  min-width: 0;
+}
+
+.persona-list-name {
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.persona-list-description {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.persona-default-badge {
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  font-size: 8px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.persona-list-selected {
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border: 2px solid var(--color-border-strong);
+  border-radius: 999px;
+}
+
+.persona-list-item.is-active .persona-list-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+.persona-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.persona-text-action,
+.persona-icon-action {
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--color-text-tertiary);
+}
+
+.persona-text-action { padding: 7px 8px; font-size: 9px; font-weight: 700; }
+.persona-icon-action { display: grid; place-items: center; width: 32px; height: 32px; }
+.persona-icon-action svg { width: 15px; height: 15px; }
+.persona-text-action:hover,
+.persona-icon-action:hover { border-color: var(--color-border); color: var(--color-text-primary); background: var(--color-bg-hover); }
+
+.persona-empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 230px;
+  padding: 28px;
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--color-bg-primary) 64%, transparent);
+}
+
+.persona-empty-icon { width: 52px; height: 52px; border-radius: 17px; }
+.persona-empty-icon svg { width: 24px; height: 24px; }
+.persona-empty-title { margin-top: 14px; color: var(--color-text-primary); font-size: 13px; font-weight: 700; }
+.persona-empty-copy { max-width: 350px; margin-top: 6px; color: var(--color-text-tertiary); font-size: 11px; line-height: 1.55; }
+
+.persona-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.persona-editor-field.is-wide { grid-column: 1 / -1; }
+.persona-editor-input {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.persona-editor-textarea { min-height: 132px; resize: vertical; line-height: 1.55; }
+
+/* Scene and settings dialogs */
+.scene-state-modal-body fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px !important;
+}
+
+.scene-state-modal-body fieldset > * {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--color-bg-primary) 76%, transparent);
+}
+
+.scene-state-modal-body fieldset > .grid,
+.scene-state-modal-body fieldset > .space-y-2 {
+  grid-column: 1 / -1;
+}
+
+.scene-controls-modal-body,
+.settings-dialog-body { padding: 16px; }
+.scene-controls-sections,
+.settings-dialog-fields,
+.settings-dialog-list,
+.backend-log-stack { display: grid; gap: 12px; }
+
+.scene-controls-sections > div,
+.settings-dialog-list > div {
+  border-radius: 15px !important;
+  background: color-mix(in srgb, var(--color-bg-primary) 80%, transparent) !important;
+}
+
+.backend-log-command {
+  overflow-x: auto;
+  padding: 11px 13px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-primary);
+  font: 500 11px/1.55 ui-monospace, "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+  white-space: nowrap;
+}
+
+.backend-log-output {
+  min-height: 260px;
+  max-height: 58vh;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-border-strong) 70%, transparent);
+  border-radius: 14px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  font: 500 11px/1.6 ui-monospace, "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
+  box-shadow: inset 0 1px 12px rgb(0 0 0 / 0.5);
+}
+
+/* Attachment and plugin dialogs */
+.attachment-preview-body,
+.plugin-action-modal-body { padding: 0; }
+.attachment-preview-canvas {
+  display: grid;
+  place-items: center;
+  min-height: 360px;
+  max-height: 74vh;
+  overflow: auto;
+  padding: 18px;
+  background:
+    linear-gradient(45deg, rgb(255 255 255 / 0.018) 25%, transparent 25%, transparent 75%, rgb(255 255 255 / 0.018) 75%),
+    linear-gradient(45deg, rgb(255 255 255 / 0.018) 25%, transparent 25%, transparent 75%, rgb(255 255 255 / 0.018) 75%),
+    var(--color-bg-primary);
+  background-position: 0 0, 10px 10px;
+  background-size: 20px 20px;
+}
+.attachment-preview-image { max-width: 100%; max-height: 68vh; border-radius: 14px; object-fit: contain; box-shadow: 0 22px 64px rgb(0 0 0 / 0.36); }
+.attachment-preview-text-wrap { max-height: 70vh; overflow: auto; padding: 18px; background: var(--color-bg-primary); }
+.attachment-preview-text { margin: 0; padding: 18px; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--color-border-subtle); border-radius: 14px; color: var(--color-text-secondary); background: var(--color-bg-secondary); font: 500 12px/1.7 ui-monospace, "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace; }
+.plugin-action-frame { border: 0; border-radius: 0 0 23px 23px; }
+
+@keyframes velliumBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes velliumModalMorphIn {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.955);
+    border-radius: 34px;
+  }
+  70% { border-radius: 21px; }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    border-radius: 24px;
+  }
+}
+
+@media (max-width: 640px) {
+  .vellium-modal-layer { place-items: end center; padding: 8px; }
+  .vellium-modal-surface {
+    width: 100%;
+    max-height: 100%;
+    border-radius: 22px;
+    transform-origin: 50% 100%;
+    animation-name: velliumModalSheetIn;
+  }
+  .vellium-modal-header { min-height: 76px; padding: 15px; }
+  .vellium-modal-icon { width: 38px; height: 38px; border-radius: 12px; }
+  .vellium-modal-description { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .vellium-modal-header-actions .vellium-button { display: none; }
+  .vellium-modal-body { padding: 14px; }
+  .vellium-modal-footer { min-height: 62px; padding: 12px 14px; }
+  .vellium-modal-footer-note { display: none; }
+  .persona-editor-grid,
+  .scene-state-modal-body fieldset { grid-template-columns: 1fr; }
+  .persona-editor-field.is-wide,
+  .scene-state-modal-body fieldset > .grid,
+  .scene-state-modal-body fieldset > .space-y-2 { grid-column: auto; }
+  .persona-list-item { grid-template-columns: minmax(0, 1fr); }
+  .persona-list-actions { justify-content: flex-end; padding: 0 4px 3px; }
+}
+
+@keyframes velliumModalSheetIn {
+  from { opacity: 0; transform: translate3d(0, 34px, 0) scale(0.985); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vellium-modal-layer,
+  .vellium-modal-surface,
+  .chat-simple-blob,
+  .task-manager-popover,
+  .chat-simple-model-popover,
+  .app-nav-menu {
+    animation: none !important;
+    transition-duration: 1ms !important;
+  }
+}

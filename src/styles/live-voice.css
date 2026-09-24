@@ -1,0 +1,109 @@
+/* Live voice + vision workspace */
+.live-screen {
+  --live-accent: var(--color-accent);
+  /* Single source of truth for every chip/toggle in the screen so imported controls line up. */
+  --live-chip-height: 34px;
+  --live-chip-radius: 10px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 20px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.16);
+}
+
+.live-header {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 74px;
+  gap: 18px;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-secondary) 92%, transparent);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.live-header-identity {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+}
+
+.live-header-avatar {
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--color-border);
+  border-radius: 13px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  box-shadow: 0 7px 20px rgba(0, 0, 0, 0.17);
+}
+
+.live-header-copy {
+  min-width: 0;
+}
+
+.live-header h1 {
+  margin: 1px 0 0;
+  overflow: hidden;
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-header p {
+  margin: 4px 0 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-kicker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.live-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-text-tertiary) 13%, transparent);
+  transition: background 180ms ease, box-shadow 180ms ease;
+}
+
+.live-phase-listening .live-status-dot,
+.live-phase-thinking .live-status-dot,
+.live-phase-speaking .live-status-dot {
+  background: var(--live-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--live-accent) 18%, transparent), 0 0 18px color-mix(in srgb, var(--live-accent) 45%, transparent);
+}
+
+.live-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
