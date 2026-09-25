@@ -36,6 +36,7 @@ From both `Settings` and `Welcome`, you can create a provider profile from a pre
 - `Ollama`
 - `KoboldCpp`
 - `OpenRouter`
+- `Requesty`
 - `A2Agent`
 - `Custom`
 
@@ -67,6 +68,16 @@ tool calls, and provider authentication are handled by the same Chat
 Completions integration as the other OpenAI-compatible presets. Keep the API
 key in the provider profile and do not paste it into prompts or manual model
 names.
+
+### Requesty setup
+
+Choose `Requesty` from the quick presets, enter your Requesty API key from
+https://app.requesty.ai/api-keys, save the profile, and use `Load models`.
+Vellium queries `https://router.requesty.ai/v1/models`, which returns the
+models approved for your organization as `vendor/model` IDs such as
+`openai/gpt-4o-mini`. To keep traffic in the EU, change the base URL to
+`https://router.eu.requesty.ai/v1`. Requesty uses the existing
+`OpenAI-compatible` provider path. See https://docs.requesty.ai for details.
 
 ### Provider types
 
