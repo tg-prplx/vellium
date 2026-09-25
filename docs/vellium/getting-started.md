@@ -83,6 +83,7 @@ Vellium can create a provider profile quickly from either `Welcome` or later in 
 | `Ollama` | You use Ollama's OpenAI-compatible endpoint | OpenAI-compatible, local |
 | `KoboldCpp` | You run an RP-heavy local stack with KoboldCpp | KoboldCpp |
 | `OpenRouter` | You want a unified model catalog through OpenRouter | OpenAI-compatible |
+| `Requesty` | You want a unified model catalog through Requesty | OpenAI-compatible |
 | `A2Agent` | You use the A2Agent OpenAI-compatible API gateway | OpenAI-compatible |
 | `Custom` | You use another compatible API that the presets do not cover | OpenAI-compatible |
 

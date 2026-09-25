@@ -15,4 +15,18 @@ describe("provider presets", () => {
       providerType: "openai"
     });
   });
+
+  it("includes the optional Requesty OpenAI-compatible profile", () => {
+    expect(PROVIDER_PRESETS).toContainEqual({
+      key: "requesty",
+      label: "Requesty",
+      description: "Requesty unified API",
+      baseUrl: "https://router.requesty.ai/v1",
+      defaultId: "requesty",
+      defaultName: "Requesty",
+      apiKeyHint: "rqsty-...",
+      localOnly: false,
+      providerType: "openai"
+    });
+  });
 });
