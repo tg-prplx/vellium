@@ -67,6 +67,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     providerType: "openai"
   },
   {
+    key: "requesty",
+    label: "Requesty",
+    description: "Requesty unified API",
+    baseUrl: "https://router.requesty.ai/v1",
+    defaultId: "requesty",
+    defaultName: "Requesty",
+    apiKeyHint: "rqsty-...",
+    localOnly: false,
+    providerType: "openai"
+  },
+  {
     key: "a2agent",
     label: "A2Agent",
     description: "A2Agent OpenAI-compatible API gateway",
