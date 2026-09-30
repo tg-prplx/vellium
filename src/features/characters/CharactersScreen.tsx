@@ -22,6 +22,7 @@ import {
 import { CharacterLibraryList } from "./components/CharacterLibraryList";
 import { CharacterSceneStateEditor } from "./components/CharacterSceneStateEditor";
 import { CharacterActionsMenu } from "./components/CharacterActionsMenu";
+import { CharacterGallery } from "./components/CharacterGallery";
 
 const ALT_GREETING_SEPARATOR = "\n\n---\n\n";
 const HERO_AGENT_EXTENSION_KEY = "vellium_agent";
@@ -1068,9 +1069,11 @@ export function CharactersScreen() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="truncate text-base font-semibold text-text-primary">{name || t("chars.unnamed")}</div>
-                    <Badge variant={editorKind === "agent" ? "accent" : "default"}>
-                      {editorKind === "agent" ? t("chars.agentCharacter") : t("chars.standardCharacter")}
-                    </Badge>
+                    {agentsUiEnabled ? (
+                      <Badge variant={editorKind === "agent" ? "accent" : "default"}>
+                        {editorKind === "agent" ? t("chars.agentCharacter") : t("chars.standardCharacter")}
+                      </Badge>
+                    ) : null}
                     {editorKind === "agent" ? (
                       <Badge variant={agentProfileDraft.mode === "research" ? "warning" : agentProfileDraft.mode === "build" ? "accent" : "default"}>
                         {t(`agents.mode${agentProfileDraft.mode === "ask" ? "Ask" : agentProfileDraft.mode === "research" ? "Research" : "Build"}`)}
@@ -1081,7 +1084,7 @@ export function CharactersScreen() {
                     {saveStatus ? (
                       <span className={`text-[11px] ${saveStatusType === "error" ? "text-danger" : "text-success"}`}>{saveStatus}</span>
                     ) : (
-                      <span className="text-[11px] text-text-tertiary">{t("chars.editor")}</span>
+                      description ? <span className="min-w-0 max-w-[520px] truncate text-[11px] text-text-tertiary">{description}</span> : null
                     )}
                     {tags && (
                       <div className="flex flex-wrap gap-1">
@@ -1548,7 +1551,8 @@ export function CharactersScreen() {
             )}
           />
         ) : (
-          <EmptyState title={t("chars.selectCharacter")} description={t("chars.selectCharacterDesc")} />
+          <CharacterGallery characters={filteredCharacters} avatarSrc={avatarSrc}
+            onSelect={(character) => { setCreatePickerOpen(false); setSelected(character); }} />
         )
       }
       right={

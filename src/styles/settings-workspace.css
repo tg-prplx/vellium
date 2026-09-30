@@ -717,48 +717,7 @@
   }
 }
 
-/* Character Forge & Lorebook entry animations */
-.charforge-card {
-  animation: charforgeCardIn 450ms var(--motion-spring) both;
-}
-
-.charforge-list-item {
-  animation: listIn 380ms var(--motion-spring) both;
-}
-
-.charforge-editor {
-  animation: charforgeEditorIn 400ms var(--motion-spring) 100ms both;
-}
-
-.charforge-btn-primary {
-  position: relative;
-  overflow: hidden;
-}
-
-.charforge-btn-primary::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(120deg, transparent 20%, rgba(255, 255, 255, 0.1) 50%, transparent 80%);
-  transform: translateX(-100%);
-  transition: transform 600ms ease;
-  pointer-events: none;
-}
-
-.charforge-btn-primary:hover::after {
-  transform: translateX(100%);
-}
-
-@keyframes charforgeCardIn {
-  0% { opacity: 0; transform: translateY(14px) scale(0.98); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes charforgeEditorIn {
-  0% { opacity: 0; transform: translateX(10px) scale(0.99); }
-  100% { opacity: 1; transform: translateX(0) scale(1); }
-}
-
+/* Lorebook entry animations */
 /* Lorebook entry stagger */
 .divide-y > div {
   animation: loreEntryIn 380ms var(--motion-spring) both;

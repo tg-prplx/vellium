@@ -1,31 +1,3 @@
-/* Keep Simple Mode panels readable over custom wallpaper without a costly blur layer. */
-.chat-simple-layout .chat-simple-sidebar-panel,
-.chat-simple-layout .chat-simple-right-panel {
-  background: var(--color-bg-secondary) !important;
-  border-color: var(--color-border-subtle) !important;
-  box-shadow: 0 18px 44px rgb(0 0 0 / 0.2) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-}
-
-:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-simple-sidebar-panel,
-:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-simple-right-panel {
-  background: linear-gradient(145deg, var(--color-bg-secondary), var(--color-bg-primary)) !important;
-}
-
-@supports (background: color-mix(in srgb, black 50%, white)) {
-  :root[data-simple-wallpaper="active"] .chat-simple-layout .chat-simple-sidebar-panel,
-  :root[data-simple-wallpaper="active"] .chat-simple-layout .chat-simple-right-panel {
-    background:
-      linear-gradient(
-        145deg,
-        color-mix(in srgb, var(--color-bg-secondary) 97%, white 3%),
-        var(--color-bg-primary)
-      ),
-      var(--color-bg-secondary) !important;
-  }
-}
-
 /* One uninterrupted two-row silhouette for the thread header and character strip. */
 :root[data-simple-wallpaper="active"] .chat-simple-thread-chrome {
   gap: 0;
@@ -127,77 +99,6 @@
   }
 }
 
-/* Floating Simple Mode sidebars use the same surface treatment as ModalShell. */
-.chat-simple-layout .chat-simple-right-panel {
-  border: 1px solid var(--modal-border-color) !important;
-  border-radius: 24px !important;
-  color: var(--color-text-primary);
-  background: var(--color-bg-secondary) !important;
-  background:
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--color-bg-secondary) 97%, white 3%),
-      var(--color-bg-primary)
-    ),
-    var(--color-bg-secondary) !important;
-  box-shadow:
-    0 36px 110px rgb(0 0 0 / 0.56),
-    0 10px 34px rgb(0 0 0 / 0.32),
-    inset 0 1px 0 rgb(255 255 255 / 0.055) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-}
-
-@media (max-width: 1279px) {
-  .chat-simple-layout .chat-simple-sidebar-panel {
-    border: 1px solid var(--modal-border-color) !important;
-    border-radius: 24px !important;
-    color: var(--color-text-primary);
-    background: var(--color-bg-secondary) !important;
-    background:
-      linear-gradient(
-        145deg,
-        color-mix(in srgb, var(--color-bg-secondary) 97%, white 3%),
-        var(--color-bg-primary)
-      ),
-      var(--color-bg-secondary) !important;
-    box-shadow:
-      0 36px 110px rgb(0 0 0 / 0.56),
-      0 10px 34px rgb(0 0 0 / 0.32),
-      inset 0 1px 0 rgb(255 255 255 / 0.055) !important;
-    -webkit-backdrop-filter: none !important;
-    backdrop-filter: none !important;
-  }
-}
-
-.chat-simple-layout .chat-simple-right-panel::before {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  top: 0;
-  left: 12%;
-  width: 42%;
-  height: 1px;
-  pointer-events: none;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 58%, white), transparent);
-  opacity: 0.7;
-}
-
-@media (max-width: 1279px) {
-  .chat-simple-layout .chat-simple-sidebar-panel::before {
-    content: "";
-    position: absolute;
-    z-index: 2;
-    top: 0;
-    left: 12%;
-    width: 42%;
-    height: 1px;
-    pointer-events: none;
-    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 58%, white), transparent);
-    opacity: 0.7;
-  }
-}
-
 /* The Simple Mode thread header keeps the same shape with or without wallpaper. */
 .chat-simple-thread-chrome {
   gap: 0;
@@ -236,17 +137,238 @@
   }
 }
 
-/* Modal windows and floating sidebars share the same one-pixel frame. */
-[role="dialog"][aria-modal="true"],
-.modal-pop,
-.chat-simple-layout .chat-simple-right-panel,
-.writing-simple-left-panel,
-.writing-simple-right-panel {
-  border: 1px solid var(--modal-border-color) !important;
+/* The working surface stays readable in every theme, including custom wallpaper. */
+.chat-simple-composer-shell,
+:root[data-simple-wallpaper="active"] .chat-simple-composer-shell {
+  border: 1px solid var(--color-border) !important;
+  border-radius: 16px;
+  background: var(--color-bg-secondary) !important;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.08) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
-@media (max-width: 1279px) {
-  .chat-simple-layout .chat-simple-sidebar-panel {
-    border: 1px solid var(--modal-border-color) !important;
+.chat-simple-composer-shell:focus-within,
+:root[data-simple-wallpaper="active"] .chat-simple-composer-shell:focus-within {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 2px var(--color-accent-subtle) !important;
+}
+
+.chat-simple-textarea {
+  padding: 16px 18px 10px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.chat-simple-textarea:focus-visible {
+  outline: none;
+}
+
+.chat-simple-composer-bar {
+  padding: 8px 12px 10px;
+  border-top: 0;
+}
+
+.chat-simple-send-btn {
+  width: 38px;
+  height: 38px;
+}
+
+.chat-simple-layout .chat-message {
+  min-height: 0;
+  padding: 10px 14px 12px;
+  line-height: 1.65;
+  position: relative;
+}
+
+.chat-simple-layout .chat-message > div:first-child .uppercase {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-text-secondary);
+}
+
+/* Hover actions live in the gap under a message, aligned with its text, so they never
+   cover content and a one-line reply stays one line tall. */
+.chat-simple-layout .chat-message .message-actions {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 2px);
+  left: 8px;
+  flex-wrap: nowrap;
+  gap: 2px;
+  width: max-content;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  transform: translateY(-2px);
+  pointer-events: none;
+}
+.chat-simple-layout .chat-message-user .message-actions { right: 0; left: auto; }
+.chat-simple-layout .chat-message:is(:hover, :focus-within) { z-index: 2; }
+.chat-simple-layout .chat-message:is(:hover, :focus-within) .message-actions { transform: none; pointer-events: auto; }
+.chat-simple-layout .chat-message .message-actions > button { flex-shrink: 0; opacity: 1; animation: none !important; }
+.chat-simple-layout .chat-message .message-actions .message-icon-button,
+.chat-simple-layout .chat-message .message-actions .message-icon-button.is-danger {
+  width: 28px;
+  height: 28px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-tertiary);
+}
+.chat-simple-layout .chat-message .message-actions .message-icon-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.chat-simple-layout .chat-message .message-actions .message-icon-button.is-danger:hover:not(:disabled) {
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
+}
+.chat-simple-layout .chat-message .message-actions .message-icon-button.is-accent { color: var(--color-accent); }
+/* Over a wallpaper the icons need their own quiet surface to stay legible. */
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-message .message-actions {
+  padding: 2px;
+  background: var(--color-bg-secondary);
+  background: color-mix(in srgb, var(--color-bg-secondary) 94%, transparent);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.1);
+}
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-message-assistant .message-actions { left: 0; }
+
+/* Visible overflow lets the toolbar leave the message; the delete animation still clips. */
+.chat-simple-layout .chat-message:not(.is-deleting) { max-height: none; overflow: visible; }
+.chat-simple-scroll > .chat-message + .chat-message,
+.chat-simple-scroll > .chat-message + .chat-generation-failure { margin-top: 34px; }
+.chat-simple-scroll > .chat-message:last-of-type { margin-bottom: 34px; }
+/* A streaming reply already looks like the finished one, so nothing jumps when it lands. */
+.chat-simple-layout .chat-streaming {
+  padding: 10px 14px 12px;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.chat-simple-layout .chat-streaming::before,
+.chat-simple-layout .chat-streaming::after { display: none; }
+.chat-simple-layout .chat-message-header { align-items: center; gap: 8px; margin-bottom: 6px; }
+.chat-simple-layout .chat-message-header > :first-child:not(:last-child) { width: 24px; height: 24px; }
+.chat-simple-layout .chat-message-user .chat-message-header { line-height: 1.3; }
+.chat-simple-layout .chat-message-user .chat-message-header .uppercase { font-size: 10px; }
+.chat-simple-layout .chat-message-metadata { opacity: 0; position: absolute; top: 8px; right: 14px; transition: opacity 120ms ease; }
+.chat-simple-layout .chat-message:is(:hover, :focus-within) .chat-message-metadata { opacity: 1; }
+.chat-simple-layout .chat-message-header > div { padding-right: 68px; }
+
+@media (hover: none) {
+  /* Touch keeps actions visible, so they return to the flow instead of covering the next bubble. */
+  .chat-simple-layout .chat-message .message-actions {
+    position: relative;
+    top: auto;
+    left: auto;
+    flex-wrap: wrap;
+    max-width: 100%;
+    margin: 6px 0 0;
+    box-shadow: none;
+    transform: none;
+    pointer-events: auto;
   }
+  .chat-simple-layout .chat-message-user .message-actions { right: auto; margin-left: auto; }
+  .chat-simple-scroll > .chat-message + .chat-message,
+  .chat-simple-scroll > .chat-message + .chat-generation-failure { margin-top: 14px; }
+  .chat-simple-scroll > .chat-message:last-of-type { margin-bottom: 0; }
+  .chat-simple-layout .chat-message-metadata { opacity: 1; }
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-message-assistant,
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-message-user,
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-streaming {
+  border: 0 !important;
+  background: var(--color-bg-secondary) !important;
+  box-shadow: 0 3px 12px rgb(0 0 0 / 0.08) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-message-user {
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-secondary)) !important;
+}
+
+.chat-simple-layout.is-home .chat-simple-hero,
+.chat-simple-layout.is-home .chat-simple-home-setup,
+.chat-simple-layout.is-home .chat-simple-attachments,
+.chat-simple-layout.is-home .chat-simple-quick-row {
+  width: min(760px, 100%) !important;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: left;
+}
+
+.chat-simple-layout.is-home .chat-simple-hero { margin-bottom: 20px; }
+.chat-simple-hero-title { font-size: clamp(28px, 3vw, 38px); line-height: 1.15; letter-spacing: -0.035em; }
+.chat-simple-hero-subtitle { width: 100%; margin: 12px 0 0; text-align: left; }
+.chat-simple-hero-eyebrow { color: var(--color-text-tertiary); letter-spacing: 0.06em; }
+.chat-simple-layout.is-home .chat-simple-home-setup { justify-content: flex-start; gap: 6px; }
+.chat-simple-layout.is-home .chat-simple-home-control:first-child { max-width: min(320px, 100%); }
+.chat-simple-layout.is-home .chat-simple-scroll-home { display: none; }
+.chat-simple-layout.is-home .chat-simple-composer { width: min(760px, 100%) !important; }
+.chat-simple-layout.is-home .chat-simple-quick-row { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 4px; border: 0; }
+.chat-simple-layout.is-home .chat-simple-quick-chip { padding: 8px 12px; }
+
+.chat-simple-more-menu-panel {
+  background: var(--color-bg-secondary);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.chat-simple-thread-model-badge {
+  max-width: min(38%, 320px);
+  overflow: hidden;
+  border: 0 !important;
+  background: var(--color-bg-tertiary) !important;
+  color: var(--color-text-secondary) !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-simple-layout.is-thread .chat-simple-thread-chrome {
+  left: max(24px, calc((100% - 940px) / 2));
+  right: max(24px, calc((100% - 940px) / 2));
+}
+.chat-simple-layout.is-thread .chat-simple-composer,
+.chat-simple-layout.is-thread .chat-simple-attachments,
+.chat-simple-layout.is-thread .chat-simple-scroll {
+  width: 100%;
+  max-width: 940px;
+  margin-inline: auto;
+}
+.chat-simple-layout .chat-simple-context-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: auto;
+  padding-inline: 10px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.chat-simple-layout .chat-simple-thread-chrome .chat-multi-bar,
+:root[data-simple-wallpaper="active"] .chat-simple-layout .chat-simple-thread-chrome .chat-multi-bar {
+  background: color-mix(in srgb, var(--color-bg-tertiary) 40%, var(--color-bg-secondary)) !important;
+}
+
+.chat-simple-thread-chrome .chat-simple-thread-bar { flex-wrap: nowrap; }
+.chat-simple-thread-bar > .badge-pop { flex-shrink: 0; white-space: nowrap; }
+.chat-simple-layout.is-inspector-open .chat-simple-thread-model-badge { display: none; }
+
+@media (max-width: 1279px) {
+  .chat-simple-thread-model-badge { display: none; }
+}
+
+/* Phones keep every thread action reachable; labels move to the accessible name. */
+@media (max-width: 640px) {
+  .chat-simple-thread-actions .chat-simple-thread-action-btn > span { display: none; }
+  .chat-simple-thread-actions .chat-simple-thread-action-btn { padding: 5px 7px; }
 }

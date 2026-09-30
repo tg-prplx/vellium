@@ -1,0 +1,250 @@
+/* Library screens, final layer. Pets and Characters share the Characters editor
+   vocabulary (char-editor-*, characters-inspector-*); only pet-specific pieces live here. */
+
+/* Pets reuse the Characters workspace columns. */
+@media (min-width: 1280px) {
+  .pets-workspace { grid-template-columns: minmax(250px, 286px) minmax(0, 1fr) minmax(280px, 320px) !important; }
+}
+
+.pets-workspace > .panel-shell {
+  border-color: var(--color-border-subtle) !important;
+  border-radius: 12px !important;
+}
+
+.pets-library-actions { flex-wrap: nowrap; }
+.pets-toolbar-button { white-space: nowrap; }
+.pets-workspace .pets-library-item { display: flex; align-items: center; gap: 10px; transform: none !important; }
+
+.pet-editor-body { display: flex; flex-direction: column; gap: 4px; padding-bottom: 12px; }
+
+.pet-section-heading {
+  padding: 11px 4px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Appearance */
+.pet-asset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; padding: 4px 0 8px; }
+
+.pet-asset-tile {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-primary);
+}
+
+.pet-asset-thumb { flex: 0 0 72px; width: 72px; height: 72px; border-radius: 14px; font-size: 24px; }
+.pet-asset-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.pet-asset-copy strong { color: var(--color-text-primary); font-size: 13px; font-weight: 600; }
+.pet-asset-copy > span:not(.pet-asset-actions) { color: var(--color-text-tertiary); font-size: 12px; line-height: 1.5; }
+.pet-asset-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+
+.pet-advanced { padding: 8px 4px; color: var(--color-text-secondary); font-size: 12px; }
+.pet-advanced summary { width: fit-content; cursor: pointer; }
+.pet-advanced-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+
+/* States */
+.pet-state-section-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 4px; }
+.pet-state-section-head .char-editor-section-title {
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pet-state-list { display: grid; gap: 8px; padding: 2px 4px 16px; }
+
+.pet-state-row {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-primary);
+}
+
+.pet-state-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 10px; }
+.pet-state-media { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pet-media-field { display: flex; gap: 6px; }
+.pet-media-field .char-editor-input { min-width: 0; flex: 1 1 auto; }
+.pet-state-row .char-editor-input { padding-block: 7px; font-size: 12px; }
+.pet-state-remove { width: 35px; justify-content: center; padding: 0; }
+
+/* Assistant */
+.pet-inline-field { display: grid; gap: 0; }
+.pet-inline-field .char-editor-input { max-width: 200px; }
+.pet-inline-field small,
+.pet-toggle-row small { display: block; margin-top: 5px; color: var(--color-text-tertiary); font-size: 12px; line-height: 1.5; }
+.pet-toggle-row { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.pet-toggle-row input { margin-top: 2px; flex: 0 0 auto; }
+.pet-toggle-row strong { color: var(--color-text-primary); font-size: 13px; font-weight: 500; }
+
+/* Desktop preview inspector */
+.pet-desktop-preview {
+  position: relative;
+  display: grid;
+  min-height: 240px;
+  place-items: end center;
+  padding: 64px 16px 22px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-primary);
+}
+
+.pet-desktop-bubble {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  left: 14px;
+  padding: 8px 11px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pet-desktop-figure { transform-origin: bottom center; transition: transform 160ms ease; }
+.pet-desktop-avatar { width: 112px; height: 112px; border-radius: 26px; font-size: 38px; }
+
+.pet-desktop-state { display: inline-flex; align-items: center; gap: 7px; color: var(--color-text-tertiary); font-size: 12px; }
+.pet-desktop-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--color-text-tertiary); }
+.pet-desktop-state.is-on { color: var(--color-success); }
+.pet-desktop-state.is-on i { background: var(--color-success); }
+
+.pet-desktop-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.pet-desktop-actions .char-editor-btn { flex: 1 1 auto; justify-content: center; }
+.pet-desktop-field { display: grid; }
+.pet-desktop-field input[type="range"] { width: 100%; margin: 10px 0 4px; }
+
+/* Characters: without a selection there is no inspector, so the editor takes its space. */
+@media (min-width: 1280px) {
+  .characters-workspace:not(:has(> .characters-inspector-panel)) {
+    grid-template-columns: minmax(250px, 286px) minmax(0, 1fr) !important;
+  }
+}
+
+/* Characters gallery (no selection) */
+.character-gallery { display: flex; min-height: 0; height: 100%; flex-direction: column; gap: 16px; overflow-y: auto; padding: 6px 4px 12px; }
+.character-gallery-header h2 { margin: 0; color: var(--color-text-primary); font-size: 16px; font-weight: 600; }
+.character-gallery-header p { margin: 4px 0 0; color: var(--color-text-tertiary); font-size: 12px; }
+.character-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+
+.character-card {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-primary);
+  text-align: left;
+  transition: border-color var(--motion-fast) ease, background var(--motion-fast) ease;
+}
+.character-card:hover { border-color: var(--color-border); background: var(--color-bg-hover); }
+.character-card-avatar { flex: 0 0 48px; width: 48px; height: 48px; border-radius: 14px; font-size: 18px; }
+.character-card-body { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.character-card-body strong { overflow: hidden; color: var(--color-text-primary); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.character-card-description { display: -webkit-box; overflow: hidden; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.character-card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.character-card-tags > span { padding: 2px 7px; border-radius: 999px; background: var(--color-bg-tertiary); color: var(--color-text-secondary); font-size: 10px; }
+
+/* Character Forge: same three-panel workspace as Characters */
+.charforge-layout {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: minmax(250px, 286px) minmax(0, 1fr) minmax(280px, 320px);
+  gap: 10px;
+}
+
+.charforge-layout > .panel-shell {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: 14px;
+  border-color: var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+  box-shadow: none;
+}
+
+.charforge-library { padding: 12px !important; }
+.charforge-create-entry {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 0 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: 11px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+.charforge-create-entry svg { width: 15px; height: 15px; }
+.charforge-create-entry:hover { border-color: var(--color-accent-border); color: var(--color-text-primary); background: var(--color-bg-hover); }
+.charforge-create-entry.is-active { border-style: solid; border-color: var(--color-accent-border); background: var(--color-accent-subtle); color: var(--color-text-primary); }
+
+.charforge-count { flex: 0 0 auto; color: var(--color-text-tertiary); font-size: 10px; font-variant-numeric: tabular-nums; }
+.charforge-list-scroll { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 6px; overflow-y: auto; }
+
+.charforge-generator { display: flex; min-height: 0; flex-direction: column; gap: 12px; overflow-y: auto; }
+.charforge-generator-mark {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  place-items: center;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 16px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+.charforge-generator-mark svg { width: 22px; height: 22px; }
+.charforge-generator .char-editor-actions { border-top: 0; padding-top: 0; }
+
+.charforge-disclosure { display: inline-flex; width: fit-content; align-items: center; gap: 6px; color: var(--color-text-secondary); font-size: 12px; }
+.charforge-disclosure:hover { color: var(--color-text-primary); }
+.charforge-disclosure svg { width: 14px; height: 14px; }
+.charforge-advanced-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.charforge-advanced-grid .is-wide { grid-column: 1 / -1; }
+.charforge-error { margin: 0; padding: 8px 12px; border: 1px solid var(--color-danger-border); border-radius: 10px; background: var(--color-danger-subtle); color: var(--color-danger); font-size: 12px; }
+
+.charforge-fields { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 12px; overflow-y: auto; padding: 2px 4px 12px 0; }
+
+.charforge-ai { display: flex; min-height: 0; flex-direction: column; gap: 14px; overflow-y: auto; }
+.charforge-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.charforge-chips button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  transition: background var(--motion-fast) ease, border-color var(--motion-fast) ease, color var(--motion-fast) ease;
+}
+.charforge-chips button:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.charforge-chips button.is-active { border-color: var(--color-accent-border); background: var(--color-accent-subtle); color: var(--color-text-primary); }
+.charforge-ai-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+@media (max-width: 1279px) {
+  .charforge-layout { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); }
+  .charforge-inspector { grid-column: 2; }
+}

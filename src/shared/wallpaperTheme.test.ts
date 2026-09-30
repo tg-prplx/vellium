@@ -41,4 +41,20 @@ describe("wallpaper theme variables", () => {
     expect(light["--color-accent-secondary"]).toBe("#4fa8c4");
     expect(light["--simple-wallpaper-tint"]).toBe("238 232 242");
   });
+
+  it("separates pink wallpaper from a readable light accent and neutral panels", () => {
+    const variables = deriveWallpaperThemeVariables({ ...palette, accent: "#e37baf", surfaceLight: "#f5d9e6" }, true);
+    const rgb = (hex: string) => [1, 3, 5].map(offset => Number.parseInt(hex.slice(offset, offset + 2), 16));
+    const luminance = (hex: string) => rgb(hex).map(channel => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+    const accent = luminance(variables["--color-accent"]);
+    const panel = luminance(variables["--color-bg-secondary"]);
+    expect((panel + 0.05) / (accent + 0.05)).toBeGreaterThan(4.5);
+    expect(variables["--color-bg-secondary"]).not.toBe(variables["--color-bg-tertiary"]);
+    const channels = rgb(variables["--color-bg-secondary"]);
+    expect(Math.max(...channels) - Math.min(...channels)).toBeLessThan(8);
+    expect(variables["--simple-ui-glass-strong"]).toContain("98%");
+  });
 });

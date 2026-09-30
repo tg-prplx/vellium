@@ -266,7 +266,7 @@ export function LiveTranscriptPanel({
             <LiveIcon name="send" />
           </button>
         </div>
-        <small>{screenAttached ? t("live.nextFrameHint") : t("live.screenOffHint")}</small>
+        {screenAttached ? <small>{t("live.nextFrameHint")}</small> : null}
       </form>
     </section>
   );

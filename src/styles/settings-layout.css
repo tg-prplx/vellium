@@ -1,0 +1,67 @@
+/* Settings, final layer. Each top-level section is a panel like the Characters/Pets panels
+   (bg-secondary, subtle border, 12px radius), so rows and fields inside read the same way
+   in every category. Nested provider sections stay flat. */
+
+.settings-content-inner > .space-y-4 > .settings-section,
+.settings-content-inner > .space-y-4 > div > .settings-section {
+  margin: 0;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+}
+
+.settings-content-inner > .space-y-4 > .settings-section.border-danger-border {
+  border-color: var(--color-danger-border);
+}
+
+.settings-content-inner .settings-section-title { margin-bottom: 12px; }
+.settings-content-inner .settings-section-header .settings-section-title { margin-bottom: 3px; }
+
+/* Rows inside a section panel sit on the page colour so they are visible, in every category. */
+.settings-section .settings-toggle-row,
+.settings-section .settings-field-group {
+  border-color: var(--color-border-subtle);
+  background: var(--color-bg-primary);
+}
+
+.settings-section .settings-toggle-row { min-height: 52px; padding: 10px 14px; }
+
+/* The wallpaper studio is already inside a section panel. */
+.settings-section > .settings-wallpaper-studio {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-field-narrow { max-width: 360px; }
+
+/* One in-page navigation, kept in reach while scrolling. */
+.settings-workbench-chip-row {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  margin: 0 -28px 18px;
+  padding: 6px 28px 0;
+  background: var(--color-bg-primary);
+}
+
+.settings-workbench-chip { font-size: 12px; }
+
+/* Header summary card matches the section panels. */
+.settings-workbench-header {
+  border-color: var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.settings-section > .settings-wallpaper-studio .settings-wallpaper-title {
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

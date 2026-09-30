@@ -657,15 +657,8 @@ export async function streamLlmResponse(params: {
       }
     } else {
       const errMsg = err instanceof Error ? err.message : "Network error";
-      insertFallbackAssistantMessage({
-        chatId: params.chatId,
-        branchId: params.branchId,
-        parentMsgId: params.parentMsgId,
-        content: `[Error] ${errMsg}`,
-        characterName: params.overrideCharacterName
-      });
       if (!params.res.writableEnded) {
-        params.res.write(`data: ${JSON.stringify({ type: "done", chatId: params.chatId })}\n\n`);
+        params.res.write(`data: ${JSON.stringify({ type: "error", chatId: params.chatId, error: errMsg })}\n\n`);
         params.res.end();
       }
     }

@@ -5,6 +5,11 @@
   --motion-slow: 420ms;
   --motion-dialog: cubic-bezier(0.2, 0.86, 0.24, 1);
   --modal-border-color: color-mix(in srgb, var(--color-border-strong) 76%, transparent);
+  --modal-surface-radius: 18px;
+  --modal-surface-background: var(--color-bg-secondary);
+  --modal-surface-shadow:
+    0 24px 64px rgb(0 0 0 / 0.28),
+    0 6px 20px rgb(0 0 0 / 0.16);
 }
 
 button {
@@ -94,15 +99,10 @@ body > .vellium-modal-layer {
   overflow: hidden;
   outline: none;
   border: 1px solid var(--modal-border-color);
-  border-radius: 24px;
+  border-radius: var(--modal-surface-radius);
   color: var(--color-text-primary);
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--color-bg-secondary) 97%, white 3%), color-mix(in srgb, var(--color-bg-primary) 96%, transparent)),
-    var(--color-bg-secondary);
-  box-shadow:
-    0 36px 110px rgb(0 0 0 / 0.56),
-    0 10px 34px rgb(0 0 0 / 0.32),
-    inset 0 1px 0 rgb(255 255 255 / 0.055);
+  background: var(--modal-surface-background);
+  box-shadow: var(--modal-surface-shadow);
   transform-origin: var(--modal-origin-x, 50%) var(--modal-origin-y, 50%);
   contain: layout paint;
   animation: velliumModalMorphIn 300ms var(--motion-dialog) both;

@@ -174,6 +174,8 @@ export interface ChatMessage {
   characterName?: string;
   attachments?: FileAttachment[];
   ragSources?: RagSource[];
+  /** Set on the latest reply once regenerate has kept alternatives to switch between. */
+  variants?: { index: number; count: number };
 }
 
 export interface RagSource {

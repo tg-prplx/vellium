@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../../shared/i18n";
 import type { InochiAvatarStatus } from "../../../shared/types/inochiAvatar";
@@ -26,12 +26,14 @@ interface LiveAvatarStageProps {
   onInochiFile: (file: File) => void;
   onRemoveInochi: () => void;
   onRenderError: (message: string) => void;
+  /** Controls docked under the microphone. */
+  footer?: ReactNode;
 }
 
 export function LiveAvatarStage({
   avatarUrl, characterName, characterSelected, phase, audioLevel, avatarCue, phaseLabel, hint,
   micActionLabel, fallbackUploading, inochiStatus, inochiBusy, onMicAction,
-  onFallbackFile, onResetFallback, canResetFallback, onInochiFile, onRemoveInochi, onRenderError
+  onFallbackFile, onResetFallback, canResetFallback, onInochiFile, onRemoveInochi, onRenderError, footer
 }: LiveAvatarStageProps) {
   const { t } = useI18n();
   const inochiInputRef = useRef<HTMLInputElement | null>(null);
@@ -70,27 +72,34 @@ export function LiveAvatarStage({
 
   return (
     <div className={`live-avatar-stage${draggingModel ? " is-avatar-drop" : ""}${renderError ? " has-avatar-error" : ""}`}>
-      {hasInochi && inochiStatus.avatar ? (
-        <InochiCanvas
-          modelUrl={inochiStatus.avatar.modelUrl}
-          wasmUrl={inochiStatus.runtime.wasmUrl}
-          parameters={inochiStatus.avatar.parameters}
-          audioLevel={audioLevel}
-          phase={phase}
-          cue={avatarCue}
-          onError={handleRenderError}
-        />
-      ) : (
-        <div className="live-avatar-static-fallback" aria-label={characterName}>
-          {avatarUrl ? <img src={avatarUrl} alt="" draggable={false} /> : <LiveIcon name="voice" />}
-          <span>{renderError || t("live.inochiFallback")}</span>
-        </div>
-      )}
-      <div className="live-avatar-rings" aria-hidden="true"><i /><i /><i /></div>
-      <button type="button" className="live-avatar-mic" onClick={onMicAction} aria-label={micActionLabel} title={micActionLabel}>
-        <LiveIcon name={phase === "ready" ? "mic" : "stop"} />
-      </button>
-      <div className="live-avatar-copy"><strong>{phaseLabel}</strong><span>{hint}</span></div>
+      <div className="live-avatar-visual">
+        {hasInochi && inochiStatus.avatar ? (
+          <InochiCanvas
+            modelUrl={inochiStatus.avatar.modelUrl}
+            wasmUrl={inochiStatus.runtime.wasmUrl}
+            parameters={inochiStatus.avatar.parameters}
+            audioLevel={audioLevel}
+            phase={phase}
+            cue={avatarCue}
+            onError={handleRenderError}
+          />
+        ) : (
+          <div className="live-avatar-static-fallback" aria-label={characterName}>
+            {avatarUrl ? <img src={avatarUrl} alt="" draggable={false} /> : (
+              <span className="live-avatar-monogram" aria-hidden="true">{characterName.trim().charAt(0).toUpperCase() || "?"}</span>
+            )}
+            {renderError ? <span className="live-avatar-error">{renderError}</span> : null}
+          </div>
+        )}
+        <div className="live-avatar-rings" aria-hidden="true"><i /><i /><i /></div>
+      </div>
+      <div className="live-avatar-dock">
+        <div className="live-avatar-copy" aria-live="polite"><strong>{phaseLabel}</strong><span>{hint}</span></div>
+        <button type="button" className="live-avatar-mic" onClick={onMicAction} aria-label={micActionLabel} title={micActionLabel}>
+          <LiveIcon name={phase === "ready" ? "mic" : "stop"} />
+        </button>
+        {footer}
+      </div>
       <div className="live-avatar-tools">
         <span className="inochi2d-experimental-badge">{t("live.inochiExperimental")}</span>
         <button type="button" onClick={() => setSetupOpen(true)}>{t("live.inochiSetup")}</button>

@@ -21,3 +21,4 @@ export {
   renderContentWithFallback,
   renderMarkdown
 } from "./utils";
+export { modelDisplayName } from "./modelDisplay";

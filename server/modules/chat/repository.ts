@@ -25,34 +25,6 @@ function mapBranchRow(row: {
   };
 }
 
-export function deleteMessageTree(chatId: string, branchId: string, messageId: string) {
-  db.prepare(`
-    WITH RECURSIVE descendants(id, created_at, sort_order) AS (
-      SELECT id, created_at, sort_order
-      FROM messages
-      WHERE id = ? AND chat_id = ? AND branch_id = ? AND deleted = 0
-      UNION ALL
-      SELECT m.id, m.created_at, m.sort_order
-      FROM messages m
-      JOIN descendants d ON m.parent_id = d.id
-      WHERE m.chat_id = ? AND m.branch_id = ? AND m.deleted = 0
-        AND (
-          m.created_at > d.created_at
-          OR (
-            m.created_at = d.created_at
-            AND (
-              m.sort_order > d.sort_order
-              OR (m.sort_order = d.sort_order AND m.id > d.id)
-            )
-          )
-        )
-    )
-    UPDATE messages
-    SET deleted = 1
-    WHERE id IN (SELECT id FROM descendants)
-  `).run(messageId, chatId, branchId, chatId, branchId);
-}
-
 export function deleteChatCascade(chatId: string) {
   db.prepare("DELETE FROM messages WHERE chat_id = ?").run(chatId);
   db.prepare("DELETE FROM branches WHERE chat_id = ?").run(chatId);

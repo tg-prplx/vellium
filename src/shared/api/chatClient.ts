@@ -67,6 +67,8 @@ export const chatClient = {
     }
     return post<ChatMessage[]>(`/chats/${chatId}/regenerate`, { branchId, liveAvatar });
   },
+  chatSelectVariant: (chatId: string, messageId: string, direction: -1 | 1, branchId?: string) =>
+    post<ChatMessage[]>(`/chats/${chatId}/variants`, { messageId, direction, branchId }),
   chatCompressContext: (chatId: string, branchId?: string) => post<{ summary: string }>(`/chats/${chatId}/compress`, { branchId }),
   chatFork: (chatId: string, parentMessageId: string, name: string) => post<BranchNode>(`/chats/${chatId}/fork`, { parentMessageId, name }),
   chatEditMessage: (messageId: string, content: string) => patchReq<{ ok: boolean; timeline: ChatMessage[] }>(`/messages/${messageId}`, { content }),

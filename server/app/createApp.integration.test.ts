@@ -21,6 +21,8 @@ describe.sequential("createApp integration", () => {
   let lastBuildDirectToolChoice = "";
   let lastPlannerResponseFormat: unknown = null;
   let lastChatTemplateMessages: Array<{ role?: unknown; content?: unknown }> = [];
+  let mockChatFailure = false;
+  let lastErrorRecoveryMessages: unknown[] = [];
   let lastSttMultipartBody = "";
   let lastTtsRequestBody: Record<string, unknown> = {};
   let mockLlamaModelState: "loaded" | "unloaded" = "unloaded";
@@ -299,6 +301,13 @@ process.stdin.on("data", (chunk) => {
       if (req.method === "POST" && req.url === "/v1/chat/completions") {
         const body = await readJsonBody(req);
         const messages = Array.isArray(body.messages) ? body.messages : [];
+        if (JSON.stringify(messages).includes("failure-recovery-check")) lastErrorRecoveryMessages = messages;
+        if (mockChatFailure) {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: { message: "Provider temporarily unavailable" } }));
+          return;
+        }
         const toolMessages = messages.filter((message) => {
           if (!message || typeof message !== "object") return false;
           return (message as { role?: unknown }).role === "tool";
@@ -2248,6 +2257,64 @@ process.stdin.on("data", (chunk) => {
     const secondRun = await postJson(`/api/writer/projects/${project.id}/lenses/${lens.id}/run`, {});
     expect(secondRun.cached).toBe(true);
     expect(secondRun.lens.output).toBe("MOCK RESPONSE");
+  });
+
+  it("keeps provider failures out of history and retries without duplicating the user turn", async () => {
+    await updateSettings({ activeProviderId: "mock-openai", activeModel: "mock-model", toolCallingEnabled: false });
+    const chat = await postJson("/api/chats", { title: "Failure recovery" });
+    mockChatFailure = true;
+    try {
+      const response = await requestJson(`/api/chats/${chat.id}/send`, { method: "POST", body: { content: "failure-recovery-check" } });
+      expect(await response.text()).toContain('"type":"error"');
+      const rows = db.prepare("SELECT role, content FROM messages WHERE chat_id = ? AND deleted = 0").all(chat.id);
+      expect(rows).toEqual([{ role: "user", content: "failure-recovery-check" }]);
+    } finally { mockChatFailure = false; }
+
+    const retry = await requestJson(`/api/chats/${chat.id}/regenerate`, { method: "POST", body: {} });
+    expect(await retry.text()).toContain('"type":"done"');
+    const timeline = await parseJsonResponse(`/api/chats/${chat.id}/timeline`, await fetch(`${baseUrl}/api/chats/${chat.id}/timeline`));
+    expect(timeline.map((message: { role: string }) => message.role)).toEqual(["user", "assistant"]);
+
+    // Existing installations may already contain failure rows. They stay readable but never enter a new prompt.
+    db.prepare("INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, deleted, created_at, sort_order) VALUES (?, ?, ?, 'assistant', ?, 10, 0, ?, 2)")
+      .run(newId(), chat.id, timeline[0].branchId, "[Error] Provider request failed: LEGACY_TIMEOUT", new Date().toISOString());
+    const next = await requestJson(`/api/chats/${chat.id}/send`, { method: "POST", body: { content: "failure-recovery-check next turn" } });
+    expect(await next.text()).toContain('"type":"done"');
+    expect(JSON.stringify(lastErrorRecoveryMessages)).not.toContain("LEGACY_TIMEOUT");
+    expect(JSON.stringify(lastErrorRecoveryMessages)).toContain("failure-recovery-check next turn");
+  });
+
+  it("keeps regenerated replies as switchable variants and prompts with only the selected one", async () => {
+    await updateSettings({ activeProviderId: "mock-openai", activeModel: "mock-model", toolCallingEnabled: false });
+    const chat = await postJson("/api/chats", { title: "Reply variants" });
+    await (await requestJson(`/api/chats/${chat.id}/send`, { method: "POST", body: { content: "failure-recovery-check variants" } })).text();
+    const loadTimeline = async () => parseJsonResponse(`/api/chats/${chat.id}/timeline`, await fetch(`${baseUrl}/api/chats/${chat.id}/timeline`));
+    const first = await loadTimeline();
+    expect(first[1].variants).toBeUndefined();
+    db.prepare("UPDATE messages SET content = 'FIRST VARIANT' WHERE id = ?").run(first[1].id);
+
+    await (await requestJson(`/api/chats/${chat.id}/regenerate`, { method: "POST", body: {} })).text();
+    const second = await loadTimeline();
+    expect(second).toHaveLength(2);
+    expect(second[1].id).not.toBe(first[1].id);
+    expect(second[1].variants).toEqual({ index: 1, count: 2 });
+
+    const switched = await postJson(`/api/chats/${chat.id}/variants`, { messageId: second[1].id, direction: -1 });
+    expect(switched.map((message: { id: string }) => message.id)).toEqual([first[0].id, first[1].id]);
+    expect(switched[1]).toMatchObject({ content: "FIRST VARIANT", variants: { index: 0, count: 2 } });
+
+    const outOfRange = await requestJson(`/api/chats/${chat.id}/variants`, { method: "POST", body: { messageId: first[1].id, direction: -1 } });
+    expect(outOfRange.status).toBe(400);
+    const stale = await requestJson(`/api/chats/${chat.id}/variants`, { method: "POST", body: { messageId: second[1].id, direction: 1 } });
+    expect(stale.status).toBe(409);
+
+    // The next turn sees only the selected reply, and the old variants stop being offered.
+    await (await requestJson(`/api/chats/${chat.id}/send`, { method: "POST", body: { content: "failure-recovery-check after variants" } })).text();
+    expect(JSON.stringify(lastErrorRecoveryMessages)).toContain("FIRST VARIANT");
+    expect(JSON.stringify(lastErrorRecoveryMessages)).not.toContain("MOCK STREAM RESPONSE");
+    const after = await loadTimeline();
+    expect(after).toHaveLength(4);
+    expect(after.some((message: { variants?: unknown }) => message.variants)).toBe(false);
   });
 
   it("streams chat completions with an active provider and persists regenerated assistant output", async () => {
@@ -4256,13 +4323,14 @@ process.stdin.on("data", (chunk) => {
       body: { content: "Return the model error." }
     });
     const modelErrorBody = await modelErrorResponse.text();
-    expect(modelErrorBody).toContain('"type":"done"');
+    expect(modelErrorBody).toContain('"type":"error"');
     const modelErrorTimeline = await parseJsonResponse(
       `/api/chats/${modelErrorChat.id}/timeline`,
       await fetch(`${baseUrl}/api/chats/${modelErrorChat.id}/timeline`)
     );
-    expect(String(modelErrorTimeline[1]?.content || "")).toContain("model_not_found");
-    expect(String(modelErrorTimeline[1]?.content || "")).toContain("invalid_request_error");
+    expect(modelErrorTimeline).toHaveLength(1);
+    expect(modelErrorBody).toContain("model_not_found");
+    expect(modelErrorBody).toContain("invalid_request_error");
 
     await postJson("/api/providers", {
       id: "a2agent-auth-error-provider",
@@ -4277,13 +4345,14 @@ process.stdin.on("data", (chunk) => {
       body: { content: "Return the auth error." }
     });
     const authErrorBody = await authErrorResponse.text();
-    expect(authErrorBody).toContain('"type":"done"');
+    expect(authErrorBody).toContain('"type":"error"');
     const authErrorTimeline = await parseJsonResponse(
       `/api/chats/${authErrorChat.id}/timeline`,
       await fetch(`${baseUrl}/api/chats/${authErrorChat.id}/timeline`)
     );
-    expect(String(authErrorTimeline[1]?.content || "")).toContain("authentication_error");
-    expect(String(authErrorTimeline[1]?.content || "")).toContain("invalid_api_key");
+    expect(authErrorTimeline).toHaveLength(1);
+    expect(authErrorBody).toContain("authentication_error");
+    expect(authErrorBody).toContain("invalid_api_key");
 
     await updateSettings({
       activeProviderId: "a2agent-test-provider",

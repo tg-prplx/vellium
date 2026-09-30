@@ -35,7 +35,7 @@ export function AvatarBadge({
   return (
     <span
       aria-hidden="true"
-      className={joinClasses("flex items-center justify-center", className, fallbackClassName)}
+      className={joinClasses("avatar-fallback flex items-center justify-center", className, fallbackClassName)}
     >
       {initial}
     </span>

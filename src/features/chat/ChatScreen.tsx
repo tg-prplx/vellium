@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { ModalShell } from "../../components/ModalShell";
-import { IconButton } from "../../components/IconButton";
 import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../components/Panels";
 import { PluginActionBar, PluginSlotMount } from "../plugins/PluginHost";
 import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { getSceneLevelTranslationKey, type SceneLevelAxis } from "../../shared/sceneLevels";
+import { modelDisplayName } from "./modelDisplay";
+import { isLegacyChatFailure } from "../../shared/chatGenerationError";
+import { ChatGenerationFailure } from "./components/ChatGenerationFailure";
+import { SimpleChatControls } from "./components/SimpleChatControls";
+import { useChatGenerationFailure } from "./hooks/useChatGenerationFailure";
+import { useSimplePanelController } from "./hooks/useSimplePanelController";
 import type {
   AppSettings,
   ChatMessage,
@@ -33,7 +38,6 @@ import {
   DEFAULT_SCENE_STATE,
   MESSAGE_DELETE_ANIMATION_MS,
   REASONING_CALL_NAME,
-  RP_PRESETS,
   type ChatMode
 } from "./constants";
 import {
@@ -72,6 +76,11 @@ import { ToolResultPreview, type ToolResultMediaItem } from "./components/ToolRe
 import { SceneControlsEditor } from "./components/SceneControlsEditor";
 import { SimpleSceneModal } from "./components/SimpleSceneModal";
 import { BranchManager } from "./components/BranchManager";
+import { ChatHistoryList } from "./components/ChatHistoryList";
+import { MessageActions, ReplyVariantSwitcher } from "./components/MessageActions";
+import { ChatHistorySearch } from "./components/ChatHistorySearch";
+import { ChatRpPresets } from "./components/ChatRpPresets";
+import { SimpleInspectorNavigation, type SimpleInspectorSection } from "./components/SimpleInspectorNavigation";
 import { SimpleChatActionsMenu } from "./components/SimpleChatActionsMenu";
 import { RpReasoningToggle } from "./components/RpReasoningToggle";
 import { SamplerPresetSelect } from "./components/SamplerPresetSelect";
@@ -130,6 +139,7 @@ export function ChatScreen() {
   const { ttsLoadingId, ttsPlayingId, handleTts } = useTtsPlayback(ttsRealtime, setErrorText);
   const { rpReasoningEnabled, setRpReasoningEnabled, savingRpReasoning, toggleRpReasoning } = useRpReasoningToggle(setErrorText);
   const { branches, setBranches, activeBranchId, setActiveBranchId, forkBranch: handleFork, renameBranch, removeBranch } = useBranchManagement({ activeChat, setMessages, setErrorText });
+  const { generationFailure, clearGenerationFailure, reportGenerationFailure } = useChatGenerationFailure(activeChat?.id || null, activeBranchId, setMessages);
   const { exportingChat, exportChat: exportChatJson } = useChatJsonExport(setErrorText);
   const {
     translatingId,
@@ -213,14 +223,14 @@ export function ChatScreen() {
   const sceneStateInitializedRef = useRef(false);
 
   // Collapsible sections in left sidebar
+  const [switchingVariant, setSwitchingVariant] = useState(false);
   const [presetsCollapsed, setPresetsCollapsed] = useState(true);
-  const [lorebooksCollapsed, setLorebooksCollapsed] = useState(false);
   const [zenMode, setZenMode] = useState(false);
   const [alternateSimpleMode, setAlternateSimpleMode] = useState(true);
   const [simpleSidebarOpen, setSimpleSidebarOpen] = useState(false);
   const [simpleSceneOpen, setSimpleSceneOpen] = useState(false);
   const [simpleInspectorOpen, setSimpleInspectorOpen] = useState(false);
-  const [simpleGreetingIndex, setSimpleGreetingIndex] = useState(0);
+  const [simpleInspectorSection, setSimpleInspectorSection] = useState<SimpleInspectorSection>("context");
   const [simpleThreadChromeHeight, setSimpleThreadChromeHeight] = useState(0);
   const [simpleBottomChromeHeight, setSimpleBottomChromeHeight] = useState(0);
   const [sceneControlsOpen, setSceneControlsOpen] = useState(false);
@@ -241,6 +251,7 @@ export function ChatScreen() {
   const simpleBottomChromeRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatSearchModalInputRef = useRef<HTMLInputElement>(null);
+  const sidebarSearchInputRef = useRef<HTMLInputElement>(null);
   const modelSelectorRef = useRef<HTMLDivElement>(null);
   const modelSelectorTriggerRef = useRef<HTMLButtonElement>(null);
   const promptStackRef = useRef<PromptBlock[]>([...DEFAULT_PROMPT_STACK]);
@@ -256,18 +267,25 @@ export function ChatScreen() {
     promptStackRef.current = promptStack;
   }, [promptStack]);
   const chatMode = resolveChatMode(sceneState);
+  const activeModelDisplayLabel = modelDisplayName(activeModelLabel);
   const pureChatMode = chatMode === "pure_chat";
   const simpleModeActive = alternateSimpleMode && !zenMode;
+  const { openSidebar: openSimpleSidebar, openInspector: openSimpleInspector } = useSimplePanelController({
+    active: simpleModeActive,
+    sidebarOpen: simpleSidebarOpen,
+    inspectorOpen: simpleInspectorOpen,
+    sceneOpen: simpleSceneOpen,
+    sceneControlsOpen,
+    modelSelectorOpen: showModelSelector,
+    setSidebarOpen: setSimpleSidebarOpen,
+    setInspectorOpen: setSimpleInspectorOpen,
+    setSceneOpen: setSimpleSceneOpen,
+    setSceneControlsOpen,
+    setModelSelectorOpen: setShowModelSelector
+  });
   const simpleSidebarCollapsed = simpleModeActive && !simpleSidebarOpen;
   const streamingActiveChat = streaming && (!streamingChatId || streamingChatId === activeChat?.id);
   const simpleHomeState = simpleModeActive && messages.length === 0 && !streamingActiveChat;
-  const simpleGreetings = [
-    t("chat.simpleGreetingOne"),
-    t("chat.simpleGreetingTwo"),
-    t("chat.simpleGreetingThree"),
-    t("chat.simpleGreetingFour")
-  ];
-  const simpleGreeting = simpleGreetings[simpleGreetingIndex % simpleGreetings.length] || t("chat.simpleGreetingOne");
   const hasDraftPayload = input.trim().length > 0 || attachments.length > 0;
   const canResendLast = messages.length > 0 && messages[messages.length - 1]?.role === "user";
   const activeBackgroundChatTask = useMemo(
@@ -293,7 +311,7 @@ export function ChatScreen() {
   );
 
   const totalTokens = useMemo(
-    () => messages.reduce((sum, m) => sum + (m.tokenCount || 0), 0),
+    () => messages.reduce((sum, m) => sum + (isLegacyChatFailure(m) ? 0 : (m.tokenCount || 0)), 0),
     [messages]
   );
   const visibleMessages = useMemo(
@@ -353,7 +371,8 @@ export function ChatScreen() {
       scroller.scrollTop = scroller.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [messages.length, streamText]);
+    // Timeline identity, not length: a swapped reply variant changes height without adding rows.
+  }, [messages, streamText]);
 
   useLayoutEffect(() => {
     if (!simpleModeActive || simpleHomeState) {
@@ -425,30 +444,6 @@ export function ChatScreen() {
       return changed ? next : prev;
     });
   }, [messages]);
-
-  useEffect(() => {
-    if (!simpleModeActive) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (sceneControlsOpen) {
-        setSceneControlsOpen(false);
-        return;
-      }
-      if (simpleSceneOpen) {
-        setSimpleSceneOpen(false);
-        return;
-      }
-      if (simpleInspectorOpen) {
-        setSimpleInspectorOpen(false);
-        return;
-      }
-      if (simpleSidebarOpen && window.innerWidth < 1280) {
-        setSimpleSidebarOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [simpleModeActive, sceneControlsOpen, simpleSceneOpen, simpleInspectorOpen, simpleSidebarOpen]);
 
   useEffect(() => {
     if (!sceneControlsOpen) return;
@@ -647,24 +642,8 @@ export function ChatScreen() {
     setMessages(await api.chatTimeline(activeChat.id, activeBranchId || undefined));
   }, [activeChat, activeBranchId]);
 
-  function openSimpleSidebar(next?: boolean) {
-    if (!simpleModeActive) return;
-    if (next !== false) setShowModelSelector(false);
-    setSimpleSidebarOpen((prev) => (typeof next === "boolean" ? next : !prev));
-  }
-
-  function openSimpleInspector(next?: boolean) {
-    if (!simpleModeActive) return;
-    if (next !== false) setShowModelSelector(false);
-    setSimpleInspectorOpen((prev) => (typeof next === "boolean" ? next : !prev));
-  }
-
-  useEffect(() => {
-    if (!simpleHomeState) return;
-    setSimpleGreetingIndex(Math.floor(Math.random() * simpleGreetings.length));
-  }, [simpleHomeState, activeChat?.id, simpleGreetings.length]);
-
-  function startStreamingUi(characterName: string | null, chatId: string) {
+  function startStreamingUi(characterName: string | null, chatId: string, branchId = activeBranchId) {
+    clearGenerationFailure(chatId, branchId);
     setStreamText("");
     setStreaming(true);
     setStreamingChatId(chatId);
@@ -867,6 +846,8 @@ export function ChatScreen() {
 
   async function handleSend() {
     if ((!input.trim() && attachments.length === 0) || chatGenerationBusy) return;
+    let targetChatId = activeChat?.id;
+    let targetBranchId = activeBranchId;
     setErrorText("");
     setShowModelSelector(false);
     const taskId = startChatBackgroundTask(t("chat.send"));
@@ -886,6 +867,8 @@ export function ChatScreen() {
         setActiveBranchId(branchId);
       }
       updateBackgroundTask(taskId, getChatTaskTemplate(chatId));
+      targetChatId = chatId;
+      targetBranchId = branchId;
       await Promise.allSettled([
         flushPromptStack(),
         api.rpSetSceneState({ ...sceneState, chatId }),
@@ -903,7 +886,7 @@ export function ChatScreen() {
         role: "user", content: currentInput, attachments: currentAttachments, tokenCount: 0, createdAt: new Date().toISOString()
       };
       setMessages((prev) => [...prev, optimisticMsg]);
-      startStreamingUi(null, chatId);
+      startStreamingUi(null, chatId, branchId);
 
       const updated = await api.chatSend(chatId, currentInput, branchId || undefined, {
         onDelta: appendStreamDelta,
@@ -922,7 +905,8 @@ export function ChatScreen() {
         failBackgroundTask(taskId, String(error));
         clearChatBackgroundTask(taskId);
       }
-      setErrorText(String(error));
+      if (targetChatId) await reportGenerationFailure(error, targetChatId, targetBranchId);
+      else setErrorText(String(error));
     }
   }
 
@@ -948,12 +932,13 @@ export function ChatScreen() {
   async function handleRegenerate() {
     if (!activeChat || chatGenerationBusy) return;
     const targetChatId = activeChat.id;
+    const targetBranchId = activeBranchId;
     setErrorText("");
     const taskId = startChatBackgroundTask(t("chat.regenerate"), getChatTaskTemplate(activeChat.id));
     try {
       await flushPromptStack();
       startStreamingUi(null, targetChatId);
-      const updated = await api.chatRegenerate(targetChatId, activeBranchId || undefined, {
+      const updated = await api.chatRegenerate(targetChatId, targetBranchId || undefined, {
         onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
         onDone: () => {}
@@ -970,7 +955,7 @@ export function ChatScreen() {
         failBackgroundTask(taskId, String(error));
         clearChatBackgroundTask(taskId);
       }
-      setErrorText(String(error));
+      await reportGenerationFailure(error, targetChatId, targetBranchId);
     }
   }
 
@@ -1338,15 +1323,34 @@ export function ChatScreen() {
   }
 
   // Next turn for a specific character (multi-char)
+  async function handleSelectVariant(messageId: string, direction: -1 | 1) {
+    if (!activeChat || chatGenerationBusy || switchingVariant) return;
+    const targetChatId = activeChat.id;
+    setSwitchingVariant(true);
+    try {
+      const timeline = await api.chatSelectVariant(targetChatId, messageId, direction, activeBranchId || undefined);
+      if (activeChatIdRef.current !== targetChatId) return;
+      // The switcher sits under the reply; keep it in view when the reply length changes.
+      shouldStickToBottomRef.current = true;
+      setMessages(timeline);
+    } catch (error) {
+      setErrorText(String(error));
+      if (activeChatIdRef.current === targetChatId) setMessages(await api.chatTimeline(targetChatId, activeBranchId || undefined));
+    } finally {
+      setSwitchingVariant(false);
+    }
+  }
+
   async function handleNextTurn(characterName: string) {
     if (!activeChat || chatGenerationBusy) return;
     const targetChatId = activeChat.id;
+    const targetBranchId = activeBranchId;
     setErrorText("");
     const taskId = startChatBackgroundTask(`${t("chat.nextTurn")}: ${characterName}`, getChatTaskTemplate(activeChat.id));
     startStreamingUi(characterName, targetChatId);
     try {
       await flushPromptStack();
-      const updated = await api.chatNextTurn(targetChatId, characterName, activeBranchId || undefined, {
+      const updated = await api.chatNextTurn(targetChatId, characterName, targetBranchId || undefined, {
         onDelta: appendStreamDelta,
         onToolEvent: handleStreamingToolEvent,
         onDone: () => {}
@@ -1363,7 +1367,7 @@ export function ChatScreen() {
         failBackgroundTask(taskId, String(error));
         clearChatBackgroundTask(taskId);
       }
-      setErrorText(String(error));
+      await reportGenerationFailure(error, targetChatId, targetBranchId, characterName);
     }
   }
 
@@ -1371,6 +1375,7 @@ export function ChatScreen() {
   async function startAutoConversation() {
     if (!activeChat || chatCharacterIds.length < 2 || chatGenerationBusy) return;
     const targetChatId = activeChat.id;
+    const targetBranchId = activeBranchId;
     await flushPromptStack();
     autoConvoRef.current = true;
     setAutoConvoRunning(true);
@@ -1417,7 +1422,7 @@ export function ChatScreen() {
       startStreamingUi(charName, targetChatId);
 
       try {
-        const updated = await api.chatNextTurn(targetChatId, charName, activeBranchId || undefined, {
+        const updated = await api.chatNextTurn(targetChatId, charName, targetBranchId || undefined, {
           onDelta: appendStreamDelta,
           onToolEvent: handleStreamingToolEvent,
           onDone: () => {}
@@ -1430,7 +1435,7 @@ export function ChatScreen() {
           failBackgroundTask(taskId, String(error));
           clearChatBackgroundTask(taskId);
         }
-        setErrorText(String(error));
+        await reportGenerationFailure(error, targetChatId, targetBranchId, charName);
         break;
       }
 
@@ -1783,6 +1788,21 @@ export function ChatScreen() {
         leftClassName={simpleModeActive ? "chat-simple-sidebar-panel" : ""}
         centerClassName={simpleModeActive ? "chat-simple-center-panel" : ""}
         rightClassName={simpleModeActive ? "chat-simple-right-panel" : ""}
+        leftId={simpleModeActive ? "chat-simple-history-sidebar" : undefined}
+        rightId={simpleModeActive ? "chat-simple-inspector-sidebar" : undefined}
+        leftAriaLabel={simpleModeActive ? t("chat.title") : undefined}
+        rightAriaLabel={simpleModeActive ? t("chat.contextSetup") : undefined}
+        panelBackdrop={simpleModeActive ? (
+          <button
+            type="button"
+            className="chat-simple-panel-backdrop"
+            aria-label={t("common.close")}
+            onClick={() => {
+              setSimpleSidebarOpen(false);
+              setSimpleInspectorOpen(false);
+            }}
+          />
+        ) : undefined}
         rightInert={simpleModeActive && !simpleInspectorOpen}
         left={
           <>
@@ -1792,16 +1812,22 @@ export function ChatScreen() {
                   <button
                     onClick={() => openSimpleSidebar()}
                     className="chat-simple-sidebar-toggle"
-                    title={simpleSidebarCollapsed ? t("chat.title") : t("chat.cancel")}
+                    aria-label={simpleSidebarCollapsed ? t("chat.title") : t("common.close")}
+                    aria-expanded={!simpleSidebarCollapsed}
+                    aria-controls="chat-simple-history-sidebar"
+                    title={simpleSidebarCollapsed ? t("chat.title") : t("common.close")}
                   >
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                      {simpleSidebarCollapsed ? (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                      ) : (
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+                      )}
                     </svg>
                   </button>
                   {!simpleSidebarCollapsed && (
                     <div className="min-w-0">
-                      <div className="truncate text-2xl font-semibold text-text-primary">{t("app.name")}</div>
-                      <div className="mt-0.5 text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.title")}</div>
+                      <h2 className="chat-sidebar-heading">{t("chat.title")}</h2>
                     </div>
                   )}
                 </div>
@@ -1809,6 +1835,7 @@ export function ChatScreen() {
                   <button
                     onClick={() => handleCreateChat()}
                     className="chat-simple-action-button is-primary"
+                    aria-label={t("chat.new")}
                     title={t("chat.new")}
                   >
                     <svg className="chat-simple-action-icon h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -1816,23 +1843,25 @@ export function ChatScreen() {
                     </svg>
                     {!simpleSidebarCollapsed && <span>{t("chat.new")}</span>}
                   </button>
+                  {simpleSidebarCollapsed && (
                   <button
                     onClick={() => {
-                      setShowChatSearchModal(true);
-                      window.setTimeout(() => chatSearchModalInputRef.current?.focus(), 60);
+                      openSimpleSidebar(true);
+                      window.requestAnimationFrame(() => sidebarSearchInputRef.current?.focus());
                     }}
                     className="chat-simple-action-button"
+                    aria-label={t("chat.searchChats")}
                     title={t("chat.searchChats")}
-                    data-modal-trigger="chat-search"
                   >
                     <svg className="chat-simple-action-icon h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35m1.1-5.15a6.25 6.25 0 11-12.5 0 6.25 6.25 0 0112.5 0z" />
                     </svg>
                     {!simpleSidebarCollapsed && <span>{t("chat.searchChats")}</span>}
                   </button>
+                  )}
                   <button
                     onClick={() => {
-                      setSimpleSidebarOpen(true);
+                      openSimpleSidebar(true);
                       const shouldOpen = !showCharacterPicker && !showMultiCharPanel;
                       setShowCharacterPicker(shouldOpen);
                       setShowMultiCharPanel(false);
@@ -1848,6 +1877,7 @@ export function ChatScreen() {
                     {!simpleSidebarCollapsed && <span>{t("tab.characters")}</span>}
                   </button>
                 </div>
+                {!simpleSidebarCollapsed && <ChatHistorySearch query={chatSearchQuery} onChange={setChatSearchQuery} inputRef={sidebarSearchInputRef} />}
               </>
             ) : (
               <PanelTitle
@@ -2077,199 +2107,34 @@ export function ChatScreen() {
             )}
 
             {!simpleSidebarCollapsed && (
-            <div className="chat-sidebar-list flex-1 space-y-1 overflow-y-auto">
-              {chats.length === 0 ? (
-                <EmptyState title={t("chat.noChatYet")} description={t("chat.noChatDesc")} />
-              ) : (
-                chats.map((chat, index) => {
-                  const primaryChatCharacterId = chat.characterId || chat.characterIds?.[0] || null;
-                  const chatChar = primaryChatCharacterId ? characters.find((c) => c.id === primaryChatCharacterId) : null;
-                  const multiCount = chat.characterIds?.length || 0;
-                  const isRenaming = renamingChatId === chat.id;
-                  return (
-                    <div key={chat.id}
-                      style={{ animationDelay: `${Math.min(index, 20) * 20}ms` }}
-                      className={`chat-sidebar-item group relative flex items-start gap-2 rounded-lg ${simpleModeActive ? "px-2 py-2" : "px-3 py-2"} transition-colors ${
-                        activeChat?.id === chat.id ? "bg-accent-subtle text-text-primary" : "text-text-secondary hover:bg-bg-hover"
-                      }`}>
-                      {isRenaming ? (
-                        <div className="flex min-w-0 flex-1 items-center gap-2">
-                          <input
-                            value={renamingChatTitle}
-                            onChange={(e) => setRenamingChatTitle(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                void submitRenameChat(chat.id);
-                              } else if (e.key === "Escape") {
-                                e.preventDefault();
-                                cancelRenameChat();
-                              }
-                            }}
-                            className="w-full rounded-md border border-border bg-bg-primary px-2 py-1 text-xs text-text-primary"
-                            autoFocus
-                          />
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void submitRenameChat(chat.id);
-                            }}
-                            className="rounded-md border border-border px-2 py-1 text-[10px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                            title={t("chat.rename")}
-                          >
-                            {t("chat.save")}
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              cancelRenameChat();
-                            }}
-                            className="rounded-md border border-border px-2 py-1 text-[10px] text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                            title={t("chat.cancel")}
-                          >
-                            {t("chat.cancel")}
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <button onClick={() => {
-                            activeChatIdRef.current = chat.id;
-                            setActiveChat(chat);
-                            if (simpleModeActive && window.innerWidth < 1280) {
-                              setSimpleSidebarOpen(false);
-                            }
-                          }} className="flex min-w-0 flex-1 items-start gap-2 text-left">
-                            {chatChar ? (
-                              <AvatarBadge
-                                name={chatChar.name}
-                                src={resolveApiAssetUrl(chatChar.avatarUrl)}
-                                className="h-6 w-6 flex-shrink-0 rounded-full"
-                                fallbackClassName="bg-accent-subtle text-[9px] font-bold text-accent"
-                              />
-                            ) : null}
-                            <div className="min-w-0 flex-1">
-                              <div className="break-words whitespace-normal text-sm font-medium leading-snug">{chat.title}</div>
-                              <div className="mt-0.5 flex items-center gap-1.5">
-                                <span className="text-[11px] text-text-tertiary">{new Date(chat.createdAt).toLocaleTimeString()}</span>
-                                {multiCount > 1 && <Badge>{multiCount} chars</Badge>}
-                              </div>
-                            </div>
-                          </button>
-                          <div className={`flex flex-shrink-0 items-center gap-0.5 transition-opacity ${
-                            activeChat?.id === chat.id ? "opacity-100" : "opacity-60 group-hover:opacity-100"
-                          }`}>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                startRenameChat(chat);
-                              }}
-                              className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
-                              title={t("chat.renameChat")}
-                            >
-                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L12 15l-4 1 1-4 8.586-8.586z" />
-                              </svg>
-                            </button>
-                            <button onClick={(e) => { e.stopPropagation(); if (confirm(t("chat.confirmDeleteChat"))) handleDeleteChat(chat.id); }}
-                              className="rounded-md p-1 text-text-tertiary hover:bg-danger-subtle hover:text-danger"
-                              title={t("chat.deleteChat")}>
-                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
+            <ChatHistoryList
+              chats={simpleModeActive ? filteredChats : chats} searching={simpleModeActive && Boolean(chatSearchQuery.trim())}
+              characters={characters} activeChatId={activeChat?.id} simple={simpleModeActive}
+              renamingId={renamingChatId} renamingTitle={renamingChatTitle}
+              onRenamingTitleChange={setRenamingChatTitle} onRename={startRenameChat}
+              onSaveRename={(id) => { void submitRenameChat(id); }} onCancelRename={cancelRenameChat}
+              onDelete={(id) => { void handleDeleteChat(id); }}
+              onSelect={(chat) => {
+                activeChatIdRef.current = chat.id;
+                setActiveChat(chat);
+                if (simpleModeActive && window.innerWidth < 1280) setSimpleSidebarOpen(false);
+              }}
+            />
             )}
 
-            {/* RP Presets — collapsible */}
-            {!simpleSidebarCollapsed && (
-            <div className="mt-3 rounded-lg border border-border-subtle bg-bg-primary p-3">
-              <button onClick={() => setPresetsCollapsed(!presetsCollapsed)}
-                className="flex w-full items-center justify-between">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.rpPresets")}</span>
-                <svg className={`h-3 w-3 text-text-tertiary transition-transform ${presetsCollapsed ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {!presetsCollapsed && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {RP_PRESETS.map((preset) => (
-                    <button key={preset} onClick={() => applyPreset(preset)}
-                      className={`rounded-md px-2.5 py-1 text-[11px] font-medium capitalize transition-colors ${
-                        activePreset === preset
-                          ? "bg-accent text-text-inverse"
-                          : "bg-bg-tertiary text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-                      }`}>
-                      {t(`preset.${preset}` as keyof typeof import("../../shared/i18n").translations.en)}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            )}
-
+            {!simpleModeActive && <ChatRpPresets activePreset={activePreset} expanded={!presetsCollapsed}
+              onToggle={() => setPresetsCollapsed(!presetsCollapsed)} onApply={(preset) => { void applyPreset(preset); }} />}
             {!simpleSidebarCollapsed && simpleModeActive && (
-            <div className="mt-2 rounded-lg border border-border-subtle bg-bg-primary p-3">
-              <button
-                onClick={() => setLorebooksCollapsed((prev) => !prev)}
-                className="flex w-full items-center justify-between"
-              >
-                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.lorebook")}</span>
-                <svg className={`h-3 w-3 text-text-tertiary transition-transform ${lorebooksCollapsed ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
+              <button type="button" className="chat-sidebar-context-link" aria-expanded={simpleInspectorOpen}
+                aria-controls="chat-simple-inspector-sidebar" onClick={() => {
+                  setSimpleInspectorSection("context"); openSimpleInspector(true);
+                }}>
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block text-xs font-medium">{t("chat.contextSetup")}</span>
+                  <span className="mt-1 block truncate text-[11px] text-text-tertiary">{activePersona?.name || t("chat.user")}{selectedLorebooks.length > 0 ? ` · ${selectedLorebooks.length} ${t("chat.lorebook")}` : ""}</span>
+                </span>
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
               </button>
-              {!lorebooksCollapsed && (
-                <div className="mt-2 space-y-1.5">
-                  <button
-                    onClick={() => { void saveLorebooksForChat([]); }}
-                    className="w-full rounded-md border border-border bg-bg-secondary px-2 py-1.5 text-left text-[11px] text-text-secondary hover:bg-bg-hover"
-                  >
-                    {t("chat.none")}
-                  </button>
-                  <div className="max-h-40 space-y-1 overflow-y-auto">
-                    {lorebooks.map((book) => {
-                      const checked = activeLorebookIds.includes(book.id);
-                      return (
-                        <label
-                          key={book.id}
-                          className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors ${
-                            checked
-                              ? "border-accent-border bg-accent-subtle text-text-primary"
-                              : "border-border bg-bg-secondary text-text-secondary hover:bg-bg-hover"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(event) => { void toggleLorebookForChat(book.id, event.target.checked); }}
-                          />
-                          <span className="min-w-0 flex-1 truncate">{book.name}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-            )}
-
-            {/* User Persona — compact, opens modal */}
-            {!simpleSidebarCollapsed && simpleModeActive && (
-            <div className="mt-2 flex items-center gap-2 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.userPersona")}:</span>
-              <span className="flex-1 truncate text-xs font-medium text-text-primary">{activePersona?.name || t("chat.user")}</span>
-              <button data-modal-trigger="persona" onClick={() => setShowPersonaModal(true)}
-                className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary">
-                {t("chat.edit")}
-              </button>
-            </div>
             )}
             <PluginSlotMount
               slotId="chat.sidebar.bottom"
@@ -2296,6 +2161,7 @@ export function ChatScreen() {
                 <button
                   onClick={() => openSimpleSidebar()}
                   className="chat-simple-top-button chat-simple-top-sidebar xl:hidden"
+                  aria-expanded={simpleSidebarOpen} aria-controls="chat-simple-history-sidebar"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
@@ -2371,7 +2237,7 @@ export function ChatScreen() {
                         {activeModelLabel ? (
                           <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2 py-1 text-success">
                             <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                            {activeModelLabel}
+                            {activeModelDisplayLabel}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/20 bg-warning/10 px-2 py-1 text-warning">
@@ -2435,6 +2301,8 @@ export function ChatScreen() {
                   <button
                     onClick={() => openSimpleSidebar()}
                     className="chat-simple-thread-sidebar xl:hidden"
+                    aria-expanded={simpleSidebarOpen} aria-controls="chat-simple-history-sidebar"
+                    aria-label={t("chat.title")}
                     title={t("chat.title")}
                   >
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2447,28 +2315,23 @@ export function ChatScreen() {
                   {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
                   {!zenMode && <BranchManager branches={branches} activeBranchId={activeBranchId} disabled={chatGenerationBusy} simple onSelect={setActiveBranchId} onRename={renameBranch} onDelete={removeBranch} />}
                   <div className="flex-1" />
-                  {activeModelLabel && (
-                    <span className="chat-simple-thread-model-badge">
-                      <span className="chat-simple-thread-model-dot" />
-                      {activeModelLabel}
-                    </span>
-                  )}
                   <div className="chat-simple-thread-actions">
                     {chatGenerationBusy && (
-                      <button onClick={handleAbort}
+                      <button onClick={handleAbort} aria-label={t("chat.stop")} title={t("chat.stop")}
                         className="chat-simple-thread-action-btn is-danger">
                         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <rect x="6" y="6" width="12" height="12" rx="1" />
                         </svg>
-                        {t("chat.stop")}
+                        <span>{t("chat.stop")}</span>
                       </button>
                     )}
                     <button onClick={handleRegenerate}
                       disabled={chatGenerationBusy || !activeChat || messages.length === 0}
-                      className="chat-simple-thread-action-btn" title={t("chat.regenerate")}>
+                      className="chat-simple-thread-action-btn" aria-label={t("chat.regenerate")} title={t("chat.regenerate")}>
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h4.586M20 20v-5h-4.586M4.93 9A8 8 0 0119.07 9M19.07 15A8 8 0 014.93 15" />
                       </svg>
+                      <span>{t("chat.regenerate")}</span>
                     </button>
                     <SimpleChatActionsMenu
                       compressDisabled={chatGenerationBusy || !activeChat || messages.length < 4}
@@ -2478,35 +2341,6 @@ export function ChatScreen() {
                       onCompress={handleCompress}
                       onExport={() => { void handleExportChatJson(); }}
                     />
-                    <span className="chat-simple-thread-divider" />
-                    <button
-                      onClick={() => {
-                        setSimpleSceneOpen((prev) => {
-                          const next = !prev;
-                          if (next) openSimpleInspector(false);
-                          return next;
-                        });
-                      }}
-                      className={`chat-simple-thread-action-btn ${simpleSceneOpen ? "is-active" : ""}`}
-                      title={t("inspector.sceneState")}
-                    >
-                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSimpleSceneOpen(false);
-                        openSimpleInspector();
-                      }}
-                      className={`chat-simple-thread-action-btn ${simpleInspectorOpen ? "is-active" : ""}`}
-                      title={t("inspector.title")}
-                    >
-                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                    </button>
                   </div>
                 </div>
               )}
@@ -2561,7 +2395,7 @@ export function ChatScreen() {
                           name={ch.name}
                           src={resolveApiAssetUrl(ch.avatarUrl)}
                           className="h-5 w-5 rounded-full"
-                          fallbackClassName="bg-purple-500/20 text-[9px] font-bold text-purple-300"
+                          fallbackClassName="bg-accent-subtle text-[9px] font-bold text-accent"
                         />
                         <span className="truncate">{ch.name}</span>
                         <button
@@ -2580,7 +2414,7 @@ export function ChatScreen() {
                     ))}
                     <button
                       onClick={() => {
-                        if (simpleModeActive) setSimpleSidebarOpen(true);
+                        if (simpleModeActive) openSimpleSidebar(true);
                         openEditMultiCharPicker();
                       }}
                       className="chat-multi-bar-add"
@@ -2621,57 +2455,11 @@ export function ChatScreen() {
 
             {simpleModeActive && simpleHomeState && (
               <div className="chat-simple-hero">
-                <div className="chat-simple-hero-mark" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3.5l2.2 5.1 5.3 2.2-5.3 2.2-2.2 5.1-2.2-5.1-5.3-2.2 5.3-2.2L12 3.5z" />
-                    <path strokeLinecap="round" d="M18.5 3.5v3M20 5h-3M5.5 17v3M7 18.5H4" />
-                  </svg>
-                </div>
-                <div className="chat-simple-hero-eyebrow">{t("chat.simpleHeroEyebrow")}</div>
+                <div className="chat-simple-hero-eyebrow">{t("chat.title")}</div>
                 <h2 className="chat-simple-hero-title">
-                  {simpleGreeting}
+                  {t("chat.startConvo")}
                 </h2>
-                <p className="chat-simple-hero-subtitle">{t("chat.simpleHeroSubtitle")}</p>
-              </div>
-            )}
-
-            {simpleModeActive && simpleHomeState && (
-              <div className="chat-simple-home-setup">
-                <button
-                  ref={modelSelectorTriggerRef}
-                  onClick={() => setShowModelSelector((prev) => !prev)}
-                  className="chat-simple-home-control"
-                >
-                  <span className={`chat-simple-home-control-dot ${activeModelLabel ? "is-online" : ""}`} />
-                  <span className="truncate">{activeModelLabel || t("chat.selectModel")}</span>
-                  <svg className="h-3 w-3 flex-shrink-0 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                <RpReasoningToggle enabled={rpReasoningEnabled} disabled={chatGenerationBusy || savingRpReasoning} variant="home" onToggle={() => { void toggleRpReasoning(); }} />
-                <button
-                  onClick={() => openSimpleInspector(true)}
-                  className="chat-simple-home-control"
-                >
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 01-8 0m-3 13a7 7 0 0114 0M12 3v1" />
-                  </svg>
-                  {t("chat.contextSetup")}
-                </button>
-                <button
-                  data-modal-trigger="scene-state"
-                  onClick={() => {
-                    setShowModelSelector(false);
-                    setSimpleSceneOpen(true);
-                    setSimpleInspectorOpen(false);
-                  }}
-                  className="chat-simple-home-control"
-                >
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M7 3v8m10-8v8M5 15h14M9 12v6m6-6v6" />
-                  </svg>
-                  {t("inspector.sceneState")}
-                </button>
+                <p className="chat-simple-hero-subtitle">{t("chat.startConvoDesc")}</p>
               </div>
             )}
 
@@ -2688,11 +2476,15 @@ export function ChatScreen() {
               } as CSSProperties}
               className={`chat-scroll min-w-0 flex-1 space-y-1.5 overflow-y-auto rounded-lg border border-border-subtle bg-bg-primary p-3 ${simpleModeActive ? "chat-simple-scroll chat-simple-surface" : ""} ${simpleHomeState ? "chat-simple-scroll-home" : ""}`}
             >
-              {messages.length === 0 && !streamingActiveChat && (
+              {messages.length === 0 && !streamingActiveChat && !simpleHomeState && (
                 <EmptyState title={t("chat.startConvo")} description={t("chat.startConvoDesc")} />
               )}
 
               {visibleMessages.map((msg) => {
+                if (isLegacyChatFailure(msg)) return (
+                  <ChatGenerationFailure key={msg.id} error={msg.content} busy={chatGenerationBusy}
+                    onRetry={!generationFailure && msg.id === visibleMessages[visibleMessages.length - 1]?.id ? () => { void handleRegenerate(); } : undefined} />
+                );
                 const relatedReasoningMessages = groupedToolsByParent.reasoningGrouped.get(msg.id) || [];
                 const relatedToolMessages = groupedToolsByParent.toolGrouped.get(msg.id) || [];
                 const reasoningPanelOpen = reasoningPanelsExpanded[msg.id] === true;
@@ -2714,21 +2506,21 @@ export function ChatScreen() {
                         ? "chat-message-user ml-auto bg-accent-subtle text-text-primary"
                         : "chat-message-assistant mr-auto border border-border-subtle bg-bg-secondary text-text-primary"
                     }`}>
-                    <div className="mb-2 flex min-w-0 items-start gap-2.5">
+                    <div className="chat-message-header mb-2 flex min-w-0 items-start gap-2.5">
                       {msgChar && (
                         <AvatarBadge
                           name={msg.characterName || msgChar.name || "?"}
                           src={resolveApiAssetUrl(msgChar.avatarUrl)}
                           className="h-8 w-8 flex-shrink-0 rounded-full"
                           imageClassName="ring-1 ring-border-subtle"
-                          fallbackClassName="bg-purple-500/15 text-xs font-semibold text-purple-400 ring-1 ring-purple-500/20"
+                          fallbackClassName="bg-accent-subtle text-xs font-semibold text-accent"
                         />
                       )}
                       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                         <span
                           className={`max-w-full truncate text-[10px] font-semibold uppercase tracking-wider ${
                             msgChar
-                              ? "text-purple-400"
+                              ? "text-accent"
                               : msg.role === "user" && msg.characterName
                                 ? "text-accent"
                                 : "text-text-tertiary"
@@ -2738,10 +2530,12 @@ export function ChatScreen() {
                             ? (msg.characterName || msgChar.name)
                             : msg.role === "user" && msg.characterName
                               ? msg.characterName
-                              : (msg.role === "user" ? (activePersona?.name || t("chat.user")) : msg.role)}
+                              : (msg.role === "user" ? (activePersona?.name || t("chat.user")) : msg.role === "assistant" ? t("chat.assistant") : msg.role)}
                         </span>
-                        {msg.tokenCount > 0 && <Badge>{msg.tokenCount} tok</Badge>}
-                        {msg.role === "assistant" && messageTokensPerSecond[msg.id] && <Badge>{messageTokensPerSecond[msg.id]}</Badge>}
+                        <span className="chat-message-metadata inline-flex gap-1.5">
+                          {msg.tokenCount > 0 && <Badge>{msg.tokenCount} tok</Badge>}
+                          {msg.role === "assistant" && messageTokensPerSecond[msg.id] && <Badge>{messageTokensPerSecond[msg.id]}</Badge>}
+                        </span>
                       </div>
                     </div>
 
@@ -2878,71 +2672,28 @@ export function ChatScreen() {
                       </>
                     )}
 
+                    {!zenMode && msg.variants && msg.variants.count > 1 && msg.id === visibleMessages[visibleMessages.length - 1]?.id && (
+                      <ReplyVariantSwitcher index={msg.variants.index} count={msg.variants.count}
+                        disabled={chatGenerationBusy || switchingVariant} onSelect={(direction) => { void handleSelectVariant(msg.id, direction); }} />
+                    )}
                     {!zenMode && !msg.id.startsWith("temp-") && (
-                      <div className="message-actions mt-2 flex flex-wrap items-center gap-1">
-                        <IconButton
-                          label={t("chat.fork")}
-                          onClick={() => { void handleFork(msg.id); }}
-                          size="sm"
-                          className="message-icon-button"
-                          icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M6 3v6a4 4 0 004 4h8M6 9l4-4M6 9L2 5m16 8l-4-4m4 4l-4 4" /></svg>}
-                        />
-                        <IconButton
-                          label={t("chat.edit")}
-                          onClick={() => { setEditingId(msg.id); setEditingValue(msg.content); }}
-                          size="sm"
-                          className="message-icon-button"
-                          icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 20h4l10.5-10.5a2.12 2.12 0 00-3-3L5 17v3zM13.5 8.5l3 3" /></svg>}
-                        />
-                        <IconButton
-                          label={translatingId === msg.id ? t("chat.translating") : t("chat.translateSide")}
-                          onClick={() => { void handleTranslate(msg.id, false); }}
-                          disabled={translatingId === msg.id}
-                          size="sm"
-                          className="message-icon-button"
-                          icon={<svg className={translatingId === msg.id ? "animate-spin" : ""} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M4 5h9M8.5 3v2m-2 0c.7 3.2 2.8 5.8 6.5 7M6 12c2.4-1.2 4.3-3.2 5.4-6M14 14h6m-3-3l4 9m-8 0l4-9" /></svg>}
-                        />
-                        <IconButton
-                          label={t("chat.translateInPlace")}
-                          onClick={() => { void handleTranslate(msg.id, true); }}
-                          disabled={translatingId === msg.id}
-                          size="sm"
-                          className="message-icon-button"
-                          icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M7 7h11l-3-3m3 3l-3 3M17 17H6l3 3m-3-3l3-3" /></svg>}
-                        />
-                        {(msg.role === "assistant" || msg.role === "user") && String(msg.content || "").trim() && (
-                          <IconButton
-                            onClick={() => { void handleTts(msg.id); }}
-                            disabled={ttsLoadingId === msg.id}
-                            label={ttsLoadingId === msg.id
-                              ? t("chat.ttsLoading")
-                              : (ttsPlayingId === msg.id ? t("chat.ttsStop") : t("chat.tts"))}
-                            size="sm"
-                            tone={ttsPlayingId === msg.id ? "accent" : "neutral"}
-                            className="message-icon-button"
-                            icon={<svg className={ttsLoadingId === msg.id ? "animate-pulse" : ""} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5L6 9H3v6h3l5 4V5zm4 4a4 4 0 010 6m3-9a8 8 0 010 12" /></svg>}
-                          />
-                        )}
-                        <IconButton
-                          label={t("chat.delete")}
-                          onClick={() => { void handleDelete(msg.id); }}
-                          disabled={deletingMessageIds[msg.id]}
-                          size="sm"
-                          tone="danger"
-                          className="message-icon-button"
-                          icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M5 7h14M9 7V4h6v3m-8 0l1 13h8l1-13M10 11v5m4-5v5" /></svg>}
-                        />
-                        <PluginActionBar
-                          location="chat.message"
-                          contextPayload={{
-                            chatId: activeChat?.id || null,
-                            branchId: activeBranchId,
-                            messageId: msg.id,
-                            role: msg.role,
-                            characterName: msg.characterName || null
-                          }}
-                        />
-                      </div>
+                      <MessageActions
+                        copyText={inPlaceTranslations[msg.id] || inlineReasoning.content}
+                        busy={chatGenerationBusy}
+                        alignEnd={msg.role === "user"}
+                        onEdit={() => { setEditingId(msg.id); setEditingValue(msg.content); }}
+                        onDelete={() => { void handleDelete(msg.id); }}
+                        deleting={Boolean(deletingMessageIds[msg.id])}
+                        onRegenerate={msg.role === "assistant" && msg.id === visibleMessages[visibleMessages.length - 1]?.id ? () => { void handleRegenerate(); } : undefined}
+                        onFork={() => { void handleFork(msg.id); }}
+                        onTranslateSide={() => { void handleTranslate(msg.id, false); }}
+                        onTranslateInPlace={() => { void handleTranslate(msg.id, true); }}
+                        translating={translatingId === msg.id}
+                        tts={String(msg.content || "").trim() ? { loading: ttsLoadingId === msg.id, playing: ttsPlayingId === msg.id, onToggle: () => { void handleTts(msg.id); } } : undefined}
+                        extra={<PluginActionBar location="chat.message" contextPayload={{
+                          chatId: activeChat?.id || null, branchId: activeBranchId, messageId: msg.id, role: msg.role, characterName: msg.characterName || null
+                        }} />}
+                      />
                     )}
                   </article>
                 );
@@ -2956,14 +2707,14 @@ export function ChatScreen() {
                       : activeChatCharacter;
                     return (
                       <>
-                  <div className="mb-1.5 flex min-w-0 items-start gap-2.5">
-                    <AvatarBadge
+                  <div className="chat-message-header mb-1.5 flex min-w-0 items-start gap-2.5">
+                    {(streamChar || !simpleModeActive) && <AvatarBadge
                       name={streamingCharacterName || streamChar?.name || t("chat.assistant")}
                       src={resolveApiAssetUrl(streamChar?.avatarUrl)}
                       className="h-8 w-8 flex-shrink-0 rounded-full"
                       imageClassName="ring-1 ring-border-subtle"
-                      fallbackClassName="bg-purple-500/15 text-xs font-semibold text-purple-400 ring-1 ring-purple-500/20"
-                    />
+                      fallbackClassName="bg-accent-subtle text-xs font-semibold text-accent"
+                    />}
                     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
                       <span className="max-w-full truncate text-[10px] font-semibold uppercase tracking-wider text-accent">
                         {streamingCharacterName || streamChar?.name || t("chat.assistant")}
@@ -3073,6 +2824,8 @@ export function ChatScreen() {
                 </article>
               )}
 
+              {generationFailure && <ChatGenerationFailure error={generationFailure.error} busy={chatGenerationBusy}
+                onRetry={() => { void (generationFailure.characterName ? handleNextTurn(generationFailure.characterName) : handleRegenerate()); }} />}
               <div ref={messagesEndRef} />
             </div>
 
@@ -3116,7 +2869,9 @@ export function ChatScreen() {
                   className={simpleModeActive
                     ? "chat-simple-textarea"
                     : "h-[80px] w-full resize-none rounded-xl border border-border bg-bg-primary px-4 py-2.5 pr-10 text-sm text-text-primary placeholder:text-text-tertiary"}
-                  placeholder={simpleHomeState ? t("chat.simplePlaceholder") : t("chat.placeholder")} />
+                  aria-label={t("chat.writeMessage")}
+                  title={t("chat.placeholder")}
+                  placeholder={simpleHomeState ? t("chat.simplePlaceholder") : t(simpleModeActive ? "chat.writeMessage" : "chat.placeholder")} />
                 {simpleModeActive && (
                   <div className="chat-simple-composer-bar">
                     <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
@@ -3132,30 +2887,24 @@ export function ChatScreen() {
                         </svg>
                       )}
                     </button>
-                    {!simpleHomeState && (
-                      <button
-                        ref={modelSelectorTriggerRef}
-                        onClick={() => setShowModelSelector((prev) => !prev)}
-                        className="chat-simple-bar-model"
-                        title={t("chat.selectModel")}
-                      >
-                        <span className="truncate">{activeModelLabel || t("chat.selectModel")}</span>
-                        <svg className="h-3 w-3 flex-shrink-0 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
-                    )}
-                    {!simpleHomeState && <RpReasoningToggle enabled={rpReasoningEnabled} disabled={chatGenerationBusy || savingRpReasoning} onToggle={() => { void toggleRpReasoning(); }} />}
-                    {!simpleHomeState && (
-                      <span className="chat-simple-bar-mode">
-                        {chatMode === "rp" ? t("inspector.modeRp") : chatMode === "light_rp" ? t("inspector.modeLightRp") : t("inspector.modePureChat")}
-                      </span>
-                    )}
-                    <div className="flex-1" />
+                    <SimpleChatControls
+                      modelLabel={activeModelDisplayLabel}
+                      modelTriggerRef={modelSelectorTriggerRef}
+                      modelOpen={showModelSelector}
+                      onModel={() => setShowModelSelector(previous => !previous)}
+                      reasoning={rpReasoningEnabled}
+                      reasoningDisabled={chatGenerationBusy || savingRpReasoning}
+                      onReasoning={() => { void toggleRpReasoning(); }}
+                      contextOpen={simpleInspectorOpen}
+                      onContext={() => { setSimpleSceneOpen(false); openSimpleInspector(); }}
+                      sceneOpen={simpleSceneOpen}
+                      onScene={() => { setShowModelSelector(false); setSimpleSceneOpen(previous => !previous); setSimpleInspectorOpen(false); }}
+                    />
                     {!streamingActiveChat && activeBackgroundChatTask && (
                       <span className="chat-simple-bar-mode">{activeBackgroundChatTask.label}</span>
                     )}
                     <button onClick={chatGenerationBusy ? handleAbort : (hasDraftPayload ? handleSend : handleRegenerate)}
+                      aria-label={chatGenerationBusy ? t("chat.stop") : hasDraftPayload ? t("chat.send") : t("chat.regenerate")}
                       disabled={uploading || (!chatGenerationBusy && !hasDraftPayload && !canResendLast)}
                       className={`chat-simple-send-btn ${chatGenerationBusy ? "is-stop" : ""}`}>
                       {chatGenerationBusy ? (
@@ -3202,7 +2951,7 @@ export function ChatScreen() {
                       <div className="min-w-0 flex-1">
                         <div className="chat-simple-model-current-label">{t("settings.activeModel")}</div>
                         <div className="truncate text-sm font-medium text-text-primary" title={activeModelLabel || t("chat.noModel")}>
-                          {activeModelLabel || t("chat.noModel")}
+                          {activeModelDisplayLabel || t("chat.noModel")}
                         </div>
                       </div>
                     </div>
@@ -3335,28 +3084,22 @@ export function ChatScreen() {
           </>
         }
         right={(
-          <div className="flex h-full flex-col gap-3 overflow-y-auto">
-            <PanelTitle
-              action={simpleModeActive ? (
-                <button
-                  onClick={() => openSimpleInspector(false)}
-                  className="rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] text-text-secondary"
-                >
-                  {t("chat.cancel")}
-                </button>
-              ) : null}
-            >
-              {t("inspector.title")}
-            </PanelTitle>
-
-            <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
-              {simpleModeActive && (
+          <>
+            {simpleModeActive ? (
+              <SimpleInspectorNavigation section={simpleInspectorSection} onSectionChange={setSimpleInspectorSection} onClose={() => openSimpleInspector(false)} />
+            ) : (
+              <PanelTitle>{t("inspector.title")}</PanelTitle>
+            )}
+            <div className={`flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto ${simpleModeActive ? "chat-simple-inspector-scroll" : ""}`}>
+            <div className="chat-inspector-section rounded-lg border border-border-subtle bg-bg-primary p-3">
+              {simpleModeActive && simpleInspectorSection === "context" && (
                 <div>
-                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("inspector.chatMode")}</label>
+                  <label className="mb-1.5 block text-xs font-medium text-text-secondary">{t("inspector.chatMode")}</label>
                   <select
                     value={chatMode}
+                    aria-label={t("inspector.chatMode")}
                     onChange={(e) => setChatMode(e.target.value as ChatMode)}
-                    className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
+                    className="chat-inspector-select w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
                   >
                     <option value="rp">{t("inspector.modeRp")}</option>
                     <option value="light_rp">{t("inspector.modeLightRp")}</option>
@@ -3364,13 +3107,14 @@ export function ChatScreen() {
                   </select>
                 </div>
               )}
-              {chatMode === "light_rp" && (
+              {chatMode === "light_rp" && (!simpleModeActive || simpleInspectorSection === "context") && (
                 <p className="mt-2 text-[10px] text-text-tertiary">{t("inspector.modeLightRpHint")}</p>
               )}
-              <div className="mt-3">
+              <div className="mt-3" hidden={simpleModeActive && simpleInspectorSection !== "advanced"}>
                 <div className="mb-2 text-sm font-medium text-text-primary">{t("inspector.systemPrompt")}</div>
                 <textarea
                   value={systemPromptBlock?.content || ""}
+                  aria-label={t("inspector.systemPrompt")}
                   onChange={(e) => setSystemPromptContent(e.target.value)}
                   className="h-20 w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
                   placeholder={t("inspector.systemPromptPlaceholder")}
@@ -3378,11 +3122,11 @@ export function ChatScreen() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-border-subtle bg-bg-primary p-3">
+            <div hidden={simpleModeActive && simpleInspectorSection !== "context"} className="chat-inspector-section rounded-lg border border-border-subtle bg-bg-primary p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium text-text-primary">{t("chat.contextSetup")}</div>
-                    <div className="mt-0.5 text-[11px] text-text-tertiary">{t("chat.userPersona")} / {t("chat.lorebook")} / RAG</div>
+                    <div className="text-sm font-medium text-text-primary">{t(simpleModeActive ? "chat.userPersona" : "chat.contextSetup")}</div>
+                    {!simpleModeActive && <div className="mt-0.5 text-[11px] text-text-tertiary">{t("chat.userPersona")} / {t("chat.lorebook")} / RAG</div>}
                   </div>
                   <button
                     data-modal-trigger="persona"
@@ -3393,8 +3137,8 @@ export function ChatScreen() {
                   </button>
                 </div>
 
-                <div className="mt-3 rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.userPersona")}</div>
+                <div className="chat-inspector-persona mt-3 rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2">
+                  {!simpleModeActive && <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.userPersona")}</div>}
                   <div className="mt-1 text-sm font-medium text-text-primary">{activePersona?.name || t("chat.user")}</div>
                   {(activePersonaPayload?.description || activePersonaPayload?.scenario || activePersonaPayload?.personality) && (
                     <div className="mt-1 line-clamp-2 text-[11px] text-text-tertiary">
@@ -3406,10 +3150,9 @@ export function ChatScreen() {
                 <div className="mt-3">
                   <div className="mb-1.5 flex items-center justify-between gap-2">
                     <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.lorebook")}</div>
-                    <span className="text-[10px] text-text-tertiary">
-                      {selectedLorebooks.length === 0 ? t("chat.none") : selectedLorebooks.length}
-                    </span>
+                    {selectedLorebooks.length > 0 && <span className="text-[10px] text-text-tertiary">{selectedLorebooks.length}</span>}
                   </div>
+                  <p className="mb-2 text-[11px] text-text-tertiary">{t("chat.lorebookSelectionHint")}</p>
                   <div className="space-y-1.5">
                     <button
                       onClick={() => { void saveLorebooksForChat([]); }}
@@ -3419,7 +3162,7 @@ export function ChatScreen() {
                           : "border-border bg-bg-secondary text-text-secondary hover:bg-bg-hover"
                       }`}
                     >
-                      {t("chat.none")}
+                      {t("chat.noLorebook")}
                     </button>
                     <div className="max-h-36 space-y-1 overflow-y-auto">
                       {lorebooks.map((book) => {
@@ -3427,7 +3170,7 @@ export function ChatScreen() {
                         return (
                           <label
                             key={book.id}
-                            className={`flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                            className={`chat-lorebook-option flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors ${
                               checked
                                 ? "border-accent-border bg-accent-subtle text-text-primary"
                                 : "border-border bg-bg-secondary text-text-secondary hover:bg-bg-hover"
@@ -3439,6 +3182,7 @@ export function ChatScreen() {
                               onChange={(event) => { void toggleLorebookForChat(book.id, event.target.checked); }}
                             />
                             <span className="min-w-0 flex-1 truncate">{book.name}</span>
+                            <span className="chat-lorebook-entry-count">{t("chat.lorebookEntries").replace("{count}", String(book.entries.length))}</span>
                           </label>
                         );
                       })}
@@ -3446,21 +3190,22 @@ export function ChatScreen() {
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-lg border border-border-subtle bg-bg-secondary p-3">
+                <div className="chat-inspector-rag mt-3 rounded-lg border border-border-subtle bg-bg-secondary p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-sm font-medium text-text-primary">{t("chat.ragEnabled")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">
+                      {chatRagEnabled && <div className="mt-0.5 text-[11px] text-text-tertiary">
                         {t("chat.ragTopK")}: {chatRagTopK}
-                      </div>
+                      </div>}
                     </div>
                     <input
                       type="checkbox"
+                      aria-label={t("chat.ragEnabled")}
                       checked={chatRagEnabled}
                       onChange={(e) => { void updateChatRag(e.target.checked, chatRagCollectionIds); }}
                     />
                   </div>
-                  <div className="mt-2 space-y-1">
+                  <div className="mt-2 space-y-1" hidden={!chatRagEnabled}>
                     <div className="text-[10px] uppercase tracking-[0.08em] text-text-tertiary">{t("chat.ragCollections")}</div>
                     {chatRagCollectionsAvailable.length === 0 ? (
                       <p className="text-[10px] text-text-tertiary">{t("chat.ragNoCollections")}</p>
@@ -3488,10 +3233,11 @@ export function ChatScreen() {
                 </div>
             </div>
 
-            <div>
-              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("inspector.authorNote")}</label>
+            <div hidden={simpleModeActive && simpleInspectorSection !== "advanced"}>
+              <label className="mb-1.5 block text-xs font-medium text-text-secondary">{t("inspector.authorNote")}</label>
               <textarea
                 value={authorNote}
+                aria-label={t("inspector.authorNote")}
                 onChange={(e) => setAuthorNote(e.target.value)}
                 disabled={pureChatMode}
                 className="h-20 w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary disabled:opacity-50"
@@ -3619,7 +3365,7 @@ export function ChatScreen() {
             )}
 
             {/* Sampler section — auto-saves */}
-            <div>
+            <div hidden={simpleModeActive && simpleInspectorSection !== "advanced"}>
               <button onClick={() => toggleSection("sampler")}
                 className="mb-1.5 flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
                 <span className="flex items-center gap-1.5">
@@ -3723,9 +3469,12 @@ export function ChatScreen() {
               )}
             </div>
 
+            {simpleModeActive && simpleInspectorSection === "advanced" && <ChatRpPresets
+              activePreset={activePreset} expanded={!presetsCollapsed} onToggle={() => setPresetsCollapsed(!presetsCollapsed)}
+              onApply={(preset) => { void applyPreset(preset); }} />}
             {/* Compressed Context section */}
             {contextSummary && (
-              <div>
+              <div hidden={simpleModeActive && simpleInspectorSection !== "advanced"}>
                 <button onClick={() => toggleSection("context")}
                   className="mb-1.5 flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
                   {t("inspector.compressedContext")}
@@ -3749,7 +3498,8 @@ export function ChatScreen() {
                 simpleMode: simpleModeActive
               }}
             />
-          </div>
+            </div>
+          </>
         )}
       />
     </>

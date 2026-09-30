@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PropsWithChildren, type ReactNode } from "react";
+import { IconButton } from "./IconButton";
 
 type MobilePanel = "left" | "center" | "right";
 
@@ -19,6 +20,11 @@ export function ThreePanelLayout({
   leftClassName = "",
   centerClassName = "",
   rightClassName = "",
+  leftId,
+  rightId,
+  leftAriaLabel,
+  rightAriaLabel,
+  panelBackdrop,
   leftInert = false,
   rightInert = false,
   threeColumnLayoutClassName = "xl:grid-cols-[272px_minmax(480px,1fr)_320px]",
@@ -35,6 +41,11 @@ export function ThreePanelLayout({
   leftClassName?: string;
   centerClassName?: string;
   rightClassName?: string;
+  leftId?: string;
+  rightId?: string;
+  leftAriaLabel?: string;
+  rightAriaLabel?: string;
+  panelBackdrop?: ReactNode;
   leftInert?: boolean;
   rightInert?: boolean;
   threeColumnLayoutClassName?: string;
@@ -104,7 +115,8 @@ export function ThreePanelLayout({
   if (hideRight) {
     return wrapMobileLayout(
       <div className={`${rootClass} grid-cols-1 gap-4 ${twoColumnLayoutClassName}`.trim()} data-mobile-panel={mobileTabs ? mobilePanel : undefined}>
-        <aside ref={leftPanelRef} data-mobile-pane="left" className={`panel-shell ui-panel-shell flex min-h-0 min-w-0 flex-col p-4 ${leftClassName}`.trim()}>{left}</aside>
+        {panelBackdrop}
+        <aside ref={leftPanelRef} id={leftId} aria-label={leftAriaLabel} data-mobile-pane="left" className={`panel-shell ui-panel-shell flex min-h-0 min-w-0 flex-col p-4 ${leftClassName}`.trim()}>{left}</aside>
         <section data-mobile-pane="center" className={`panel-shell ui-panel-shell flex min-h-0 min-w-0 flex-col p-4 ${centerClassName}`.trim()}>{center}</section>
       </div>
     );
@@ -112,9 +124,10 @@ export function ThreePanelLayout({
 
   return wrapMobileLayout(
     <div className={`${rootClass} grid-cols-1 gap-4 ${threeColumnLayoutClassName}`.trim()} data-mobile-panel={mobileTabs ? mobilePanel : undefined}>
-        <aside ref={leftPanelRef} data-mobile-pane="left" className={`panel-shell ui-panel-shell flex min-h-0 min-w-0 flex-col p-4 ${leftClassName}`.trim()}>{left}</aside>
+      {panelBackdrop}
+      <aside ref={leftPanelRef} id={leftId} aria-label={leftAriaLabel} data-mobile-pane="left" className={`panel-shell ui-panel-shell flex min-h-0 min-w-0 flex-col p-4 ${leftClassName}`.trim()}>{left}</aside>
       <section data-mobile-pane="center" className={`panel-shell ui-panel-shell flex min-h-0 min-w-0 flex-col p-4 ${centerClassName}`.trim()}>{center}</section>
-      <aside ref={rightPanelRef} data-mobile-pane="right" aria-hidden={rightInert || undefined} className={`panel-shell ui-panel-shell flex min-h-0 min-w-0 flex-col p-4 ${rightClassName}`.trim()}>{right}</aside>
+      <aside ref={rightPanelRef} id={rightId} aria-label={rightAriaLabel} data-mobile-pane="right" aria-hidden={rightInert || undefined} className={`panel-shell ui-panel-shell flex min-h-0 min-w-0 flex-col p-4 ${rightClassName}`.trim()}>{right}</aside>
     </div>
   );
 }
@@ -126,6 +139,14 @@ export function PanelTitle({ children, action }: PropsWithChildren<{ action?: Re
       {action}
     </div>
   );
+}
+
+export function PanelCloseButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return <IconButton label={label} onClick={onClick} className="simple-panel-close" icon={
+    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  } />;
 }
 
 export function Badge({ children, variant = "default" }: PropsWithChildren<{ variant?: "default" | "accent" | "warning" | "danger" | "success" }>) {

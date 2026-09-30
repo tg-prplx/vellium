@@ -14,6 +14,16 @@ const storedReasoning = JSON.stringify({
   result: "Compare the two choices."
 });
 
+it("excludes legacy provider failures from prompts and compression while retaining quoted user errors", () => {
+  const timeline = [
+    { id: "u1", role: "user", content: "[Error] This is the log I need help with." },
+    { id: "a1", role: "assistant", content: "[Error] Provider request failed: timeout" },
+    { id: "u2", role: "user", content: "Try again" },
+    { id: "a2", role: "assistant", content: "Here is your answer" }
+  ];
+  expect(buildReasoningAwareTimeline(timeline, true).map(message => message.id)).toEqual(["u1", "u2", "a2"]);
+});
+
 const generatedImageUrl = "http://127.0.0.1:8188/view?filename=portrait.png&type=output";
 const generatedImageMarkdown = `![Generated portrait](${generatedImageUrl})`;
 const storedMedia = JSON.stringify({

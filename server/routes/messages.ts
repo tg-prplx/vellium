@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db, roughTokenCount } from "../db.js";
+import { withReplyVariants } from "../modules/chat/replyVariants.js";
 
 const router = Router();
 
@@ -59,7 +60,7 @@ function getTimeline(chatId: string, branchId: string) {
   const rows = db.prepare(
     "SELECT * FROM messages WHERE chat_id = ? AND branch_id = ? AND deleted = 0 ORDER BY sort_order ASC, created_at ASC, id ASC"
   ).all(chatId, branchId) as MessageRow[];
-  return rows.map(messageToJson);
+  return withReplyVariants(chatId, branchId, rows.map(messageToJson));
 }
 
 const normalizeSortOrder = db.transaction((chatId: string, branchId: string) => {

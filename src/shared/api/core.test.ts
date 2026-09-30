@@ -58,6 +58,15 @@ describe("request", () => {
 });
 
 describe("streamPost", () => {
+  it("rejects explicit generation errors instead of treating them as completed replies", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(
+      'data: {"type":"error","error":"Provider unavailable"}\n\ndata: {"type":"done"}\n\n',
+      { headers: { "Content-Type": "text/event-stream" } }
+    )) as typeof fetch;
+    const onDone = vi.fn();
+    await expect(streamPost("/chats/chat-1/send", {}, { onDone })).rejects.toThrow("Provider unavailable");
+    expect(onDone).not.toHaveBeenCalled();
+  });
   it("tolerates terminated streams after a done event", async () => {
     const encoder = new TextEncoder();
     let doneSent = false;

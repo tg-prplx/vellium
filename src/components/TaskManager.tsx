@@ -8,7 +8,7 @@ import {
   useBackgroundTasks
 } from "../shared/backgroundTasks";
 import { useI18n } from "../shared/i18n";
-import { syncTaskManagerOpenState } from "./taskManagerState";
+import { syncTaskManagerOpenState, taskManagerBadge } from "./taskManagerState";
 
 function formatTaskDuration(startedAt: number, now: number, finishedAt?: number) {
   const totalSeconds = Math.max(0, Math.floor(((finishedAt ?? now) - startedAt) / 1000));
@@ -217,7 +217,7 @@ export function TaskManager({
   if (tasks.length === 0) return null;
 
   const topClass = isElectron ? "top-14" : "top-[4.75rem]";
-  const count = runningTasks.length > 0 ? runningTasks.length : tasks.length;
+  const badge = taskManagerBadge(tasks);
 
   return (
     <>
@@ -241,9 +241,13 @@ export function TaskManager({
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6l4 2M12 3a9 9 0 109 9" />
         </svg>
         <span className="max-w-[140px] truncate text-left font-medium text-text-primary">{t("taskManager.title")}</span>
-        <span className="rounded-full bg-bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-text-secondary">
-          {count}
-        </span>
+        {badge && (
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+            badge.tone === "error" ? "bg-danger-subtle text-danger" : "bg-bg-primary text-text-secondary"
+          }`}>
+            {badge.count}
+          </span>
+        )}
       </button>
 
       {isOpen && (

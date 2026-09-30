@@ -4,6 +4,10 @@ import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../component
 import { api } from "../../shared/api";
 import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
 import { useI18n } from "../../shared/i18n";
+import { PetAppearancePanel } from "./components/PetAppearancePanel";
+import { PetAssetPreview } from "./components/PetAssetPreview";
+import { PetDesktopPanel } from "./components/PetDesktopPanel";
+import { PetStateEditor } from "./components/PetStateEditor";
 import type { CharacterDetail } from "../../shared/types/contracts";
 import {
   buildDesktopPetConfigFromCharacter,
@@ -47,7 +51,14 @@ type PresetUploadTarget = {
   field: "assetUrl" | "soundUrl";
 } | null;
 
-type PetPanelView = "asset" | "states" | "assistant" | "chats";
+type PetPanelView = "asset" | "profile" | "states" | "assistant" | "chats";
+const PET_TAB_LABELS = {
+  asset: "pets.tabAppearance",
+  profile: "pets.tabProfile",
+  states: "pets.tabStates",
+  assistant: "pets.tabAssistant",
+  chats: "pets.tabChats"
+} as const;
 type PetChatMessage = { role: "user" | "assistant"; content: string; createdAt: number };
 type PetChatAttachment = { type: "image"; dataUrl: string; mimeType: string; filename: string; createdAt: number };
 type PetChatHistory = {
@@ -89,11 +100,6 @@ const PET_CODEX_SPRITESHEET_ACCEPT = "image/webp,image/png,.webp,.png";
 const PET_SOUND_ACCEPT = "audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,audio/flac,.mp3,.wav,.ogg,.oga,.m4a,.aac,.flac";
 
 const PET_TAG = "pet";
-
-function isPetVideoAsset(url: string | null | undefined) {
-  const value = String(url || "").trim();
-  return /^data:video\//i.test(value) || /\.(mp4|webm|mov|m4v)(?:[?#]|$)/i.test(value);
-}
 
 function normalizeCodexPetId(value: unknown) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64);
@@ -297,56 +303,6 @@ function hasPetTag(character: CharacterDetail) {
   return character.tags.some((tag) => tag.toLowerCase() === PET_TAG);
 }
 
-function PetAssetPreview({
-  name,
-  src,
-  spriteSheetUrl,
-  className,
-  fallbackClassName
-}: {
-  name: string;
-  src?: string | null;
-  spriteSheetUrl?: string | null;
-  className: string;
-  fallbackClassName: string;
-}) {
-  if (spriteSheetUrl) {
-    return (
-      <div
-        aria-label={name}
-        className={`${className} bg-contain bg-no-repeat`}
-        style={{
-          backgroundImage: `url("${spriteSheetUrl}")`,
-          backgroundSize: "800% 900%",
-          backgroundPosition: "0 0"
-        }}
-      />
-    );
-  }
-
-  if (isPetVideoAsset(src)) {
-    return (
-      <video
-        src={src || undefined}
-        className={`${className} object-cover`}
-        muted
-        loop
-        autoPlay
-        playsInline
-      />
-    );
-  }
-
-  return (
-    <AvatarBadge
-      name={name}
-      src={src}
-      className={className}
-      fallbackClassName={fallbackClassName}
-    />
-  );
-}
-
 export function PetsScreen() {
   const { t, locale } = useI18n();
   const assetFileRef = useRef<HTMLInputElement | null>(null);
@@ -365,12 +321,13 @@ export function PetsScreen() {
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const [visible, setVisible] = useState(false);
   const [visibilityBusy, setVisibilityBusy] = useState(false);
-  const [rightView, setRightView] = useState<PetPanelView>("asset");
+  const [rightView, setRightView] = useState<PetPanelView>("profile");
   const [petChats, setPetChats] = useState<PetChatHistory[]>([]);
   const [activePetChatId, setActivePetChatId] = useState("");
   const [petChatsLoading, setPetChatsLoading] = useState(false);
   const [status, setStatus] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const isElectron = Boolean(window.electronAPI?.showDesktopPet);
+  const petOnDesktop = visible && Boolean(selectedId) && activeConfig.characterId === selectedId;
 
   const selected = useMemo(
     () => characters.find((character) => character.id === selectedId) || null,
@@ -776,122 +733,6 @@ export function PetsScreen() {
 
   const selectedPetMeta = selected ? getDesktopPetExtension(selected) : {};
 
-  function renderPresetEditor(kind: "action" | "emotion", presets: DesktopPetStatePreset[]) {
-    return (
-      <div className="pets-state-editor">
-        <div className="pets-state-editor-head">
-          <div className="pets-section-title">{kind === "action" ? t("pets.actions") : t("pets.emotions")}</div>
-          <button
-            type="button"
-            onClick={() => addPreset(kind)}
-            className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-text-secondary hover:bg-bg-hover hover:text-text-primary"
-          >
-            + {t("pets.addState")}
-          </button>
-        </div>
-        <div className="grid gap-2">
-          {presets.map((preset, index) => (
-            <div key={`${kind}-${index}`} className="pets-state-row">
-              <div className="grid grid-cols-[1fr_1fr] gap-2">
-                <label className="pets-field">
-                  <span>{t("pets.stateId")}</span>
-                  <input value={preset.id} onChange={(event) => updatePreset(kind, index, { id: event.target.value })} />
-                </label>
-                <label className="pets-field">
-                  <span>{t("pets.stateLabel")}</span>
-                  <input value={preset.label} onChange={(event) => updatePreset(kind, index, { label: event.target.value })} />
-                </label>
-              </div>
-              <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
-                <label className="pets-field">
-                  <span>{t("pets.animation")}</span>
-                  <select
-                    value={preset.animation}
-                    onChange={(event) => updatePreset(kind, index, { animation: normalizeDesktopPetAnimation(event.target.value) })}
-                  >
-                    {PET_ANIMATIONS.map((animation) => (
-                      <option key={animation} value={animation}>{animation === "none" ? t("pets.animationNone") : animation}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="pets-field">
-                  <span>{t("pets.codexState")}</span>
-                  <select
-                    value={preset.codexState || codexStateForPreset(preset.id, preset.animation)}
-                    onChange={(event) => updatePreset(kind, index, { codexState: normalizeDesktopPetCodexState(event.target.value) })}
-                  >
-                    {CODEX_PET_STATES.map((state) => (
-                      <option key={state} value={state}>{state}</option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => removePreset(kind, index)}
-                  className="self-end rounded-lg border border-border px-2 py-2 text-xs font-semibold text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
-                >
-                  {t("common.delete")}
-                </button>
-              </div>
-              <label className="pets-field">
-                <span>{t("pets.stateAsset")}</span>
-                <input
-                  value={preset.assetUrl}
-                  placeholder={t("pets.stateAssetPlaceholder")}
-                  onChange={(event) => updatePreset(kind, index, { assetUrl: event.target.value })}
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => requestPresetUpload(kind, index, "assetUrl")}
-                  disabled={uploadingAsset}
-                  className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {uploadingAsset ? t("pets.assetUploading") : t("pets.uploadAsset")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updatePreset(kind, index, { assetUrl: "" })}
-                  disabled={!preset.assetUrl}
-                  className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {t("pets.clearAsset")}
-                </button>
-              </div>
-              <label className="pets-field">
-                <span>{t("pets.stateSound")}</span>
-                <input
-                  value={preset.soundUrl || ""}
-                  placeholder={t("pets.stateSoundPlaceholder")}
-                  onChange={(event) => updatePreset(kind, index, { soundUrl: event.target.value })}
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => requestPresetUpload(kind, index, "soundUrl")}
-                  disabled={uploadingAsset}
-                  className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {uploadingAsset ? t("pets.assetUploading") : t("pets.uploadSound")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updatePreset(kind, index, { soundUrl: "" })}
-                  disabled={!preset.soundUrl}
-                  className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {t("pets.clearSound")}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   function renderRightPanelContent() {
     if (!draft) {
       return <EmptyState title={t("pets.noSelection")} description={t("pets.noSelectionDesc")} />;
@@ -900,13 +741,13 @@ export function PetsScreen() {
     if (rightView === "chats") {
       const activeChat = petChats.find((chat) => chat.id === activePetChatId) || petChats[0] || null;
       return (
-        <div className="flex min-h-0 flex-col gap-3">
-          <div className="grid grid-cols-[1fr_auto] gap-2">
+        <div className="pet-editor-body flex min-h-0 flex-col gap-3">
+          <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={() => void refreshPetChats()}
               disabled={!isElectron || petChatsLoading}
-              className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+              className="char-editor-btn justify-center"
             >
               {petChatsLoading ? t("pets.loading") : t("pets.refreshChats")}
             </button>
@@ -914,7 +755,7 @@ export function PetsScreen() {
               type="button"
               onClick={() => void createPetChat()}
               disabled={!isElectron}
-              className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="char-editor-btn is-primary justify-center"
             >
               + {t("pets.newChat")}
             </button>
@@ -945,7 +786,7 @@ export function PetsScreen() {
                   </button>
                 ))}
               </div>
-              <div className="max-h-[46vh] min-h-[220px] overflow-y-auto rounded-xl border border-border bg-bg-primary p-3">
+              <div className="min-h-[320px] overflow-y-auto rounded-xl border border-border-subtle bg-bg-primary p-3">
                 {activeChat?.messages.length ? (
                   <div className="grid gap-2">
                     {activeChat.messages.map((message, index) => (
@@ -989,165 +830,113 @@ export function PetsScreen() {
 
     if (rightView === "states") {
       return (
-        <div className="grid gap-4">
-          {renderPresetEditor("action", draft.actions)}
-          {renderPresetEditor("emotion", draft.emotions)}
-          <input
-            ref={presetAssetFileRef}
-            type="file"
-            accept={PET_ASSET_ACCEPT}
-            className="hidden"
-            onChange={(event) => void uploadPresetFile(event.target.files?.[0])}
-          />
+        <div className="pet-editor-body">
+          {(["action", "emotion"] as const).map((kind) => (
+            <PetStateEditor
+              key={kind}
+              title={kind === "action" ? t("pets.actions") : t("pets.emotions")}
+              presets={kind === "action" ? draft.actions : draft.emotions}
+              animations={PET_ANIMATIONS}
+              uploading={uploadingAsset}
+              codexStateFor={(preset) => codexStateForPreset(preset.id, preset.animation)}
+              onAdd={() => addPreset(kind)}
+              onUpdate={(index, patch) => updatePreset(kind, index, patch)}
+              onRemove={(index) => removePreset(kind, index)}
+              onUpload={(index, field) => requestPresetUpload(kind, index, field)}
+            />
+          ))}
+          <input ref={presetAssetFileRef} type="file" accept={PET_ASSET_ACCEPT} className="hidden"
+            onChange={(event) => void uploadPresetFile(event.target.files?.[0])} />
         </div>
       );
     }
 
     if (rightView === "assistant") {
       return (
-        <div className="grid gap-3">
-          <label className="pets-field">
-            <span>{t("pets.assistantInstructions")}</span>
-            <textarea
-              rows={8}
-              value={draft.assistantInstructions}
-              placeholder={t("pets.assistantInstructionsPlaceholder")}
-              onChange={(event) => setDraft({ ...draft, assistantInstructions: event.target.value })}
-            />
-          </label>
-          <label className="pets-field">
-            <span>{t("pets.persistentMemory")}</span>
-            <textarea
-              rows={8}
-              value={draft.persistentMemory}
-              placeholder={t("pets.persistentMemoryPlaceholder")}
-              onChange={(event) => setDraft({ ...draft, persistentMemory: event.target.value.slice(0, 6000) })}
-            />
-          </label>
-          <label className="pets-field">
-            <span>{t("pets.contextTokenLimit")}</span>
-            <input
-              type="number"
-              min={800}
-              max={16000}
-              step={200}
-              value={draft.chatContextTokenLimit}
-              onChange={(event) => setDraft({ ...draft, chatContextTokenLimit: Math.max(800, Math.min(16000, Math.round(Number(event.target.value) || 2400))) })}
-            />
-            <small>{t("pets.contextTokenLimitDesc")}</small>
-          </label>
-          <label className="pets-toggle-row">
-            <input
-              type="checkbox"
-              checked={draft.autonomyEnabled}
-              onChange={(event) => setDraft({ ...draft, autonomyEnabled: event.target.checked })}
-            />
-            <span>
-              <strong>{t("pets.autonomy")}</strong>
-              <small>{t("pets.autonomyDesc")}</small>
-            </span>
-          </label>
-          <label className="pets-toggle-row">
-            <input
-              type="checkbox"
-              checked={draft.ttsEnabled}
-              onChange={(event) => setDraft({ ...draft, ttsEnabled: event.target.checked })}
-            />
-            <span>
-              <strong>{t("pets.tts")}</strong>
-              <small>{t("pets.ttsDesc")}</small>
-            </span>
-          </label>
-          <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs leading-5 text-text-tertiary">
-            {isElectron ? t("pets.desktopHint") : t("pets.desktopUnavailable")}
-          </div>
+        <div className="pet-editor-body">
+          <section className="char-editor-section">
+            <div className="pet-section-heading">{t("pets.tabAssistant")}</div>
+            <div className="char-editor-section-body">
+              <label>
+                <span className="char-editor-label">{t("pets.assistantInstructions")}</span>
+                <textarea className="char-editor-textarea" rows={7} value={draft.assistantInstructions}
+                  placeholder={t("pets.assistantInstructionsPlaceholder")}
+                  onChange={(event) => setDraft({ ...draft, assistantInstructions: event.target.value })} />
+              </label>
+              <label>
+                <span className="char-editor-label">{t("pets.persistentMemory")}</span>
+                <textarea className="char-editor-textarea" rows={7} value={draft.persistentMemory}
+                  placeholder={t("pets.persistentMemoryPlaceholder")}
+                  onChange={(event) => setDraft({ ...draft, persistentMemory: event.target.value.slice(0, 6000) })} />
+              </label>
+              <label className="pet-inline-field">
+                <span className="char-editor-label">{t("pets.contextTokenLimit")}</span>
+                <input className="char-editor-input" type="number" min={800} max={16000} step={200} value={draft.chatContextTokenLimit}
+                  onChange={(event) => setDraft({ ...draft, chatContextTokenLimit: Math.max(800, Math.min(16000, Math.round(Number(event.target.value) || 2400))) })} />
+                <small>{t("pets.contextTokenLimitDesc")}</small>
+              </label>
+            </div>
+          </section>
+          <section className="char-editor-section">
+            <div className="pet-section-heading">{t("pets.behavior")}</div>
+            <div className="char-editor-section-body">
+              {([["autonomyEnabled", "pets.autonomy", "pets.autonomyDesc"], ["ttsEnabled", "pets.tts", "pets.ttsDesc"]] as const).map(([field, label, desc]) => (
+                <label key={field} className="pet-toggle-row">
+                  <input type="checkbox" checked={draft[field]} onChange={(event) => setDraft({ ...draft, [field]: event.target.checked })} />
+                  <span><strong>{t(label)}</strong><small>{t(desc)}</small></span>
+                </label>
+              ))}
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    if (rightView === "profile") {
+      const field = (key: "name" | "description" | "greeting" | "personality" | "scenario" | "systemPrompt", rows?: number) => (
+        <label key={key}>
+          <span className="char-editor-label">{t(`pets.${key}` as const)}</span>
+          {rows ? (
+            <textarea className="char-editor-textarea" rows={rows} value={draft[key]} onChange={(event) => setDraft({ ...draft, [key]: event.target.value })} />
+          ) : (
+            <input className="char-editor-input" value={draft[key]} onChange={(event) => setDraft({ ...draft, [key]: event.target.value.slice(0, 80) })} />
+          )}
+        </label>
+      );
+      return (
+        <div className="pet-editor-body">
+          <section className="char-editor-section">
+            <div className="pet-section-heading">{t("pets.identity")}</div>
+            <div className="char-editor-section-body">{field("name")}{field("description", 3)}{field("greeting", 3)}</div>
+          </section>
+          <section className="char-editor-section">
+            <div className="pet-section-heading">{t("pets.behavior")}</div>
+            <div className="char-editor-section-body">{field("personality", 5)}{field("scenario", 4)}{field("systemPrompt", 4)}</div>
+          </section>
+          <p className="characters-preview-description">{t("pets.editorHint")}</p>
         </div>
       );
     }
 
     return (
-      <div className="grid gap-3">
-        <label className="pets-field">
-          <span>{t("pets.petAsset")}</span>
-          <input
-            value={draft.spriteUrl}
-            placeholder={t("pets.petAssetPlaceholder")}
-            onChange={(event) => setDraft({ ...draft, spriteUrl: event.target.value.slice(0, 4000), spriteSheetUrl: "" })}
-          />
-        </label>
-        <label className="pets-field">
-          <span>{t("pets.spriteSheet")}</span>
-          <input
-            value={draft.spriteSheetUrl}
-            placeholder={t("pets.spriteSheetPlaceholder")}
-            onChange={(event) => setDraft({ ...draft, spriteSheetUrl: event.target.value.slice(0, 4000) })}
-          />
-        </label>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => assetFileRef.current?.click()}
-            disabled={uploadingAsset}
-            className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {uploadingAsset ? t("pets.assetUploading") : t("pets.uploadAsset")}
-          </button>
-          <button
-            type="button"
-            onClick={() => spriteSheetFileRef.current?.click()}
-            disabled={uploadingAsset}
-            className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {uploadingAsset ? t("pets.assetUploading") : t("pets.uploadSpriteSheet")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setDraft({ ...draft, spriteUrl: "", spriteSheetUrl: "" })}
-            disabled={!draft.spriteUrl && !draft.spriteSheetUrl}
-            className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {t("pets.clearAsset")}
-          </button>
-          <input
-            ref={assetFileRef}
-            type="file"
-            accept={PET_ASSET_ACCEPT}
-            className="hidden"
-            onChange={(event) => void uploadPetAsset(event.target.files?.[0])}
-          />
-          <input
-            ref={spriteSheetFileRef}
-            type="file"
-            accept={PET_CODEX_SPRITESHEET_ACCEPT}
-            className="hidden"
-            onChange={(event) => void uploadCodexSpriteSheet(event.target.files?.[0])}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="pets-field">
-            <span>{t("pets.voice")}</span>
-            <select
-              value={draft.voice}
-              onChange={(event) => setDraft({ ...draft, voice: event.target.value as DesktopPetVoice })}
-            >
-              <option value="soft">{t("pets.voiceSoft")}</option>
-              <option value="playful">{t("pets.voicePlayful")}</option>
-              <option value="quiet">{t("pets.voiceQuiet")}</option>
-            </select>
-          </label>
-          <label className="pets-field">
-            <span>{t("pets.size")}</span>
-            <input
-              type="range"
-              min={0.75}
-              max={1.35}
-              step={0.05}
-              value={draft.scale || selectedPetMeta.scale || 1}
-              onChange={(event) => setDraft({ ...draft, scale: Number(event.target.value) })}
-            />
-          </label>
-        </div>
-      </div>
+      <>
+        <PetAppearancePanel
+          name={draft.name}
+          spriteUrl={draft.spriteUrl}
+          spriteSheetUrl={draft.spriteSheetUrl}
+          uploading={uploadingAsset}
+          onUploadAsset={() => assetFileRef.current?.click()}
+          onUploadSheet={() => spriteSheetFileRef.current?.click()}
+          onClearAsset={() => setDraft({ ...draft, spriteUrl: "" })}
+          onClearSheet={() => setDraft({ ...draft, spriteSheetUrl: "" })}
+          onSpriteUrl={(value) => setDraft({ ...draft, spriteUrl: value, spriteSheetUrl: "" })}
+          onSpriteSheetUrl={(value) => setDraft({ ...draft, spriteSheetUrl: value })}
+        />
+        <input ref={assetFileRef} type="file" accept={PET_ASSET_ACCEPT} className="hidden"
+          onChange={(event) => void uploadPetAsset(event.target.files?.[0])} />
+        <input ref={spriteSheetFileRef} type="file" accept={PET_CODEX_SPRITESHEET_ACCEPT} className="hidden"
+          onChange={(event) => void uploadCodexSpriteSheet(event.target.files?.[0])} />
+      </>
     );
   }
 
@@ -1155,9 +944,8 @@ export function PetsScreen() {
     <ThreePanelLayout
       className="pets-workspace"
       leftClassName="pets-library-panel"
-      centerClassName="pets-editor-panel"
-      rightClassName="pets-desktop-panel"
-      threeColumnLayoutClassName="xl:grid-cols-[276px_minmax(500px,1fr)_320px]"
+      centerClassName="pets-editor-panel characters-editor-panel"
+            rightClassName="characters-inspector-panel"
       mobileTabs={{ left: t("pets.library"), center: t("mobilePane.editor"), right: t("pets.desktop"), ariaLabel: t("pets.title") }}
       mobileSelectionKey={selectedId}
       left={(
@@ -1276,157 +1064,65 @@ export function PetsScreen() {
       )}
       center={(
         selected && draft ? (
-          <div className="pets-editor-shell">
-            <div className="pets-editor-header mb-4 flex items-start gap-4 border-b border-border-subtle pb-4">
-              <PetAssetPreview
-                name={draft.name || selected.name}
-                src={draft.spriteUrl || selected.avatarUrl}
-                spriteSheetUrl={draft.spriteSheetUrl}
-                className="h-16 w-16 flex-shrink-0 rounded-2xl ring-1 ring-border"
-                fallbackClassName="bg-accent-subtle text-xl font-bold text-accent"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="truncate text-base font-semibold text-text-primary">{draft.name || t("pets.unnamed")}</h2>
-                  <Badge variant={hasPetTag(selected) ? "accent" : "default"}>{hasPetTag(selected) ? t("pets.petTag") : t("pets.useCharacter")}</Badge>
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="char-editor-header mb-4">
+              <div className="char-editor-header-top">
+                <PetAssetPreview name={draft.name || selected.name} src={draft.spriteUrl || selected.avatarUrl}
+                  spriteSheetUrl={draft.spriteSheetUrl} className="h-14 w-14 flex-shrink-0 rounded-2xl" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="truncate text-base font-semibold text-text-primary">{draft.name || t("pets.unnamed")}</div>
+                    {hasPetTag(selected) ? <Badge variant="accent">{t("pets.petTag")}</Badge> : null}
+                    {petOnDesktop ? <Badge variant="success">{t("pets.onDesktopNow")}</Badge> : null}
+                  </div>
+                  {status ? (
+                    <div className={`mt-0.5 text-[11px] ${status.kind === "error" ? "text-danger" : "text-success"}`}>{status.text}</div>
+                  ) : (
+                    <div className="mt-0.5 truncate text-[11px] text-text-tertiary">{draft.description || t("pets.editorHint")}</div>
+                  )}
                 </div>
-                <p className="mt-1 max-w-2xl text-xs leading-5 text-text-tertiary">{t("pets.editorHint")}</p>
-                {status ? (
-                  <div className={`mt-2 text-xs ${status.kind === "error" ? "text-danger" : "text-success"}`}>
-                    {status.text}
-                  </div>
-                ) : null}
+              </div>
+              <div className="char-editor-actions">
+                <button type="button" onClick={() => void savePet()} disabled={saving} className="char-editor-btn is-primary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M5 4h12l2 2v14H5V4zm3 0v6h8V4M8 20v-6h8v6" /></svg>
+                  {saving ? t("welcome.saving") : t("chat.save")}
+                </button>
+                <button type="button" onClick={() => void exportPet()} disabled={saving} className="char-editor-btn">{t("pets.exportPet")}</button>
               </div>
             </div>
-
-            <div className="pets-editor-scroll min-h-0 flex-1 overflow-y-auto pr-1">
-              <div className="grid gap-4">
-                <section className="pets-editor-section">
-                  <div className="pets-section-title">{t("pets.identity")}</div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <label className="pets-field md:col-span-2">
-                      <span>{t("pets.name")}</span>
-                      <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value.slice(0, 80) })} />
-                    </label>
-                    <label className="pets-field md:col-span-2">
-                      <span>{t("pets.description")}</span>
-                      <textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} rows={3} />
-                    </label>
-                    <label className="pets-field md:col-span-2">
-                      <span>{t("pets.greeting")}</span>
-                      <textarea value={draft.greeting} onChange={(event) => setDraft({ ...draft, greeting: event.target.value })} rows={3} />
-                    </label>
-                  </div>
-                </section>
-
-                <section className="pets-editor-section">
-                  <div className="pets-section-title">{t("pets.behavior")}</div>
-                  <div className="grid gap-3">
-                    <label className="pets-field">
-                      <span>{t("pets.personality")}</span>
-                      <textarea value={draft.personality} onChange={(event) => setDraft({ ...draft, personality: event.target.value })} rows={5} />
-                    </label>
-                    <label className="pets-field">
-                      <span>{t("pets.scenario")}</span>
-                      <textarea value={draft.scenario} onChange={(event) => setDraft({ ...draft, scenario: event.target.value })} rows={4} />
-                    </label>
-                    <label className="pets-field">
-                      <span>{t("pets.systemPrompt")}</span>
-                      <textarea value={draft.systemPrompt} onChange={(event) => setDraft({ ...draft, systemPrompt: event.target.value })} rows={4} />
-                    </label>
-                  </div>
-                </section>
-              </div>
+            <div className="char-editor-tabs" role="tablist" aria-label={t("pets.title")}>
+              {(["profile", "asset", "states", "assistant", "chats"] as const).map((view) => (
+                <button key={view} type="button" role="tab" aria-selected={rightView === view}
+                  className={rightView === view ? "is-active" : ""} onClick={() => setRightView(view)}>
+                  {t(PET_TAB_LABELS[view])}
+                </button>
+              ))}
             </div>
-
-            <div className="pets-editor-actions mt-4 flex flex-wrap justify-end gap-2 border-t border-border-subtle pt-4">
-              <button
-                type="button"
-                onClick={() => void savePet()}
-                disabled={saving}
-                className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saving ? t("welcome.saving") : t("pets.saveProfile")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void exportPet()}
-                disabled={saving}
-                className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("pets.exportPet")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void showPet()}
-                disabled={!isElectron || saving || visibilityBusy}
-                className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t("pets.showOnDesktop")}
-              </button>
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1" role="tabpanel">
+              {renderRightPanelContent()}
             </div>
           </div>
         ) : (
           <EmptyState title={t("pets.noSelection")} description={t("pets.noSelectionDesc")} />
         )
       )}
-      right={(
-        <div className="pets-desktop-content flex h-full min-h-0 flex-col">
-          <PanelTitle>{t("pets.desktop")}</PanelTitle>
-          <div className="pets-preview pets-preview-compact">
-            <div className="pets-preview-bubble">
-              {draft?.greeting || activeConfig.greeting || t("pets.previewLine")}
-            </div>
-            <div className="pets-preview-stage">
-              <PetAssetPreview
-                name={draft?.name || activeConfig.name}
-                src={draft?.spriteUrl || activeCharacter?.avatarUrl}
-                spriteSheetUrl={draft?.spriteSheetUrl || activeConfig.spriteSheetUrl}
-                className="pets-preview-avatar"
-                fallbackClassName="pets-preview-fallback"
-              />
-            </div>
-          </div>
-
-          <div className="pets-config-tabs" role="tablist" aria-label={t("pets.desktop")}>
-            {(["asset", "states", "assistant", "chats"] as const).map((view) => (
-              <button
-                key={view}
-                type="button"
-                role="tab"
-                aria-selected={rightView === view}
-                className={rightView === view ? "is-active" : ""}
-                onClick={() => setRightView(view)}
-              >
-                {view === "asset" ? t("pets.tabAsset") : view === "states" ? t("pets.tabStates") : view === "assistant" ? t("pets.tabAssistant") : t("pets.tabChats")}
-              </button>
-            ))}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-            {renderRightPanelContent()}
-          </div>
-
-          <div className="mt-3 grid gap-2 border-t border-border-subtle pt-3">
-            <button
-              type="button"
-              onClick={() => void showPet()}
-              disabled={!selected || !draft || !isElectron || visibilityBusy}
-              className="rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {visible ? t("pets.applyToDesktop") : t("pets.showOnDesktop")}
-            </button>
-            <button
-              type="button"
-              onClick={() => void hidePet()}
-              disabled={!isElectron || !visible || visibilityBusy}
-              className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {t("pets.hideFromDesktop")}
-            </button>
-          </div>
-        </div>
-      )}
+      right={selected && draft ? (
+        <PetDesktopPanel
+          name={draft.name || selected.name}
+          src={draft.spriteUrl || selected.avatarUrl}
+          spriteSheetUrl={draft.spriteSheetUrl}
+          bubble={draft.greeting || t("pets.previewLine")}
+          scale={draft.scale || 1}
+          voice={draft.voice}
+          onDesktop={petOnDesktop}
+          isElectron={isElectron}
+          busy={saving || visibilityBusy}
+          onScale={(scale) => setDraft({ ...draft, scale })}
+          onVoice={(voice) => setDraft({ ...draft, voice })}
+          onShow={() => void showPet()}
+          onHide={() => void hidePet()}
+        />
+      ) : <EmptyState title={t("pets.noSelection")} description={t("pets.noSelectionDesc")} />}
     />
   );
 }

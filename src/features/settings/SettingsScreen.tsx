@@ -1308,7 +1308,6 @@ export function SettingsScreen({
         activeModel={settings.activeModel || ""}
         activeCategory={activeCategory}
         categoryNav={categoryNav}
-        categorySections={categorySections}
         statusText={providerResult || autosaveText}
         statusVariant={providerResult ? resultVariant : autosaveVariant}
         onCategoryChange={setActiveCategory}
@@ -1317,7 +1316,6 @@ export function SettingsScreen({
           window.setTimeout(() => scrollToSettingsSection("settings-danger-zone"), 0);
         }}
         onOpenSearch={() => window.dispatchEvent(new CustomEvent("open-settings-search"))}
-        onQuickSectionClick={scrollToSettingsSection}
         t={t}
       />
 
@@ -1762,10 +1760,9 @@ export function SettingsScreen({
           {activeCategory === "interface" && (
             <div className="space-y-4">
               <div id="settings-general" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.general")}</div>
+                <div className="settings-section-title">{t("settings.theme")}</div>
                 <div className="space-y-3">
-                  <div>
-                    <FieldLabel>{t("settings.theme")}</FieldLabel>
+                  <div className="settings-field-narrow">
                     <SelectField value={settings.theme} onChange={handleThemeModeChange}>
                       <option value="dark">{t("settings.dark")}</option>
                       <option value="light">{t("settings.light")}</option>
@@ -1855,8 +1852,11 @@ export function SettingsScreen({
                       {t("settings.noPluginThemes")}
                     </div>
                   )}
-                  <UpdateCheckSetting checked={settings.checkForUpdates !== false} onChange={(checked) => { void patch({ checkForUpdates: checked }); }} />
-                  <div id="settings-wallpaper" className="settings-wallpaper-studio scroll-mt-24">
+                </div>
+              </div>
+
+              <div id="settings-wallpaper" className="settings-section scroll-mt-24">
+                  <div className="settings-wallpaper-studio">
                     <div className="settings-wallpaper-copy">
                       <div>
                         <div className="settings-wallpaper-title">{t("settings.wallpaperTitle")}</div>
@@ -1983,6 +1983,11 @@ export function SettingsScreen({
                       </>
                     ) : null}
                   </div>
+              </div>
+
+              <div id="settings-text-language" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.textAndLanguage")}</div>
+                <div className="grid gap-6 md:grid-cols-2">
                   <div>
                     <div className="mb-1.5 flex items-center justify-between">
                       <FieldLabel>{t("settings.textSize")}</FieldLabel>
@@ -2002,33 +2007,19 @@ export function SettingsScreen({
                 </div>
               </div>
 
-              <div id="settings-welcome-tour" className="settings-section settings-tour-callout scroll-mt-24">
-                <div className="settings-tour-callout-icon" aria-hidden="true">
-                  <SettingsActionIcon name="tour" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="settings-section-title">{t("settings.welcomeTour")}</div>
-                  <p className="settings-section-desc">{t("settings.welcomeTourDesc")}</p>
-                </div>
-                <button
-                  type="button"
-                  className={primaryActionClass}
-                  onClick={() => window.dispatchEvent(new Event("welcome-tour-start"))}
-                >
-                  <SettingsActionIcon name="tour" />
-                  {t("settings.welcomeTourStart")}
-                </button>
-              </div>
-
-              <div id="settings-workspace-mode" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.workspaceMode")}</div>
+              <div id="settings-application" className="settings-section scroll-mt-24">
+                <div className="settings-section-title">{t("settings.application")}</div>
                 <div className="space-y-2">
+                  <UpdateCheckSetting checked={settings.checkForUpdates !== false} onChange={(checked) => { void patch({ checkForUpdates: checked }); }} />
                   <div className="settings-toggle-row">
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.simpleModeRequired")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.simpleModeRequiredDesc")}</div>
+                      <div className="text-sm font-medium text-text-primary">{t("settings.welcomeTour")}</div>
+                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.welcomeTourDesc")}</div>
                     </div>
-                    <span className="rounded-full border border-success-border bg-success-subtle px-2 py-1 text-[10px] font-semibold text-success">✓</span>
+                    <button type="button" className={secondaryActionClass} onClick={() => window.dispatchEvent(new Event("welcome-tour-start"))}>
+                      <SettingsActionIcon name="tour" />
+                      {t("settings.welcomeTourStart")}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -2040,7 +2031,7 @@ export function SettingsScreen({
             <div className="space-y-4">
               <div id="settings-output-behaviour" className="settings-section scroll-mt-24">
                 <div className="settings-section-title">{t("settings.outputBehaviour")}</div>
-                <div className="space-y-3">
+                <div className="grid gap-4 md:grid-cols-3">
                   <div><FieldLabel>{t("settings.responseLanguage")}</FieldLabel><InputField value={settings.responseLanguage} onChange={(v) => patch({ responseLanguage: v })} {...autosaveProps} /></div>
                   <div><FieldLabel>{t("settings.translateLanguage")}</FieldLabel><InputField value={settings.translateLanguage || settings.responseLanguage || "English"} onChange={(v) => patch({ translateLanguage: v })} {...autosaveProps} /></div>
                   <div>
@@ -2057,6 +2048,7 @@ export function SettingsScreen({
                 <div className="settings-section-title">{t("settings.samplerDefaults")}</div>
                 <div className="space-y-4">
                   <SamplerPresetSettings settings={settings} onPatch={patch} />
+                  <div className="grid gap-x-8 gap-y-4 md:grid-cols-2">
                   {([
                     { key: "temperature" as const, label: t("inspector.temperature"), min: 0, max: 2 },
                     { key: "topP" as const, label: t("inspector.topP"), min: 0, max: 1 },
@@ -2073,10 +2065,11 @@ export function SettingsScreen({
                   ))}
                   <div><FieldLabel>{t("inspector.maxTokens")}</FieldLabel><InputField type="number" value={String(settings.samplerConfig.maxTokens)} onChange={(v) => patchSampler({ maxTokens: clampInteger(v, settings.samplerConfig.maxTokens, 1, 32768) })} {...autosaveProps} /></div>
                   <div><FieldLabel>{t("settings.stopSequences")}</FieldLabel><InputField value={(settings.samplerConfig.stop || []).join(", ")} onChange={(v) => patchSampler({ stop: v.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder={t("settings.stopSequencesPlaceholder")} {...autosaveProps} /></div>
+                  </div>
 
                   <div className="settings-field-group">
                     <div className="mb-3 text-xs font-semibold text-text-secondary">{t("settings.koboldSampler")}</div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-3 xl:grid-cols-3">
                       {([
                         { key: "topK" as const, label: "Top-K", min: 0, max: 300, step: 1, fallback: 100 },
                         { key: "topA" as const, label: "Top-A", min: 0, max: 1, step: 0.01, fallback: 0 },

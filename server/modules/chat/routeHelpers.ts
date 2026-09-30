@@ -3,6 +3,7 @@ import { DEFAULT_PROMPT_BLOCKS, type CharacterCardData, type PromptBlock } from 
 import { normalizeApiParamPolicy } from "../../services/apiParamPolicy.js";
 import type { RagContextSource } from "../../services/rag.js";
 import { normalizeRuntimeTuningSettings } from "../../services/runtimeTuning.js";
+import { withReplyVariants } from "./replyVariants.js";
 
 const PROMPT_BLOCK_KINDS = new Set(["system", "jailbreak", "character", "author_note", "lore", "scene", "history"]);
 
@@ -109,7 +110,7 @@ export function getTimeline(chatId: string, branchId: string) {
   const rows = db.prepare(
     "SELECT * FROM messages WHERE chat_id = ? AND branch_id = ? AND deleted = 0 ORDER BY sort_order ASC, created_at ASC"
   ).all(chatId, branchId) as MessageRow[];
-  return rows.map(messageToJson);
+  return withReplyVariants(chatId, branchId, rows.map(messageToJson));
 }
 
 export function normalizePromptStack(raw: unknown): PromptBlock[] {

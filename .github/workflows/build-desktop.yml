@@ -21,7 +21,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - name: Setup Python
@@ -46,6 +46,9 @@ jobs:
             echo "npm ci failed; retrying attempt $((attempt + 1))/3 after $((attempt * 15))s"
             sleep $((attempt * 15))
           done
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=low
 
       - name: Build app bundles
         env:
@@ -133,7 +136,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - name: Setup Python
@@ -161,6 +164,9 @@ jobs:
             Write-Host "npm ci failed; retrying attempt $($attempt + 1)/3 after ${delay}s"
             Start-Sleep -Seconds $delay
           }
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=low
 
       - name: Build app bundles
         env:
@@ -206,7 +212,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - name: Setup Python
@@ -231,6 +237,12 @@ jobs:
             echo "npm ci failed; retrying attempt $((attempt + 1))/3 after $((attempt * 15))s"
             sleep $((attempt * 15))
           done
+
+      - name: Audit dependencies
+        run: npm audit --audit-level=low
+
+      - name: Run regression tests
+        run: npm test
 
       - name: Build AppImage bundle
         env:

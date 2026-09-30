@@ -37,11 +37,11 @@ import { completeProviderOnce, countProviderTokens } from "../modules/chat/provi
 import {
   deleteBranch,
   deleteChatCascade,
-  deleteMessageTree,
   forkBranch,
   listBranches,
   renameBranch
 } from "../modules/chat/repository.js";
+import { selectReplyVariant, stashReplyVariant } from "../modules/chat/replyVariants.js";
 import {
   getChatPreset,
   getChatSampler,
@@ -475,7 +475,6 @@ router.post("/:id/regenerate", async (req, res: Response) => {
   let overrideCharacterName: string | undefined;
 
   if (tail?.role === "assistant") {
-    deleteMessageTree(chatId, branchId, tail.id);
     overrideCharacterName = tail.character_name || undefined;
     parentMsgId = tail.parent_id ?? null;
     if (!parentMsgId) {
@@ -484,6 +483,8 @@ router.post("/:id/regenerate", async (req, res: Response) => {
       ).get(chatId, branchId, tail.sort_order) as { id: string } | undefined;
       parentMsgId = previousUser?.id ?? null;
     }
+    // Keep the replaced reply so the user can switch back to it.
+    stashReplyVariant(chatId, branchId, tail.id, parentMsgId);
   } else if (tail?.role === "user") {
     parentMsgId = tail.id;
   }
@@ -496,6 +497,28 @@ router.post("/:id/regenerate", async (req, res: Response) => {
     overrideCharacterName,
     liveAvatar
   });
+});
+
+// Switch the tail reply to the previous or next regenerated variant.
+router.post("/:id/variants", (req, res) => {
+  const chatId = req.params.id;
+  const branchId = resolveBranch(chatId, typeof req.body?.branchId === "string" ? req.body.branchId : undefined);
+  const messageId = typeof req.body?.messageId === "string" ? req.body.messageId : "";
+  const direction = req.body?.direction === -1 || req.body?.direction === 1 ? req.body.direction as -1 | 1 : null;
+  if (!messageId || !direction) {
+    res.status(400).json({ error: "messageId and direction (-1 or 1) are required" });
+    return;
+  }
+  const result = selectReplyVariant(chatId, branchId, messageId, direction);
+  if (result === "not_tail") {
+    res.status(409).json({ error: "Only the latest reply can switch variants" });
+    return;
+  }
+  if (result === "out_of_range") {
+    res.status(400).json({ error: "No variant in that direction" });
+    return;
+  }
+  res.json(getTimeline(chatId, branchId));
 });
 
 // Multi-character: generate next turn for a specific character

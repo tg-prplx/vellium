@@ -354,6 +354,7 @@ export async function streamPost(path: string, body: unknown, callbacks: StreamC
     let buffer = "";
     let doneEmitted = false;
     let sawEvent = false;
+    let streamError: Error | null = null;
 
     const processEventBlock = (eventBlock: string) => {
       const payload = extractSseEventData(eventBlock);
@@ -367,6 +368,7 @@ export async function streamPost(path: string, body: unknown, callbacks: StreamC
           name?: string;
           args?: string;
           result?: string;
+          error?: string;
         };
         sawEvent = true;
         if (parsed.type === "delta" && parsed.delta) {
@@ -381,7 +383,9 @@ export async function streamPost(path: string, body: unknown, callbacks: StreamC
             args: parsed.args,
             result: parsed.result
           });
-        } else if (parsed.type === "done") {
+        } else if (parsed.type === "error") {
+          streamError = new Error(parsed.error || "Generation failed");
+        } else if (parsed.type === "done" && !streamError) {
           doneEmitted = true;
           callbacks.onDone?.();
         } else {
@@ -415,6 +419,7 @@ export async function streamPost(path: string, body: unknown, callbacks: StreamC
       processEventBlock(eventBlock);
     }
 
+    if (streamError) throw streamError;
     if (!doneEmitted) callbacks.onDone?.();
   } else {
     callbacks.onDone?.();

@@ -54,6 +54,7 @@ export function SimpleChatActionsMenu({
           <circle cx="12" cy="12" r="1.6" />
           <circle cx="19" cy="12" r="1.6" />
         </svg>
+        <span>{t("chat.moreActions")}</span>
       </summary>
       <div className="chat-simple-more-menu-panel">
         <button type="button" disabled={compressDisabled || compressing} onClick={() => run(onCompress)}>

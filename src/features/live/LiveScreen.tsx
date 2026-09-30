@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AvatarBadge } from "../../components/AvatarBadge";
 import {
   AttachmentPreviewModal,
   BranchManager,
@@ -7,6 +6,7 @@ import {
   PersonaModal,
   RpReasoningToggle,
   guessMimeType,
+  modelDisplayName,
   imageSourceFromAttachment,
   useBranchManagement,
   useMessageTranslation,
@@ -44,7 +44,9 @@ import type {
 import { LiveCharacterPickerModal } from "./components/LiveCharacterPickerModal";
 import { LiveChatControlPanel } from "./components/LiveChatControlPanel";
 import { LiveAvatarStage } from "./components/LiveAvatarStage";
-import { LiveIcon } from "./components/LiveIcon";
+import { LiveHeader } from "./components/LiveHeader";
+import { LiveQuickToggles } from "./components/LiveQuickToggles";
+import { LiveSessionMenu } from "./components/LiveSessionMenu";
 import { type LiveModelActivityCall } from "./components/LiveModelActivity";
 import { LiveModelSelectorModal } from "./components/LiveModelSelectorModal";
 import { LiveTranscriptPanel } from "./components/LiveTranscriptPanel";
@@ -132,7 +134,6 @@ export function LiveScreen() {
   const [showPersonaModal, setShowPersonaModal] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showChatControls, setShowChatControls] = useState(false);
-  const [showSessionControls, setShowSessionControls] = useState(false);
   const [editingPersona, setEditingPersona] = useState<UserPersona | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [applyingModel, setApplyingModel] = useState(false);
@@ -1415,6 +1416,13 @@ export function LiveScreen() {
     else stopListening(false, true);
   }
 
+  const micActionLabel = phase === "listening"
+    ? t("live.stopListening")
+    : (busy ? t("live.stopResponse") : t("live.startListening"));
+  const onMicAction = phase === "listening"
+    ? () => stopListening(handsFree)
+    : (busy ? stopResponse : () => { void startListening(false); });
+
   return (
     <>
       <AttachmentPreviewModal
@@ -1519,193 +1527,48 @@ export function LiveScreen() {
         onError={setError}
       />
       <section className={`live-screen live-phase-${phase}`} aria-label={t("live.title")}>
-      <header className="live-header">
-        <div className="live-header-identity">
-          <AvatarBadge name={selectedCharacter?.name || t("live.title")} src={characterAvatarUrl}
-            alt="" className="live-header-avatar" />
-          <div className="live-header-copy">
-            <div className="live-kicker">
-              <span className="live-status-dot" aria-hidden="true" />
-              {t("live.title")} · {phaseLabel}
-            </div>
-            <h1>{selectedCharacter?.name || t("live.title")}</h1>
-            <p>{chat?.title || t("live.newSession")}</p>
-          </div>
-        </div>
-        <div className="live-header-actions">
-          <button type="button" className="live-quiet-button" onClick={() => setShowChatControls(true)}
-            aria-label={t("live.chatControls")} title={t("live.chatControls")}>
-            <LiveIcon name="settings" />
-            <span>{t("live.chatControls")}</span>
-          </button>
-          <button type="button" className="live-quiet-button" onClick={startNewSession} disabled={busy}
-            aria-label={t("live.new")} title={t("live.new")}>
-            <LiveIcon name="plus" />
-            <span>{t("live.new")}</span>
-          </button>
-          {!providerReady ? (
-            <button type="button" className="live-quiet-button is-warning" onClick={openProviderSettings}>
-              <LiveIcon name="settings" />
-              <span>{t("live.configure")}</span>
-            </button>
-          ) : null}
-          {ttsSource === "custom" && !customTtsConfigured ? (
-            <button type="button" className="live-quiet-button is-warning" onClick={openTtsSettings}>
-              <LiveIcon name="voice" />
-              <span>{t("live.configureTts")}</span>
-            </button>
-          ) : null}
-          {sttSource === "whisper" && !whisperSttConfigured ? (
-            <button type="button" className="live-quiet-button is-warning" onClick={openSttSettings}>
-              <LiveIcon name="mic" />
-              <span>{t("live.configureStt")}</span>
-            </button>
-          ) : null}
-        </div>
-      </header>
-
-      <div className="live-context-bar" aria-label={t("live.context")}>
-        <div className="live-context-primary">
-          <button
-            type="button"
-            className="live-model-context live-entity-context"
-            onClick={() => setShowCharacterPicker(true)}
-            disabled={busy}
-            data-modal-trigger="live-character"
-          >
-            <span>{t("live.character")}</span>
-            <strong>{selectedCharacter?.name || t("live.noCharacter")}</strong>
-          </button>
-          <button type="button" className="live-model-context live-entity-context"
-            onClick={() => setShowPersonaModal(true)} disabled={busy} data-modal-trigger="persona">
-            <span>{t("live.persona")}</span>
-            <strong>{selectedPersona?.name || t("live.defaultPersona")}</strong>
-          </button>
-          <label className="live-context-session">
-            <span>{t("live.conversation")}</span>
-            <select value={chat?.id || ""} onChange={(event) => void selectSession(event.target.value)}
-              disabled={busy}>
-              <option value="">{t("live.newConversation")}</option>
-              {availableSessions.map((session) => (
-                <option key={session.id} value={session.id}>{session.title}</option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="live-model-context" onClick={() => setShowModelSelector(true)}
-            data-modal-trigger="live-model">
-            <span>{t("live.model")}</span>
-            <strong>{settings?.activeModel || t("live.configure")}</strong>
-          </button>
-        </div>
-        <button
-          type="button"
-          className={`live-context-more${showSessionControls ? " is-open" : ""}`}
-          onClick={() => setShowSessionControls((current) => !current)}
-          aria-expanded={showSessionControls}
-          aria-controls="live-session-controls"
-          aria-label={t("live.controls")}
-          title={t("live.controls")}
-        >
-          <LiveIcon name="settings" />
-          <span>{t("live.controls")}</span>
-        </button>
-        {showSessionControls ? (
-          <div className="live-context-secondary" id="live-session-controls">
-            {chat && branches.length ? (
-              <BranchManager
-                branches={branches}
-                activeBranchId={activeBranchId}
-                disabled={busy}
-                simple
-                onSelect={(branchId) => { void selectBranch(branchId); }}
-                onRename={renameBranch}
-                onDelete={removeBranch}
-              />
+      <LiveHeader
+        phaseLabel={phaseLabel}
+        characterName={selectedCharacter?.name || t("live.noCharacter")}
+        characterAvatarUrl={characterAvatarUrl}
+        personaName={selectedPersona?.name || t("live.defaultPersona")}
+        modelLabel={modelDisplayName(settings?.activeModel || "") || t("live.configure")}
+        chatId={chat?.id || ""}
+        sessions={availableSessions}
+        busy={busy}
+        warnings={[
+          ...(!providerReady ? [{ id: "provider", label: t("live.configure"), icon: "settings" as const, onClick: openProviderSettings }] : []),
+          ...(ttsSource === "custom" && !customTtsConfigured ? [{ id: "tts", label: t("live.configureTts"), icon: "voice" as const, onClick: openTtsSettings }] : []),
+          ...(sttSource === "whisper" && !whisperSttConfigured ? [{ id: "stt", label: t("live.configureStt"), icon: "mic" as const, onClick: openSttSettings }] : [])
+        ]}
+        onPickCharacter={() => setShowCharacterPicker(true)}
+        onPickPersona={() => setShowPersonaModal(true)}
+        onSelectSession={(sessionId) => { void selectSession(sessionId); }}
+        onPickModel={() => setShowModelSelector(true)}
+        onNewSession={startNewSession}
+        menu={(close) => (
+          <LiveSessionMenu
+            branchControl={chat && branches.length ? (
+              <BranchManager branches={branches} activeBranchId={activeBranchId} disabled={busy} simple
+                onSelect={(branchId) => { void selectBranch(branchId); }} onRename={renameBranch} onDelete={removeBranch} />
             ) : null}
-            <RpReasoningToggle
-              enabled={settings?.rpReasoningEnabled === true}
-              disabled={busy}
-              variant="status"
-              onToggle={() => { void toggleRpReasoning(); }}
-            />
-            <label className="live-tts-context">
-              <span>{t("live.tts")}</span>
-              <select value={ttsSource} onChange={(event) => selectTtsSource(event.target.value as LiveTtsSource)}
-                disabled={phase === "speaking"}
-                title={ttsSource === "custom" ? t("live.customTtsHint") : t("live.systemTtsHint")}>
-                <option value="system">{t("live.systemTts")}</option>
-                <option value="custom">
-                  {t("live.customTts")} · {customTtsConfigured
-                    ? (settings?.ttsVoice || settings?.ttsModel)
-                    : t("live.notConfigured")}
-                </option>
-              </select>
-            </label>
-            <label className="live-stt-context">
-              <span>{t("live.stt")}</span>
-              <select value={sttSource}
-                onChange={(event) => void selectSttSource(event.target.value as LiveSttSource)}
-                disabled={phase === "listening" || Boolean(sttRequestControllerRef.current)}
-                title={sttSource === "whisper" ? t("live.whisperSttHint") : t("live.sttHint")}>
-                <option value="system">
-                  {t("live.systemStt")} · {speechRecognitionAvailable ? t("live.available") : t("live.sttUnavailable")}
-                </option>
-                <option value="whisper">
-                  {t("live.whisperStt")} · {whisperSttConfigured
-                    ? (settings?.sttModel || "whisper-1")
-                    : t("live.notConfigured")}
-                </option>
-              </select>
-            </label>
-          </div>
-        ) : null}
-      </div>
+            reasoningControl={<RpReasoningToggle enabled={settings?.rpReasoningEnabled === true} disabled={busy} variant="status"
+              onToggle={() => { void toggleRpReasoning(); }} />}
+            ttsSource={ttsSource}
+            ttsLocked={phase === "speaking"}
+            customTtsLabel={customTtsConfigured ? (settings?.ttsVoice || settings?.ttsModel || "") : t("live.notConfigured")}
+            onTtsSource={selectTtsSource}
+            sttSource={sttSource}
+            sttLocked={phase === "listening" || Boolean(sttRequestControllerRef.current)}
+            systemSttAvailable={speechRecognitionAvailable}
+            whisperLabel={whisperSttConfigured ? (settings?.sttModel || "whisper-1") : t("live.notConfigured")}
+            onSttSource={(source) => { void selectSttSource(source); }}
+            onOpenChatControls={() => { close(); setShowChatControls(true); }}
+          />
+        )}
+      />
 
       <div className="live-workspace">
-        <LiveTranscriptPanel
-          messages={visibleMessages}
-          character={selectedCharacter}
-          characterAvatarUrl={characterAvatarUrl}
-          persona={selectedPersona}
-          security={settings?.security}
-          busy={busy}
-          uploading={uploading}
-          error={error}
-          draft={draft}
-          attachments={attachments}
-          providerReady={providerReady}
-          speechInputAvailable={speechInputAvailable}
-          voicePhase={phase}
-          voiceActionLabel={phase === "listening"
-            ? t("live.stopListening")
-            : (busy ? t("live.stopResponse") : t("live.startListening"))}
-          screenAttached={screenContextEnabled && visionEnabled}
-          canRegenerate={Boolean(chat) && !busy && Boolean(latestAssistantText(messages))}
-          streamingReply={streamingReply}
-          toolCalls={streamingToolCalls}
-          reasoningCalls={streamingReasoningCalls}
-          reasoningText={streamingReasoningText}
-          translatedTexts={translatedTexts}
-          translatingId={translatingId}
-          ttsLoadingId={ttsLoadingId}
-          ttsPlayingId={ttsPlayingId}
-          onDraftChange={setDraft}
-          onSubmit={() => { void submitTurn(draft); }}
-          onVoiceAction={phase === "listening"
-            ? () => stopListening(handsFree)
-            : (busy ? stopResponse : () => { void startListening(false); })}
-          onUploadFiles={(files) => { void uploadComposerFiles(files); }}
-          onRemoveAttachment={(attachmentId) =>
-            setAttachments((current) => current.filter((item) => item.id !== attachmentId))}
-          onRegenerate={() => { void regenerateResponse(); }}
-          onOpenProviderSettings={openProviderSettings}
-          onEditMessage={editMessage}
-          onDeleteMessage={deleteMessage}
-          onTranslateMessage={async (messageId) => { await translateMessage(messageId, false); }}
-          onTtsMessage={handleTts}
-          onForkMessage={async (messageId) => { await forkBranch(messageId); }}
-          onPreviewAttachment={previewAttachment}
-        />
         <div className="live-stage">
           <LiveAvatarStage
             avatarUrl={characterAvatarUrl}
@@ -1720,78 +1583,78 @@ export function LiveScreen() {
               || (handsFree
                 ? t("live.handsFreeHint").replace("{name}", selectedCharacter?.name || t("live.character"))
                 : (phase === "listening" ? t("live.listeningHint") : t("live.readyHint")))}
-            micActionLabel={phase === "listening"
-              ? t("live.stopListening")
-              : (busy ? t("live.stopResponse") : t("live.startListening"))}
+            micActionLabel={micActionLabel}
             fallbackUploading={avatarUploading}
             inochiStatus={inochiStatus}
             inochiBusy={inochiLoading || inochiUploading}
-            onMicAction={phase === "listening"
-              ? () => stopListening(handsFree)
-              : (busy ? stopResponse : () => { void startListening(false); })}
+            onMicAction={onMicAction}
             onFallbackFile={(file) => { void uploadLiveAvatar(file); }}
             onResetFallback={resetLiveAvatar}
             canResetFallback={Boolean(avatarOverrideUrl)}
             onInochiFile={(file) => { void uploadInochiModel(file); }}
             onRemoveInochi={() => { void removeInochiModel(); }}
             onRenderError={setError}
+            footer={(
+              <LiveQuickToggles
+                handsFree={{ on: handsFree, onToggle: toggleHandsFree }}
+                voiceReplies={{ on: voiceReplies, onToggle: () => {
+                  const next = !voiceReplies;
+                  setVoiceReplies(next);
+                  if (!next) {
+                    stopAudio();
+                    if (phase === "speaking") finishTurn();
+                  }
+                } }}
+                vision={{ on: visionEnabled, onToggle: () => setVisionEnabled((current) => {
+                  const next = !current;
+                  if (!next) setScreenContextEnabled(false);
+                  return next;
+                }) }}
+                screen={{ on: screenContextEnabled, onToggle: toggleScreenContext }}
+              />
+            )}
           />
-
-          <div className="live-controls" aria-label={t("live.controls")}>
-            <button
-              type="button"
-              className={handsFree ? "is-on" : ""}
-              onClick={toggleHandsFree}
-              aria-pressed={handsFree}
-            >
-              <LiveIcon name="handsFree" />
-              <span>{t("live.handsFree")}</span>
-              <i />
-            </button>
-            <button
-              type="button"
-              className={voiceReplies ? "is-on" : ""}
-              onClick={() => {
-                const next = !voiceReplies;
-                setVoiceReplies(next);
-                if (!next) {
-                  stopAudio();
-                  if (phase === "speaking") finishTurn();
-                }
-              }}
-              aria-pressed={voiceReplies}
-            >
-              <LiveIcon name="voice" />
-              <span>{t("live.voiceReplies")}</span>
-              <i />
-            </button>
-            <button
-              type="button"
-              className={visionEnabled ? "is-on" : ""}
-              onClick={() => setVisionEnabled((current) => {
-                const next = !current;
-                if (!next) setScreenContextEnabled(false);
-                return next;
-              })}
-              aria-pressed={visionEnabled}
-            >
-              <LiveIcon name="vision" />
-              <span>{t("live.vision")}</span>
-              <i />
-            </button>
-            <button
-              type="button"
-              className={screenContextEnabled ? "is-on is-screen" : ""}
-              onClick={toggleScreenContext}
-              aria-pressed={screenContextEnabled}
-            >
-              <LiveIcon name="screen" />
-              <span>{screenContextEnabled ? t("live.stopSharing") : t("live.shareScreen")}</span>
-              <i />
-            </button>
-          </div>
         </div>
-
+        <LiveTranscriptPanel
+          messages={visibleMessages}
+          character={selectedCharacter}
+          characterAvatarUrl={characterAvatarUrl}
+          persona={selectedPersona}
+          security={settings?.security}
+          busy={busy}
+          uploading={uploading}
+          error={error}
+          draft={draft}
+          attachments={attachments}
+          providerReady={providerReady}
+          speechInputAvailable={speechInputAvailable}
+          voicePhase={phase}
+          voiceActionLabel={micActionLabel}
+          screenAttached={screenContextEnabled && visionEnabled}
+          canRegenerate={Boolean(chat) && !busy && Boolean(latestAssistantText(messages))}
+          streamingReply={streamingReply}
+          toolCalls={streamingToolCalls}
+          reasoningCalls={streamingReasoningCalls}
+          reasoningText={streamingReasoningText}
+          translatedTexts={translatedTexts}
+          translatingId={translatingId}
+          ttsLoadingId={ttsLoadingId}
+          ttsPlayingId={ttsPlayingId}
+          onDraftChange={setDraft}
+          onSubmit={() => { void submitTurn(draft); }}
+          onVoiceAction={onMicAction}
+          onUploadFiles={(files) => { void uploadComposerFiles(files); }}
+          onRemoveAttachment={(attachmentId) =>
+            setAttachments((current) => current.filter((item) => item.id !== attachmentId))}
+          onRegenerate={() => { void regenerateResponse(); }}
+          onOpenProviderSettings={openProviderSettings}
+          onEditMessage={editMessage}
+          onDeleteMessage={deleteMessage}
+          onTranslateMessage={async (messageId) => { await translateMessage(messageId, false); }}
+          onTtsMessage={handleTts}
+          onForkMessage={async (messageId) => { await forkBranch(messageId); }}
+          onPreviewAttachment={previewAttachment}
+        />
       </div>
       </section>
     </>

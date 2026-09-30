@@ -1,4 +1,5 @@
 import { roughTokenCount } from "../../db/utils.js";
+import { isLegacyChatFailure } from "../../../src/shared/chatGenerationError.js";
 
 const REASONING_CALL_NAME = "__reasoning__";
 
@@ -105,7 +106,7 @@ export function buildReasoningAwareTimeline<T extends TimelineMessage>(
   }
 
   return timeline
-    .filter((message) => message.role === "user" || message.role === "assistant")
+    .filter((message) => (message.role === "user" || message.role === "assistant") && !isLegacyChatFailure(message))
     .map((message) => {
       const content = message.role === "assistant"
         ? stripStoredMediaLinks(message.content, mediaByParent.get(message.id) ?? [])

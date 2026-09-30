@@ -71,7 +71,7 @@ describe("settings search", () => {
 
     expect(result).toMatchObject({
       category: "interface",
-      sectionId: "settings-general",
+      sectionId: "settings-text-language",
       targetLabel: "Text Size"
     });
   });

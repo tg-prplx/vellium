@@ -140,10 +140,10 @@ export function buildSettingsNavigation(t: (key: any) => string) {
       { id: "settings-stt", label: t("settings.stt") }
     ],
     interface: [
-      { id: "settings-general", label: t("settings.general") },
+      { id: "settings-general", label: t("settings.theme") },
       { id: "settings-wallpaper", label: t("settings.wallpaperTitle") },
-      { id: "settings-welcome-tour", label: t("settings.welcomeTour") },
-      { id: "settings-workspace-mode", label: t("settings.workspaceMode") }
+      { id: "settings-text-language", label: t("settings.textAndLanguage") },
+      { id: "settings-application", label: t("settings.application") }
     ],
     generation: [
       { id: "settings-output-behaviour", label: t("settings.outputBehaviour") },

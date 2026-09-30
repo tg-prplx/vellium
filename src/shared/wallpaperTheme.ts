@@ -157,30 +157,32 @@ export function deriveWallpaperThemeVariables(palette: WallpaperThemePalette, li
   const sourceAccentHsl = rgbToHsl(sourceAccent);
   const accentHsl = {
     ...sourceAccentHsl,
-    l: light ? clamp(sourceAccentHsl.l, 0.36, 0.52) : clamp(sourceAccentHsl.l, 0.5, 0.7)
+    // A pink illustration needs a separate cool accent in the light interface.
+    h: light && (sourceAccentHsl.h >= 285 || sourceAccentHsl.h < 25) ? 250 : sourceAccentHsl.h,
+    l: light ? clamp(sourceAccentHsl.l, 0.34, 0.42) : clamp(sourceAccentHsl.l, 0.5, 0.7)
   };
   const accent = hslToRgb(accentHsl);
   const accentHover = hslToRgb({ ...accentHsl, l: clamp(accentHsl.l - 0.08, 0.3, 0.62) });
   const surfaceSeed = parseColor(light ? palette.surfaceLight : palette.surfaceDark) || accent;
   const surfaceHsl = rgbToHsl(surfaceSeed);
-  const surfaceSaturation = clamp(Math.max(surfaceHsl.s, 0.1), 0.1, light ? 0.24 : 0.3);
+  const surfaceSaturation = light ? clamp(surfaceHsl.s, 0.025, 0.07) : clamp(Math.max(surfaceHsl.s, 0.1), 0.1, 0.3);
   const surface = (level: number, saturation = surfaceSaturation) => hslToRgb({
     h: surfaceHsl.h,
     s: saturation,
     l: level
   });
   const backgroundPrimary = surface(light ? 0.965 : 0.075);
-  const backgroundSecondary = surface(light ? 0.925 : 0.105);
-  const backgroundTertiary = surface(light ? 0.88 : 0.145);
-  const backgroundHover = surface(light ? 0.825 : 0.185);
-  const backgroundActive = surface(light ? 0.775 : 0.225);
+  const backgroundSecondary = surface(light ? 0.99 : 0.105);
+  const backgroundTertiary = surface(light ? 0.92 : 0.145);
+  const backgroundHover = surface(light ? 0.88 : 0.185);
+  const backgroundActive = surface(light ? 0.84 : 0.225);
   const borderSubtle = surface(light ? 0.86 : 0.145, surfaceSaturation * 0.82);
   const border = surface(light ? 0.79 : 0.2, surfaceSaturation * 0.78);
   const borderStrong = surface(light ? 0.7 : 0.285, surfaceSaturation * 0.72);
   const textPrimary = surface(light ? 0.12 : 0.95, Math.min(surfaceSaturation, 0.16));
   const textSecondary = surface(light ? 0.34 : 0.7, Math.min(surfaceSaturation, 0.14));
   const textTertiary = surface(light ? 0.5 : 0.5, Math.min(surfaceSaturation, 0.12));
-  const textInverse = backgroundPrimary;
+  const textInverse = light ? { r: 255, g: 255, b: 255 } : backgroundPrimary;
   const secondaryAccent = normalizedSwatch(palette.swatches[1], accentHsl.h + 52, light);
   const tertiaryAccent = normalizedSwatch(palette.swatches[2], accentHsl.h - 52, light);
   const success = harmonizedStatus(142, accent, light);
@@ -236,8 +238,8 @@ export function deriveWallpaperThemeVariables(palette: WallpaperThemePalette, li
     "--shadow-float": `0 10px 22px ${alphaColor(shadow, light ? 0.12 : 0.28)}`,
     "--shadow-settings-tab": `0 8px 20px ${alphaColor(accent, light ? 0.22 : 0.32)}`,
     "--simple-wallpaper-tint": light ? palette.tintLight : palette.tintDark,
-    "--simple-ui-glass": `color-mix(in srgb, ${rgbToHex(backgroundSecondary)} 76%, transparent)`,
-    "--simple-ui-glass-strong": `color-mix(in srgb, ${rgbToHex(backgroundSecondary)} 88%, transparent)`,
+    "--simple-ui-glass": `color-mix(in srgb, ${rgbToHex(backgroundSecondary)} ${light ? 96 : 76}%, transparent)`,
+    "--simple-ui-glass-strong": `color-mix(in srgb, ${rgbToHex(backgroundSecondary)} ${light ? 98 : 88}%, transparent)`,
     "--simple-ui-glass-row": `color-mix(in srgb, ${rgbToHex(backgroundPrimary)} 68%, transparent)`
   };
 }

@@ -1,0 +1,83 @@
+.chat-generation-failure {
+  width: 100%;
+  margin: 14px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--color-danger-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-bg-secondary));
+  color: var(--color-text-primary);
+}
+.chat-generation-failure-heading { display: flex; align-items: flex-start; gap: 10px; }
+.chat-generation-failure-heading > svg { flex-shrink: 0; width: 18px; height: 18px; margin-top: 2px; color: var(--color-danger); }
+.chat-generation-failure-heading > div { flex: 1; min-width: 0; }
+.chat-generation-failure h3 { margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.chat-generation-failure p { margin: 4px 0 0; font-size: 12px; color: var(--color-text-secondary); }
+.chat-generation-failure button { flex-shrink: 0; padding: 6px 10px; border: 1px solid var(--color-danger-border); border-radius: 8px; color: var(--color-danger); font-size: 12px; }
+.chat-generation-failure button:hover:not(:disabled) { background: var(--color-danger-subtle); }
+.chat-generation-failure button:disabled { opacity: 0.5; cursor: not-allowed; }
+.chat-generation-failure details { margin: 10px 0 0 28px; color: var(--color-text-secondary); font-size: 11px; }
+.chat-generation-failure summary { cursor: pointer; width: fit-content; }
+.chat-generation-failure pre { margin: 8px 0 0; max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.chat-simple-layout .chat-generation-failure { max-width: min(100%, 760px); }
+.chat-generation-failure-heading > .chat-generation-failure-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.chat-generation-failure-actions button.is-primary { border-color: var(--color-danger); background: var(--color-danger); color: #fff; }
+.chat-generation-failure-actions button.is-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 86%, #000); }
+
+/* Rare message actions: one overflow menu, styled like the thread's "More actions" menu. */
+.message-more-menu { position: relative; display: inline-flex; }
+.message-more-menu > .message-icon-button.is-active { color: var(--color-accent); }
+.message-more-menu-panel {
+  position: absolute;
+  z-index: 60;
+  left: 0;
+  display: grid;
+  width: max-content;
+  min-width: 196px;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+  box-shadow: 0 14px 34px rgb(0 0 0 / 0.2);
+}
+.message-more-menu-panel.is-up { bottom: calc(100% + 6px); }
+.message-more-menu-panel.is-down { top: calc(100% + 6px); }
+.message-more-menu-panel.is-end { right: 0; left: auto; }
+.message-more-menu-panel > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  text-align: left;
+  opacity: 1;
+  animation: none;
+}
+.message-more-menu-panel > button:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.message-more-menu-panel > button:disabled { opacity: 0.5; cursor: not-allowed; }
+.message-more-menu-panel svg { flex: 0 0 16px; width: 16px; height: 16px; color: var(--color-text-tertiary); }
+/* An open menu keeps its toolbar on screen after the pointer leaves the message. */
+.message-actions.is-menu-open { opacity: 1; transform: none; pointer-events: auto !important; }
+.chat-message:has(.message-actions.is-menu-open) { z-index: 4; }
+
+.reply-variant-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 8px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.reply-variant-switcher > span { min-width: 38px; text-align: center; }
+.reply-variant-switcher button { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--color-text-secondary); }
+.reply-variant-switcher button:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.reply-variant-switcher button:disabled { opacity: 0.35; cursor: default; }
+.reply-variant-switcher svg { width: 14px; height: 14px; }
+.chat-message-user .reply-variant-switcher { margin-left: auto; }
+.message-more-menu > .message-icon-button { width: 29px; height: 29px; padding: 0; border-color: transparent; border-radius: 8px; }

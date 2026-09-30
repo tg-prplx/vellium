@@ -1,19 +1,16 @@
-import { useEffect, useState } from "react";
 import { StatusMessage } from "./FormControls";
-import type { SettingsCategory, SettingsCategoryNavItem, SettingsSectionLink } from "../config";
+import type { SettingsCategory, SettingsCategoryNavItem } from "../config";
 
 interface SettingsSidebarProps {
   activeProviderName: string;
   activeModel: string;
   activeCategory: SettingsCategory;
   categoryNav: SettingsCategoryNavItem[];
-  categorySections: Record<SettingsCategory, SettingsSectionLink[]>;
   statusText: string;
   statusVariant: "info" | "success" | "error";
   onCategoryChange: (category: SettingsCategory) => void;
   onDangerZoneClick: () => void;
   onOpenSearch: () => void;
-  onQuickSectionClick: (sectionId: string) => void;
   t: (key: any) => string;
 }
 
@@ -22,23 +19,15 @@ export function SettingsSidebar({
   activeModel,
   activeCategory,
   categoryNav,
-  categorySections,
   statusText,
   statusVariant,
   onCategoryChange,
   onDangerZoneClick,
   onOpenSearch,
-  onQuickSectionClick,
   t
 }: SettingsSidebarProps) {
-  const [sectionsExpanded, setSectionsExpanded] = useState(false);
   const mainCategories = categoryNav.filter((category) => category.group === "main");
   const advancedCategories = categoryNav.filter((category) => category.group === "advanced");
-  const currentSections = categorySections[activeCategory];
-
-  useEffect(() => {
-    setSectionsExpanded(false);
-  }, [activeCategory]);
 
   function renderCategory(category: SettingsCategoryNavItem) {
     return (
@@ -101,38 +90,6 @@ export function SettingsSidebar({
           <span>{t("settings.dangerZone")}</span>
         </button>
       </nav>
-
-      <div className={`settings-sidebar-jump${sectionsExpanded ? " is-expanded" : ""}`}>
-        <button
-          type="button"
-          className="settings-sidebar-jump-toggle"
-          aria-expanded={sectionsExpanded}
-          aria-controls="settings-sidebar-section-links"
-          onClick={() => setSectionsExpanded((current) => !current)}
-        >
-          <span>{t("settings.onThisPage")}</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-        {sectionsExpanded ? (
-          <div id="settings-sidebar-section-links" className="settings-sidebar-jump-list">
-            {currentSections.map((section) => (
-              <button
-                key={section.id}
-                type="button"
-                onClick={() => onQuickSectionClick(section.id)}
-                className="settings-quick-jump-item"
-              >
-                <span className="truncate">{section.label}</span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
 
       <div className="settings-sidebar-footer">
         <StatusMessage text={statusText} variant={statusVariant} />

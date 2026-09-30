@@ -1,0 +1,405 @@
+/* Live layout, final layer. The character stage is the primary surface; the transcript
+   is a side panel; session choices sit in one header row. Earlier Live files provide the
+   visual vocabulary (rings, waves, messages); this file owns geometry. */
+
+.live-screen {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+/* Header */
+.live-screen .live-header {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px 10px 12px;
+  background: var(--color-bg-secondary);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.live-identity {
+  display: flex;
+  min-width: 0;
+  max-width: 280px;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 12px;
+  text-align: left;
+  transition: background var(--motion-fast, 120ms) ease;
+}
+
+.live-identity:hover:not(:disabled) { background: var(--color-bg-hover); }
+.live-identity:disabled { cursor: default; }
+
+.live-screen .live-header-avatar {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  box-shadow: none;
+  font-size: 15px;
+}
+
+.live-identity-copy { display: grid; min-width: 0; gap: 2px; }
+
+.live-identity-copy strong {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+
+.live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+
+.live-screen .live-status-dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}
+
+.live-pill-chevron { flex: 0 0 12px; width: 12px; height: 12px; opacity: 0.55; }
+
+.live-header-context {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.live-pill {
+  display: inline-flex;
+  min-width: 0;
+  height: 32px;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--motion-fast, 120ms) ease, color var(--motion-fast, 120ms) ease;
+}
+
+.live-pill:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.live-pill:disabled { cursor: not-allowed; opacity: 0.5; }
+.live-pill > svg:first-child { flex: 0 0 14px; width: 14px; height: 14px; color: var(--color-text-tertiary); }
+.live-pill > span { min-width: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.live-pill-select select {
+  min-width: 0;
+  max-width: 220px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.live-pill-select:focus-within { border-color: var(--color-accent); }
+
+.live-screen .live-header-actions { flex: 0 0 auto; gap: 6px; }
+
+.live-screen .live-quiet-button {
+  min-height: 32px;
+  border-radius: 9px;
+}
+
+.live-screen .live-quiet-button.is-icon {
+  width: 32px;
+  justify-content: center;
+  padding: 0;
+}
+
+.live-screen .live-quiet-button.is-open { background: var(--color-bg-hover); color: var(--color-text-primary); }
+
+.live-menu { position: relative; }
+
+.live-menu-panel {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-bg-secondary);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.24);
+}
+
+.live-menu-context { display: none; }
+.live-session-menu { display: grid; gap: 4px; }
+.live-session-menu section { display: grid; gap: 8px; padding: 8px; }
+.live-session-menu section + section { border-top: 1px solid var(--color-border-subtle); }
+
+.live-session-menu h3 {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.live-session-menu-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+.live-session-field { display: grid; gap: 4px; }
+.live-session-field > span { color: var(--color-text-secondary); font-size: 12px; }
+
+.live-session-field select {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: 12px;
+}
+
+.live-session-field select:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.live-session-menu-link {
+  display: grid;
+  gap: 2px;
+  margin-top: 2px;
+  padding: 10px;
+  border-top: 1px solid var(--color-border-subtle);
+  border-radius: 0 0 8px 8px;
+  text-align: left;
+}
+
+.live-session-menu-link:hover { background: var(--color-bg-hover); }
+.live-session-menu-link span { color: var(--color-text-primary); font-size: 13px; font-weight: 500; }
+.live-session-menu-link small { color: var(--color-text-tertiary); font-size: 11px; }
+
+/* Workspace: stage first, transcript as a side panel. */
+.live-screen .live-workspace {
+  grid-template-columns: minmax(0, 1fr) clamp(340px, 32vw, 460px);
+}
+
+.live-screen .live-stage {
+  border-right: 1px solid var(--color-border-subtle);
+  border-left: 0;
+}
+
+.live-screen .live-stage::before { display: none; }
+
+.live-screen .live-avatar-stage {
+  position: relative;
+  inset: auto;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  padding: 24px 24px 20px;
+}
+
+.live-avatar-visual {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  place-items: center;
+}
+
+.live-screen .inochi2d-canvas {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.live-screen .live-avatar-static-fallback {
+  display: grid;
+  width: auto;
+  height: min(100%, 400px);
+  place-items: center;
+  gap: 10px;
+}
+
+.live-screen .live-avatar-static-fallback img {
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  aspect-ratio: 0.82;
+  border-radius: 28px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.28);
+}
+
+.live-avatar-monogram {
+  display: grid;
+  height: min(100%, 220px);
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: clamp(44px, 6vw, 80px);
+  font-weight: 600;
+}
+
+.live-avatar-error { max-width: 320px; color: var(--color-danger); font-size: 12px; text-align: center; }
+
+.live-screen .live-avatar-rings { top: 50%; width: min(90%, 460px); }
+
+.live-avatar-dock {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.live-screen .live-avatar-copy {
+  position: static;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.live-screen .live-avatar-copy strong { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+
+.live-screen .live-avatar-copy span {
+  max-width: 460px;
+  min-height: 18px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.live-screen .live-avatar-mic {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  width: 64px;
+  height: 64px;
+  border: 0;
+  background: var(--live-accent);
+  color: var(--color-text-inverse);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--live-accent) 34%, transparent);
+  transform: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transition: background var(--motion-fast, 120ms) ease, box-shadow 200ms ease, transform 120ms ease;
+}
+
+.live-screen .live-avatar-mic:not(:disabled):hover { background: var(--color-accent-hover); transform: none; }
+.live-screen .live-avatar-mic:not(:disabled):active { transform: scale(0.96); }
+.live-screen .live-avatar-mic svg { width: 26px; height: 26px; }
+
+.live-phase-listening .live-avatar-mic,
+.live-phase-thinking .live-avatar-mic,
+.live-phase-speaking .live-avatar-mic {
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--live-accent) 18%, transparent), 0 10px 28px color-mix(in srgb, var(--live-accent) 34%, transparent);
+}
+
+.live-screen .live-avatar-tools { top: 14px; right: 14px; }
+
+/* Quick toggles: one segmented group under the microphone. */
+.live-screen .live-controls {
+  position: static;
+  display: inline-flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+}
+
+.live-screen .live-controls button {
+  width: auto;
+  min-height: 32px;
+  gap: 7px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.live-screen .live-controls button span { display: inline; }
+.live-screen .live-controls button:hover { background: var(--color-bg-hover); color: var(--color-text-primary); transform: none; }
+.live-screen .live-controls button.is-on { background: var(--color-accent-subtle); color: var(--color-accent); }
+.live-screen .live-controls button svg { width: 15px; height: 15px; }
+
+/* Transcript side panel */
+.live-screen .live-transcript-heading { min-height: 52px; padding: 10px 16px; }
+.live-screen .live-message-actions { opacity: 0; }
+.live-screen .live-message:is(:hover, :focus-within) .live-message-actions { opacity: 1; }
+
+@media (hover: none) {
+  .live-screen .live-message-actions { opacity: 1; }
+}
+
+@media (max-width: 1180px) {
+  .live-header-context .live-pill > span { max-width: 120px; }
+  .live-pill-select select { max-width: 140px; }
+  .live-screen .live-header-actions .live-quiet-button:not(.is-icon):not(.is-warning) span { display: none; }
+  .live-screen .live-header-actions .live-quiet-button:not(.is-icon):not(.is-warning) { width: 32px; justify-content: center; padding: 0; }
+}
+
+@media (max-width: 900px) {
+  .live-screen .live-workspace { grid-template-columns: minmax(0, 1fr) minmax(290px, 40vw); }
+  .live-screen .live-controls button span { display: none; }
+  .live-screen .live-controls button { width: 40px; justify-content: center; padding: 0; }
+  .live-header-context { display: none; }
+  .live-menu-context { display: grid; gap: 6px; padding: 8px 8px 12px; border-bottom: 1px solid var(--color-border-subtle); }
+  .live-menu-context .live-pill { width: 100%; justify-content: flex-start; text-align: left; }
+  .live-menu-context .live-pill > span,
+  .live-menu-context .live-pill-select select { max-width: none; flex: 1 1 auto; }
+}
+
+@media (max-width: 680px) {
+  .live-screen .live-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(330px, 46dvh) minmax(360px, 1fr);
+    min-height: 0;
+  }
+  .live-screen .live-stage { border-right: 0; border-bottom: 1px solid var(--color-border-subtle); border-top: 0; }
+  .live-screen .live-avatar-stage { gap: 10px; padding: 14px 14px 12px; }
+  .live-screen .live-avatar-mic { width: 56px; height: 56px; }
+  .live-screen .live-controls button span { display: inline; }
+  .live-screen .live-controls button { width: auto; padding: 0 10px; }
+  .live-identity { max-width: none; flex: 1 1 auto; }
+}
+
+@media (max-width: 430px) {
+  .live-screen .live-controls button span { display: none; }
+  .live-screen .live-controls button { width: 40px; padding: 0; }
+}
