@@ -1,3 +1,4 @@
+import { getContextConfig } from "./contextConfig.js";
 import { db, now } from "../../db.js";
 import { getTimeline, messageToJson, type MessageRow } from "./routeHelpers.js";
 import { listBranches } from "./repository.js";
@@ -185,7 +186,7 @@ export function exportChatJson(chatId: string, activeBranchId?: string) {
       lorebookId: chat.lorebook_id || null,
       lorebookIds: resolveLorebookIds(chat),
       autoConversation: chat.auto_conversation === 1,
-      contextSummary: chat.context_summary || "",
+      contextSummary: (resolvedActiveBranchId ? getContextConfig(chatId, resolvedActiveBranchId).summary : undefined) ?? chat.context_summary ?? "",
       createdAt: chat.created_at
     },
     participants: Array.from(participants.values()),
@@ -196,7 +197,7 @@ export function exportChatJson(chatId: string, activeBranchId?: string) {
       messages: conversationMessages
     },
     activeBranchId: resolvedActiveBranchId,
-    branches,
+    branches: branches.map(branch => ({ ...branch, contextConfig: getContextConfig(chatId, branch.id) })),
     messages,
     messagesByBranch,
     promptBlocks: promptBlocks.map((block) => ({

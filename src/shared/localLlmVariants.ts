@@ -67,13 +67,13 @@ export const LOCAL_LLM_VARIANTS: readonly LocalLlmVariant[] = [
   },
   {
     id: "26b",
-    label: "Gemma 4 26B A4B StyleTune",
-    modelName: "Gemma 4 26B A4B StyleTune V2 Q4_K_M",
-    repo: "Kraekin/Gemma-4-26B-A4B-StyleTune-V2-Q4_K_M-GGUF",
-    revision: "1c49854aee1a3a6551f6ac0e5c9bccae4a1f66e2",
-    file: "gemma-4-26b-a4b-styletune-v2-q4_k_m-imat.gguf",
-    bytes: 17_211_235_552,
-    digest: "sha256:0d7c6006e8c767f55e4f18252f28e25537d72f8c1b5dd01fa0450408a707bcf8",
+    label: "Melody1437 26B A4B",
+    modelName: "Melody1437 26B A4B HB16 Q4_K_M",
+    repo: "ReadyArt/Melody1437-26B-A4B-GGUF",
+    revision: "e2c535d4dc8a5c6fb5df9d82e7de02d6059c6e0d",
+    file: "Melody1437-26B-A4B-HB16-Q4_K_M.gguf",
+    bytes: 17_666_858_944,
+    digest: "sha256:9a6a5697a7028a9700380fd47c0cd6f1bc80346c6120d897e7e0c03282fad0bd",
     activeParametersBillions: 4,
     minimumMemoryBytes: 20 * GIB,
     recommendedMemoryBytes: 32 * GIB,
@@ -81,19 +81,35 @@ export const LOCAL_LLM_VARIANTS: readonly LocalLlmVariant[] = [
   }
 ] as const;
 
-type HardwareBudget = Pick<LocalModelHardwareProfile, "memoryBytes" | "accelerator">;
+type HardwareBudget = Pick<LocalModelHardwareProfile, "memoryBytes" | "accelerator" | "gpuMemoryBytes" | "gpuMemoryFreeBytes" | "unifiedMemory">;
 
 /** Reported memory is rarely a round number, so a 15.7 GiB machine still counts as 16 GB. */
 function memoryBudget(hardware: HardwareBudget) {
-  return Math.ceil(Math.max(0, hardware.memoryBytes) / GIB) * GIB;
+  const vram = hardware.accelerator !== "cpu" && !hardware.unifiedMemory
+    ? Math.max(0, Math.min(hardware.gpuMemoryBytes || 0, hardware.gpuMemoryFreeBytes ?? Infinity)) : 0;
+  return Math.ceil(Math.max(0, hardware.memoryBytes) / GIB) * GIB + vram;
+}
+
+function hasComputeBudget(variant: LocalLlmVariant, hardware: HardwareBudget) {
+  if (variant.activeParametersBillions <= CPU_ACTIVE_PARAMETER_LIMIT_BILLIONS) return true;
+  if (hardware.accelerator === "cpu") return false;
+  // Dense 12B offloaded only to a tiny iGPU behaves like a CPU model.
+  return hardware.unifiedMemory || hardware.accelerator === "metal" || hardware.gpuMemoryBytes == null
+    || hardware.gpuMemoryBytes >= variant.bytes + GIB;
 }
 
 export function findLocalLlmVariant(id: LocalLlmVariantId | null | undefined) {
   return LOCAL_LLM_VARIANTS.find((variant) => variant.id === id) || null;
 }
 
+/** An unchanged tier ID must not label an older GGUF as the replacement model. */
+export function findInstalledLocalLlmVariant(modelFiles: readonly string[] | null | undefined) {
+  const filenames = new Set((modelFiles || []).map(file => file.split(/[\\/]/).pop()));
+  return LOCAL_LLM_VARIANTS.find(variant => filenames.has(variant.file)) || null;
+}
+
 export function localLlmVariantFits(variant: LocalLlmVariant, hardware: HardwareBudget) {
-  if (hardware.accelerator === "cpu" && variant.activeParametersBillions > CPU_ACTIVE_PARAMETER_LIMIT_BILLIONS) return false;
+  if (!hasComputeBudget(variant, hardware) || hardware.memoryBytes < 4 * GIB) return false;
   return memoryBudget(hardware) >= variant.minimumMemoryBytes;
 }
 
@@ -101,7 +117,7 @@ export function localLlmVariantFits(variant: LocalLlmVariant, hardware: Hardware
 export function recommendedLocalLlmVariant(hardware: HardwareBudget): LocalLlmVariant {
   const budget = memoryBudget(hardware);
   const affordable = LOCAL_LLM_VARIANTS.filter((variant) =>
-    (hardware.accelerator !== "cpu" || variant.activeParametersBillions <= CPU_ACTIVE_PARAMETER_LIMIT_BILLIONS)
+    hasComputeBudget(variant, hardware)
     && budget >= variant.recommendedMemoryBytes);
   return affordable[affordable.length - 1] || LOCAL_LLM_VARIANTS[0];
 }

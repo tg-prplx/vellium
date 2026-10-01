@@ -1,5 +1,6 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { v4 as uuidv4 } from "uuid";
+import { estimateTokens } from "../../src/shared/tokenEstimate.js";
 
 export function newId(): string {
   return uuidv4();
@@ -53,7 +54,7 @@ function normalizeSecret(secret: string): string {
 }
 
 export function roughTokenCount(text: string): number {
-  return Math.ceil(text.length / 3.7);
+  return estimateTokens(text);
 }
 
 export function maskApiKey(raw: string): string {

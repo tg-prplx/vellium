@@ -30,6 +30,7 @@ export function buildSillyTavernCompatiblePurePrompt(params: {
   userName: string;
   ragAppendix?: string;
   isAutoConvo?: boolean;
+  onSection?: (source: "character" | "scene" | "authorNote", text: string) => void;
   strictGrounding?: boolean;
 }): string {
   const sections: string[] = [];
@@ -61,6 +62,7 @@ export function buildSillyTavernCompatiblePurePrompt(params: {
       }
     }
 
+    params.onSection?.("character", sections.slice(base ? 1 : 0).join("\n\n"));
     sections.push(
       [
         "[Roleplay rules]",
@@ -99,6 +101,7 @@ export function buildSillyTavernCompatibleLightPrompt(params: {
   authorNote?: string;
   ragAppendix?: string;
   isAutoConvo?: boolean;
+  onSection?: (source: "character" | "scene" | "authorNote", text: string) => void;
   strictGrounding?: boolean;
 }): string {
   const base = buildSillyTavernCompatiblePurePrompt({
@@ -109,7 +112,8 @@ export function buildSillyTavernCompatibleLightPrompt(params: {
     userName: params.userName,
     ragAppendix: "",
     isAutoConvo: params.isAutoConvo,
-    strictGrounding: params.strictGrounding
+    strictGrounding: params.strictGrounding,
+    onSection: params.onSection
   });
   const sections: string[] = [base];
   const scene = params.sceneState;
@@ -131,10 +135,12 @@ export function buildSillyTavernCompatibleLightPrompt(params: {
       Number.isFinite(emotionalDepth) ? `Emotional depth: ${describeSceneLevel("emotionalDepth", emotionalDepth)}` : ""
     ].filter(Boolean);
     sections.push(lines.join("\n"));
+    params.onSection?.("scene", lines.join("\n"));
   }
   const authorNote = String(params.authorNote || "").trim();
   if (authorNote) {
     sections.push(`[Author's Note]\n${authorNote}\nUse as style steering; do not override established facts unless user requests it.`);
+    params.onSection?.("authorNote", sections[sections.length - 1]);
   }
   const responseLanguage = String(params.responseLanguage || "").trim();
   if (responseLanguage && responseLanguage.toLowerCase() !== "english") {

@@ -17,6 +17,8 @@ interface ExportChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
   tokenCount: number;
+  tokenCountSource?: "tokenizer" | "estimate";
+  generationStats?: import("./chatContext").GenerationStats;
   createdAt: string;
   parentId?: Id | null;
   characterName?: string;
@@ -24,6 +26,7 @@ interface ExportChatMessage {
 }
 
 interface ExportBranch {
+  contextConfig?: import("./chatContext").ChatContextConfig;
   id: Id;
   chatId: Id;
   name: string;

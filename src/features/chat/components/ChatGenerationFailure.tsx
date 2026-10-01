@@ -7,15 +7,16 @@ function openProviderSettings() {
   }));
 }
 
-export function ChatGenerationFailure({ error, onRetry, busy }: {
+export function ChatGenerationFailure({ error, onRetry, onContext, busy }: {
   error: string;
   onRetry?: () => void;
+  onContext?: () => void;
   busy: boolean;
 }) {
   const { t } = useI18n();
   const info = describeChatGenerationError(error);
   const endpoint = info.endpoint || t("chat.providerEndpoint");
-  const summary = info.authFailed
+  const summary = info.contextBudgetExceeded ? t("context.overBudget") : info.authFailed
     ? t("chat.generationAuthFailed")
     : info.modelMissing
       ? t("chat.generationModelMissing")
@@ -40,9 +41,10 @@ export function ChatGenerationFailure({ error, onRetry, busy }: {
         </svg>
         <div>
           <h3>{summary}</h3>
-          <p>{settingsFirst ? t("chat.generationSettingsHint") : t("chat.generationFailureHint")}</p>
+          <p>{info.contextBudgetExceeded ? t("context.budgetRecovery") : settingsFirst ? t("chat.generationSettingsHint") : t("chat.generationFailureHint")}</p>
         </div>
         <div className="chat-generation-failure-actions">
+          {info.contextBudgetExceeded && onContext && <button type="button" onClick={onContext} className="is-primary">{t("context.title")}</button>}
           {offerSettings && (
             <button type="button" onClick={openProviderSettings} className={settingsFirst ? "is-primary" : ""}>
               {t("chat.openProviderSettings")}

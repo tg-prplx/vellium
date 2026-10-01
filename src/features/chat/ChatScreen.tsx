@@ -8,6 +8,7 @@ import { useI18n } from "../../shared/i18n";
 import { getSceneLevelTranslationKey, type SceneLevelAxis } from "../../shared/sceneLevels";
 import { modelDisplayName } from "./modelDisplay";
 import { isLegacyChatFailure } from "../../shared/chatGenerationError";
+import { ContextManagerModal } from "./components/ContextManagerModal";
 import { ChatGenerationFailure } from "./components/ChatGenerationFailure";
 import { SimpleChatControls } from "./components/SimpleChatControls";
 import { useChatGenerationFailure } from "./hooks/useChatGenerationFailure";
@@ -123,7 +124,7 @@ export function ChatScreen() {
   const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({ ...DEFAULT_CHAT_SECURITY_SETTINGS });
   const [customInspectorFields, setCustomInspectorFields] = useState<CustomInspectorField[]>([]);
   const [promptStack, setPromptStack] = useState<PromptBlock[]>([...DEFAULT_PROMPT_STACK]);
-  const [contextSummary, setContextSummary] = useState("");
+  const [contextManagerOpen, setContextManagerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [streamText, setStreamText] = useState("");
@@ -310,10 +311,10 @@ export function ChatScreen() {
     [orderedBlocks]
   );
 
-  const totalTokens = useMemo(
-    () => messages.reduce((sum, m) => sum + (isLegacyChatFailure(m) ? 0 : (m.tokenCount || 0)), 0),
-    [messages]
-  );
+  const lastGeneration = useMemo(() => [...messages].reverse().find(message => message.role === "assistant" && !isLegacyChatFailure(message))?.generationStats, [messages]);
+  const contextTrigger = activeChat && <button className="chat-context-trigger" onClick={() => setContextManagerOpen(true)} title={t("context.lastInputHint")} aria-haspopup="dialog">
+    <span>{t("context.title")}</span>{lastGeneration?.inputTokens !== undefined && <b>{lastGeneration.inputTokens.toLocaleString()} tok</b>}
+  </button>;
   const visibleMessages = useMemo(
     () => messages.filter((msg) => msg.role !== "tool"),
     [messages]
@@ -321,14 +322,9 @@ export function ChatScreen() {
   const messageTokensPerSecond = useMemo(() => {
     const next: Record<string, string> = {};
     for (const msg of visibleMessages) {
-      if (msg.role !== "assistant" || msg.tokenCount <= 0) continue;
-      const durationMs = Number(msg.generationDurationMs || 0);
-      if (!Number.isFinite(durationMs) || durationMs < 250) continue;
-      const seconds = durationMs / 1000;
-      if (!Number.isFinite(seconds) || seconds <= 0.2) continue;
-      const speed = msg.tokenCount / seconds;
-      if (!Number.isFinite(speed) || speed <= 0) continue;
-      next[msg.id] = `${speed >= 10 ? speed.toFixed(0) : speed.toFixed(1)} t/s`;
+      const speed = msg.generationStats?.tokensPerSecond;
+      if (msg.role !== "assistant" || !speed || !Number.isFinite(speed)) continue;
+      next[msg.id] = `${msg.generationStats?.speedSource === "provider" ? "" : "≈"}${speed >= 10 ? speed.toFixed(0) : speed.toFixed(1)} t/s`;
     }
     return next;
   }, [visibleMessages]);
@@ -965,8 +961,8 @@ export function ChatScreen() {
     setCompressing(true);
     try {
       const result = await api.chatCompressContext(activeChat.id, activeBranchId || undefined);
-      setContextSummary(result.summary);
-      setInspectorSection((prev) => ({ ...prev, context: true }));
+      if (!result.summary) throw new Error(t("context.compressFailed"));
+      setContextManagerOpen(true);
     } catch (error) {
       setErrorText(String(error));
     }
@@ -2185,7 +2181,7 @@ export function ChatScreen() {
                         <h2 className="truncate text-sm font-semibold text-text-primary">
                           {activeChat ? activeChat.title : t("tab.chat")}
                         </h2>
-                        {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
+                        {!zenMode && contextTrigger}
                         {!zenMode && <BranchManager branches={branches} activeBranchId={activeBranchId} disabled={chatGenerationBusy} onSelect={setActiveBranchId} onRename={renameBranch} onDelete={removeBranch} />}
                       </div>
                       <div className="mt-3 grid gap-2 xl:grid-cols-[minmax(180px,1fr)_minmax(240px,1.2fr)_160px_auto]">
@@ -2312,7 +2308,7 @@ export function ChatScreen() {
                   <h2 className="chat-simple-thread-title truncate">
                     {activeChat ? activeChat.title : t("tab.chat")}
                   </h2>
-                  {!zenMode && totalTokens > 0 && <Badge>{totalTokens.toLocaleString()} tok</Badge>}
+                  {!zenMode && contextTrigger}
                   {!zenMode && <BranchManager branches={branches} activeBranchId={activeBranchId} disabled={chatGenerationBusy} simple onSelect={setActiveBranchId} onRename={renameBranch} onDelete={removeBranch} />}
                   <div className="flex-1" />
                   <div className="chat-simple-thread-actions">
@@ -2533,7 +2529,7 @@ export function ChatScreen() {
                               : (msg.role === "user" ? (activePersona?.name || t("chat.user")) : msg.role === "assistant" ? t("chat.assistant") : msg.role)}
                         </span>
                         <span className="chat-message-metadata inline-flex gap-1.5">
-                          {msg.tokenCount > 0 && <Badge>{msg.tokenCount} tok</Badge>}
+                          {msg.tokenCount > 0 && <span title={msg.generationStats ? t("context.output") : t("context.estimateHint")}><Badge>{msg.generationStats ? (msg.generationStats.tokenSource === "estimate" ? "≈" : "") : (msg.tokenCountSource === "tokenizer" ? "" : "≈")}{msg.generationStats?.outputTokens ?? msg.tokenCount} tok</Badge></span>}
                           {msg.role === "assistant" && messageTokensPerSecond[msg.id] && <Badge>{messageTokensPerSecond[msg.id]}</Badge>}
                         </span>
                       </div>
@@ -2824,7 +2820,7 @@ export function ChatScreen() {
                 </article>
               )}
 
-              {generationFailure && <ChatGenerationFailure error={generationFailure.error} busy={chatGenerationBusy}
+              {generationFailure && <ChatGenerationFailure error={generationFailure.error} busy={chatGenerationBusy} onContext={() => setContextManagerOpen(true)}
                 onRetry={() => { void (generationFailure.characterName ? handleNextTurn(generationFailure.characterName) : handleRegenerate()); }} />}
               <div ref={messagesEndRef} />
             </div>
@@ -2888,6 +2884,7 @@ export function ChatScreen() {
                       )}
                     </button>
                     <SimpleChatControls
+                      contextPreview={simpleHomeState ? contextTrigger : undefined}
                       modelLabel={activeModelDisplayLabel}
                       modelTriggerRef={modelSelectorTriggerRef}
                       modelOpen={showModelSelector}
@@ -3472,23 +3469,6 @@ export function ChatScreen() {
             {simpleModeActive && simpleInspectorSection === "advanced" && <ChatRpPresets
               activePreset={activePreset} expanded={!presetsCollapsed} onToggle={() => setPresetsCollapsed(!presetsCollapsed)}
               onApply={(preset) => { void applyPreset(preset); }} />}
-            {/* Compressed Context section */}
-            {contextSummary && (
-              <div hidden={simpleModeActive && simpleInspectorSection !== "advanced"}>
-                <button onClick={() => toggleSection("context")}
-                  className="mb-1.5 flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
-                  {t("inspector.compressedContext")}
-                  <svg className={`h-3 w-3 transition-transform ${inspectorSection.context ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {inspectorSection.context && (
-                  <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded-lg border border-border-subtle bg-bg-primary p-3 font-mono text-[11px] text-text-secondary">
-                    {contextSummary}
-                  </pre>
-                )}
-              </div>
-            )}
             <PluginSlotMount
               slotId="chat.inspector.bottom"
               contextPayload={{
@@ -3502,6 +3482,7 @@ export function ChatScreen() {
           </>
         )}
       />
+    {contextManagerOpen && activeChat && activeBranchId && <ContextManagerModal key={`${activeChat.id}:${activeBranchId}`} chatId={activeChat.id} branchId={activeBranchId} draft={input} attachments={attachments} userPersona={activePersonaPayload} busy={chatGenerationBusy} onClose={() => setContextManagerOpen(false)} />}
     </>
   );
 }

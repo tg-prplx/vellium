@@ -241,7 +241,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
                 <div className="h-1.5 overflow-hidden rounded-full bg-bg-hover">
                   <div className="h-full bg-accent transition-[width]" style={{ width: `${state.phase === "extracting" || state.phase === "verifying" || state.phase === "installed" ? 100 : percent}%` }} />
                 </div>
-                <p className="mt-1 truncate text-[10px] text-text-tertiary">{state.label}{state.phase === "downloading" ? ` · ${percent}%` : ""}</p>
+                <p className="mt-1 truncate text-[10px] text-text-tertiary">{state.labelKey ? t(state.labelKey) : state.label}{state.phase === "downloading" ? ` · ${percent}%` : ""}</p>
               </div>
             ) : null}
 
@@ -285,7 +285,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
 
   return (
     <div className={`rounded-xl border border-border-subtle bg-bg-primary ${compact ? "p-3" : "p-4"}`}>
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="text-sm font-semibold text-text-primary">
             {t(speechOnly ? "localModels.speechTitle" : "localModels.title")}
@@ -296,16 +296,22 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
         </div>
         {catalog ? (
           <span className="shrink-0 rounded-md border border-border-subtle px-2 py-1 text-[10px] text-text-secondary">
-            {catalog.hardware.accelerator.toUpperCase()} · RAM {formatBytes(catalog.hardware.memoryBytes)}
+            {catalog.hardware.accelerator.toUpperCase()} · RAM {formatMemory(catalog.hardware.memoryBytes)}
+            {catalog.hardware.unifiedMemory ? ` · ${t("localModels.unifiedMemory")}`
+              : catalog.hardware.accelerator !== "cpu" ? ` · VRAM ${catalog.hardware.gpuMemoryBytes ? formatMemory(catalog.hardware.gpuMemoryBytes) : t("localModels.memoryUnknown")}` : ""}
           </span>
         ) : null}
       </div>
+      {catalog && catalog.hardware.accelerator !== "cpu" ? <p className="mt-2 text-[11px] text-text-secondary">
+        {catalog.hardware.gpuLabel} · {t("localModels.gpuAutoFit")}
+      </p> : null}
 
       <div className="mt-3 grid gap-2">
         {catalog?.items.filter((item) => visibleComponentIds.has(item.id)).map((item) => {
           const state = progress[item.id];
           const percent = state?.totalBytes ? Math.min(100, Math.round(state.receivedBytes / state.totalBytes * 100)) : 0;
           const variant = item.id === "llm" ? activeVariant : null;
+          const selectedVariantInstalled = variant ? variant.installed : item.installed;
           return (
             <div key={item.id} className="rounded-lg border border-border-subtle bg-bg-secondary p-3">
               <div className="flex items-start gap-3">
@@ -313,7 +319,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
                   type="checkbox"
                   className="mt-1"
                   checked={selected.has(item.id)}
-                  disabled={busy || (item.installed && !item.updateAvailable)}
+                  disabled={busy || (selectedVariantInstalled && !item.updateAvailable)}
                   onChange={(event) => setSelected((current) => {
                     const next = new Set(current);
                     if (event.target.checked) next.add(item.id); else next.delete(item.id);
@@ -324,9 +330,12 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
                   <div className="flex flex-wrap items-center gap-2">
                     <strong className="text-xs text-text-primary">{item.name}: {variant?.modelName || item.modelName}</strong>
                     <span className="text-[10px] text-text-tertiary">{formatExactBytes(variant?.modelBytes ?? item.modelBytes)} {t("localModels.model")} + {formatBytes(item.auxiliaryBytes)} {t("localModels.runtime")}</span>
-                    {item.installed ? <span className="text-[10px] text-success">{t("localModels.installed")}</span> : null}
+                    {selectedVariantInstalled ? <span className="text-[10px] text-success">{t("localModels.installed")}</span> : null}
                     {item.updateAvailable ? <span className="text-[10px] text-warning">{t("localModels.updateAvailable")}</span> : null}
                   </div>
+                  {item.updateAvailable && item.installedModelName ? <p className="mt-1 text-[10px] text-text-tertiary">
+                    {t("localModels.installedVersion")} {item.installedModelName}. {t("localModels.updateKeepsOld")}
+                  </p> : null}
                   {item.warning ? <p className="mt-1 text-[10px] text-warning">{item.warning}</p> : null}
                   {variant ? (
                     <div className="mt-2">
@@ -336,8 +345,17 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
                       <select
                         id={variantSelectId}
                         value={variant.id}
-                        disabled={busy || item.installed}
-                        onChange={(event) => setPreferredVariantId(event.target.value as LocalLlmVariantId)}
+                        disabled={busy}
+                        onChange={(event) => {
+                          const id = event.target.value as LocalLlmVariantId;
+                          setPreferredVariantId(id);
+                          setSelected((current) => {
+                            const next = new Set(current);
+                            if (llmVariants.find((option) => option.id === id)?.installed) next.delete("llm");
+                            else next.add("llm");
+                            return next;
+                          });
+                        }}
                         className="w-full rounded-lg border border-border bg-bg-primary px-2 py-1.5 text-[11px] text-text-primary disabled:opacity-60"
                       >
                         {llmVariants.map((option) => (
@@ -357,7 +375,7 @@ export function LocalModelsSetup({ locale, compact = false, componentIds, onInst
                   {state && state.phase !== "idle" ? (
                     <div className="mt-2">
                       <div className="h-1 overflow-hidden rounded-full bg-bg-hover"><div className="h-full bg-accent" style={{ width: `${state.phase === "extracting" || state.phase === "verifying" || state.phase === "installed" ? 100 : percent}%` }} /></div>
-                      <p className="mt-1 truncate text-[10px] text-text-tertiary">{state.label}{state.phase === "downloading" ? ` · ${percent}%` : ""}</p>
+                      <p className="mt-1 truncate text-[10px] text-text-tertiary">{state.labelKey ? t(state.labelKey) : state.label}{state.phase === "downloading" ? ` · ${percent}%` : ""}</p>
                     </div>
                   ) : null}
                 </div>

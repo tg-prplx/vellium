@@ -38,6 +38,7 @@ const SCHEMA_SQL = `
     chat_id TEXT NOT NULL,
     name TEXT NOT NULL,
     parent_message_id TEXT,
+    context_config TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
   );
 
@@ -53,6 +54,8 @@ const SCHEMA_SQL = `
     generation_started_at TEXT,
     generation_completed_at TEXT,
     generation_duration_ms INTEGER,
+    generation_stats TEXT,
+    token_count_source TEXT,
     created_at TEXT NOT NULL
   );
 

@@ -319,8 +319,9 @@ export async function countKoboldTokens(
   try {
     const response = await fetch(`${base}/api/extra/tokencount`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: text })
+      headers: { "Content-Type": "application/json", ...(provider.api_key_cipher ? { Authorization: `Bearer ${provider.api_key_cipher}` } : {}) },
+      body: JSON.stringify({ prompt: text }),
+      signal: AbortSignal.timeout(3000)
     });
     if (!response.ok) return null;
     const body = await response.json() as { value?: unknown; tokens?: unknown; count?: unknown };

@@ -253,11 +253,11 @@ export function normalizeManagedBackendConfig(raw: unknown, index = 1): ManagedB
       host: String(llamaRaw.host || llamaDefaults.host).trim() || llamaDefaults.host,
       port: parseNumeric(llamaRaw.port, llamaDefaults.port, 1, 65535),
       contextSize: parseNumeric(llamaRaw.contextSize, llamaDefaults.contextSize, 512, 262144),
-      gpuLayers: parseNumeric(llamaRaw.gpuLayers, llamaDefaults.gpuLayers, 0, 999),
+      gpuLayers: llamaRaw.gpuLayers === "auto" ? "auto" : parseNumeric(llamaRaw.gpuLayers, Number(llamaDefaults.gpuLayers), 0, 999),
       threads: parseNumeric(llamaRaw.threads, llamaDefaults.threads, 1, 256),
       batchSize: parseNumeric(llamaRaw.batchSize, llamaDefaults.batchSize, 1, 4096),
       ubatchSize: parseNumeric(llamaRaw.ubatchSize, llamaDefaults.ubatchSize, 1, 4096),
-      flashAttention: llamaRaw.flashAttention !== false,
+      flashAttention: llamaRaw.flashAttention === "auto" ? "auto" : llamaRaw.flashAttention !== false,
       jinja: llamaRaw.jinja !== false
     },
     koboldcpp: {
@@ -352,7 +352,7 @@ export function buildManagedBackendCommand(config: ManagedBackendConfig): { comm
     appendFlag(parts, "--batch-size", options.batchSize || 512);
     appendFlag(parts, "--ubatch-size", options.ubatchSize || 256);
     appendFlag(parts, "--n-gpu-layers", options.gpuLayers);
-    appendFlag(parts, "--flash-attn", options.flashAttention ? "on" : "off");
+    appendFlag(parts, "--flash-attn", options.flashAttention === "auto" ? "auto" : options.flashAttention ? "on" : "off");
     appendFlag(parts, "--jinja", options.jinja);
     if (config.extraArgs.trim()) parts.push(config.extraArgs.trim());
     return {
@@ -440,7 +440,7 @@ export function buildManagedBackendLaunch(config: ManagedBackendConfig): { comma
     appendArg(args, "--batch-size", options.batchSize || 512);
     appendArg(args, "--ubatch-size", options.ubatchSize || 256);
     appendArg(args, "--n-gpu-layers", options.gpuLayers);
-    appendArg(args, "--flash-attn", options.flashAttention ? "on" : "off");
+    appendArg(args, "--flash-attn", options.flashAttention === "auto" ? "auto" : options.flashAttention ? "on" : "off");
     appendArg(args, "--jinja", options.jinja);
     args.push(...tokenizeShellCommand(config.extraArgs || ""));
     return {
@@ -536,13 +536,13 @@ export function parseManagedBackendCommand(command: string, kind: "llamacpp" | "
         index += 1;
         if (key === "modelPath") next.modelPath = value;
         else if (key === "host") next.host = value;
-        else (next as Record<string, unknown>)[key] = Number(value);
+        else (next as Record<string, unknown>)[key] = key === "gpuLayers" && value === "auto" ? "auto" : Number(value);
         continue;
       }
       if (token === "--jinja") { next.jinja = true; continue; }
       if (token === "--flash-attn") {
         const value = rest[index + 1];
-        next.flashAttention = value !== "off";
+        next.flashAttention = value === "auto" ? "auto" : value !== "off";
         if (value && !value.startsWith("-")) index += 1;
         continue;
       }

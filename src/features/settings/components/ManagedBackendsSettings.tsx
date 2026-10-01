@@ -203,7 +203,14 @@ export function ManagedBackendsSettings({
                             </div>
                             <div className="mt-4 grid gap-3 md:grid-cols-4">
                               <div><FieldLabel>{t("settings.contextWindow")}</FieldLabel><InputField type="number" value={String(llamaOptions.contextSize)} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, contextSize: Number(value) || 8192 } })} /></div>
-                              <div><FieldLabel>{t("settings.gpuLayers")}</FieldLabel><InputField type="number" value={String(llamaOptions.gpuLayers)} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, gpuLayers: Math.max(0, Number(value) || 0) } })} /></div>
+                              <div>
+                                <FieldLabel>{t("settings.gpuLayers")}</FieldLabel>
+                                <SelectField value={llamaOptions.gpuLayers === "auto" ? "auto" : "manual"} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, gpuLayers: value === "auto" ? "auto" : 999 } })}>
+                                  <option value="auto">{t("settings.gpuLayersAuto")}</option>
+                                  <option value="manual">{t("settings.gpuLayersManual")}</option>
+                                </SelectField>
+                                {llamaOptions.gpuLayers !== "auto" ? <InputField type="number" value={String(llamaOptions.gpuLayers)} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, gpuLayers: Math.max(0, Number(value) || 0) } })} /> : null}
+                              </div>
                               <div><FieldLabel>{t("settings.threads")}</FieldLabel><InputField type="number" value={String(llamaOptions.threads)} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, threads: Number(value) || 8 } })} /></div>
                               <div><FieldLabel>{t("settings.port")}</FieldLabel><InputField type="number" value={String(llamaOptions.port)} onChange={(value) => updateManagedBackend(backend.id, { llamacpp: { ...llamaOptions, port: Number(value) || 8088 } })} /></div>
                             </div>

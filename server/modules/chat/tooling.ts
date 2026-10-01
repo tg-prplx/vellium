@@ -1,3 +1,6 @@
+import { fetchChatStream } from "./streamRequest.js";
+import { createGenerationTracker } from "../../../src/shared/generationStats.js";
+import type { GenerationStats } from "../../../src/shared/types/chatContext.js";
 import { buildLlamaCppSamplingPayload, buildOpenAiSamplingPayload } from "../../services/apiParamPolicy.js";
 import { coalesceSystemMessages } from "../../domain/rpEngine.js";
 import { prepareMcpTools, type McpServerConfig } from "../../services/mcp.js";
@@ -643,6 +646,7 @@ async function requestChatCompletion(
   body: Record<string, unknown>,
   signal: AbortSignal
 ) {
+  const tracker = createGenerationTracker();
   const baseUrl = String(provider.base_url || "").replace(/\/+$/, "");
   const requestBody = Array.isArray(body.messages)
     ? { ...body, messages: prepareOpenAiCompatibleMessages(baseUrl, body.messages as OpenAICompletionMessage[]) }
@@ -660,15 +664,14 @@ async function requestChatCompletion(
     const errText = await response.text().catch(() => "Unknown error");
     throw new Error(`[API Error: ${response.status}] ${errText.slice(0, 500)}`);
   }
-  return response.json() as Promise<{
+  const result = await response.json() as {
+    generationStats?: GenerationStats;
     assistantWasStreamed?: boolean;
-    choices?: Array<{
-      message?: {
-        content?: unknown;
-        tool_calls?: OpenAIToolCall[];
-      };
-    }>;
-  }>;
+    choices?: Array<{ message?: { content?: unknown; tool_calls?: OpenAIToolCall[] } }>;
+  };
+  tracker.observe(result);
+  result.generationStats = tracker.finish(normalizeAssistantContent(result.choices?.[0]?.message?.content));
+  return result;
 }
 
 async function requestChatCompletionStream(
@@ -683,6 +686,7 @@ async function requestChatCompletionStream(
     bufferAssistantDeltas?: boolean;
   }
 ): Promise<{
+  generationStats?: GenerationStats;
   assistantWasStreamed?: boolean;
   choices?: Array<{
     message?: {
@@ -692,19 +696,19 @@ async function requestChatCompletionStream(
     };
   }>;
 }> {
+  const tracker = createGenerationTracker();
   const baseUrl = String(provider.base_url || "").replace(/\/+$/, "");
   const requestBody = Array.isArray(body.messages)
     ? { ...body, messages: prepareOpenAiCompatibleMessages(baseUrl, body.messages as OpenAICompletionMessage[]) }
     : body;
-  const response = await fetchProviderResponse(`${baseUrl}/chat/completions`, {
+  const response = await fetchChatStream(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${provider.api_key_cipher}`
     },
-    body: JSON.stringify({ model: modelId, ...requestBody, stream: true }),
     signal
-  });
+  }, { model: modelId, ...requestBody });
   if (!response.ok || !response.body) {
     const errText = await response.text().catch(() => "Unknown error");
     throw new Error(`[API Error: ${response.status}] ${errText.slice(0, 500)}`);
@@ -886,6 +890,7 @@ async function requestChatCompletionStream(
     if (!payload || payload === "[DONE]") return;
     try {
       const parsed = JSON.parse(payload) as unknown;
+      tracker.observe(parsed);
       const streamError = extractOpenAiStreamErrorMessage(parsed);
       if (eventType === "error" || streamError) {
         throw new Error(streamError || "Provider stream returned an error event");
@@ -895,6 +900,8 @@ async function requestChatCompletionStream(
         appendReasoningDelta(reasoningDelta);
       }
       const textDelta = extractOpenAiStreamTextDelta(parsed);
+      const toolDeltas = (parsed as { choices?: Array<{ delta?: { tool_calls?: OpenAIToolCall[] } }> }).choices?.flatMap(choice => choice.delta?.tool_calls?.map(call => String(call.function?.arguments || "")) || []).join("") || "";
+      tracker.delta((reasoningDelta || "") + textDelta + toolDeltas);
       if (textDelta) {
         appendAssistantDelta(textDelta);
       }
@@ -974,6 +981,7 @@ async function requestChatCompletionStream(
 
   return {
     assistantWasStreamed,
+    generationStats: tracker.finish(fullAssistantContent),
     choices: [{
       message: {
         content: visibleAssistantContent,
@@ -1002,7 +1010,8 @@ export async function runToolCallingCompletion(params: {
   signal: AbortSignal;
   onToolEvent?: (event: ToolCallStreamEvent) => void;
   onAssistantDelta?: (delta: string) => void;
-}): Promise<{ content: string; toolCalls: ToolCallTrace[]; streamMessages?: OpenAICompletionMessage[]; assistantWasStreamed?: boolean } | null> {
+}): Promise<{ content: string; toolCalls: ToolCallTrace[]; generationStats?: GenerationStats; streamMessages?: OpenAICompletionMessage[]; assistantWasStreamed?: boolean } | null> {
+  const turnStartedAt = Date.now();
   const autoAttach = params.settings.mcpAutoAttachTools !== false;
   if (!autoAttach) return null;
 
@@ -1101,6 +1110,17 @@ export async function runToolCallingCompletion(params: {
         : [];
     };
     let executedTools = 0;
+    const requestStats: GenerationStats[] = [];
+    const aggregateStats = () => {
+      const last = requestStats.at(-1);
+      if (!last) return undefined;
+      return { ...last, requests: requestStats.length,
+        totalInputTokens: requestStats.every(stats => stats.inputTokens !== undefined) ? requestStats.reduce((sum, stats) => sum + (stats.inputTokens || 0), 0) : undefined,
+        totalOutputTokens: requestStats.every(stats => stats.tokenSource === "provider") ? requestStats.reduce((sum, stats) => sum + stats.outputTokens, 0) : undefined,
+        firstTokenMs: last.firstTokenMs === undefined ? undefined : Date.now() - turnStartedAt - last.totalMs + last.firstTokenMs,
+        totalMs: Date.now() - turnStartedAt
+      };
+    };
 
     while (executedTools < maxToolCalls) {
       let body: Awaited<ReturnType<typeof requestChatCompletion>>;
@@ -1137,6 +1157,7 @@ export async function runToolCallingCompletion(params: {
         assistantDeltasBuffered = false;
       }
 
+      if (body.generationStats) requestStats.push(body.generationStats);
       const assistant = body.choices?.[0]?.message;
       const assistantContent = normalizeAssistantContent(assistant?.content);
       let toolCalls = Array.isArray(assistant?.tool_calls) ? assistant.tool_calls : [];
@@ -1160,12 +1181,14 @@ export async function runToolCallingCompletion(params: {
           return {
             content: visibleAssistantContent,
             toolCalls: reasoningTraces,
+            generationStats: aggregateStats(),
             assistantWasStreamed: assistantPassWasStreamed
           };
         }
         return {
           content: visibleAssistantContent,
           toolCalls: [...toolTraces, ...reasoningTraces],
+          generationStats: aggregateStats(),
           assistantWasStreamed: assistantPassWasStreamed
         };
       }
@@ -1212,7 +1235,7 @@ export async function runToolCallingCompletion(params: {
     }
 
     // Tool-call budget reached: perform final streamed assistant pass in caller.
-    return { content: "", toolCalls: [...toolTraces, ...finalizeReasoningTrace()], streamMessages: workingMessages };
+    return { content: "", toolCalls: [...toolTraces, ...finalizeReasoningTrace()], generationStats: aggregateStats(), streamMessages: workingMessages };
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
     // If provider doesn't support tools/function calling, fallback to regular streaming flow.

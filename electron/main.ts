@@ -7,6 +7,7 @@ import { configureLiveMediaPermissions, registerLiveMediaIpc } from "./liveMedia
 import { ManagedBackendManager } from "./managedBackends";
 import { registerManagedBackendIpc } from "./managedBackendIpc";
 import { LocalModelInstaller } from "./localModelInstaller";
+import { LOCAL_LLAMA_BACKEND_ID } from "../src/shared/localModelConfig";
 import { registerLocalModelIpc } from "./localModelIpc";
 import { registerLlamaCppIpc } from "./llamaCppIpc";
 import { createIpcSenderGuard, decodeBoundedBase64, isAllowedExternalUrl } from "./security";
@@ -92,7 +93,9 @@ let creatingWindow = false;
 let embeddedServerStart: Promise<void> | null = null;
 const desktopPetPeerSeenAt = new Map<string, number>();
 const managedBackendManager = new ManagedBackendManager();
-const localModelInstaller = new LocalModelInstaller();
+const localModelInstaller = new LocalModelInstaller(async (component) => {
+  if (component === "llm") await managedBackendManager.stopAndWait(LOCAL_LLAMA_BACKEND_ID);
+});
 const assertTrustedIpcSender = createIpcSenderGuard({
   getMainWindow: () => mainWindow,
   getDesktopPetWindow: (sender) => getDesktopPetInstanceForSender(sender)?.window || null,

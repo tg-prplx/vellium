@@ -40,6 +40,7 @@ export interface PromptContext {
   censorshipMode: string;
   contextSummary: string;
   defaultSystemPrompt: string;
+  onSection?: (source: "character" | "scene" | "lore", text: string) => void;
   strictGrounding?: boolean;
   userName?: string;
 }
@@ -148,6 +149,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
       case "character":
         if (ctx.characterCard) {
           parts.push(formatCharacterCard(ctx.characterCard));
+          ctx.onSection?.("character", formatCharacterCard(ctx.characterCard));
         } else if (block.content) {
           parts.push(block.content);
         }
@@ -155,12 +157,13 @@ export function buildSystemPrompt(ctx: PromptContext): string {
       case "scene":
         if (ctx.sceneState) {
           parts.push(formatSceneState(ctx.sceneState, ctx.intensity));
+          ctx.onSection?.("scene", formatSceneState(ctx.sceneState, ctx.intensity));
         } else if (block.content) {
           parts.push(block.content);
         }
         break;
       case "lore":
-        if (block.content) parts.push(block.content);
+        if (block.content) { parts.push(block.content); ctx.onSection?.("lore", block.content); }
         break;
       // "author_note" and "history" are handled in buildMessageArray
     }
@@ -359,18 +362,20 @@ export function buildMultiCharSystemPrompt(
         // Format ALL characters in the multi-char scenario
         for (const card of characters) {
           parts.push(formatCharacterCard(card));
+          ctx.onSection?.("character", formatCharacterCard(card));
         }
         parts.push(`\nYou are now playing as ${currentCharacterName}. Stay in character as ${currentCharacterName} only. Other characters are played by separate AI instances. Respond ONLY as ${currentCharacterName}.`);
         break;
       case "scene":
         if (ctx.sceneState) {
           parts.push(formatSceneState(ctx.sceneState, ctx.intensity));
+          ctx.onSection?.("scene", formatSceneState(ctx.sceneState, ctx.intensity));
         } else if (block.content) {
           parts.push(block.content);
         }
         break;
       case "lore":
-        if (block.content) parts.push(block.content);
+        if (block.content) { parts.push(block.content); ctx.onSection?.("lore", block.content); }
         break;
     }
   }

@@ -1,3 +1,4 @@
+import { getContextConfig, saveContextConfig } from "./contextConfig.js";
 import { db, newId, now } from "../../db.js";
 import { resolveBranch, type MessageRow } from "./routeHelpers.js";
 
@@ -128,7 +129,7 @@ export function forkBranch(chatId: string, parentMessageId: string, name?: strin
     "INSERT INTO branches (id, chat_id, name, parent_message_id, created_at) VALUES (?, ?, ?, ?, ?)"
   );
   const insertMessage = db.prepare(
-    "INSERT INTO messages (id, chat_id, branch_id, role, content, attachments, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+    "INSERT INTO messages (id, chat_id, branch_id, role, content, attachments, token_count, parent_id, deleted, created_at, character_name, sort_order, token_count_source, generation_stats, generation_started_at, generation_completed_at, generation_duration_ms, rag_sources) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
 
   const forkTx = db.transaction(() => {
@@ -149,8 +150,16 @@ export function forkBranch(chatId: string, parentMessageId: string, name?: strin
         mappedParentId,
         row.created_at,
         row.character_name || null,
-        index + 1
+        index + 1, row.token_count_source || null, row.generation_stats || null,
+        row.generation_started_at || null, row.generation_completed_at || null, row.generation_duration_ms ?? null, row.rag_sources || "[]"
       );
+    });
+    const config = getContextConfig(chatId, parent.branch_id);
+    const later = db.prepare("SELECT id FROM messages WHERE chat_id = ? AND branch_id = ? AND deleted = 0 AND role IN ('user', 'assistant') AND sort_order > ? LIMIT 1").get(chatId, parent.branch_id, parent.sort_order);
+    saveContextConfig(chatId, branchId, { ...config,
+      // A fork into earlier history must not inherit facts learned after that point.
+      ...(later ? { summary: "" } : {}),
+      excludedMessageIds: (config.excludedMessageIds || []).flatMap(id => idMap.has(id) ? [idMap.get(id)!] : [])
     });
   });
 

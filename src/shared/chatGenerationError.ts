@@ -15,6 +15,7 @@ export function describeChatGenerationError(raw: string) {
   const status = Number(details.match(/\[API Error:\s*(\d{3})\]|\bstatus(?: code)?:?\s*(\d{3})\b/i)?.slice(1).find(Boolean));
   return {
     details,
+    contextBudgetExceeded: /^Context budget exceeded\./i.test(details),
     endpoint,
     timeoutSeconds: timeoutMs > 0 ? Math.round(timeoutMs / 100) / 10 : null,
     timedOut: /timeout|timed out|ETIMEDOUT/i.test(details),

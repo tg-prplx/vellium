@@ -1,67 +1,8 @@
 import { Router } from "express";
 import { db, roughTokenCount } from "../db.js";
-import { withReplyVariants } from "../modules/chat/replyVariants.js";
+import { getTimeline, type MessageRow } from "../modules/chat/routeHelpers.js";
 
 const router = Router();
-
-interface MessageRow {
-  id: string;
-  chat_id: string;
-  branch_id: string;
-  role: string;
-  content: string;
-  attachments: string | null;
-  rag_sources: string | null;
-  token_count: number;
-  parent_id: string | null;
-  deleted: number;
-  created_at: string;
-  generation_started_at: string | null;
-  generation_completed_at: string | null;
-  generation_duration_ms: number | null;
-  character_name: string | null;
-  sort_order: number;
-}
-
-function messageToJson(row: MessageRow) {
-  let attachments: unknown[] = [];
-  let ragSources: unknown[] = [];
-  try {
-    const parsed = JSON.parse(row.attachments || "[]");
-    if (Array.isArray(parsed)) attachments = parsed;
-  } catch {
-    attachments = [];
-  }
-  try {
-    const parsed = JSON.parse(row.rag_sources || "[]");
-    if (Array.isArray(parsed)) ragSources = parsed;
-  } catch {
-    ragSources = [];
-  }
-  return {
-    id: row.id,
-    chatId: row.chat_id,
-    branchId: row.branch_id,
-    role: row.role,
-    content: row.content,
-    attachments,
-    tokenCount: row.token_count,
-    createdAt: row.created_at,
-    generationStartedAt: row.generation_started_at || undefined,
-    generationCompletedAt: row.generation_completed_at || undefined,
-    generationDurationMs: typeof row.generation_duration_ms === "number" ? row.generation_duration_ms : undefined,
-    parentId: row.parent_id,
-    characterName: row.character_name || undefined,
-    ragSources
-  };
-}
-
-function getTimeline(chatId: string, branchId: string) {
-  const rows = db.prepare(
-    "SELECT * FROM messages WHERE chat_id = ? AND branch_id = ? AND deleted = 0 ORDER BY sort_order ASC, created_at ASC, id ASC"
-  ).all(chatId, branchId) as MessageRow[];
-  return withReplyVariants(chatId, branchId, rows.map(messageToJson));
-}
 
 const normalizeSortOrder = db.transaction((chatId: string, branchId: string) => {
   const rows = db.prepare(
@@ -85,7 +26,7 @@ router.patch("/:id", (req, res) => {
   }
 
   db.prepare(
-    "UPDATE messages SET content = ?, token_count = ? WHERE id = ? AND chat_id = ? AND branch_id = ? AND deleted = 0"
+    "UPDATE messages SET content = ?, token_count = ?, token_count_source = 'estimate', generation_stats = NULL, generation_started_at = NULL, generation_completed_at = NULL, generation_duration_ms = NULL WHERE id = ? AND chat_id = ? AND branch_id = ? AND deleted = 0"
   ).run(content, roughTokenCount(content), row.id, row.chat_id, row.branch_id);
 
   res.json({ ok: true, timeline: getTimeline(row.chat_id, row.branch_id) });

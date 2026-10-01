@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   findLocalLlmVariant,
+  findInstalledLocalLlmVariant,
   localLlmModelUrl,
   localLlmVariantFits,
   recommendedLocalLlmVariant,
@@ -28,6 +29,28 @@ describe("local Gemma 4 ladder", () => {
         `https://huggingface.co/${variant.repo}/resolve/${variant.revision}/${variant.file}?download=true`
       );
     }
+  });
+
+  it("replaces the 26B tier with the pinned Melody1437 HB16 Q4_K_M artifact", () => {
+    const variant = findLocalLlmVariant("26b")!;
+    expect(variant.repo).toBe("ReadyArt/Melody1437-26B-A4B-GGUF");
+    expect(variant.file).toBe("Melody1437-26B-A4B-HB16-Q4_K_M.gguf");
+    expect(variant.bytes).toBe(17_666_858_944);
+    expect(variant.digest).toBe("sha256:9a6a5697a7028a9700380fd47c0cd6f1bc80346c6120d897e7e0c03282fad0bd");
+    expect(variant.label).not.toContain("StyleTune");
+  });
+
+  it("recognizes current GGUF files on Windows and Unix, including legacy manifests without a tier ID", () => {
+    const variant = findLocalLlmVariant("26b")!;
+    expect(findInstalledLocalLlmVariant([`models\\${variant.file}`])?.id).toBe("26b");
+    expect(findInstalledLocalLlmVariant([`models/${variant.file}`])?.id).toBe("26b");
+    expect(findInstalledLocalLlmVariant([`models/${findLocalLlmVariant("e2b")!.file}`])?.id).toBe("e2b");
+  });
+
+  it("does not mistake the old 26B StyleTune model for the installed Melody replacement", () => {
+    expect(findInstalledLocalLlmVariant(["models/gemma-4-26b-a4b-styletune-v2-q4_k_m-imat.gguf"])).toBeNull();
+    expect(findInstalledLocalLlmVariant(null)).toBeNull();
+    expect(findInstalledLocalLlmVariant([])).toBeNull();
   });
 });
 
@@ -64,5 +87,16 @@ describe("hardware-based default selection", () => {
   it("ignores an unknown variant id", () => {
     expect(findLocalLlmVariant("gemma-9000" as never)).toBeNull();
     expect(findLocalLlmVariant(null)).toBeNull();
+  });
+
+  it("uses dedicated free VRAM alongside RAM, without double-counting unified memory", () => {
+    expect(recommendedLocalLlmVariant({ memoryBytes: 8 * GIB, accelerator: "vulkan", gpuMemoryBytes: 24 * GIB, gpuMemoryFreeBytes: 24 * GIB }).id).toBe("26b");
+    expect(recommendedLocalLlmVariant({ memoryBytes: 8 * GIB, accelerator: "vulkan", gpuMemoryBytes: 24 * GIB, gpuMemoryFreeBytes: 2 * GIB }).id).toBe("e2b");
+    expect(recommendedLocalLlmVariant({ memoryBytes: 16 * GIB, accelerator: "metal", gpuMemoryBytes: 16 * GIB, unifiedMemory: true }).id).toBe("e4b");
+  });
+
+  it("does not recommend a dense model based only on a tiny GPU and abundant system RAM", () => {
+    expect(recommendedLocalLlmVariant({ memoryBytes: 24 * GIB, accelerator: "vulkan", gpuMemoryBytes: 2 * GIB }).id).toBe("e4b");
+    expect(localLlmVariantFits(findLocalLlmVariant("12b")!, { memoryBytes: 24 * GIB, accelerator: "vulkan", gpuMemoryBytes: 2 * GIB })).toBe(false);
   });
 });

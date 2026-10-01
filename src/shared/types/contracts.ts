@@ -158,7 +158,6 @@ export interface PromptBlock {
   order: number;
   content: string;
 }
-
 export interface ChatMessage {
   id: Id;
   chatId: Id;
@@ -170,6 +169,8 @@ export interface ChatMessage {
   generationStartedAt?: string;
   generationCompletedAt?: string;
   generationDurationMs?: number;
+  generationStats?: import("./chatContext.js").GenerationStats;
+  tokenCountSource?: "tokenizer" | "estimate";
   parentId?: Id | null;
   characterName?: string;
   attachments?: FileAttachment[];

@@ -1,0 +1,78 @@
+.chat-context-trigger {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 28px;
+  padding: 4px 9px; border-radius: 9px; background: var(--color-bg-secondary);
+  color: var(--color-text-secondary); font-size: 11px; white-space: nowrap;
+  border: 1px solid var(--color-border-subtle); cursor: pointer;
+}
+.chat-context-trigger:hover { color: var(--color-text-primary); background: var(--color-bg-hover); }
+.chat-context-trigger b { font-weight: 500; color: var(--color-text-tertiary); font-variant-numeric: tabular-nums; }
+.context-manager-body { padding: 0 !important; }
+.context-budget { padding: 24px 28px 20px; border-bottom: 1px solid var(--color-border-subtle); }
+.context-budget-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.context-eyebrow { display: block; color: var(--color-text-tertiary); font-size: 11px; margin-bottom: 6px; }
+.context-budget-heading strong { display: block; color: var(--color-text-primary); font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.context-budget-heading strong small { font-size: 14px; font-weight: 400; color: var(--color-text-tertiary); letter-spacing: 0; }
+.context-model { max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--color-text-tertiary); padding-bottom: 3px; }
+.context-meter { display: flex; height: 7px; border-radius: 4px; margin: 19px 0 12px; overflow: hidden; background: var(--color-bg-hover); }
+.context-meter span { background: var(--color-accent); }
+.context-meter i { background: var(--color-text-tertiary); opacity: .45; }
+.context-meter.is-over span { background: var(--color-danger); }
+.context-budget-caption { display: flex; flex-wrap: wrap; gap: 20px; font-size: 11px; color: var(--color-text-tertiary); }
+.context-budget-caption b { font-weight: 500; color: var(--color-text-secondary); margin-left: 4px; }
+.context-hint { font-size: 11px; line-height: 1.65; color: var(--color-text-tertiary); margin: 10px 0 0; }
+.context-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; }
+.context-detail { min-width: 0; padding: 0 28px 28px; }
+.context-tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--color-border-subtle); margin-bottom: 10px; }
+.context-tabs button { padding: 16px 0 12px; color: var(--color-text-tertiary); font-size: 12px; border-bottom: 2px solid transparent; }
+.context-tabs button[aria-selected="true"] { color: var(--color-text-primary); border-bottom-color: var(--color-accent); }
+.context-tabs button:hover { color: var(--color-text-primary); }
+.context-tab-content { min-height: 200px; }
+.context-source { border-bottom: 1px solid var(--color-border-subtle); }
+.context-source summary { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 15px 0; cursor: pointer; list-style: none; font-size: 12px; }
+.context-source summary > span { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; color: var(--color-text-secondary); }
+.context-source-bar { display: block; height: 3px; max-width: 100px; border-radius: 2px; background: var(--color-accent); opacity: .35; }
+.context-source summary b { font-weight: 500; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
+.context-source summary small { font-weight: 400; color: var(--color-text-tertiary); }
+.context-source summary::after { content: "+"; color: var(--color-text-tertiary); width: 10px; }
+.context-source[open] summary::after { content: "−"; }
+.context-source pre, .context-prompt pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; margin: 0 0 16px; padding: 14px; font: 11px/1.65 ui-monospace, monospace; background: var(--color-bg-primary); color: var(--color-text-secondary); border-radius: 8px; }
+.context-last { margin-top: 26px; }
+.context-last h3, .context-controls h3 { color: var(--color-text-primary); font-size: 13px; font-weight: 600; margin: 0; }
+.context-last dl { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; margin: 16px 0 0; }
+.context-last dl > div { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+.context-last dt { color: var(--color-text-tertiary); }
+.context-last dd { color: var(--color-text-primary); margin: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.context-controls { border-left: 1px solid var(--color-border-subtle); padding: 20px 22px 24px; background: var(--color-bg-secondary); }
+.context-controls > label { display: flex; flex-direction: column; gap: 7px; font-size: 11px; color: var(--color-text-secondary); margin-top: 18px; }
+.context-controls input[type="number"], .context-controls textarea { background: var(--color-bg-primary); border: 1px solid var(--color-border); color: var(--color-text-primary); border-radius: 8px; padding: 9px 10px; width: 100%; font-size: 12px; }
+.context-controls textarea { resize: vertical; min-height: 100px; line-height: 1.6; }
+.context-controls small { font-size: 10px; color: var(--color-text-tertiary); }
+.context-controls > .context-toggle { flex-direction: row; align-items: center; gap: 9px; }
+.context-toggle input, .context-history-row input { accent-color: var(--color-accent); width: 15px; height: 15px; flex-shrink: 0; }
+.context-control-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.context-button { padding: 7px 11px; font-size: 11px; font-weight: 500; border-radius: 8px; background: var(--color-bg-hover); color: var(--color-text-primary); border: 1px solid var(--color-border-subtle); white-space: nowrap; }
+.context-button:hover { border-color: var(--color-border); background: var(--color-bg-tertiary, var(--color-bg-hover)); }
+.context-button:disabled { opacity: .4; cursor: default; }
+.context-button.is-quiet { background: transparent; color: var(--color-text-secondary); }
+.context-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
+.context-footer > span { font-size: 11px; color: var(--color-text-tertiary); }
+.context-footer .context-button:not(:disabled) { background: var(--color-accent); color: var(--color-text-inverse); border-color: transparent; }
+.context-alert { color: var(--color-danger); background: var(--color-danger-subtle); border: 1px solid var(--color-danger-border); border-radius: 8px; padding: 10px 14px; font-size: 12px; line-height: 1.6; margin-top: 12px; }
+.context-alert .context-button { margin-left: 10px; }
+.context-loading { padding: 70px 28px; text-align: center; color: var(--color-text-tertiary); font-size: 13px; }
+.context-history-row { display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--color-border-subtle); cursor: pointer; }
+.context-history-row > span { flex: 1; min-width: 0; }
+.context-history-row strong { color: var(--color-text-primary); font-size: 11px; font-weight: 500; }
+.context-history-row small { display: block; font-size: 10px; color: var(--color-text-tertiary); margin-top: 3px; }
+.context-history-row p { font-size: 11px; line-height: 1.6; color: var(--color-text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: 6px; }
+.context-history-row > b { color: var(--color-text-tertiary); font-size: 10px; font-weight: 400; white-space: nowrap; }
+.context-history-row.is-excluded p { color: var(--color-text-tertiary); }
+.context-prompt { margin-top: 12px; }
+.context-prompt summary { cursor: pointer; font-size: 11px; color: var(--color-text-secondary); padding: 10px 0; }
+.context-manager-body :is(button,input,textarea):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+@media (max-width: 760px) {
+  .context-layout { grid-template-columns: minmax(0,1fr); }
+  .context-controls { border-left: 0; border-top: 1px solid var(--color-border-subtle); }
+  .context-budget, .context-detail { padding-left: 20px; padding-right: 20px; }
+  .context-last dl { grid-template-columns: 1fr; }
+}

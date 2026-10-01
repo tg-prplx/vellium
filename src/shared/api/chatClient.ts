@@ -2,6 +2,8 @@ import type { BranchNode, ChatMessage, ChatSession, FileAttachment, PromptBlock,
 import type { LiveAvatarControlCapabilities } from "../types/inochiAvatar";
 import { del, get, patchReq, post, put, requestBlob, streamNdjson, streamPost, type StreamCallbacks } from "./core";
 
+import type { ChatContextConfig, ChatContextPreview } from "../types/chatContext";
+
 type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
 export type TtsStreamEvent =
   | { type: "audio"; index: number; contentType: string; audioBase64: string; format?: "pcm"; sampleRate?: number }
@@ -69,6 +71,8 @@ export const chatClient = {
   },
   chatSelectVariant: (chatId: string, messageId: string, direction: -1 | 1, branchId?: string) =>
     post<ChatMessage[]>(`/chats/${chatId}/variants`, { messageId, direction, branchId }),
+  chatPreviewContext: (chatId: string, options: { branchId?: string; draft?: string; attachments?: FileAttachment[]; userPersona?: UserPersonaPayload | null; liveAvatar?: LiveAvatarControlCapabilities | null }, signal?: AbortSignal) => post<ChatContextPreview>(`/chats/${chatId}/context/preview`, options, { signal, timeoutMs: 0 }),
+  chatUpdateContext: (chatId: string, branchId: string, config: ChatContextConfig, reset = false) => patchReq<{ config: ChatContextConfig }>(`/chats/${chatId}/context`, { branchId, config, reset }),
   chatCompressContext: (chatId: string, branchId?: string) => post<{ summary: string }>(`/chats/${chatId}/compress`, { branchId }),
   chatFork: (chatId: string, parentMessageId: string, name: string) => post<BranchNode>(`/chats/${chatId}/fork`, { parentMessageId, name }),
   chatEditMessage: (messageId: string, content: string) => patchReq<{ ok: boolean; timeline: ChatMessage[] }>(`/messages/${messageId}`, { content }),

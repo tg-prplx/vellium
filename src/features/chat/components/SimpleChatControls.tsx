@@ -1,8 +1,9 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { useI18n } from "../../../shared/i18n";
 import { RpReasoningToggle } from "./RpReasoningToggle";
 
-export function SimpleChatControls({ modelLabel, modelTriggerRef, modelOpen, onModel, reasoning, reasoningDisabled, onReasoning, contextOpen, onContext, sceneOpen, onScene }: {
+export function SimpleChatControls({ modelLabel, modelTriggerRef, modelOpen, onModel, reasoning, reasoningDisabled, onReasoning, contextOpen, onContext, sceneOpen, onScene, contextPreview }: {
+  contextPreview?: ReactNode;
   modelLabel: string;
   modelTriggerRef: RefObject<HTMLButtonElement>;
   modelOpen: boolean;
@@ -22,6 +23,7 @@ export function SimpleChatControls({ modelLabel, modelTriggerRef, modelOpen, onM
         <span className="truncate">{modelLabel || t("chat.selectModel")}</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" /></svg>
       </button>
+      {contextPreview}
       <RpReasoningToggle enabled={reasoning} disabled={reasoningDisabled} onToggle={onReasoning} />
       <button type="button" onClick={onContext} className={`chat-simple-bar-model ${contextOpen ? "is-active" : ""}`} aria-expanded={contextOpen} aria-controls="chat-simple-inspector-sidebar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6m-6 0v6" /></svg>

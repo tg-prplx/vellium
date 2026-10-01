@@ -1,6 +1,9 @@
 import type Database from "better-sqlite3";
 
 const MIGRATIONS = [
+  "ALTER TABLE branches ADD COLUMN context_config TEXT NOT NULL DEFAULT '{}'",
+  "ALTER TABLE messages ADD COLUMN generation_stats TEXT",
+  "ALTER TABLE messages ADD COLUMN token_count_source TEXT",
   "ALTER TABLE characters ADD COLUMN avatar_path TEXT",
   "ALTER TABLE characters ADD COLUMN tags TEXT DEFAULT '[]'",
   "ALTER TABLE characters ADD COLUMN greeting TEXT DEFAULT ''",

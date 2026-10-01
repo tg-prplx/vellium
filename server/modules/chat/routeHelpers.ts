@@ -3,6 +3,7 @@ import { DEFAULT_PROMPT_BLOCKS, type CharacterCardData, type PromptBlock } from 
 import { normalizeApiParamPolicy } from "../../services/apiParamPolicy.js";
 import type { RagContextSource } from "../../services/rag.js";
 import { normalizeRuntimeTuningSettings } from "../../services/runtimeTuning.js";
+import { readGenerationStats } from "../../../src/shared/generationStats.js";
 import { withReplyVariants } from "./replyVariants.js";
 
 const PROMPT_BLOCK_KINDS = new Set(["system", "jailbreak", "character", "author_note", "lore", "scene", "history"]);
@@ -24,6 +25,8 @@ export interface MessageRow {
   generation_started_at: string | null;
   generation_completed_at: string | null;
   generation_duration_ms: number | null;
+  generation_stats?: string | null;
+  token_count_source?: string | null;
   character_name: string | null;
   sort_order: number;
 }
@@ -85,6 +88,8 @@ export function messageToJson(row: MessageRow) {
     content: row.content,
     attachments,
     tokenCount: row.token_count,
+    tokenCountSource: row.token_count_source === "tokenizer" ? "tokenizer" as const : "estimate" as const,
+    generationStats: readGenerationStats(row.generation_stats),
     createdAt: row.created_at,
     generationStartedAt: row.generation_started_at || undefined,
     generationCompletedAt: row.generation_completed_at || undefined,

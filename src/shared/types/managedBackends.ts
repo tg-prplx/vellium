@@ -4,10 +4,10 @@ export interface ManagedBackendLlamaCppOptions {
   host: string;
   port: number;
   contextSize: number;
-  gpuLayers: number;
+  gpuLayers: number | "auto";
   threads: number;
   batchSize: number;
   ubatchSize: number;
-  flashAttention: boolean;
+  flashAttention: boolean | "auto";
   jinja: boolean;
 }

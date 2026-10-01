@@ -326,6 +326,30 @@ export class ManagedBackendManager {
     await this.stop(this.activeBackendId);
   }
 
+  /** Updates must wait for the owned process to release model files and DLLs. */
+  async stopAndWait(backendId: string): Promise<void> {
+    const child = this.states.get(backendId)?.child;
+    if (!child || child.exitCode !== null || child.signalCode !== null) {
+      await this.stop(backendId);
+      return;
+    }
+    const closed = new Promise<void>((resolve, reject) => {
+      const finish = () => { clearTimeout(force); clearTimeout(deadline); resolve(); };
+      child.once("close", finish);
+      const force = setTimeout(() => {
+        // ChildProcess.killed means a signal was sent, not that it exited.
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      }, 3_000);
+      const deadline = setTimeout(() => {
+        child.removeListener("close", finish);
+        clearTimeout(force);
+        reject(new Error("Local backend did not stop; its installation was preserved"));
+      }, 5_000);
+    });
+    await this.stop(backendId);
+    await closed;
+  }
+
   private cleanupTimers(state: ManagedProcessState) {
     if (state.pollTimer) clearInterval(state.pollTimer);
     if (state.startDeadline) clearTimeout(state.startDeadline);

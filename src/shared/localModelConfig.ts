@@ -55,7 +55,7 @@ export function buildLocalLlamaManagedBackend(
   threadCount: number,
   variant: LocalLlmVariant
 ): ManagedBackendConfig {
-  const threads = Math.max(2, Math.min(16, Math.floor(threadCount)));
+  const threads = Number.isFinite(threadCount) ? Math.max(1, Math.min(16, Math.floor(threadCount))) : 4;
   return {
     id: LOCAL_LLAMA_BACKEND_ID,
     name: `${variant.label} (llama.cpp)`,
@@ -65,7 +65,9 @@ export function buildLocalLlamaManagedBackend(
     adapterId: null,
     backendKind: "llamacpp",
     baseUrl: "http://127.0.0.1:8088",
-    extraArgs: "",
+    // b10107 fits automatic GPU layers to actual free VRAM with a 1 GiB reserve.
+    // A single slot receives the whole configured context window.
+    extraArgs: "--fit on --fit-target 1024 --parallel 1 --cache-ram 0",
     workingDirectory: executable.replace(/[\\/][^\\/]+$/, ""),
     envText: "",
     defaultModel: variant.file,
@@ -84,11 +86,11 @@ export function buildLocalLlamaManagedBackend(
       host: "127.0.0.1",
       port: 8088,
       contextSize: variant.contextSize,
-      gpuLayers: hardware.accelerator === "cpu" ? 0 : 999,
+      gpuLayers: hardware.accelerator === "cpu" ? 0 : "auto",
       threads,
       batchSize: 512,
       ubatchSize: 256,
-      flashAttention: true,
+      flashAttention: "auto",
       jinja: true
     }
   };

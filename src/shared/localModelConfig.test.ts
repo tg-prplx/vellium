@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildManagedBackendLaunch } from "./managedBackends";
+import { buildManagedBackendLaunch, normalizeManagedBackendConfig } from "./managedBackends";
 import {
   buildLocalLlamaManagedBackend,
   buildDetectedLlamaManagedBackend,
@@ -38,7 +38,12 @@ describe("local llama.cpp backend config", () => {
     expect(launch.args).toContain("--ctx-size");
     expect(launch.args).toContain(String(heaviest.contextSize));
     expect(launch.args).toContain("--n-gpu-layers");
-    expect(launch.args).toContain("999");
+    expect(launch.args[launch.args.indexOf("--n-gpu-layers") + 1]).toBe("auto");
+    expect(launch.args[launch.args.indexOf("--flash-attn") + 1]).toBe("auto");
+    expect(launch.args).toContain("--fit-target");
+    expect(launch.args).toContain("1024");
+    expect(launch.args[launch.args.indexOf("--parallel") + 1]).toBe("1");
+    expect(buildManagedBackendLaunch(normalizeManagedBackendConfig(config)!).args).toEqual(launch.args);
   });
 
   it("creates a native managed profile for an auto-detected GGUF", () => {
@@ -54,6 +59,12 @@ describe("local llama.cpp backend config", () => {
     expect(config.name).toBe(`${lightest.label} (llama.cpp)`);
     expect(config.defaultModel).toBe(lightest.file);
     expect(buildManagedBackendLaunch(config).args).toContain(String(lightest.contextSize));
+    expect(config.llamacpp?.gpuLayers).toBe(0);
+  });
+
+  it("keeps single-core and malformed thread counts usable", () => {
+    expect(buildLocalLlamaManagedBackend("a", "b", { accelerator: "cpu" }, 0, heaviest).llamacpp?.threads).toBe(1);
+    expect(buildLocalLlamaManagedBackend("a", "b", { accelerator: "cpu" }, NaN, heaviest).llamacpp?.threads).toBe(4);
   });
 });
 

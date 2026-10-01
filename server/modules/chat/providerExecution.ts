@@ -1,5 +1,8 @@
+import { createGenerationTracker } from "../../../src/shared/generationStats.js";
+import type { GenerationStats } from "../../../src/shared/types/chatContext.js";
 import type { Response } from "express";
-import { roughTokenCount } from "../../db.js";
+import { fetchChatStream } from "./streamRequest.js";
+import { roughTokenCount, isLocalhostUrl } from "../../db.js";
 import { coalesceSystemMessages } from "../../domain/rpEngine.js";
 import { buildKoboldSamplerConfig, buildLlamaCppSamplingPayload, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../../services/apiParamPolicy.js";
 import { completeCustomAdapter } from "../../services/customProviderAdapters.js";
@@ -15,7 +18,7 @@ import {
 } from "../../services/providerApi.js";
 import { consumeThinkChunk, createThinkStreamState, flushThinkState, splitThinkContent } from "./reasoning.js";
 import { prepareOpenAiCompatibleMessages } from "./providerMessages.js";
-import type { ProviderRow } from "./routeHelpers.js";
+import { getSettings, type ProviderRow } from "./routeHelpers.js";
 import {
   consumeSseEventBlocks,
   extractOpenAiStreamErrorMessage,
@@ -49,6 +52,7 @@ export interface StreamProviderCompletionResult {
   generationStartedAt: string;
   generationCompletedAt: string;
   generationDurationMs: number;
+  generationStats: GenerationStats;
 }
 
 export interface CompleteProviderOnceParams {
@@ -63,14 +67,30 @@ export interface CompleteProviderOnceParams {
   signal?: AbortSignal;
 }
 
-export async function countProviderTokens(provider: ProviderRow | null | undefined, content: string): Promise<number> {
+export async function countProviderTokensDetailed(provider: ProviderRow | null | undefined, content: string): Promise<{ tokens: number; source: "tokenizer" | "estimate" }> {
   const text = String(content || "");
-  if (!text) return 0;
-  if (!provider || normalizeProviderType(provider.provider_type) !== "koboldcpp") {
-    return roughTokenCount(text);
-  }
-  const counted = await countKoboldTokens(provider, text);
-  return counted ?? roughTokenCount(text);
+  const fallback = { tokens: roughTokenCount(text), source: "estimate" as const };
+  if (!text || !provider || ((getSettings().fullLocalMode || provider.full_local_only) && !isLocalhostUrl(provider.base_url))) return fallback;
+  try {
+    if (normalizeProviderType(provider.provider_type) === "koboldcpp") {
+      const counted = await countKoboldTokens(provider, text);
+      return counted === null ? fallback : { tokens: counted, source: "tokenizer" };
+    }
+    // Only probe an explicitly configured local llama.cpp tokenizer, never arbitrary cloud endpoints.
+    if (provider.llama_cpp_management_enabled && isLocalhostUrl(provider.base_url)) {
+      const base = provider.base_url.replace(/\/+$/, "").replace(/\/v1$/, "");
+      const response = await fetch(`${base}/tokenize`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.api_key_cipher}` }, body: JSON.stringify({ content: text, add_special: false }), signal: AbortSignal.timeout(3000) });
+      if (response.ok) {
+        const body = await response.json() as { tokens?: unknown };
+        if (Array.isArray(body.tokens)) return { tokens: body.tokens.length, source: "tokenizer" };
+      }
+    }
+  } catch { /* Unsupported/unavailable tokenizer: explicitly marked estimate. */ }
+  return fallback;
+}
+
+export async function countProviderTokens(provider: ProviderRow | null | undefined, content: string): Promise<number> {
+  return (await countProviderTokensDetailed(provider, content)).tokens;
 }
 
 async function sendSseText(res: Response, chatId: string, text: string, paceMs = 0) {
@@ -92,9 +112,11 @@ export async function streamProviderCompletion(
   const normalizedMessages = coalesceSystemMessages(params.messages);
   const generationStartedMs = Date.now();
   const generationStartedAt = new Date(generationStartedMs).toISOString();
-  const finalizeGenerationMeta = () => {
+  const tracker = createGenerationTracker(generationStartedMs);
+  const finalizeGenerationMeta = (content: string) => {
     const generationCompletedMs = Date.now();
     return {
+      generationStats: tracker.finish(content, generationCompletedMs),
       generationStartedAt,
       generationCompletedAt: new Date(generationCompletedMs).toISOString(),
       generationDurationMs: Math.max(1, generationCompletedMs - generationStartedMs)
@@ -206,6 +228,7 @@ export async function streamProviderCompletion(
               delta = data;
             }
             if (!delta) continue;
+            tracker.delta(delta);
             const split = consumeThinkChunk(thinkState, delta);
             if (split.reasoning) appendReasoningDelta(split.reasoning);
             if (split.content) {
@@ -228,7 +251,7 @@ export async function streamProviderCompletion(
       }
 
       if (fullContent.trim() || reasoningTrace.result.trim()) {
-        return { content: fullContent, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta() };
+        return { content: fullContent, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta(fullContent) };
       }
     }
 
@@ -244,7 +267,7 @@ export async function streamProviderCompletion(
     if (split.content) {
       await sendSseText(params.res, params.chatId, split.content, 8);
     }
-    return { content: split.content, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta() };
+    return { content: split.content, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta(split.content) };
   }
 
   if (providerType === "custom") {
@@ -262,7 +285,7 @@ export async function streamProviderCompletion(
     if (split.content) {
       await sendSseText(params.res, params.chatId, split.content, 8);
     }
-    return { content: split.content, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta() };
+    return { content: split.content, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta(split.content) };
   }
 
   const baseUrl = String(params.provider.base_url || "").replace(/\/+$/, "");
@@ -282,21 +305,19 @@ export async function streamProviderCompletion(
   const llamaCppSampling = params.provider.llama_cpp_management_enabled
     ? buildLlamaCppSamplingPayload({ samplerConfig: sc, apiParamPolicy: params.apiParamPolicy })
     : {};
-  const response = await fetchProviderResponse(`${baseUrl}/chat/completions`, {
+  const response = await fetchChatStream(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${params.provider.api_key_cipher}`
     },
-    body: JSON.stringify({
+    signal: params.signal
+  }, {
       model: params.modelId,
       messages: openAiMessages,
-      stream: true,
       ...openAiSampling,
       ...llamaCppSampling
-    }),
-    signal: params.signal
-  });
+    });
 
   if (!response.ok || !response.body) {
     const errText = await response.text().catch(() => "Unknown error");
@@ -314,14 +335,16 @@ export async function streamProviderCompletion(
 
     try {
       const parsed = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
+      tracker.observe(parsed);
       const streamError = extractOpenAiStreamErrorMessage(parsed);
       if (eventType === "error" || streamError) {
         throw new Error(streamError || "Provider stream returned an error event");
       }
       const reasoningDelta = extractOpenAIReasoningDelta(parsed);
-      if (reasoningDelta) appendReasoningDelta(reasoningDelta);
+      if (reasoningDelta) { tracker.delta(reasoningDelta); appendReasoningDelta(reasoningDelta); }
       const delta = extractOpenAiStreamTextDelta(parsed);
       if (delta) {
+        tracker.delta(delta);
         const split = consumeThinkChunk(thinkState, delta);
         if (split.reasoning) appendReasoningDelta(split.reasoning);
         if (split.content) {
@@ -378,7 +401,7 @@ export async function streamProviderCompletion(
     }
   }
 
-  return { content: fullContent, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta() };
+  return { content: fullContent, toolTraces: finalizeReasoning(), ...finalizeGenerationMeta(fullContent) };
 }
 
 export async function completeProviderOnce(params: CompleteProviderOnceParams): Promise<string> {

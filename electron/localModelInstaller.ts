@@ -5,8 +5,12 @@ import { createReadStream, createWriteStream, existsSync } from "fs";
 import { chmod, mkdir, readFile, rename, rm, statfs } from "fs/promises";
 import path from "path";
 import { pipeline } from "stream/promises";
-import extractZip from "@electron-internal/extract-zip";
+import { Readable } from "stream";
+// Named exports survive esbuild's ESM-to-CommonJS interop in the desktop bundle.
+import { extract as extractZip } from "@electron-internal/extract-zip";
 import { extractTarPortable } from "./archiveExtraction";
+import { detectLocalModelHardware } from "./localModelHardware";
+import { promoteLocalModelInstall, validateLocalRuntime } from "./localModelRuntime";
 import type {
   LocalLlmVariantId,
   LocalModelCatalog,
@@ -34,6 +38,7 @@ import {
 import { TERA_TTS_MODEL_BYTES, TERA_TTS_MODEL_FILES, teraTtsModelUrl } from "../src/shared/teraTtsModel";
 import {
   findLocalLlmVariant,
+  findInstalledLocalLlmVariant,
   localLlmModelUrl,
   localLlmVariantFits,
   recommendedLocalLlmVariant,
@@ -66,6 +71,7 @@ type InstallManifest = {
   runtimeId?: string;
   voice?: string;
   variantId?: LocalLlmVariantId;
+  gpuAvailable?: boolean;
 };
 
 const LLAMA_VERSION = "b10107";
@@ -82,6 +88,11 @@ class DownloadHttpError extends Error {
 
 function defaultTeraTtsVoice(locale: LocalModelInstallRequest["locale"]) {
   return locale === "ru" ? LOCAL_TERATTS_DEFAULT_VOICE : "eng_f3";
+}
+
+function isSupportedLocalPlatform() {
+  return (["darwin", "linux"].includes(process.platform) && ["x64", "arm64"].includes(process.arch))
+    || (process.platform === "win32" && process.arch === "x64");
 }
 
 function dataRoot() {
@@ -115,11 +126,13 @@ function isCurrentInstall(id: LocalModelComponentId, manifest: Partial<InstallMa
     return manifest.modelFiles?.some((item) => String(item).split(/[\\/]/).pop() === LOCAL_WHISPER_MODEL_FILE) === true;
   }
   if (id === "tts") return manifest.runtimeId === localTeraTtsRuntimeId(process.platform, process.arch);
-  return true;
+  return installedLlmVariantId(manifest) !== null;
 }
 
 function installedModelName(id: LocalModelComponentId, manifest: Partial<InstallManifest> | null) {
   if (!manifest) return undefined;
+  if (id === "llm") return findInstalledLocalLlmVariant(manifest.modelFiles)?.modelName
+    || String(manifest.modelFiles?.[0] || "LLM").split(/[\\/]/).pop();
   if (id === "stt") {
     const filename = String(manifest.modelFiles?.[0] || "").split(/[\\/]/).pop() || "Whisper";
     if (filename === "ggml-small-q5_1.bin") return "Whisper Small Q5_1 (multilingual)";
@@ -130,10 +143,9 @@ function installedModelName(id: LocalModelComponentId, manifest: Partial<Install
   return undefined;
 }
 
-/** Installations predating the model ladder always carried the 26B build. */
 function installedLlmVariantId(manifest: Partial<InstallManifest> | null) {
   if (!manifest) return null;
-  return findLocalLlmVariant(manifest.variantId)?.id ?? "26b";
+  return findInstalledLocalLlmVariant(manifest.modelFiles)?.id ?? null;
 }
 
 function safeInside(root: string, candidate: string) {
@@ -143,9 +155,9 @@ function safeInside(root: string, candidate: string) {
   return candidate;
 }
 
-async function hashFile(filename: string, algorithm: "sha256" | "md5") {
+async function hashFile(filename: string, algorithm: "sha256" | "md5", signal?: AbortSignal) {
   const hash = createHash(algorithm);
-  await pipeline(createReadStream(filename), hash);
+  await pipeline(createReadStream(filename), hash, { signal });
   return hash.digest("hex");
 }
 
@@ -220,21 +232,7 @@ function teraTtsRuntime(platform: NodeJS.Platform, arch: string): Download {
 }
 
 async function detectHardware() {
-  const gpu = await app.getGPUInfo("basic").catch(() => ({ gpuDevice: [] })) as {
-    gpuDevice?: Array<{ active?: boolean; vendorId?: number; deviceId?: number }>;
-  };
-  const label = (gpu.gpuDevice || []).map((item) => `${item.vendorId || ""} ${item.deviceId || ""}`.trim()).filter(Boolean).join(", ") || "Unknown GPU";
-  let accelerator: "metal" | "cuda" | "vulkan" | "rocm" | "cpu" = "cpu";
-  if (process.platform === "darwin") accelerator = "metal";
-  else if (process.platform === "win32" && (gpu.gpuDevice || []).some((item) => item.active)) accelerator = "vulkan";
-  else if (process.platform === "linux" && (gpu.gpuDevice || []).some((item) => item.active)) accelerator = "vulkan";
-  return {
-    platform: process.platform,
-    arch: process.arch,
-    memoryBytes: Number(require("os").totalmem()),
-    gpuLabel: label,
-    accelerator
-  };
+  return detectLocalModelHardware({ gpuInfo: () => app.getGPUInfo("basic") });
 }
 
 function teraTtsModelDownloads(): Download[] {
@@ -250,6 +248,9 @@ export class LocalModelInstaller {
   private abortControllers = new Map<LocalModelComponentId, AbortController>();
   private listeners = new Set<BrowserWindow>();
   private runtimeByteCache = new Map<string, Promise<number>>();
+  private installation: AbortController | null = null;
+
+  constructor(private readonly beforeReplace: (component: LocalModelComponentId) => Promise<void> = async () => {}) {}
 
   attachWindow(window: BrowserWindow) {
     this.listeners.add(window);
@@ -270,7 +271,7 @@ export class LocalModelInstaller {
     const recommendedVariant = recommendedLocalLlmVariant(hardware);
     const activeVariant = findLocalLlmVariant(installedVariantId) || recommendedVariant;
     return {
-      available: ["darwin", "win32", "linux"].includes(process.platform) && ["x64", "arm64"].includes(process.arch),
+      available: isSupportedLocalPlatform(),
       hardware,
       llmVariants: LOCAL_LLM_VARIANTS.map((variant) => ({
         id: variant.id,
@@ -285,7 +286,7 @@ export class LocalModelInstaller {
         installed: variant.id === installedVariantId
       })),
       items: [
-        { id: "llm", name: "llama.cpp", modelName: activeVariant.modelName, modelBytes: activeVariant.bytes, auxiliaryBytes: llamaRuntime(process.platform, process.arch, hardware.accelerator).bytes, installed: current[0], updateAvailable: Boolean(installed[0]) && !current[0], recommended: true },
+        { id: "llm", name: "llama.cpp", modelName: activeVariant.modelName, modelBytes: activeVariant.bytes, auxiliaryBytes: llamaRuntime(process.platform, process.arch, hardware.accelerator).bytes, installed: current[0], updateAvailable: Boolean(installed[0]) && !current[0], installedModelName: installedModelName("llm", installed[0]), recommended: true },
         { id: "stt", name: "Whisper", modelName: LOCAL_WHISPER_MODEL_NAME, modelId: LOCAL_WHISPER_MODEL_ID, modelBytes: LOCAL_WHISPER_MODEL_BYTES, auxiliaryBytes: whisperBytes, installed: current[1], updateAvailable: Boolean(installed[1]) && !current[1], installedModelName: installedModelName("stt", installed[1]), recommended: true },
         { id: "tts", name: "TeraTTSv2", modelName: "TeraTTSv2 distilled CFG-3 (RU + EN, 10 voices)", modelId: LOCAL_TERATTS_MODEL_ID, modelBytes: TERA_TTS_MODEL_BYTES, auxiliaryBytes: teraTtsRuntimeBytes, installed: current[2], updateAvailable: Boolean(installed[2]) && !current[2], installedModelName: installedModelName("tts", installed[2]), recommended: true }
       ]
@@ -294,24 +295,45 @@ export class LocalModelInstaller {
 
   cancel(id?: LocalModelComponentId) {
     if (id) this.abortControllers.get(id)?.abort();
-    else for (const controller of this.abortControllers.values()) controller.abort();
+    else {
+      this.installation?.abort();
+      for (const controller of this.abortControllers.values()) controller.abort();
+    }
   }
 
   async remove(id: LocalModelComponentId) {
     if (!["llm", "stt", "tts"].includes(id)) throw new Error("Unknown local model component");
-    this.cancel(id);
+    if (this.installation) throw new Error("Wait for local model installation to finish before removing a component");
+    await this.beforeReplace(id);
     await rm(safeInside(dataRoot(), componentRoot(id)), { recursive: true, force: true });
     return this.catalog();
   }
 
   async install(request: LocalModelInstallRequest): Promise<LocalModelInstallResult> {
+    if (this.installation) throw new Error("Local model installation is already in progress");
+    const controller = new AbortController();
+    this.installation = controller;
+    try {
+      return await this.installSelected(request, controller.signal);
+    } finally { this.installation = null; }
+  }
+
+  private async installSelected(request: LocalModelInstallRequest, jobSignal: AbortSignal): Promise<LocalModelInstallResult> {
+    if (!request || !Array.isArray(request.componentIds)) throw new Error("Invalid local model installation request");
     const ids = [...new Set(request.componentIds)].filter((id): id is LocalModelComponentId => ["llm", "stt", "tts"].includes(id));
     if (!ids.length) throw new Error("Select at least one local model");
     const hardware = await detectHardware();
+    jobSignal.throwIfAborted();
+    if (!isSupportedLocalPlatform()) throw new Error(`Automatic local model installation is unavailable on ${process.platform}/${process.arch}`);
     const variant = findLocalLlmVariant(request.llmVariantId) || recommendedLocalLlmVariant(hardware);
     await mkdir(dataRoot(), { recursive: true });
     const specs = ids.map((id) => this.spec(id, request.locale, hardware.accelerator, variant));
-    const requiredBytes = specs.flatMap((spec) => [...spec.runtime, ...spec.model]).reduce((sum, item) => sum + item.bytes, 0) + 1024 ** 3;
+    for (const spec of specs) for (const runtime of spec.runtime) runtime.bytes = await this.resolveRuntimeBytes(runtime);
+    jobSignal.throwIfAborted();
+    // Archives coexist with extracted files during staging. The old installation
+    // remains on disk and is already excluded by statfs's free-space value.
+    const requiredBytes = specs.reduce((sum, spec) => sum + spec.model.reduce((total, item) => total + item.bytes, 0)
+      + spec.runtime.reduce((total, item) => total + Math.max(item.bytes * 4, 256 * 1024 ** 2), 0), 0) + 1024 ** 3;
     const disk = await statfs(dataRoot());
     const availableBytes = Number(disk.bavail) * Number(disk.bsize);
     if (Number.isFinite(availableBytes) && availableBytes < requiredBytes) {
@@ -320,15 +342,17 @@ export class LocalModelInstaller {
     const result: LocalModelInstallResult = { installed: [], errors: {}, settingsPatch: {} };
     for (const [index, id] of ids.entries()) {
       const controller = new AbortController();
+      const signal = AbortSignal.any([jobSignal, controller.signal]);
       this.abortControllers.set(id, controller);
       try {
+        signal.throwIfAborted();
         const spec = specs[index];
-        const manifest = await this.installComponent(spec, controller.signal, request.locale);
+        const manifest = await this.installComponent(spec, signal, request.locale);
         result.installed.push(id);
         if (id === "llm") {
           const runtime = path.join(componentRoot(id), manifest.executable);
           const model = path.join(componentRoot(id), manifest.modelFiles[0]);
-          result.managedBackend = this.managedBackend(runtime, model, hardware, variant);
+          result.managedBackend = this.managedBackend(runtime, model, manifest.gpuAvailable === false ? { ...hardware, accelerator: "cpu" } : hardware, variant);
           result.provider = { id: LOCAL_LLAMA_PROVIDER_ID, name: "Vellium Local (llama.cpp)", baseUrl: "http://127.0.0.1:8088/v1", apiKey: "local-key", fullLocalOnly: true, providerType: "openai", llamaCppManagementEnabled: true };
         } else if (id === "stt") {
           Object.assign(result.settingsPatch, { sttSource: "whisper", sttBaseUrl: LOCAL_INFERENCE_SETTINGS_URL, sttApiKey: "", sttModel: LOCAL_WHISPER_MODEL_ID });
@@ -337,7 +361,7 @@ export class LocalModelInstaller {
         }
       } catch (error) {
         result.errors![id] = error instanceof Error ? error.message : String(error);
-        if (controller.signal.aborted) break;
+        if (signal.aborted) break;
       } finally {
         this.abortControllers.delete(id);
       }
@@ -383,7 +407,7 @@ export class LocalModelInstaller {
         if (item.digest) {
           this.emit({ componentId: spec.id, phase: "verifying", receivedBytes: item.bytes, totalBytes: item.bytes, label: `Verifying ${item.filename}` });
           const [algorithm, expected] = item.digest.split(":") as ["sha256" | "md5", string];
-          if (await hashFile(target, algorithm) !== expected) throw new Error(`Checksum mismatch for ${item.filename}`);
+          if (await hashFile(target, algorithm, signal) !== expected) throw new Error(`Checksum mismatch for ${item.filename}`);
         }
         if (item.archive) {
           this.emit({ componentId: spec.id, phase: "extracting", receivedBytes: item.bytes, totalBytes: item.bytes, label: `Extracting ${item.filename}` });
@@ -399,10 +423,15 @@ export class LocalModelInstaller {
         }
       }
       const executable = await this.findExecutable(staging, spec.id);
+      signal.throwIfAborted();
       if (process.platform !== "win32") await chmod(path.join(staging, executable), 0o755);
+      let gpuAvailable: boolean | undefined;
       if (spec.id === "tts") {
         this.emit({ componentId: spec.id, phase: "verifying", receivedBytes: 1, totalBytes: 1, label: "Checking TeraTTSv2 runtime" });
         await this.validateTtsRuntime(path.join(staging, executable), signal);
+      } else {
+        this.emit({ componentId: spec.id, phase: "verifying", receivedBytes: 1, totalBytes: 1, label: "Checking local runtime", labelKey: "localModels.checkingRuntime" });
+        gpuAvailable = await this.validateRuntime(path.join(staging, executable), spec.id, signal);
       }
       const manifest: InstallManifest = {
         version: 1,
@@ -412,11 +441,13 @@ export class LocalModelInstaller {
         installedAt: new Date().toISOString(),
         ...(spec.runtimeId ? { runtimeId: spec.runtimeId } : {}),
         ...(spec.variantId ? { variantId: spec.variantId } : {}),
+        ...(spec.id === "llm" ? { gpuAvailable } : {}),
         ...(spec.id === "tts" ? { voice: spec.voice || defaultTeraTtsVoice(locale) } : {})
       };
       await require("fs/promises").writeFile(path.join(staging, "install.json"), JSON.stringify(manifest, null, 2));
-      await rm(root, { recursive: true, force: true });
-      await rename(staging, root);
+      signal.throwIfAborted();
+      await this.beforeReplace(spec.id);
+      await promoteLocalModelInstall(staging, root, signal);
       this.emit({ componentId: spec.id, phase: "installed", receivedBytes: 1, totalBytes: 1, label: "Installed" });
       return manifest;
     } catch (error) {
@@ -460,7 +491,7 @@ export class LocalModelInstaller {
           await this.downloadOnce(id, item, target, source, signal);
           if (source.digest) {
             const [algorithm, expected] = source.digest.split(":") as ["sha256", string];
-            if (algorithm !== "sha256" || !expected || await hashFile(target, "sha256") !== expected) {
+            if (algorithm !== "sha256" || !expected || await hashFile(target, "sha256", signal) !== expected) {
               throw new Error(`Checksum mismatch for ${item.filename}`);
             }
           }
@@ -477,33 +508,46 @@ export class LocalModelInstaller {
   }
 
   private async downloadOnce(id: LocalModelComponentId, item: Download, target: string, source: DownloadSource, signal: AbortSignal) {
-    const response = await fetch(source.url, { signal, redirect: "follow", headers: source.headers });
-    if (!response.ok || !response.body) {
-      await response.body?.cancel().catch(() => {});
-      throw new DownloadHttpError(response.status, `Download failed (${response.status}) for ${item.filename}`);
-    }
-    const expectedBytes = source.bytes || item.bytes;
-    const headerBytes = Number(response.headers.get("content-length")) || expectedBytes;
-    if (expectedBytes && headerBytes && headerBytes !== expectedBytes) throw new Error(`Unexpected download size for ${item.filename}`);
-    let received = 0;
-    const reader = response.body.getReader();
-    const output = createWriteStream(target, { flags: "wx" });
+    const stall = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const resetTimeout = () => { clearTimeout(timer); timer = setTimeout(() => stall.abort(new Error(`Download stalled for ${item.filename}`)), 30_000); };
+    resetTimeout();
+    const downloadSignal = AbortSignal.any([signal, stall.signal]);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (signal.aborted) throw new DOMException("Download cancelled", "AbortError");
-        received += value.byteLength;
-        if (expectedBytes && received > expectedBytes) throw new Error(`Download exceeded expected size for ${item.filename}`);
-        if (!output.write(Buffer.from(value))) await new Promise<void>((resolve) => output.once("drain", resolve));
-        this.emit({ componentId: id, phase: "downloading", receivedBytes: received, totalBytes: headerBytes, label: `Downloading ${item.filename}` });
+      const response = await fetch(source.url, { signal: downloadSignal, redirect: "follow", headers: source.headers });
+      if (!response.ok || !response.body) {
+        await response.body?.cancel().catch(() => {});
+        throw new DownloadHttpError(response.status, `Download failed (${response.status}) for ${item.filename}`);
       }
-      await new Promise<void>((resolve, reject) => output.end((error?: Error | null) => error ? reject(error) : resolve()));
-    } catch (error) {
-      output.destroy();
-      throw error;
+      const expectedBytes = source.bytes || item.bytes;
+      const headerBytes = Number(response.headers.get("content-length")) || expectedBytes;
+      if (expectedBytes && headerBytes && headerBytes !== expectedBytes) {
+        await response.body.cancel().catch(() => {});
+        throw new Error(`Unexpected download size for ${item.filename}`);
+      }
+      let received = 0;
+      reader = response.body.getReader();
+      const progress = this.emit.bind(this);
+      const chunks = Readable.from((async function* () {
+        while (true) {
+          const { done, value } = await reader!.read();
+          if (done) break;
+          downloadSignal.throwIfAborted();
+          resetTimeout();
+          received += value.byteLength;
+          if (expectedBytes && received > expectedBytes) throw new Error(`Download exceeded expected size for ${item.filename}`);
+          progress({ componentId: id, phase: "downloading", receivedBytes: received, totalBytes: headerBytes, label: `Downloading ${item.filename}` });
+          yield value;
+        }
+      })());
+      await pipeline(chunks, createWriteStream(target, { flags: "wx" }), { signal: downloadSignal });
+      if (expectedBytes && received !== expectedBytes) throw new Error(`Incomplete download for ${item.filename}`);
+    } finally {
+      clearTimeout(timer!);
+      await reader?.cancel().catch(() => {});
+      reader?.releaseLock();
     }
-    if (expectedBytes && received !== expectedBytes) throw new Error(`Incomplete download for ${item.filename}`);
   }
 
   private async resolveGitHubReleaseAsset(release: GitHubReleaseAsset, filename: string, signal: AbortSignal) {
@@ -637,6 +681,10 @@ export class LocalModelInstaller {
       signal.addEventListener("abort", abort, { once: true });
       child.stdin.end(Buffer.from(`${JSON.stringify({ text: probe })}\n`, "utf8"));
     });
+  }
+
+  private validateRuntime(executable: string, id: "llm" | "stt", signal: AbortSignal) {
+    return validateLocalRuntime(executable, id, signal);
   }
 
   private async waitForRetry(delayMs: number, signal: AbortSignal) {

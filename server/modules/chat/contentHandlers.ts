@@ -5,6 +5,8 @@ import { LOCAL_INFERENCE_URL, streamLocalTts, synthesizeLocalTts } from "../../s
 import { completeProviderOnce, normalizeOpenAiBaseUrl } from "./providerExecution.js";
 import { buildReasoningAwareTimeline } from "./reasoningContext.js";
 import { getSettings, getTimeline, resolveBranch, type MessageRow, type ProviderRow } from "./routeHelpers.js";
+import { contextBranch } from "./contextHandlers.js";
+import { getContextConfig, saveContextConfig } from "./contextConfig.js";
 import { splitRealtimeTtsInput } from "./ttsRealtime.js";
 import { streamOpenAiCompatibleTts } from "./ttsUpstreamStream.js";
 
@@ -34,22 +36,24 @@ async function withServerTimeout<T>(
 export async function compressChat(req: Request, res: Response) {
   const chatId = String(req.params.id || "");
   const { branchId: reqBranchId } = req.body ?? {};
-  const branchId = resolveBranch(chatId, reqBranchId);
+  const branchId = contextBranch(req, res);
+  if (!branchId) return;
 
   const settings = getSettings();
   const providerId = settings.compressProviderId || settings.activeProviderId;
   const modelId = settings.compressModel || settings.activeModel;
+  const config = getContextConfig(chatId, branchId);
   const timeline = buildReasoningAwareTimeline(
     getTimeline(chatId, branchId),
-    settings.includeReasoningInContext !== false
-  );
+    config.includeReasoning ?? settings.includeReasoningInContext !== false
+  ).filter(message => !config.excludedMessageIds?.includes(message.id));
 
   if (!providerId || !modelId || timeline.length === 0) {
     const summary = timeline.slice(-settings.compressionFallbackMessages).map((message) => {
       const reasoning = message.reasoningContent ? ` | reasoning: ${message.reasoningContent.split("\n")[0].slice(0, 80)}` : "";
       return `${message.role}: ${message.content.split("\n")[0].slice(0, 80)}${reasoning}`;
     }).join("\n");
-    db.prepare("UPDATE chats SET context_summary = ? WHERE id = ?").run(summary, chatId);
+    saveContextConfig(chatId, branchId, { ...getContextConfig(chatId, branchId), summary });
     res.json({ summary });
     return;
   }
@@ -58,6 +62,10 @@ export async function compressChat(req: Request, res: Response) {
   if (!provider) {
     res.json({ summary: "" });
     return;
+  }
+
+  if ((settings.fullLocalMode || provider.full_local_only) && !isLocalhostUrl(provider.base_url)) {
+    res.status(400).json({ error: "Compression provider blocked by Full Local Mode" }); return;
   }
 
   const messagesToSummarize = timeline.map((message) => {
@@ -80,7 +88,7 @@ export async function compressChat(req: Request, res: Response) {
       apiParamPolicy: settings.apiParamPolicy
     });
 
-    db.prepare("UPDATE chats SET context_summary = ? WHERE id = ?").run(summary, chatId);
+    if (summary.trim()) saveContextConfig(chatId, branchId, { ...getContextConfig(chatId, branchId), summary });
     res.json({ summary });
   } catch {
     res.json({ summary: "" });

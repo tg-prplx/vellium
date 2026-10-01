@@ -52,6 +52,16 @@ describe("native llama.cpp managed backend", () => {
       jinja: true
     });
   });
+
+  it("preserves automatic GPU layers and flash attention across command import and settings normalization", () => {
+    const patch = parseManagedBackendCommand("llama-server -m a.gguf -ngl auto --flash-attn auto --fit on --fit-target 1024", "llamacpp");
+    const config = normalizeManagedBackendConfig({ backendKind: "llamacpp", ...patch })!;
+    expect(config.llamacpp).toMatchObject({ gpuLayers: "auto", flashAttention: "auto" });
+    const args = buildManagedBackendLaunch(config).args;
+    expect(args[args.indexOf("--n-gpu-layers") + 1]).toBe("auto");
+    expect(args[args.indexOf("--flash-attn") + 1]).toBe("auto");
+    expect(args).toContain("1024");
+  });
 });
 
 describe("managed KoboldCpp context cache", () => {

@@ -34,11 +34,22 @@ export interface LocalLlmVariantOption {
   installed: boolean;
 }
 
+export interface LocalModelGpuDevice {
+  name: string;
+  memoryBytes: number | null;
+  freeMemoryBytes: number | null;
+}
+
 export interface LocalModelHardwareProfile {
   platform: string;
   arch: string;
   memoryBytes: number;
   gpuLabel: string;
+  gpuDevices?: LocalModelGpuDevice[];
+  gpuMemoryBytes?: number | null;
+  gpuMemoryFreeBytes?: number | null;
+  /** Apple Silicon shares RAM with the GPU; never add it twice. */
+  unifiedMemory?: boolean;
   accelerator: "metal" | "cuda" | "vulkan" | "rocm" | "cpu";
 }
 
@@ -56,6 +67,7 @@ export interface LocalModelProgress {
   receivedBytes: number;
   totalBytes: number;
   label: string;
+  labelKey?: "localModels.checkingRuntime";
   error?: string;
 }
 

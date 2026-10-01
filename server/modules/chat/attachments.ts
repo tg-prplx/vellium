@@ -215,7 +215,7 @@ export function selectFirstResponderByMention(content: string, orderedCharacterN
 export function getContextWindowBudget(settings: Record<string, unknown>): number {
   const raw = Number(settings.contextWindowSize);
   if (!Number.isFinite(raw) || raw <= 0) return 8192;
-  return Math.max(512, Math.min(32768, Math.floor(raw)));
+  return Math.max(512, Math.min(2097152, Math.floor(raw)));
 }
 
 export function getTailBudgetPercent(
@@ -228,8 +228,8 @@ export function getTailBudgetPercent(
   return Math.max(5, Math.min(95, raw));
 }
 
-export function selectTimelineForPrompt(
-  timeline: PromptTimelineItem[],
+export function selectTimelineForPrompt<T extends PromptTimelineItem>(
+  timeline: T[],
   contextSummary: string,
   contextWindowBudget: number,
   withSummaryPercent: number,
@@ -242,7 +242,7 @@ export function selectTimelineForPrompt(
     ? Math.max(256, Math.floor(contextWindowBudget * (withSummaryPercent / 100)))
     : Math.max(512, Math.floor(contextWindowBudget * (withoutSummaryPercent / 100)));
 
-  const selected: PromptTimelineItem[] = [];
+  const selected: T[] = [];
   let used = 0;
   for (let i = timeline.length - 1; i >= 0; i -= 1) {
     if (maxMessages > 0 && selected.length >= Math.floor(maxMessages)) break;

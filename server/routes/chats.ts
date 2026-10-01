@@ -33,7 +33,7 @@ import {
   ttsTextRealtime,
   ttsText
 } from "../modules/chat/contentHandlers.js";
-import { completeProviderOnce, countProviderTokens } from "../modules/chat/providerExecution.js";
+import { completeProviderOnce, countProviderTokensDetailed } from "../modules/chat/providerExecution.js";
 import {
   deleteBranch,
   deleteChatCascade,
@@ -52,7 +52,11 @@ import { getChatRagBinding, setChatRagBinding } from "../services/rag.js";
 import { exportChatJson } from "../modules/chat/exportChat.js";
 import { readCharacterSceneDefaults } from "../modules/chat/characterSceneDefaults.js";
 
+import { previewChatContext, updateChatContext } from "../modules/chat/contextHandlers.js";
+
 const router = Router();
+router.post("/:id/context/preview", previewChatContext);
+router.patch("/:id/context", updateChatContext);
 
 // --- Routes ---
 
@@ -378,7 +382,7 @@ router.post("/:id/send", async (req, res: Response) => {
   const activeProvider = activeProviderId
     ? db.prepare("SELECT * FROM providers WHERE id = ?").get(activeProviderId) as ProviderRow | undefined
     : undefined;
-  const userTokenCount = await countProviderTokens(
+  const userTokenCount = await countProviderTokensDetailed(
     activeProvider,
     buildPromptContentWithAttachments(String(content || ""), attachments)
   );
@@ -395,12 +399,14 @@ router.post("/:id/send", async (req, res: Response) => {
     "user",
     String(content || ""),
     JSON.stringify(attachments),
-    userTokenCount,
+    userTokenCount.tokens,
     null,
     userTs,
     isMultiChar ? senderName : "",
     nextSortOrder(chatId, branchId)
   );
+
+  db.prepare("UPDATE messages SET token_count_source = ? WHERE id = ?").run(userTokenCount.source, userId);
 
   void autoIngestTextAttachmentsForChat({
     chatId,
