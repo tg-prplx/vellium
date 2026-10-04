@@ -48,7 +48,7 @@ jobs:
           done
 
       - name: Audit dependencies
-        run: npm audit --audit-level=low
+        run: node scripts/audit-gate.cjs
 
       - name: Build app bundles
         env:
@@ -166,7 +166,7 @@ jobs:
           }
 
       - name: Audit dependencies
-        run: npm audit --audit-level=low
+        run: node scripts/audit-gate.cjs
 
       - name: Build app bundles
         env:
@@ -239,7 +239,7 @@ jobs:
           done
 
       - name: Audit dependencies
-        run: npm audit --audit-level=low
+        run: node scripts/audit-gate.cjs
 
       - name: Run regression tests
         run: npm test

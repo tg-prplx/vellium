@@ -465,7 +465,9 @@ Preserve these guarantees:
 - GET routes must not trigger model calls or other paid/stateful work.
 - Uploads, plugin assets, and tool output cannot become silent script execution.
 
-`npm audit` is only the dependency gate. A security review must also inspect trust
+`npm audit` (via `scripts/audit-gate.cjs`) is only the dependency gate. Its
+allowlist is for advisories without a patched release, must stay dev-only, and
+carries a review date; never allowlist to skip an available fix. A security review must also inspect trust
 boundaries and add proof/regression tests for any demonstrated bypass.
 
 ## 13. Development commands
@@ -485,7 +487,7 @@ npm test
 npm run check:architecture
 npm run typecheck
 npm run build
-npm audit --audit-level=low
+node scripts/audit-gate.cjs   # CI gate: npm audit --audit-level=low + reviewed allowlist
 ```
 
 Desktop/headless verification:
