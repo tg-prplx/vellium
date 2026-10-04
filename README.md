@@ -5,7 +5,8 @@
 [![Stars](https://img.shields.io/github/stars/tg-prplx/vellium?style=flat)](https://github.com/tg-prplx/vellium/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-<img width="1440" height="913" alt="Vellium chat interface" src="https://github.com/user-attachments/assets/b81aeaa9-7f40-44e0-b739-deb6d91b8edf" />
+<img width="1440" height="898" alt="image" src="https://github.com/user-attachments/assets/87797380-21ab-452d-ac5f-2bd0e119116e" />
+
 
 Vellium is a local-first desktop workbench for AI chat, character roleplay, live
 voice conversations, and long-form writing. It connects to OpenAI-compatible
