@@ -3,12 +3,12 @@ import { existsSync } from "fs";
 import { mkdir, readFile, rm, writeFile } from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
-import { DATA_DIR } from "../db/paths.js";
+import { DATA_ROOT } from "../db/paths.js";
 import { LOCAL_TERATTS_DEFAULT_VOICE, localPiperRuntimeId, localTeraTtsRuntimeId } from "../../src/shared/localModelConfig.js";
 import { TeraTtsProcess, type TeraTtsAudioChunk } from "./teraTtsProcess.js";
 
 export const LOCAL_INFERENCE_URL = "vellium-local://inference";
-const ROOT = path.join(DATA_DIR, "local-models");
+const ROOT = path.join(DATA_ROOT, "local-models");
 const MAX_STDERR_CHARS = 16_000;
 
 interface Manifest {
@@ -99,7 +99,7 @@ export async function transcribeLocalWhisper(audio: Buffer, mimeType: string, la
     throw new Error("Local Whisper requires PCM WAV audio; restart Live mode and record again");
   }
   const runtime = await loadManifest("stt");
-  const temp = path.join(DATA_DIR, "local-models", ".tmp", randomUUID());
+  const temp = path.join(DATA_ROOT, "local-models", ".tmp", randomUUID());
   await mkdir(temp, { recursive: true });
   const input = path.join(temp, "input.wav");
   const outputPrefix = path.join(temp, "transcript");
@@ -120,7 +120,7 @@ export async function transcribeLocalWhisper(audio: Buffer, mimeType: string, la
 
 export async function synthesizeLocalPiper(input: string) {
   const runtime = await loadManifest("tts");
-  const temp = path.join(DATA_DIR, "local-models", ".tmp", randomUUID());
+  const temp = path.join(DATA_ROOT, "local-models", ".tmp", randomUUID());
   await mkdir(temp, { recursive: true });
   const output = path.join(temp, "speech.wav");
   try {

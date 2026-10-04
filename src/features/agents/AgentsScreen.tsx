@@ -175,7 +175,7 @@ function InspectorSection({
           className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition-colors hover:text-text-primary"
         >
           <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-tertiary">{title}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">{title}</div>
             {caption ? <div className="mt-1 text-[11px] leading-5 text-text-secondary">{caption}</div> : null}
           </div>
           <svg className={`h-4 w-4 text-text-tertiary transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -1301,7 +1301,7 @@ export function AgentsScreen({
           {item.content ? (
             <MarkdownContent
               content={item.content}
-              className={`prose-chat break-words text-text-secondary ${
+              className={`prose-chat wrap-break-word text-text-secondary ${
                 isCompactEvent(item.type)
                   ? "mt-1 text-[11px] leading-5"
                   : "mt-2 text-xs leading-5"
@@ -1350,7 +1350,7 @@ export function AgentsScreen({
                 <div className="agents-tool-block-label">{t("agents.toolReason")}</div>
                 <MarkdownContent
                   content={reasonText}
-                  className="prose-chat mt-1 break-words text-[12px] leading-5 text-text-secondary"
+                  className="prose-chat mt-1 wrap-break-word text-[12px] leading-5 text-text-secondary"
                 />
               </div>
             ) : null}
@@ -1368,7 +1368,7 @@ export function AgentsScreen({
       <div key={node.id} className="space-y-1.5">
         <button
           onClick={() => setSelectedTraceRunId((current) => current === node.id ? null : node.id)}
-          className={`w-full rounded-[18px] border px-3 py-2.5 text-left transition-colors ${
+          className={`w-full rounded-2xl border px-3 py-2.5 text-left transition-colors ${
             isSelected
               ? "border-accent-border bg-accent-subtle"
               : "border-border-subtle bg-bg-secondary hover:border-border hover:bg-bg-hover"
@@ -1521,7 +1521,7 @@ export function AgentsScreen({
                     <div className="mt-1 text-[13px] font-semibold text-text-primary">{t("agents.quickStartTitle")}</div>
                     <div className="mt-1 text-[11px] leading-5 text-text-tertiary">{t("agents.quickStartDesc")}</div>
                   </div>
-                  <svg className={`h-4 w-4 flex-shrink-0 text-text-tertiary transition-transform ${quickStartExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <svg className={`h-4 w-4 shrink-0 text-text-tertiary transition-transform ${quickStartExpanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
@@ -1560,7 +1560,7 @@ export function AgentsScreen({
                   value={threadQuery}
                   onChange={(e) => setThreadQuery(e.target.value)}
                   placeholder={t("agents.searchThreads")}
-                  className="w-full border-0 bg-transparent p-0 text-sm text-text-primary outline-none placeholder:text-text-tertiary"
+                  className="w-full border-0 bg-transparent p-0 text-sm text-text-primary outline-hidden placeholder:text-text-tertiary"
                 />
               </div>
             </>
@@ -1804,7 +1804,7 @@ export function AgentsScreen({
                               <textarea
                                 value={editingMessageValue}
                                 onChange={(e) => setEditingMessageValue(e.target.value)}
-                                className="w-full resize-none rounded-xl border border-border bg-bg-primary px-3 py-2 text-[13px] leading-6 text-text-primary outline-none"
+                                className="w-full resize-none rounded-xl border border-border bg-bg-primary px-3 py-2 text-[13px] leading-6 text-text-primary outline-hidden"
                                 rows={Math.min(10, Math.max(3, editingMessageValue.split(/\r?\n/).length))}
                               />
                               {renderMessageAttachments(item, true)}
@@ -1826,7 +1826,7 @@ export function AgentsScreen({
                               </div>
                             </div>
                           ) : item.role === "user" ? (
-                            <div className="whitespace-pre-wrap break-words text-[13px] leading-6">{item.content}</div>
+                            <div className="whitespace-pre-wrap wrap-break-word text-[13px] leading-6">{item.content}</div>
                           ) : (
                             <>
                               {displayReasoningText ? (
@@ -1844,14 +1844,14 @@ export function AgentsScreen({
                                   </button>
                                   {reasoningPanelOpen ? (
                                     <div className="border-t border-border-subtle px-2.5 py-2">
-                                      <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">{displayReasoningText}</div>
+                                      <div className="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-text-secondary">{displayReasoningText}</div>
                                     </div>
                                   ) : null}
                                 </div>
                               ) : null}
                               <MarkdownContent
                                 content={inlineReasoning.content}
-                                className="prose-chat break-words text-[13px] leading-6 text-text-primary"
+                                className="prose-chat wrap-break-word text-[13px] leading-6 text-text-primary"
                               />
                             </>
                           )}
@@ -1886,14 +1886,14 @@ export function AgentsScreen({
                       </button>
                       {streamReasoningExpanded ? (
                         <div className="border-t border-border-subtle px-2 py-2">
-                          <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">{streamReasoningPreview}</div>
+                          <div className="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-text-secondary">{streamReasoningPreview}</div>
                         </div>
                       ) : null}
                     </div>
                   ) : null}
                   <MarkdownContent
                     content={streamPreview}
-                    className="prose-chat break-words text-[13px] leading-6 text-text-primary"
+                    className="prose-chat wrap-break-word text-[13px] leading-6 text-text-primary"
                   />
                 </div>
               ) : null}
@@ -2081,16 +2081,16 @@ export function AgentsScreen({
               >
                 <div className="space-y-2.5">
                   {threadDraft.heroCharacterName ? (
-                    <div className="rounded-[18px] border border-border-subtle bg-bg-primary px-3 py-2.5">
+                    <div className="rounded-2xl border border-border-subtle bg-bg-primary px-3 py-2.5">
                       <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("agents.linkedHero")}</div>
                       <div className="mt-1 text-[13px] font-semibold text-text-primary">{threadDraft.heroCharacterName}</div>
                     </div>
                   ) : null}
                   {selectedThread.memorySummary ? (
-                    <div className="rounded-[18px] border border-border-subtle bg-bg-primary px-3 py-2.5">
+                    <div className="rounded-2xl border border-border-subtle bg-bg-primary px-3 py-2.5">
                       <MarkdownContent
                         content={selectedThread.memorySummary}
-                        className="prose-chat break-words text-xs leading-5 text-text-secondary"
+                        className="prose-chat wrap-break-word text-xs leading-5 text-text-secondary"
                       />
                       {selectedThread.memoryUpdatedAt ? (
                         <div className="mt-2 text-[11px] text-text-tertiary">
@@ -2151,7 +2151,7 @@ export function AgentsScreen({
                     <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("agents.workspaceRoot")}</label>
                     <div className="mb-2 text-[11px] leading-5 text-text-tertiary">{t("agents.workspaceRootDesc")}</div>
                     <div className="space-y-2">
-                      <div className="rounded-[18px] border border-border-subtle bg-bg-primary px-3 py-3">
+                      <div className="rounded-2xl border border-border-subtle bg-bg-primary px-3 py-3">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("agents.selectedFolder")}</div>
@@ -2382,7 +2382,7 @@ export function AgentsScreen({
                   {skillDrafts.length === 0 ? (
                     <div className="text-xs leading-5 text-text-tertiary">{t("agents.skillsEmpty")}</div>
                   ) : skillDrafts.map((skill) => (
-                    <div key={skill.id} className="rounded-[18px] border border-border-subtle bg-bg-primary p-2.5">
+                    <div key={skill.id} className="rounded-2xl border border-border-subtle bg-bg-primary p-2.5">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <input
                           value={skill.name}
@@ -2470,7 +2470,7 @@ export function AgentsScreen({
               >
                 <div className="space-y-2">
                   {actionRun ? (
-                    <div className="rounded-[18px] border border-border-subtle bg-bg-primary px-3 py-2.5">
+                    <div className="rounded-2xl border border-border-subtle bg-bg-primary px-3 py-2.5">
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">
                           {selectedRun ? t("agents.selectedRun") : t("agents.latestRun")}

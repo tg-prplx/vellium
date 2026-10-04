@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { DEFAULT_SETTINGS, migrateDefaultSystemPrompt } from "./db/defaultSettings.js";
 import { applyMigrations } from "./db/migrations.js";
+import { encryptStoredSecrets } from "./db/secretMigration.js";
 import { ensureDataDirs, resolveDbPath, DATA_DIR, AVATARS_DIR, UPLOADS_DIR, PLUGINS_DIR, BUNDLED_PLUGINS_DIR, INOCHI_DIR, INOCHI_MODELS_DIR } from "./db/paths.js";
 import { applySchema, applySchemaIndexes } from "./db/schema.js";
 import { hashSecret, isLocalhostUrl, maskApiKey, needsSecretRehash, newId, now, roughTokenCount, verifySecret } from "./db/utils.js";
@@ -19,6 +20,7 @@ reconcileKoboldProviderLocalMode();
 backfillMessageSortOrder();
 backfillCharacterSortOrder();
 ensureDefaultSettingsRow();
+encryptStoredSecrets(db);
 
 function reconcileKoboldProviderLocalMode() {
   try {

@@ -50,7 +50,7 @@ export function ChatHistoryList({ chats, characters, activeChatId, simple, searc
                 <button onClick={() => onSelect(chat)} aria-current={active ? "true" : undefined}
                   title={simple ? `${chat.title}\n${new Date(chat.createdAt).toLocaleString(locale)}` : chat.title} className="chat-sidebar-select flex min-w-0 flex-1 items-start gap-2 text-left">
                   {(character || simple) && <AvatarBadge name={character?.name || chat.title}
-                    src={resolveApiAssetUrl(character?.avatarUrl)} className="h-7 w-7 flex-shrink-0 rounded-lg"
+                    src={resolveApiAssetUrl(character?.avatarUrl)} className="h-7 w-7 shrink-0 rounded-lg"
                     fallbackClassName="bg-bg-tertiary text-[10px] font-semibold text-text-secondary" />}
                   <span className="min-w-0 flex-1">
                     <span className="chat-sidebar-item-title block text-sm font-medium leading-snug">{chat.title}</span>
@@ -63,7 +63,7 @@ export function ChatHistoryList({ chats, characters, activeChatId, simple, searc
                   </span>
                   {simple && multiCount > 1 && <Badge>{multiCount}</Badge>}
                 </button>
-                <div className="chat-sidebar-row-actions flex flex-shrink-0 items-center gap-0.5">
+                <div className="chat-sidebar-row-actions flex shrink-0 items-center gap-0.5">
                   <button onClick={() => onRename(chat)} aria-label={t("chat.renameChat")} title={t("chat.renameChat")}
                     className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary">
                     <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">

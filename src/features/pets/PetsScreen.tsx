@@ -772,7 +772,7 @@ export function PetsScreen() {
                     key={chat.id}
                     type="button"
                     onClick={() => void selectPetChat(chat.id)}
-                    className={`max-w-[180px] flex-shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                    className={`max-w-[180px] shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
                       activeChat?.id === chat.id
                         ? "border-accent bg-accent-subtle text-text-primary"
                         : "border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary"
@@ -802,7 +802,7 @@ export function PetsScreen() {
                           <span>{message.role === "assistant" ? draft.name || t("chat.assistant") : t("chat.user")}</span>
                           <span>{new Date(message.createdAt).toLocaleString()}</span>
                         </div>
-                        <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                        <div className="whitespace-pre-wrap wrap-break-word">{message.content}</div>
                         {message.attachments?.length ? (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {message.attachments.map((attachment, attachmentIndex) => (
@@ -1042,7 +1042,7 @@ export function PetsScreen() {
                     <AvatarBadge
                       name={character.name}
                       src={character.avatarUrl}
-                      className="h-9 w-9 flex-shrink-0 rounded-full"
+                      className="h-9 w-9 shrink-0 rounded-full"
                       fallbackClassName="bg-accent-subtle text-xs font-bold text-accent"
                     />
                     <div className="min-w-0 flex-1">
@@ -1068,7 +1068,7 @@ export function PetsScreen() {
             <div className="char-editor-header mb-4">
               <div className="char-editor-header-top">
                 <PetAssetPreview name={draft.name || selected.name} src={draft.spriteUrl || selected.avatarUrl}
-                  spriteSheetUrl={draft.spriteSheetUrl} className="h-14 w-14 flex-shrink-0 rounded-2xl" />
+                  spriteSheetUrl={draft.spriteSheetUrl} className="h-14 w-14 shrink-0 rounded-2xl" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="truncate text-base font-semibold text-text-primary">{draft.name || t("pets.unnamed")}</div>

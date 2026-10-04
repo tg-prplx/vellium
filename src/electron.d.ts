@@ -12,6 +12,7 @@ export interface ElectronAPI {
   requestLiveMicrophonePermission: () => Promise<{ granted: boolean; status: string }>;
   captureLiveScreenContext: () => Promise<{ ok: boolean; dataUrl?: string; width?: number; height?: number; error?: string }>;
   saveFile: (filename: string, base64Data: string) => Promise<{ ok: boolean; canceled: boolean; filePath?: string }>;
+  relaunchApp?: () => Promise<{ ok: boolean }>;
   openExternal: (url: string) => Promise<{ ok: boolean }>;
   showDesktopPet: (config?: unknown) => Promise<{ ok: boolean; visible: boolean }>;
   hideDesktopPet: () => Promise<{ ok: boolean; visible: boolean }>;

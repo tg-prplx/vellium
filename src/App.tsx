@@ -271,6 +271,11 @@ function AppContent({
   const isElectron = !!window.electronAPI;
 
   function openTaskScope(scope: BackgroundTaskScope) {
+    if (scope === "data") {
+      setPendingSettingsView({ category: "data", sectionId: "settings-data-backups" });
+      navigateToTab("settings");
+      return;
+    }
     if (scope === "agents") {
       setPendingSettingsView({ category: "legacy", sectionId: "settings-legacy" });
       navigateToTab("settings");
@@ -416,7 +421,7 @@ function AppContent({
           </div>
         </TitleBar>
       ) : (
-        <header className="app-header relative z-[80] flex-shrink-0 overflow-visible border-b border-border">
+        <header className="app-header relative z-80 shrink-0 overflow-visible border-b border-border">
           <div className="app-header-inner flex w-full min-w-0 items-center px-7 py-4">
             <div className="app-header-layout grid w-full min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
               <div className="app-header-brand justify-self-start">{brandNode}</div>

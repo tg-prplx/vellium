@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, DEFAULT_SETTINGS, isLocalhostUrl } from "../db.js";
 import { transcribeSpeech } from "../services/speechToText.js";
 import { normalizeRuntimeTuningSettings } from "../services/runtimeTuning.js";
+import { readSettingsSecret } from "../services/settingsSecrets.js";
 
 const router = Router();
 
@@ -36,7 +37,7 @@ router.post("/transcribe", async (req, res) => {
   try {
     const text = await transcribeSpeech({
       baseUrl,
-      apiKey: String(settings.sttApiKey || ""),
+      apiKey: readSettingsSecret(settings.sttApiKey),
       model,
       language: String(settings.sttLanguage || ""),
       audioBase64: String(body?.audioBase64 || ""),

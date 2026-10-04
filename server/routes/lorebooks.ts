@@ -4,6 +4,7 @@ import { normalizeLoreBookEntries, parseSillyTavernWorldInfo, serializeSillyTave
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
 import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { completeCustomAdapter } from "../services/customProviderAdapters.js";
+import { getProviderRow } from "../services/providerStore.js";
 
 const router = Router();
 
@@ -301,7 +302,7 @@ router.post("/:id/translate-copy", async (req, res) => {
     return;
   }
 
-  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  const provider = getProviderRow<ProviderRow>(providerId);
   if (!provider) {
     res.status(400).json({ error: "Translate provider not found." });
     return;

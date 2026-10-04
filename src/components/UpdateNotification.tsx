@@ -37,7 +37,7 @@ export function UpdateNotification() {
 
   return (
     <aside
-      className="fixed bottom-5 right-5 z-[250] w-[min(26rem,calc(100vw-2rem))] rounded-2xl border border-border bg-bg-secondary p-4 shadow-2xl"
+      className="fixed bottom-5 right-5 z-250 w-[min(26rem,calc(100vw-2rem))] rounded-2xl border border-border bg-bg-secondary p-4 shadow-2xl"
       aria-live="polite"
       aria-label={t("updates.availableTitle")}
     >

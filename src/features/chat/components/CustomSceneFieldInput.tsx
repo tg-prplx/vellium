@@ -38,7 +38,7 @@ export function CustomSceneFieldInput({
         <select
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+          className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-hidden focus:border-accent"
         >
           <option value="">{field.placeholder || "—"}</option>
           {(field.options || []).map((option) => (
@@ -85,7 +85,7 @@ export function CustomSceneFieldInput({
           rows={field.rows || 3}
           placeholder={field.placeholder || ""}
           onChange={(event) => onChange(event.target.value)}
-          className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+          className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-hidden focus:border-accent"
         />
         {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
       </div>
@@ -99,7 +99,7 @@ export function CustomSceneFieldInput({
         value={value}
         placeholder={field.placeholder || ""}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+        className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-sm text-text-primary outline-hidden focus:border-accent"
       />
       {field.helpText && <p className="mt-1 text-[10px] text-text-tertiary">{field.helpText}</p>}
     </div>

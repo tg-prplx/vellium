@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("live:screen-context") as Promise<{ ok: boolean; dataUrl?: string; width?: number; height?: number; error?: string }>,
   saveFile: (filename: string, base64Data: string) => ipcRenderer.invoke("file:save", { filename, base64Data }),
   openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
+  relaunchApp: () => ipcRenderer.invoke("app:relaunch") as Promise<{ ok: boolean }>,
   showDesktopPet: (config?: unknown) => ipcRenderer.invoke("desktop-pet:show", config) as Promise<{ ok: boolean; visible: boolean }>,
   hideDesktopPet: () => ipcRenderer.invoke("desktop-pet:hide") as Promise<{ ok: boolean; visible: boolean }>,
   toggleDesktopPet: (config?: unknown) => ipcRenderer.invoke("desktop-pet:toggle", config) as Promise<{ ok: boolean; visible: boolean }>,

@@ -37,6 +37,8 @@ function taskScopeLabel(t: TaskTranslator, scope: BackgroundTaskScope) {
       return t("taskManager.scope.knowledge");
     case "agents":
       return t("taskManager.scope.agents");
+    case "data":
+      return t("taskManager.scope.data");
     default:
       return scope;
   }
@@ -101,7 +103,7 @@ function TaskCard({
     || formatTaskDuration(task.startedAt, now, task.finishedAt);
 
   return (
-    <div className="rounded-2xl border border-border-subtle bg-bg-primary p-3 shadow-sm">
+    <div className="rounded-2xl border border-border-subtle bg-bg-primary p-3 shadow-xs">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-text-primary">{task.label}</div>
@@ -119,7 +121,7 @@ function TaskCard({
             )}
           </div>
         </div>
-        <span className="flex-shrink-0 text-[10px] text-text-tertiary">
+        <span className="shrink-0 text-[10px] text-text-tertiary">
           {formatTaskDuration(task.startedAt, now, task.finishedAt)}
         </span>
       </div>
@@ -216,7 +218,7 @@ export function TaskManager({
 
   if (tasks.length === 0) return null;
 
-  const topClass = isElectron ? "top-14" : "top-[4.75rem]";
+  const topClass = isElectron ? "top-14" : "top-19";
   const badge = taskManagerBadge(tasks);
 
   return (
@@ -255,7 +257,7 @@ export function TaskManager({
           ref={panelRef}
           role="dialog"
           aria-label={t("taskManager.title")}
-          className={`task-manager-popover fixed ${topClass} right-4 z-[90] w-[360px] max-w-[calc(100vw-2rem)] rounded-3xl border border-border bg-bg-secondary/95 p-3 shadow-2xl backdrop-blur`}
+          className={`task-manager-popover fixed ${topClass} right-4 z-90 w-[360px] max-w-[calc(100vw-2rem)] rounded-3xl border border-border bg-bg-secondary/95 p-3 shadow-2xl backdrop-blur-sm`}
         >
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>

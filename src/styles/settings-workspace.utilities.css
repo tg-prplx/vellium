@@ -1,0 +1,7 @@
+@utility panel {
+  @apply rounded-xl border border-border bg-bg-secondary;
+}
+
+@utility panel-inset {
+  @apply rounded-lg border border-border-subtle bg-bg-primary;
+}

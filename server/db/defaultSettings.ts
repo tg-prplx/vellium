@@ -213,6 +213,7 @@ export const DEFAULT_SETTINGS = {
   strictGrounding: true,
   rpReasoningEnabled: false,
   includeReasoningInContext: true,
+  replySuggestionsEnabled: false,
   contextMaxMessages: 0,
   reasoningMaxChars: 12000,
   contextWindowSize: 8192,

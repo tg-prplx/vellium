@@ -93,7 +93,7 @@ export function CharacterLibraryList({
             <AvatarBadge
               name={character.name}
               src={avatarSrc(character.avatarUrl, character.id)}
-              className="h-8 w-8 flex-shrink-0 rounded-full"
+              className="h-8 w-8 shrink-0 rounded-full"
               fallbackClassName="bg-accent-subtle text-xs font-bold text-accent"
             />
             <div className="min-w-0 flex-1">

@@ -1051,7 +1051,7 @@ export function CharactersScreen() {
             {/* Header with avatar and actions */}
             <div className="char-editor-header mb-4">
               <div className="char-editor-header-top">
-                <label className="group relative cursor-pointer flex-shrink-0">
+                <label className="group relative cursor-pointer shrink-0">
                   <AvatarBadge
                     name={name || selected.name || t("chars.unnamed")}
                     src={avatarSrc(selected.avatarUrl, selected.id)}
@@ -1100,7 +1100,7 @@ export function CharactersScreen() {
                 <div className="rounded-2xl border border-border-subtle bg-bg-primary/70 px-3 py-3">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-tertiary">{t("chars.profileType")}</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">{t("chars.profileType")}</div>
                       <div className="mt-1 text-xs leading-5 text-text-tertiary">
                         {editorKind === "agent" ? t("chars.profileTypeAgentDesc") : t("chars.profileTypeCharacterDesc")}
                       </div>
@@ -1346,7 +1346,7 @@ export function CharactersScreen() {
 
                           <div>
                             <div className="mb-2 flex items-center justify-between gap-3">
-                              <label className="char-editor-label !mb-0">{t("chars.agentInstructions")}</label>
+                              <label className="char-editor-label mb-0!">{t("chars.agentInstructions")}</label>
                               <ToggleSwitch
                                 checked={agentProfileDraft.enabled}
                                 onChange={(event) => {
@@ -1368,7 +1368,7 @@ export function CharactersScreen() {
 
                           <div>
                             <div className="mb-2 flex items-center justify-between gap-2">
-                              <label className="char-editor-label !mb-0">{t("chars.agentSkills")}</label>
+                              <label className="char-editor-label mb-0!">{t("chars.agentSkills")}</label>
                               <button
                                 onClick={addHeroSkill}
                                 className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"

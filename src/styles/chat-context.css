@@ -76,3 +76,61 @@
   .context-budget, .context-detail { padding-left: 20px; padding-right: 20px; }
   .context-last dl { grid-template-columns: 1fr; }
 }
+
+/* Composer context ring: compact usage of the last request next to the model picker. */
+.chat-context-ring-wrap { position: relative; display: inline-flex; }
+.chat-simple-controls .chat-context-ring { gap: 5px; padding: 4px 6px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.chat-simple-controls svg.chat-context-ring-icon { width: 16px; height: 16px; transform: rotate(-90deg); }
+.chat-context-ring-icon circle { fill: none; stroke-width: 2.4; }
+.chat-context-ring-track { stroke: var(--color-border); }
+.chat-context-ring-reserve { stroke: var(--color-text-tertiary); opacity: .45; }
+.chat-context-ring-used { stroke: var(--color-accent); stroke-linecap: round; transition: stroke-dasharray 240ms var(--motion-soft, ease); }
+.chat-context-ring-wrap.is-near .chat-context-ring-used { stroke: var(--color-warning); }
+.chat-context-ring-wrap.is-over .chat-context-ring-used { stroke: var(--color-danger); }
+.chat-context-ring-wrap.is-near .chat-context-ring-value { color: var(--color-warning); }
+.chat-context-ring-wrap.is-over .chat-context-ring-value { color: var(--color-danger); }
+.chat-context-ring-tooltip {
+  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 60;
+  width: 248px; padding: 12px 14px; border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 88%, transparent);
+  background: var(--color-bg-secondary);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.36), inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+  color: var(--color-text-secondary); font-size: 11px; line-height: 1.5; text-align: left;
+  pointer-events: none; animation: modelPopoverIn 160ms var(--motion-soft, ease) both;
+}
+.chat-context-ring-tooltip-head { display: flex; justify-content: space-between; gap: 12px; color: var(--color-text-tertiary); }
+.chat-context-ring-tooltip-head b { font-weight: 600; color: var(--color-text-primary); font-variant-numeric: tabular-nums; }
+.chat-context-ring-tooltip-total { margin-top: 2px; color: var(--color-text-primary); font-size: 16px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.chat-context-ring-tooltip-total small { font-size: 11px; font-weight: 400; color: var(--color-text-tertiary); letter-spacing: 0; }
+.chat-context-ring-bar.context-meter { height: 5px; margin: 8px 0 8px; }
+.chat-context-ring-rows { display: grid; gap: 2px; margin: 0; }
+.chat-context-ring-rows div { display: flex; justify-content: space-between; gap: 12px; }
+.chat-context-ring-rows dt { color: var(--color-text-tertiary); }
+.chat-context-ring-rows dd { margin: 0; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }
+.chat-context-ring-note { margin: 8px 0 0; color: var(--color-text-secondary); }
+.chat-context-ring-wrap.is-near .chat-context-ring-note { color: var(--color-warning); }
+.chat-context-ring-wrap.is-over .chat-context-ring-note { color: var(--color-danger); }
+.chat-context-ring-hint { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--color-border-subtle); color: var(--color-text-tertiary); }
+
+/* Opt-in reply suggestions above the composer. */
+.reply-suggestions {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  margin: 0 auto 8px; padding: 6px 6px 6px 10px; border-radius: 12px;
+  border: 1px solid var(--color-border-subtle); background: var(--color-bg-secondary);
+  animation: modelPopoverIn 160ms var(--motion-soft, ease) both;
+}
+/* Same column as the docked simple composer. */
+.chat-simple-layout.is-thread .reply-suggestions { width: 100%; max-width: 940px; }
+.reply-suggestions-label { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; color: var(--color-text-tertiary); font-size: 11px; }
+.reply-suggestions-label svg { width: 13px; height: 13px; color: var(--color-accent); }
+.reply-suggestions-list { display: flex; flex: 1; min-width: 0; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.reply-suggestions-list::-webkit-scrollbar { display: none; }
+.reply-suggestion-chip {
+  flex-shrink: 0; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 5px 10px; border-radius: 999px; border: 1px solid var(--color-border);
+  background: var(--color-bg-primary); color: var(--color-text-secondary); font-size: 12px; cursor: pointer;
+}
+.reply-suggestion-chip:hover { color: var(--color-text-primary); border-color: var(--color-accent-border); background: var(--color-accent-subtle); }
+.reply-suggestions-status { padding: 5px 2px; color: var(--color-text-tertiary); font-size: 12px; }
+.reply-suggestions-status.is-error { color: var(--color-danger); }
+.reply-suggestions-actions { display: flex; flex-shrink: 0; gap: 2px; }

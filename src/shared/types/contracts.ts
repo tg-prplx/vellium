@@ -762,7 +762,7 @@ export interface AppSettings {
   compressionFallbackMessages: number;
   autoConversationDelayMs: number;
   autoConversationDefaultTurns: number;
-  mergeConsecutiveRoles: boolean;
+  mergeConsecutiveRoles: boolean; replySuggestionsEnabled: boolean;
   samplerConfig: SamplerConfig;
   samplerPresets: SamplerPreset[];
   apiParamPolicy: ApiParamPolicy;

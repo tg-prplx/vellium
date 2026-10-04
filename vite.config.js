@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 var apiPort = Number(process.env.SLV_SERVER_PORT || 3002);
@@ -19,5 +20,8 @@ export default defineConfig(function () { return ({
         watch: {
             ignored: ["**/server/**", "**/data/**"]
         }
+    },
+    test: {
+        setupFiles: ["./scripts/vitest-setup.ts"]
     }
 }); });

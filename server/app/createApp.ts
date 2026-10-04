@@ -11,6 +11,7 @@ import accountRoutes from "../routes/account.js";
 import agentRoutes from "../routes/agents.js";
 import characterRoutes from "../routes/characters.js";
 import chatRoutes from "../routes/chats.js";
+import dataRoutes from "../routes/data.js";
 import lorebookRoutes from "../routes/lorebooks.js";
 import liveRoutes from "../routes/live.js";
 import inochiAvatarRoutes from "../routes/inochiAvatars.js";
@@ -282,6 +283,7 @@ function registerUploadRoute(app: express.Express) {
 function registerRoutes(app: express.Express) {
   app.use("/api/agents", agentRoutes);
   app.use("/api/account", accountRoutes);
+  app.use("/api/data", dataRoutes);
   app.use("/api/settings", settingsRoutes);
   app.use("/api/updates", updateRoutes);
   app.use("/api/plugins", pluginRoutes);

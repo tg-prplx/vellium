@@ -31,6 +31,12 @@ export interface ContextSection {
   text: string;
 }
 
+export interface ChatContextBudget {
+  branchId: string;
+  contextWindowSize: number;
+  reservedOutputTokens: number;
+}
+
 export interface ChatContextPreview {
   branchId: string;
   model: string | null;

@@ -110,7 +110,7 @@ export function CharacterForgeWorkspace({
             return (
               <button key={character.id} type="button" className={`character-library-item${active ? " is-active" : ""}`}
                 onClick={() => { setCreateOpen(false); onSelect(character.id); }}>
-                <AvatarBadge name={character.name} src={resolveApiAssetUrl(character.avatarUrl)} className="h-8 w-8 flex-shrink-0 rounded-full" />
+                <AvatarBadge name={character.name} src={resolveApiAssetUrl(character.avatarUrl)} className="h-8 w-8 shrink-0 rounded-full" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{character.name}</span>
                   {character.tags.length ? <span className="block truncate text-[11px] text-text-tertiary">{character.tags.join(", ")}</span> : null}
@@ -166,7 +166,7 @@ export function CharacterForgeWorkspace({
           <div key={selected.id} className="motion-tabpanel flex h-full min-h-0 flex-col">
             <div className="char-editor-header mb-4">
               <div className="char-editor-header-top">
-                <AvatarBadge name={selected.name} src={resolveApiAssetUrl(selected.avatarUrl)} className="h-14 w-14 flex-shrink-0 rounded-2xl" />
+                <AvatarBadge name={selected.name} src={resolveApiAssetUrl(selected.avatarUrl)} className="h-14 w-14 shrink-0 rounded-2xl" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-base font-semibold text-text-primary">{editor.draft.name || selected.name}</div>
                   {editor.status ? (

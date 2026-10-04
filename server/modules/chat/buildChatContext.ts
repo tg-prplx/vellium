@@ -2,18 +2,17 @@ import { db, roughTokenCount } from "../../db.js";
 import { buildSystemPrompt, buildMessageArray, buildMultiCharSystemPrompt, buildMultiCharMessageArray, coalesceSystemMessages, mergeConsecutiveRoles, replacePromptPlaceholders, type CharacterCardData, type ChatCompletionMessage } from "../../domain/rpEngine.js";
 import { getTriggeredLoreEntries, injectLoreBlocks } from "../../domain/lorebooks.js";
 import { retrieveRagContext, type RagContextSource } from "../../services/rag.js";
-import { buildPromptContentWithAttachments, getContextWindowBudget, getTailBudgetPercent, resolveLorebookIds, selectTimelineForPrompt, toChatAttachments } from "./attachments.js";
-import { buildSillyTavernCompatibleLightPrompt, buildSillyTavernCompatiblePurePrompt, getAuthorNote, getCharacterCard, getChatSamplerConfig, getLorebookEntries, getSceneState } from "./promptContext.js";
+import { buildPromptContentWithAttachments, getTailBudgetPercent, resolveLorebookIds, selectTimelineForPrompt, toChatAttachments } from "./attachments.js";
+import { buildSillyTavernCompatibleLightPrompt, buildSillyTavernCompatiblePurePrompt, getAuthorNote, getCharacterCard, getLorebookEntries, getSceneState } from "./promptContext.js";
 import { buildReasoningAwareTimeline } from "./reasoningContext.js";
 import { getPromptBlocks, getSettings, getTimeline, type MessageAttachmentPayload, type UserPersonaPayload } from "./routeHelpers.js";
 import { appendRpReasoningTurnGuard, inlineRpReasoningHistory, RP_REASONING_SYSTEM_PROMPT } from "./rpReasoning.js";
 import { buildLiveAvatarControlPrompt, normalizeLiveAvatarCapabilities } from "../../../src/shared/liveAvatarControl.js";
 import type { LiveAvatarControlCapabilities } from "../../../src/shared/types/inochiAvatar.js";
 import type { ContextSource } from "../../../src/shared/types/chatContext.js";
-import { getContextConfig } from "./contextConfig.js";
+import { resolveContextBudget } from "./contextBudget.js";
 import { accountContext } from "./contextAccounting.js";
 import { prepareOpenAiCompatibleMessages } from "./providerMessages.js";
-import { buildOpenAiSamplingPayload } from "../../services/apiParamPolicy.js";
 
 export interface BuildChatContextParams {
   chatId: string; branchId: string; overrideCharacterName?: string; isAutoConvo?: boolean;
@@ -38,11 +37,10 @@ export async function buildChatContext(params: BuildChatContextParams) {
     context_summary: string | null;
   } | undefined;
 
-  const config = getContextConfig(params.chatId, params.branchId);
+  const { config, samplerConfig, contextWindowSize: contextWindowBudget, reservedOutputTokens } = resolveContextBudget(params.chatId, params.branchId, settings);
   const blocks = getPromptBlocks(settings as Record<string, unknown>);
   const sceneState = getSceneState(params.chatId);
   const authorNote = getAuthorNote(params.chatId);
-  const samplerConfig = { ...getChatSamplerConfig(params.chatId, settings.samplerConfig), ...(config.maxOutputTokens !== undefined ? { maxTokens: config.maxOutputTokens } : {}) };
   const chatMode = sceneState?.chatMode || "rp";
   const pureChatMode = chatMode === "pure_chat";
   const lightRpMode = chatMode === "light_rp";
@@ -90,9 +88,7 @@ export async function buildChatContext(params: BuildChatContextParams) {
   const excluded = new Set(config.excludedMessageIds || []);
   const candidates = timeline.filter(item => !excluded.has(item.id));
   const contextSummary = config.summary ?? chat?.context_summary ?? "";
-  const contextWindowBudget = config.contextWindowSize ?? getContextWindowBudget(settings as Record<string, unknown>);
   const maxMessages = config.maxMessages ?? settings.contextMaxMessages;
-  const reservedOutputTokens = Math.max(1, Number(buildOpenAiSamplingPayload({ samplerConfig, apiParamPolicy: settings.apiParamPolicy, fields: ["maxTokens"], defaults: { maxTokens: 2048 } }).max_tokens) || 2048);
   const withSummaryPercent = getTailBudgetPercent(settings as Record<string, unknown>, "contextTailBudgetWithSummaryPercent", 35);
   const withoutSummaryPercent = getTailBudgetPercent(settings as Record<string, unknown>, "contextTailBudgetWithoutSummaryPercent", 75);
   let promptTimeline = selectTimelineForPrompt(

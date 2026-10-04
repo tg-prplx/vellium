@@ -9,6 +9,10 @@ import { getSceneLevelTranslationKey, type SceneLevelAxis } from "../../shared/s
 import { modelDisplayName } from "./modelDisplay";
 import { isLegacyChatFailure } from "../../shared/chatGenerationError";
 import { ContextManagerModal } from "./components/ContextManagerModal";
+import { ContextMeter } from "./components/ContextMeter";
+import { useContextBudget } from "./hooks/useContextBudget";
+import { useReplySuggestions, useReplySuggestionsSetting } from "./hooks/useReplySuggestions";
+import { ReplySuggestions } from "./components/ReplySuggestions";
 import { ChatGenerationFailure } from "./components/ChatGenerationFailure";
 import { SimpleChatControls } from "./components/SimpleChatControls";
 import { useChatGenerationFailure } from "./hooks/useChatGenerationFailure";
@@ -322,6 +326,10 @@ export function ChatScreen() {
   const contextTrigger = activeChat && <button className="chat-context-trigger" onClick={() => setContextManagerOpen(true)} title={t("context.lastInputHint")} aria-haspopup="dialog">
     <span>{t("context.title")}</span>{lastGeneration?.inputTokens !== undefined && <b>{lastGeneration.inputTokens.toLocaleString()} tok</b>}
   </button>;
+  const { budget: contextBudget, refresh: refreshContextBudget } = useContextBudget(activeChat?.id ?? null, activeBranchId, `${lastGeneration?.inputTokens ?? ""}:${contextManagerOpen}`);
+  const contextMeter = activeChat && <ContextMeter usedTokens={lastGeneration?.inputTokens} estimated={lastGeneration?.tokenSource === "estimate"}
+    windowTokens={contextBudget?.contextWindowSize} reservedTokens={contextBudget?.reservedOutputTokens}
+    onOpen={() => setContextManagerOpen(true)} onPeek={refreshContextBudget} />;
   const visibleMessages = useMemo(
     () => messages.filter((msg) => msg.role !== "tool"),
     [messages]
@@ -341,6 +349,13 @@ export function ChatScreen() {
   const activePersonaPayload = useMemo(() => {
     return buildActivePersonaPayload(activePersona, t("chat.user"));
   }, [activePersona, t]);
+  const replySuggestionsEnabled = useReplySuggestionsSetting();
+  const lastAssistantMessageId = useMemo(() => {
+    const last = [...messages].reverse().find((message) => message.role !== "tool");
+    return last && last.role === "assistant" && !isLegacyChatFailure(last) ? last.id : null;
+  }, [messages]);
+  const replySuggestions = useReplySuggestions({ enabled: replySuggestionsEnabled, chatId: activeChat?.id ?? null, branchId: activeBranchId,
+    lastAssistantId: lastAssistantMessageId, busy: chatGenerationBusy, userName: activePersonaPayload?.name });
   const activeProviderType = useMemo(() => {
     return resolveActiveProviderType(providers, chatProviderId);
   }, [providers, chatProviderId]);
@@ -2170,7 +2185,7 @@ export function ChatScreen() {
               <div className="chat-simple-top-controls">
                 <button
                   onClick={() => openSimpleSidebar()}
-                  className="chat-simple-top-button chat-simple-top-sidebar xl:hidden"
+                  className="chat-simple-top-button chat-simple-top-sidebar xl:hidden!"
                   aria-expanded={simpleSidebarOpen} aria-controls="chat-simple-history-sidebar"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2310,7 +2325,7 @@ export function ChatScreen() {
                 <div className="chat-simple-thread-bar">
                   <button
                     onClick={() => openSimpleSidebar()}
-                    className="chat-simple-thread-sidebar xl:hidden"
+                    className="chat-simple-thread-sidebar xl:hidden!"
                     aria-expanded={simpleSidebarOpen} aria-controls="chat-simple-history-sidebar"
                     aria-label={t("chat.title")}
                     title={t("chat.title")}
@@ -2509,7 +2524,7 @@ export function ChatScreen() {
                         <AvatarBadge
                           name={msg.characterName || msgChar.name || "?"}
                           src={resolveApiAssetUrl(msgChar.avatarUrl)}
-                          className="h-8 w-8 flex-shrink-0 rounded-full"
+                          className="h-8 w-8 shrink-0 rounded-full"
                           imageClassName="ring-1 ring-border-subtle"
                           fallbackClassName="bg-accent-subtle text-xs font-semibold text-accent"
                         />
@@ -2565,7 +2580,7 @@ export function ChatScreen() {
                             </button>
                             {reasoningPanelOpen && (
                               <div className="border-t border-border-subtle px-2 py-2">
-                                <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">{displayReasoningText}</div>
+                                <div className="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-text-secondary">{displayReasoningText}</div>
                               </div>
                             )}
                           </div>
@@ -2709,7 +2724,7 @@ export function ChatScreen() {
                     {(streamChar || !simpleModeActive) && <AvatarBadge
                       name={streamingCharacterName || streamChar?.name || t("chat.assistant")}
                       src={resolveApiAssetUrl(streamChar?.avatarUrl)}
-                      className="h-8 w-8 flex-shrink-0 rounded-full"
+                      className="h-8 w-8 shrink-0 rounded-full"
                       imageClassName="ring-1 ring-border-subtle"
                       fallbackClassName="bg-accent-subtle text-xs font-semibold text-accent"
                     />}
@@ -2717,7 +2732,7 @@ export function ChatScreen() {
                       <span className="max-w-full truncate text-[10px] font-semibold uppercase tracking-wider text-accent">
                         {streamingCharacterName || streamChar?.name || t("chat.assistant")}
                       </span>
-                      <span className="flex flex-shrink-0 items-center gap-1">
+                      <span className="flex shrink-0 items-center gap-1">
                         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                         <span className="text-[10px] text-accent">{t("chat.streaming")}</span>
                       </span>
@@ -2744,7 +2759,7 @@ export function ChatScreen() {
                       </button>
                       {streamingReasoningExpanded && (
                         <div className="border-t border-border-subtle px-2 py-2">
-                          <div className="whitespace-pre-wrap break-words text-xs leading-relaxed text-text-secondary">
+                          <div className="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-text-secondary">
                             {streamingReasoningCalls.map((call) => String(call.result || "")).join("\n")}
                           </div>
                         </div>
@@ -2832,6 +2847,11 @@ export function ChatScreen() {
               className={simpleModeActive && !simpleHomeState ? "chat-simple-bottom-chrome" : "chat-composer-stack"}
               {...composerFileDropProps}
             >
+            {activeChat && !simpleHomeState && !input.trim() && (
+              <ReplySuggestions {...replySuggestions}
+                onPick={(text) => { setInput(text); window.requestAnimationFrame(() => textareaRef.current?.focus()); }}
+                onRefresh={replySuggestions.refresh} onDismiss={replySuggestions.dismiss} />
+            )}
             {attachments.length > 0 && (
               <div
                 className={`list-animate mt-2 flex flex-wrap gap-1.5 ${simpleModeActive ? "chat-simple-attachments" : ""} ${simpleHomeState ? "is-home" : "is-docked"}`}
@@ -2886,7 +2906,7 @@ export function ChatScreen() {
                       )}
                     </button>
                     <SimpleChatControls
-                      contextPreview={simpleHomeState ? contextTrigger : undefined}
+                      contextPreview={contextMeter}
                       modelLabel={activeModelDisplayLabel}
                       modelTriggerRef={modelSelectorTriggerRef}
                       modelOpen={showModelSelector}

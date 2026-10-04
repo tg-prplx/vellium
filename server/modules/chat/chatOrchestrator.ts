@@ -25,6 +25,7 @@ import {
   stripLiveAvatarControlMarkup
 } from "../../../src/shared/liveAvatarControl.js";
 import type { LiveAvatarControlCapabilities } from "../../../src/shared/types/inochiAvatar.js";
+import { getProviderRow } from "../../services/providerStore.js";
 
 export const activeAbortControllers = new Map<string, AbortController>();
 
@@ -168,7 +169,7 @@ export async function streamLlmResponse(params: {
     return;
   }
 
-  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  const provider = getProviderRow<ProviderRow>(providerId);
   if (!provider) {
     insertFallbackAssistantMessage({
       chatId: params.chatId,

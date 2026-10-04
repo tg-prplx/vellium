@@ -4640,6 +4640,34 @@ process.stdin.on("data", (chunk) => {
     expect(importedProject.scenes.some((scene: { content: string }) => scene.content.includes("Roundtrip scene two content."))).toBe(true);
   });
 
+  it("stores provider API keys encrypted and still authenticates provider requests", async () => {
+    const saved = await postJson("/api/providers", {
+      id: "encrypted-key-provider",
+      name: "Encrypted Key",
+      baseUrl: `${new URL(mockProviderBaseUrl).origin}/a2agent/v1`,
+      apiKey: "a2agent-test-key",
+      providerType: "openai"
+    });
+    expect(saved.apiKeyMasked).toBe("a2ag***-key");
+    const raw = db.prepare("SELECT api_key_cipher FROM providers WHERE id = ?").get("encrypted-key-provider") as { api_key_cipher: string };
+    expect(raw.api_key_cipher).toMatch(/^vlt1:/);
+    expect(raw.api_key_cipher).not.toContain("a2agent-test-key");
+
+    lastA2AgentAuthorization = "";
+    const models = await parseJsonResponse("/api/providers/encrypted-key-provider/models", await fetch(`${baseUrl}/api/providers/encrypted-key-provider/models`));
+    expect(lastA2AgentAuthorization).toBe("Bearer a2agent-test-key");
+    expect(models).toEqual(expect.arrayContaining([expect.objectContaining({ id: "a2agent-test-model" })]));
+
+    lastA2AgentAuthorization = "not-requested";
+    const foreignPreview = await requestJson("/api/providers/preview/llama-cpp/status", {
+      method: "POST",
+      body: { providerId: "encrypted-key-provider", baseUrl: `${new URL(mockProviderBaseUrl).origin}/foreign` }
+    });
+    expect(foreignPreview.status).toBeLessThan(500);
+    expect(lastA2AgentAuthorization).not.toContain("a2agent-test-key");
+    db.prepare("DELETE FROM providers WHERE id = ?").run("encrypted-key-provider");
+  });
+
   it("rejects DNS-rebinding Host headers before serving API data", async () => {
     const port = Number(new URL(baseUrl).port);
     const getWithHost = (host: string) => new Promise<{ status: number; body: string }>((resolvePromise, reject) => {
@@ -4679,8 +4707,11 @@ process.stdin.on("data", (chunk) => {
       }));
       expect(patched.ttsApiKey).toBe("sk-t***1234");
       const stored = JSON.parse((db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string }).payload);
-      expect(stored.ttsApiKey).toBe("sk-tts-audit-secret-1234");
-      expect(stored.sttApiKey).toBe("sk-stt-audit-secret-5678");
+      const { decryptSecret } = await import("../services/secretVault.js");
+      expect(stored.ttsApiKey).toMatch(/^vlt1:/);
+      expect(stored.sttApiKey).toMatch(/^vlt1:/);
+      expect(decryptSecret(stored.ttsApiKey)).toBe("sk-tts-audit-secret-1234");
+      expect(decryptSecret(stored.sttApiKey)).toBe("sk-stt-audit-secret-5678");
 
       lastA2AgentAuthorization = "not-requested";
       const foreign = await requestJson("/api/settings/tts/models", {

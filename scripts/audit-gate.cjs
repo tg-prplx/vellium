@@ -7,14 +7,9 @@
  */
 const { spawnSync } = require("child_process");
 
-const ALLOWED_ADVISORIES = [
-  {
-    id: "GHSA-vfj7-8cjw-p6xm",
-    packages: ["braces"],
-    reviewBy: "2027-01-04",
-    reason: "braces <=3.0.3 has no patched release; it is only reachable through the tailwindcss@3 build toolchain, whose glob patterns come from our own config. Remove after migrating to Tailwind 4."
-  }
-];
+// Advisories without a patched release that only reach build tooling. Each entry needs
+// { id, packages, reviewBy, reason }. Empty since the Tailwind 4 migration removed braces.
+const ALLOWED_ADVISORIES = [];
 const FAILING_SEVERITIES = new Set(["low", "moderate", "high", "critical"]);
 
 function runAudit(extraArgs) {

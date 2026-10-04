@@ -51,6 +51,7 @@ import {
   type PreparedAgentToolbox,
   type RuntimeEventWriter
 } from "./runtimeProtocol.js";
+import { getProviderRow } from "../../services/providerStore.js";
 
 export type { AgentPendingConfirmation } from "./runtimeProtocol.js";
 
@@ -1133,7 +1134,7 @@ function resolveProviderForThread(threadId: string) {
   const providerId = sanitizeText(thread?.providerId ?? settings.activeProviderId, 120);
   const modelId = sanitizeText(thread?.modelId ?? settings.activeModel, 200);
   const provider = providerId
-    ? db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined
+    ? getProviderRow<ProviderRow>(providerId)
     : undefined;
   return { provider, modelId, settings };
 }

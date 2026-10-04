@@ -8,6 +8,8 @@ import { createRequestTimeout } from "../services/requestTimeout.js";
 import { probeLlamaCppEndpoint, setLlamaCppModelLoaded } from "../services/llamaCppApi.js";
 import { maskSettingsSecrets } from "../services/settingsSecrets.js";
 import { normalizeSamplerPresets, resolveModelSamplerPreset } from "../../src/shared/samplerPresets.js";
+import { getProviderRow, listProviderRows } from "../services/providerStore.js";
+import { encryptSecret } from "../services/secretVault.js";
 
 const router = Router();
 const MODEL_FETCH_RETRY_DELAYS_MS = [0, 250, 750];
@@ -52,12 +54,15 @@ async function probeLlamaCppProvider(row: Pick<ProviderRow, "base_url" | "api_ke
 function llamaCppPreviewProvider(body: ProviderPreviewInput) {
   const providerId = String(body.providerId || "").trim();
   const saved = providerId
-    ? db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined
+    ? getProviderRow<ProviderRow>(providerId)
     : undefined;
   const suppliedApiKey = String(body.apiKey || "").trim();
+  const baseUrl = String(body.baseUrl || saved?.base_url || "").trim();
+  // The saved key is only reused for the endpoint it belongs to, never forwarded to another URL.
+  const savedKey = saved && baseUrl === String(saved.base_url || "").trim() ? saved.api_key_cipher : "";
   return {
-    base_url: String(body.baseUrl || saved?.base_url || "").trim(),
-    api_key_cipher: suppliedApiKey || saved?.api_key_cipher || "local-key",
+    base_url: baseUrl,
+    api_key_cipher: suppliedApiKey || savedKey || "local-key",
     full_local_only: body.fullLocalOnly === undefined
       ? saved?.full_local_only || 0
       : body.fullLocalOnly === true || body.fullLocalOnly === 1 ? 1 : 0
@@ -304,7 +309,7 @@ router.post("/", (req, res) => {
     id,
     name,
     baseUrl,
-    apiKey || "local-key",
+    encryptSecret(apiKey || "local-key"),
     proxyUrl || null,
     fullLocalOnly ? 1 : 0,
     normalizedType,
@@ -313,12 +318,12 @@ router.post("/", (req, res) => {
     llamaCppManagementEnabled ? 1 : 0
   );
 
-  const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(id) as ProviderRow;
+  const row = getProviderRow<ProviderRow>(id) as ProviderRow;
   res.json(rowToProfile(row));
 });
 
 router.get("/", (_req, res) => {
-  const rows = db.prepare("SELECT * FROM providers ORDER BY name ASC").all() as ProviderRow[];
+  const rows = listProviderRows<ProviderRow>();
   res.json(rows.map(rowToProfile));
 });
 
@@ -354,7 +359,7 @@ router.post("/preview/llama-cpp/status", async (req, res) => {
 });
 
 router.get("/:id/llama-cpp/status", async (req, res) => {
-  const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
+  const row = getProviderRow<ProviderRow>(req.params.id);
   if (!row) { res.status(404).json({ error: "Provider not found" }); return; }
   try {
     res.json(await probeLlamaCppProvider(row));
@@ -365,7 +370,7 @@ router.get("/:id/llama-cpp/status", async (req, res) => {
 });
 
 async function changeLlamaCppModel(req: Request, res: Response, loaded: boolean) {
-  const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
+  const row = getProviderRow<ProviderRow>(String(req.params.id));
   if (!row) { res.status(404).json({ error: "Provider not found" }); return; }
   if (!row.llama_cpp_management_enabled) {
     res.status(409).json({ error: "Enable llama.cpp API management for this provider first" });
@@ -394,7 +399,7 @@ router.post("/:id/llama-cpp/models/load", (req, res) => void changeLlamaCppModel
 router.post("/:id/llama-cpp/models/unload", (req, res) => void changeLlamaCppModel(req, res, false));
 
 router.get("/:id/models", async (req, res) => {
-  const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
+  const row = getProviderRow<ProviderRow>(req.params.id);
   if (!row) { res.json([]); return; }
   try {
     res.json(await resolveProviderModels(row));
@@ -420,7 +425,7 @@ router.post("/set-active", (req, res) => {
 });
 
 router.post("/:id/runtime-config", (req, res) => {
-  const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
+  const row = getProviderRow<ProviderRow>(req.params.id);
   if (!row) {
     res.status(404).json({ error: "Provider not found" });
     return;
@@ -437,12 +442,12 @@ router.post("/:id/runtime-config", (req, res) => {
     WHERE id = ?
   `).run(baseUrl, providerType, adapterId, req.params.id);
 
-  const updated = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow;
+  const updated = getProviderRow<ProviderRow>(req.params.id) as ProviderRow;
   res.json(rowToProfile(updated));
 });
 
 router.post("/:id/test", async (req, res) => {
-  const row = db.prepare("SELECT * FROM providers WHERE id = ?").get(req.params.id) as ProviderRow | undefined;
+  const row = getProviderRow<ProviderRow>(req.params.id);
   if (!row) { res.json(false); return; }
   try {
     await resolveProviderModels(row);

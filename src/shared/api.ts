@@ -3,6 +3,7 @@ import { accountSettingsClient } from "./api/accountSettingsClient";
 import { agentClient } from "./api/agentClient";
 import { chatClient } from "./api/chatClient";
 import { contentClient } from "./api/contentClient";
+import { dataClient } from "./api/dataClient";
 import { extensionClient } from "./api/extensionClient";
 import { liveClient } from "./api/liveClient";
 import { pluginClient } from "./api/pluginClient";
@@ -18,5 +19,6 @@ export const api = {
   ...pluginClient,
   ...chatClient,
   ...contentClient,
+  ...dataClient,
   ...writerClient
 };

@@ -179,6 +179,14 @@ attachments, RAG sources, prompt blocks, participants, and scene state agree.
 
 ## 5. Database rules
 
+Data profiles: the data root (`data/` or `SLV_DATA_DIR`) holds `profiles.json`,
+the default profile (legacy layout at the root), `profiles/<id>/`, and shared
+`keys/`, `backups/` and `local-models/`. The active profile is read once at
+startup (`server/db/paths.ts`); switching selects it and restarts the app.
+API keys are encrypted at rest (`server/services/secretVault.ts`); read
+provider rows only through `server/services/providerStore.ts`. Never delete
+`keys/master.key`. Vitest always runs on a temporary `SLV_DATA_DIR`.
+
 Development data defaults to `data/`. Packaged Electron sets `SLV_DATA_DIR` to
 `<userData>/data`. Tests set it to a temporary directory before importing DB code.
 The current DB filename is `vellum.db`; `sillytauri.db` is recognized as a legacy
@@ -320,6 +328,14 @@ All new user-visible strings must be added to:
 `TranslationKey` is derived from English. Missing non-English values fall back to
 English, but shipping an intentionally visible feature with only English strings
 is discouraged. Keep placeholders such as `{name}` identical across locales.
+
+### Tailwind 4 cascade
+
+Tailwind utilities live in native `@layer utilities`, so any unlayered app CSS
+beats them, including variants (`hover:`, `xl:`, `disabled:`). Tailwind 3 emitted
+variants after app CSS. When a variant must override an app class, use the `!`
+suffix (`xl:hidden!`) or put the rule in app CSS. Opacity modifiers on theme
+colors (`bg-warning/10`) now render via `color-mix`; v3 silently dropped them.
 
 ### Styling and packaged blur
 

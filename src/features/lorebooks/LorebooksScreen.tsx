@@ -305,7 +305,7 @@ export function LorebooksScreen() {
                 <button
                   onClick={() => { void createLorebook(); }}
                   disabled={mutating}
-                  className="rounded-lg bg-accent px-3 py-1.5 text-[11px] font-semibold text-text-inverse shadow-sm hover:bg-accent-hover"
+                  className="rounded-lg bg-accent px-3 py-1.5 text-[11px] font-semibold text-text-inverse shadow-xs hover:bg-accent-hover"
                 >
                   + {t("chat.new")}
                 </button>
@@ -335,7 +335,7 @@ export function LorebooksScreen() {
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${
                       selectedId === book.id
                         ? "bg-accent text-text-inverse"
                         : "bg-bg-tertiary text-text-tertiary"
@@ -407,7 +407,7 @@ export function LorebooksScreen() {
                           onChange={(event) => updateEntry(entry.id, { name: event.target.value })}
                           aria-label={t("lore.entryName")}
                           placeholder={`${t("lore.entry")} ${index + 1}`}
-                          className="min-w-0 max-w-sm flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-xs font-medium text-text-primary placeholder:text-text-tertiary hover:border-border-subtle focus:border-accent focus:bg-bg-secondary focus:outline-none focus:ring-1 focus:ring-accent-subtle"
+                          className="min-w-0 max-w-sm flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-xs font-medium text-text-primary placeholder:text-text-tertiary hover:border-border-subtle focus:border-accent focus:bg-bg-secondary focus:outline-hidden focus:ring-1 focus:ring-accent-subtle"
                         />
                         {entry.constant && (
                           <span className="rounded-md bg-warning-subtle px-1.5 py-0.5 text-[9px] font-semibold text-warning">CONST</span>
@@ -500,7 +500,7 @@ export function LorebooksScreen() {
               <button
                 onClick={() => { void saveLorebook(); }}
                 disabled={saving || mutating}
-                className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-text-inverse shadow-sm hover:bg-accent-hover disabled:opacity-60"
+                className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-text-inverse shadow-xs hover:bg-accent-hover disabled:opacity-60"
               >
                 {saving ? (
                   <span className="flex items-center gap-1.5">

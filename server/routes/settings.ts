@@ -11,7 +11,7 @@ import { createRequestTimeout } from "../services/requestTimeout.js";
 import { LOCAL_INFERENCE_URL } from "../services/localInference.js";
 import { LOCAL_TERATTS_MODEL_ID, LOCAL_TERATTS_VOICES } from "../../src/shared/localModelConfig.js";
 import { normalizeSamplerPresets } from "../../src/shared/samplerPresets.js";
-import { maskSettingsSecrets, resolveDiscoverySecret, resolveSettingsSecretPatch } from "../services/settingsSecrets.js";
+import { maskSettingsSecrets, resolveDiscoverySecret, storeSettingsSecret } from "../services/settingsSecrets.js";
 
 const router = Router();
 
@@ -156,6 +156,7 @@ function getSettings() {
     checkForUpdates: stored.checkForUpdates !== false,
     rpReasoningEnabled: stored.rpReasoningEnabled === true,
     includeReasoningInContext: stored.includeReasoningInContext !== false,
+    replySuggestionsEnabled: stored.replySuggestionsEnabled === true,
     agentsEnabled: stored.agentsEnabled === true,
     agentWorkspaceToolsEnabled: stored.agentWorkspaceToolsEnabled !== false,
     agentCommandToolEnabled: stored.agentCommandToolEnabled !== false,
@@ -464,6 +465,9 @@ router.patch("/", (req, res) => {
     includeReasoningInContext: patchData.includeReasoningInContext === undefined
       ? current.includeReasoningInContext
       : patchData.includeReasoningInContext !== false,
+    replySuggestionsEnabled: patchData.replySuggestionsEnabled === undefined
+      ? current.replySuggestionsEnabled
+      : patchData.replySuggestionsEnabled === true,
     agentsEnabled: patchData.agentsEnabled === undefined ? current.agentsEnabled : patchData.agentsEnabled === true,
     agentWorkspaceToolsEnabled: patchData.agentWorkspaceToolsEnabled === undefined
       ? current.agentWorkspaceToolsEnabled
@@ -508,8 +512,8 @@ router.patch("/", (req, res) => {
       ? "whisper"
       : patchData.sttSource === "system" ? "system" : current.sttSource,
     sttBaseUrl: String(patchData.sttBaseUrl ?? current.sttBaseUrl ?? "").trim().slice(0, 2048),
-    ttsApiKey: resolveSettingsSecretPatch(patchData.ttsApiKey, current.ttsApiKey).slice(0, 4096),
-    sttApiKey: resolveSettingsSecretPatch(patchData.sttApiKey, current.sttApiKey).slice(0, 4096),
+    ttsApiKey: storeSettingsSecret(patchData.ttsApiKey, current.ttsApiKey),
+    sttApiKey: storeSettingsSecret(patchData.sttApiKey, current.sttApiKey),
     sttModel: String(patchData.sttModel ?? current.sttModel ?? "whisper-1").trim().slice(0, 200),
     sttLanguage: String(patchData.sttLanguage ?? current.sttLanguage ?? "").trim().slice(0, 24),
     samplerConfig: { ...current.samplerConfig, ...(patchData.samplerConfig ?? {}) },

@@ -18,6 +18,7 @@ import { RuntimeTuningSettings } from "./components/RuntimeTuningSettings";
 import { SpeechToTextSettings } from "./components/SpeechToTextSettings";
 import { TextToSpeechSettings } from "./components/TextToSpeechSettings";
 import { SettingRow, SettingsGroup, SettingSlider } from "./components/SettingRow";
+import { DataSettings } from "./components/DataSettings";
 import { SamplerPresetSettings } from "./components/SamplerPresetSettings";
 import { LocalModelsSetup } from "../../components/LocalModelsSetup";
 import { LegacyScreen } from "../legacy/public";
@@ -1487,7 +1488,7 @@ export function SettingsScreen({
                             onChange={(e) => setProviderManualModels(e.target.value)}
                             placeholder={"gpt-4.1\nmy-local-model\nclaude-sonnet"}
                             rows={4}
-                            className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary outline-none transition focus:border-accent"
+                            className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary outline-hidden transition focus:border-accent"
                           />
                           <div className="mt-1 text-[11px] text-text-tertiary">{t("settings.providerManualFallbackDesc")}</div>
                         </div>
@@ -2153,7 +2154,8 @@ export function SettingsScreen({
                 {([
                   { key: "useAlternateGreetings" as const, label: t("settings.altGreetingsRandom"), desc: t("settings.altGreetingsRandomDesc") },
                   { key: "mergeConsecutiveRoles" as const, label: t("settings.mergeRoles"), desc: t("settings.mergeRolesDesc") },
-                  { key: "includeReasoningInContext" as const, label: t("settings.includeReasoningInContext"), desc: t("settings.includeReasoningInContextDesc") }
+                  { key: "includeReasoningInContext" as const, label: t("settings.includeReasoningInContext"), desc: t("settings.includeReasoningInContextDesc") },
+                  { key: "replySuggestionsEnabled" as const, label: t("settings.replySuggestions"), desc: t("settings.replySuggestionsDesc") }
                 ]).map((item) => (
                   <SettingRow key={item.key} toggle label={item.label} description={item.desc}>
                     <ToggleSwitch ariaLabel={item.label} checked={settings[item.key] === true} onChange={(e) => patch({ [item.key]: e.target.checked })} />
@@ -2643,6 +2645,12 @@ export function SettingsScreen({
             </div>
           )}
 
+          {activeCategory === "data" && (
+            <div className="space-y-4">
+              <DataSettings />
+            </div>
+          )}
+
           {activeCategory === "legacy" && (
             <div id="settings-legacy" className="scroll-mt-24">
               <LegacyScreen
@@ -2850,7 +2858,7 @@ export function SettingsScreen({
                     {managedBackendLogs.length === 0 ? (
                       <div className="text-slate-400">{t("settings.backendLogsEmpty")}</div>
                     ) : managedBackendLogs.map((entry) => (
-                      <div key={entry.id} className="mb-1 whitespace-pre-wrap break-words">
+                      <div key={entry.id} className="mb-1 whitespace-pre-wrap wrap-break-word">
                         <span className={entry.stream === "stderr" ? "text-rose-300" : entry.stream === "system" ? "text-amber-300" : "text-slate-200"}>
                           [{entry.stream}] {entry.text}
                         </span>

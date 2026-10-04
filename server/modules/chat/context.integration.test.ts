@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import type { ChatContextPreview } from "../../../src/shared/types/chatContext.js";
+import type { ChatContextBudget, ChatContextPreview } from "../../../src/shared/types/chatContext.js";
 
 describe.sequential("chat context and telemetry integration", () => {
   let folder: string, base: string, providerUrl: string;
@@ -51,6 +51,11 @@ describe.sequential("chat context and telemetry integration", () => {
       if (req.url === "/tokenize") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ tokens: Array.from({ length: 77 }, (_, i) => i) })); return; }
       lastBody = body; requestCount++;
       if (rejectUsage && body.stream_options) { res.writeHead(400); res.end(JSON.stringify({ error: "Unsupported stream_options" })); return; }
+      if (!body.stream && JSON.stringify(body.messages || []).includes("Reply suggestions task")) {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ choices: [{ message: { content: "<think>plan</think>[\"Ask about the map\", \"Draw the sword\", \"ask about the map\"]" } }] }));
+        return;
+      }
       if (!body.stream) { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ choices: [{ message: { content: "Summary from mock" } }] })); return; }
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "Mock " } }] })}\n\n`);
@@ -160,6 +165,44 @@ describe.sequential("chat context and telemetry integration", () => {
       expect(requestCount).toBe(requests);
       expect(db.prepare("SELECT count(*) AS n FROM messages WHERE chat_id = ?").get(chat.id)).toEqual({ n: 0 });
     } finally { db.prepare("UPDATE providers SET llama_cpp_management_enabled = 0 WHERE id = 'context-mock'").run(); }
+  });
+
+  it("serves a lightweight branch budget that matches the full preview", async () => {
+    const chat = await json("/api/chats", { title: "Budget meter" });
+    const full = await preview(chat.id);
+    const requests = requestCount;
+    const budget = await json(`/api/chats/${chat.id}/context/budget?branchId=${encodeURIComponent(full.branchId)}`, undefined, "GET") as ChatContextBudget;
+    expect(budget).toEqual({ branchId: full.branchId, contextWindowSize: full.effective.contextWindowSize, reservedOutputTokens: full.reservedOutputTokens });
+    expect(requestCount).toBe(requests);
+
+    await json(`/api/chats/${chat.id}/context`, { branchId: full.branchId, config: { contextWindowSize: 4096, maxOutputTokens: 512 } }, "PATCH");
+    const overridden = await json(`/api/chats/${chat.id}/context/budget?branchId=${encodeURIComponent(full.branchId)}`, undefined, "GET") as ChatContextBudget;
+    expect(overridden).toMatchObject({ contextWindowSize: 4096, reservedOutputTokens: 512 });
+
+    const other = await json("/api/chats", { title: "Budget other" });
+    expect((await request(`/api/chats/${other.id}/context/budget?branchId=${encodeURIComponent(full.branchId)}`, undefined, "GET")).status).toBe(404);
+    expect((await request(`/api/chats/${chat.id}/context/budget?branchId=a&branchId=b`, undefined, "GET")).status).toBe(400);
+  });
+
+  it("suggests user replies only when enabled and only after a character reply", async () => {
+    const chat = await json("/api/chats", { title: "Suggestions" });
+    const branchId = (await preview(chat.id)).branchId;
+    expect((await request(`/api/chats/${chat.id}/reply-suggestions`, { branchId })).status).toBe(409);
+    await settings({ replySuggestionsEnabled: true });
+    try {
+      expect(await json(`/api/chats/${chat.id}/reply-suggestions`, { branchId })).toEqual({ messageId: null, suggestions: [] });
+      const timeline = await send(chat.id, "Hello there");
+      const lastAssistant = [...timeline].reverse().find((message: { role: string }) => message.role === "assistant");
+      const requests = requestCount;
+      const result = await json(`/api/chats/${chat.id}/reply-suggestions`, { branchId, userName: "Reader" });
+      expect(result).toEqual({ messageId: lastAssistant.id, suggestions: ["Ask about the map", "Draw the sword"] });
+      expect(requestCount).toBe(requests + 1);
+      expect(JSON.stringify(lastBody.messages)).toContain("Reader: Hello there");
+      const other = await json("/api/chats", { title: "Other suggestions" });
+      expect((await request(`/api/chats/${other.id}/reply-suggestions`, { branchId })).status).toBe(404);
+    } finally {
+      await settings({ replySuggestionsEnabled: false });
+    }
   });
 
   it("retries only an explicit unsupported usage option and rejects foreign/missing branches", async () => {

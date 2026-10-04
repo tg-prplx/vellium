@@ -2,7 +2,7 @@ import type { BranchNode, ChatMessage, ChatSession, FileAttachment, PromptBlock,
 import type { LiveAvatarControlCapabilities } from "../types/inochiAvatar";
 import { del, get, patchReq, post, put, requestBlob, streamNdjson, streamPost, type StreamCallbacks } from "./core";
 
-import type { ChatContextConfig, ChatContextPreview } from "../types/chatContext";
+import type { ChatContextBudget, ChatContextConfig, ChatContextPreview } from "../types/chatContext";
 
 type UserPersonaPayload = Pick<UserPersona, "name" | "description" | "personality" | "scenario">;
 export type TtsStreamEvent =
@@ -72,6 +72,9 @@ export const chatClient = {
   chatSelectVariant: (chatId: string, messageId: string, direction: -1 | 1, branchId?: string) =>
     post<ChatMessage[]>(`/chats/${chatId}/variants`, { messageId, direction, branchId }),
   chatPreviewContext: (chatId: string, options: { branchId?: string; draft?: string; attachments?: FileAttachment[]; userPersona?: UserPersonaPayload | null; liveAvatar?: LiveAvatarControlCapabilities | null }, signal?: AbortSignal) => post<ChatContextPreview>(`/chats/${chatId}/context/preview`, options, { signal, timeoutMs: 0 }),
+  chatReplySuggestions: (chatId: string, branchId: string, userName: string | undefined, signal?: AbortSignal) =>
+    post<{ messageId: string | null; suggestions: string[] }>(`/chats/${chatId}/reply-suggestions`, { branchId, userName }, { signal, timeoutMs: 60_000 }),
+  chatContextBudget: (chatId: string, branchId: string, signal?: AbortSignal) => get<ChatContextBudget>(`/chats/${chatId}/context/budget?branchId=${encodeURIComponent(branchId)}`, { signal }),
   chatUpdateContext: (chatId: string, branchId: string, config: ChatContextConfig, reset = false) => patchReq<{ config: ChatContextConfig }>(`/chats/${chatId}/context`, { branchId, config, reset }),
   chatCompressContext: (chatId: string, branchId?: string) => post<{ summary: string }>(`/chats/${chatId}/compress`, { branchId }),
   chatFork: (chatId: string, parentMessageId: string, name: string) => post<BranchNode>(`/chats/${chatId}/fork`, { parentMessageId, name }),

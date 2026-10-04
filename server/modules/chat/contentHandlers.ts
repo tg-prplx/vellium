@@ -9,6 +9,8 @@ import { contextBranch } from "./contextHandlers.js";
 import { getContextConfig, saveContextConfig } from "./contextConfig.js";
 import { splitRealtimeTtsInput } from "./ttsRealtime.js";
 import { streamOpenAiCompatibleTts } from "./ttsUpstreamStream.js";
+import { getProviderRow } from "../../services/providerStore.js";
+import { readSettingsSecret } from "../../services/settingsSecrets.js";
 
 function isAbortLikeError(error: unknown): boolean {
   return error instanceof Error && (
@@ -58,7 +60,7 @@ export async function compressChat(req: Request, res: Response) {
     return;
   }
 
-  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  const provider = getProviderRow<ProviderRow>(providerId);
   if (!provider) {
     res.json({ summary: "" });
     return;
@@ -117,7 +119,7 @@ export async function translateMessage(req: Request, res: Response) {
     return;
   }
 
-  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  const provider = getProviderRow<ProviderRow>(providerId);
   if (!provider) {
     res.json({ translation: message.content });
     return;
@@ -197,7 +199,7 @@ export async function ttsTextRealtime(req: Request, res: Response) {
 async function streamTtsText(input: string, req: Request, res: Response) {
   const settings = getSettings();
   const rawBaseUrl = String(settings.ttsBaseUrl || "").trim();
-  const apiKey = String(settings.ttsApiKey || "").trim();
+  const apiKey = readSettingsSecret(settings.ttsApiKey);
   const adapterId = String(settings.ttsAdapterId || "").trim();
   const isLocalInference = rawBaseUrl === LOCAL_INFERENCE_URL;
   const baseUrl = adapterId || isLocalInference ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);
@@ -327,7 +329,7 @@ async function synthesizeTtsText(input: string, req: Request, res: Response, ove
 async function synthesizeTtsAudio(input: string, signal?: AbortSignal, overrides: TtsOverrides = {}): Promise<{ contentType: string; buffer: Buffer }> {
   const settings = getSettings();
   const rawBaseUrl = String(settings.ttsBaseUrl || "").trim();
-  const apiKey = String(settings.ttsApiKey || "").trim();
+  const apiKey = readSettingsSecret(settings.ttsApiKey);
   const adapterId = String(settings.ttsAdapterId || "").trim();
   const isLocalInference = rawBaseUrl === LOCAL_INFERENCE_URL;
   const baseUrl = adapterId || isLocalInference ? rawBaseUrl : normalizeOpenAiBaseUrl(rawBaseUrl);

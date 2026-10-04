@@ -7,6 +7,7 @@ import {
   type ProviderRow,
   type WriterSampler
 } from "./defs.js";
+import { getProviderRow } from "../../services/providerStore.js";
 
 export function getWriterSettings() {
   const row = db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string };
@@ -29,7 +30,7 @@ export async function callWriterLlm(systemPrompt: string, userPrompt: string, sa
     return `[No LLM configured] Placeholder for: ${userPrompt.slice(0, 100)}`;
   }
 
-  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  const provider = getProviderRow<ProviderRow>(providerId);
   if (!provider) return "[Provider not found]";
 
   try {

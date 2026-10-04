@@ -52,10 +52,14 @@ import { getChatRagBinding, setChatRagBinding } from "../services/rag.js";
 import { exportChatJson } from "../modules/chat/exportChat.js";
 import { readCharacterSceneDefaults } from "../modules/chat/characterSceneDefaults.js";
 
-import { previewChatContext, updateChatContext } from "../modules/chat/contextHandlers.js";
+import { getChatContextBudget, previewChatContext, updateChatContext } from "../modules/chat/contextHandlers.js";
+import { suggestReplies } from "../modules/chat/replySuggestions.js";
+import { getProviderRow } from "../services/providerStore.js";
 
 const router = Router();
 router.post("/:id/context/preview", previewChatContext);
+router.get("/:id/context/budget", getChatContextBudget);
+router.post("/:id/reply-suggestions", suggestReplies);
 router.patch("/:id/context", updateChatContext);
 
 // --- Routes ---
@@ -166,7 +170,7 @@ router.post("/desktop-pet/reply", async (req, res) => {
     return;
   }
 
-  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  const provider = getProviderRow<ProviderRow>(providerId);
   if (!provider) {
     res.json({ reply: "[Provider not found] Configure a provider in Settings." });
     return;
@@ -380,7 +384,7 @@ router.post("/:id/send", async (req, res: Response) => {
   const settings = getSettings();
   const activeProviderId = String(settings.activeProviderId || "").trim();
   const activeProvider = activeProviderId
-    ? db.prepare("SELECT * FROM providers WHERE id = ?").get(activeProviderId) as ProviderRow | undefined
+    ? getProviderRow<ProviderRow>(activeProviderId)
     : undefined;
   const userTokenCount = await countProviderTokensDetailed(
     activeProvider,

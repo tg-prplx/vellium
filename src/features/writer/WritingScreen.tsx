@@ -1350,11 +1350,11 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
                       <>
                         <button onClick={() => openProject(project)} className="flex min-w-0 flex-1 text-left">
                           <div className="min-w-0 flex-1">
-                            <div className="break-words whitespace-normal text-sm font-medium leading-snug">{project.name || t("writing.untitledBook")}</div>
-                            <div className="mt-0.5 break-words text-[11px] text-text-tertiary">{project.description}</div>
+                            <div className="wrap-break-word whitespace-normal text-sm font-medium leading-snug">{project.name || t("writing.untitledBook")}</div>
+                            <div className="mt-0.5 wrap-break-word text-[11px] text-text-tertiary">{project.description}</div>
                           </div>
                         </button>
-                        <div className={`flex flex-shrink-0 items-center gap-0.5 ${
+                        <div className={`flex shrink-0 items-center gap-0.5 ${
                           activeProject?.id === project.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
                         }`}>
                           <button
@@ -1442,7 +1442,7 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
                             selectedChapterId === ch.id ? "font-medium text-text-primary" : "text-text-secondary"
                           }`}
                         >
-                          <span className="break-words whitespace-normal">{ch.title}</span>
+                          <span className="wrap-break-word whitespace-normal">{ch.title}</span>
                         </button>
                         <div className={`flex items-center gap-0.5 ${
                           selectedChapterId === ch.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"
@@ -1713,7 +1713,7 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
             <button
               onClick={generateDraft}
               disabled={!selectedChapterId || busy}
-              className="flex-shrink-0 rounded-lg bg-accent px-3 py-2 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40"
+              className="shrink-0 rounded-lg bg-accent px-3 py-2 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover disabled:opacity-40"
             >
               {t("writing.generate")}
             </button>
@@ -1902,7 +1902,7 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
                           ) : (
                             <div className="mb-1.5 flex items-start gap-1.5">
                               <button
-                                className="min-w-0 flex-1 break-words text-left text-xs font-semibold text-text-primary hover:text-accent"
+                                className="min-w-0 flex-1 wrap-break-word text-left text-xs font-semibold text-text-primary hover:text-accent"
                                 onClick={() => setSelectedChapterId(chapter.id)}
                               >
                                 {chapter.title}

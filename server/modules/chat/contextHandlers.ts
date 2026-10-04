@@ -2,17 +2,19 @@ import type { Request, Response } from "express";
 import { db } from "../../db.js";
 import { buildChatContext } from "./buildChatContext.js";
 import { getContextConfig, normalizeContextConfig, saveContextConfig } from "./contextConfig.js";
+import { resolveContextBudget } from "./contextBudget.js";
 import { tokenizeContext, koboldContext } from "./contextTokenization.js";
 import { normalizeProviderType } from "../../services/providerApi.js";
-import { getTimeline, type ProviderRow } from "./routeHelpers.js";
+import { getSettings, getTimeline, type ProviderRow } from "./routeHelpers.js";
 import { sanitizeAttachments, selectFirstResponderByMention } from "./attachments.js";
 import { activeAbortControllers } from "./chatOrchestrator.js";
-import type { ChatContextPreview } from "../../../src/shared/types/chatContext.js";
+import type { ChatContextBudget, ChatContextPreview } from "../../../src/shared/types/chatContext.js";
+import { getProviderRow } from "../../services/providerStore.js";
 
 /** Resolve only an existing branch belonging to this chat; previews never create data. */
 export function contextBranch(req: Request, res: Response): string | null {
   const chatId = String(req.params.id);
-  const requested = req.body?.branchId;
+  const requested = req.body?.branchId ?? req.query?.branchId;
   if (requested !== undefined && requested !== null && (typeof requested !== "string" || requested.length > 100)) {
     res.status(400).json({ error: "Invalid branch ID" });
     return null;
@@ -39,7 +41,7 @@ export async function previewChatContext(req: Request, res: Response) {
       userPersona: req.body?.userPersona, liveAvatar: req.body?.liveAvatar,
       overrideCharacterName: ids.length > 1 ? selectFirstResponderByMention(content, cards.map(card => card.name)) ?? cards[0]?.name : undefined
     });
-    const provider = context.providerId ? db.prepare("SELECT * FROM providers WHERE id = ?").get(context.providerId) as ProviderRow | undefined : undefined;
+    const provider = context.providerId ? getProviderRow<ProviderRow>(context.providerId) : undefined;
     const hasTools = context.settings.toolCallingEnabled && context.settings.mcpAutoAttachTools !== false && context.settings.mcpServers.length > 0;
     const counted = provider && !context.hasImages && !hasTools ? await tokenizeContext(provider, context.messages, context.samplerConfig, context.settings.apiParamPolicy) : null;
     const inputTokens = counted ?? context.inputTokens;
@@ -57,6 +59,15 @@ export async function previewChatContext(req: Request, res: Response) {
     };
     res.json(result);
   } catch (error) { res.status(500).json({ error: error instanceof Error ? error.message : "Context preview failed" }); }
+}
+
+/** Cheap budget lookup for the composer meter: DB reads only, no prompt assembly, RAG or tokenizer calls. */
+export function getChatContextBudget(req: Request, res: Response) {
+  const branchId = contextBranch(req, res);
+  if (!branchId) return;
+  const { contextWindowSize, reservedOutputTokens } = resolveContextBudget(String(req.params.id), branchId, getSettings());
+  const result: ChatContextBudget = { branchId, contextWindowSize, reservedOutputTokens };
+  res.json(result);
 }
 
 export function updateChatContext(req: Request, res: Response) {

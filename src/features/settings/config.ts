@@ -1,6 +1,6 @@
 import type { ApiParamPolicy, AppSettings, PromptBlock } from "../../shared/types/contracts";
 
-export type SettingsCategory = "connection" | "backends" | "voice" | "interface" | "generation" | "context" | "prompts" | "tools" | "legacy";
+export type SettingsCategory = "connection" | "backends" | "voice" | "interface" | "data" | "generation" | "context" | "prompts" | "tools" | "legacy";
 
 export interface SettingsSectionLink {
   id: string;
@@ -115,6 +115,7 @@ export function buildSettingsNavigation(t: (key: any) => string) {
     { id: "backends", label: t("settings.categoryBackends"), description: t("settings.categoryBackendsDesc"), group: "main", icon: "M4 7h16M4 12h16M4 17h16M8 4v16m8-16v16" },
     { id: "voice", label: t("settings.categoryVoice"), description: t("settings.categoryVoiceDesc"), group: "main", icon: "M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zm-6 9a6 6 0 0012 0M12 18v3m-3 0h6" },
     { id: "interface", label: t("settings.categoryInterface"), description: t("settings.categoryInterfaceDesc"), group: "main", icon: "M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" },
+    { id: "data", label: t("settings.categoryData"), description: t("settings.categoryDataDesc"), group: "main", icon: "M4 7c0-1.657 3.582-3 8-3s8 1.343 8 3-3.582 3-8 3-8-1.343-8-3zm0 0v10c0 1.657 3.582 3 8 3s8-1.343 8-3V7M4 12c0 1.657 3.582 3 8 3s8-1.343 8-3" },
     { id: "context", label: t("settings.categoryContext"), description: t("settings.categoryContextDesc"), group: "main", icon: "M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" },
     { id: "generation", label: t("settings.categoryGeneration"), description: t("settings.categoryGenerationDesc"), group: "advanced", icon: "M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" },
     { id: "prompts", label: t("settings.categoryPrompts"), description: t("settings.categoryPromptsDesc"), group: "advanced", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
@@ -144,6 +145,10 @@ export function buildSettingsNavigation(t: (key: any) => string) {
       { id: "settings-wallpaper", label: t("settings.wallpaperTitle") },
       { id: "settings-text-language", label: t("settings.textAndLanguage") },
       { id: "settings-application", label: t("settings.application") }
+    ],
+    data: [
+      { id: "settings-data-profiles", label: t("data.profiles") },
+      { id: "settings-data-backups", label: t("data.backups") }
     ],
     generation: [
       { id: "settings-output-behaviour", label: t("settings.outputBehaviour") },

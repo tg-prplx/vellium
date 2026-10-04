@@ -8,6 +8,7 @@ import {
   sanitizePluginRuntimeSamplerConfig
 } from "../services/requestSecurity.js";
 import { unifiedGenerateText, type UnifiedGenerateMessage } from "../services/unifiedGeneration.js";
+import { getProviderRow } from "../services/providerStore.js";
 
 const router = Router();
 
@@ -71,7 +72,7 @@ router.post("/generate", async (req, res) => {
     res.status(400).json({ error: "providerId and modelId are required (or set active provider/model first)" });
     return;
   }
-  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  const provider = getProviderRow<ProviderRow>(providerId);
   if (!provider) {
     res.status(404).json({ error: "Provider not found" });
     return;

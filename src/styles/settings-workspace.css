@@ -737,15 +737,6 @@
 }
 
 /* Smooth transitions for panels */
-@layer utilities {
-  .panel {
-    @apply rounded-xl border border-border bg-bg-secondary;
-  }
-
-  .panel-inset {
-    @apply rounded-lg border border-border-subtle bg-bg-primary;
-  }
-}
 
 .plugin-frame,
 .plugin-tab-frame {

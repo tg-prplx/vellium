@@ -14,6 +14,7 @@
 @import "./styles/modals.css";
 @import "./styles/simple-chat.css";
 @import "./styles/settings-workspace.css";
+@import "./styles/settings-workspace.utilities.css";
 @import "./styles/simple-mode.css";
 @import "./styles/workspace-surfaces.css";
 @import "./styles/responsive-layout.css";

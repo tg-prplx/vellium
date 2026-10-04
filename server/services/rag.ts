@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { db, isLocalhostUrl, newId, now, roughTokenCount } from "../db.js";
+import { getProviderRow } from "./providerStore.js";
 
 interface ProviderRow {
   id: string;
@@ -225,7 +226,7 @@ function resolveEmbeddingProvider(settings: Record<string, unknown>): { provider
   const providerId = String(settings.ragProviderId || settings.activeProviderId || "").trim();
   const model = String(settings.ragModel || "").trim();
   if (!providerId || !model) return null;
-  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  const provider = getProviderRow<ProviderRow>(providerId);
   if (!provider) return null;
   const fullLocalMode = settings.fullLocalMode === true;
   if (fullLocalMode && !isLocalhostUrl(provider.base_url)) return null;
@@ -257,7 +258,7 @@ function resolveRerankerProvider(settings: Record<string, unknown>): { provider:
   const providerId = String(settings.ragRerankProviderId || settings.ragProviderId || settings.activeProviderId || "").trim();
   const model = String(settings.ragRerankModel || "").trim();
   if (!providerId || !model) return null;
-  const provider = db.prepare("SELECT * FROM providers WHERE id = ?").get(providerId) as ProviderRow | undefined;
+  const provider = getProviderRow<ProviderRow>(providerId);
   if (!provider) return null;
   const fullLocalMode = settings.fullLocalMode === true;
   if (fullLocalMode && !isLocalhostUrl(provider.base_url)) return null;

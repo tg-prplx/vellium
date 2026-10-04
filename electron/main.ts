@@ -10,6 +10,7 @@ import { LocalModelInstaller } from "./localModelInstaller";
 import { LOCAL_LLAMA_BACKEND_ID } from "../src/shared/localModelConfig";
 import { registerLocalModelIpc } from "./localModelIpc";
 import { registerLlamaCppIpc } from "./llamaCppIpc";
+import { registerAppLifecycleIpc } from "./appLifecycleIpc";
 import { createIpcSenderGuard, decodeBoundedBase64, isAllowedExternalUrl } from "./security";
 import { buildDesktopPetHtml } from "./desktopPet/html";
 import { transcribeDesktopPetAudio } from "./desktopPet/live";
@@ -106,6 +107,7 @@ registerLiveMediaIpc(assertTrustedIpcSender, () => mainWindow);
 registerLocalModelIpc(localModelInstaller, assertTrustedIpcSender);
 registerManagedBackendIpc(managedBackendManager, assertTrustedIpcSender);
 registerLlamaCppIpc(assertTrustedIpcSender, () => mainWindow);
+registerAppLifecycleIpc(assertTrustedIpcSender);
 
 const SERVER_PORT = runtimeOptions.port;
 const SERVER_HOST = runtimeOptions.host;

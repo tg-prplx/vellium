@@ -1,7 +1,7 @@
 {
   "name": "vellium",
   "private": true,
-  "version": "1.7.0",
+  "version": "1.8.0",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -51,6 +51,7 @@
     "uuid": "^11.1.1"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/better-sqlite3": "^7.6.12",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
@@ -60,13 +61,12 @@
     "@types/unzipper": "^0.10.11",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^6.0.1",
-    "autoprefixer": "^10.4.20",
     "concurrently": "^9.2.4",
     "electron": "^41.10.7",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "postcss": "^8.5.14",
-    "tailwindcss": "^3.4.13",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.19.0",
     "typescript": "^5.6.2",
     "vite": "8.0.16",

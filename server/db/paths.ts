@@ -1,12 +1,16 @@
 import { mkdirSync, existsSync } from "fs";
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
+import { resolveActiveProfile } from "./profiles.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function resolveDefaultDataDir() {
   if (process.env.SLV_DATA_DIR) {
     return process.env.SLV_DATA_DIR;
+  }
+  if (process.env.VITEST) {
+    throw new Error("Tests must set SLV_DATA_DIR to a temporary directory before importing server code.");
   }
   const cwdPackageJson = resolve(process.cwd(), "package.json");
   if (existsSync(cwdPackageJson)) {
@@ -40,7 +44,15 @@ function resolveBundledPluginsDir() {
   return candidates[0] || resolve(__dirname, "..", "..", "data", "bundled-plugins");
 }
 
-export const DATA_DIR = resolveDefaultDataDir();
+/** Installation-level root: holds profile data and the secret key directory. */
+export const DATA_ROOT = resolveDefaultDataDir();
+export const KEYS_DIR = join(DATA_ROOT, "keys");
+export const BACKUPS_DIR = join(DATA_ROOT, "backups");
+const activeProfile = resolveActiveProfile(DATA_ROOT);
+/** Active profile id, fixed for the process lifetime (switching restarts the app). */
+export const ACTIVE_PROFILE_ID = activeProfile.id;
+/** Data directory of the active profile: database, media, plugins and exports. */
+export const DATA_DIR = activeProfile.dir;
 export const AVATARS_DIR = join(DATA_DIR, "avatars");
 export const UPLOADS_DIR = join(DATA_DIR, "uploads");
 export const PLUGINS_DIR = join(DATA_DIR, "plugins");
