@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAllowedRequestOrigin } from "./requestOrigin.js";
+import { isAllowedRequestHost, isAllowedRequestOrigin } from "./requestOrigin.js";
 
 const packagedPolicy = {
   publicMode: false,
@@ -40,5 +40,30 @@ describe("isAllowedRequestOrigin", () => {
     };
     expect(isAllowedRequestOrigin("https://vellium.example", policy)).toBe(true);
     expect(isAllowedRequestOrigin("https://attacker.example", policy)).toBe(false);
+  });
+});
+
+describe("isAllowedRequestHost", () => {
+  it("accepts loopback hosts and non-browser requests without Host", () => {
+    expect(isAllowedRequestHost("127.0.0.1:3001", packagedPolicy)).toBe(true);
+    expect(isAllowedRequestHost("localhost:3001", packagedPolicy)).toBe(true);
+    expect(isAllowedRequestHost("[::1]:3001", packagedPolicy)).toBe(true);
+    expect(isAllowedRequestHost(undefined, packagedPolicy)).toBe(true);
+  });
+
+  it("rejects DNS-rebinding hosts in local mode", () => {
+    expect(isAllowedRequestHost("attacker.example:3001", packagedPolicy)).toBe(false);
+    expect(isAllowedRequestHost("127.0.0.1.attacker.example", packagedPolicy)).toBe(false);
+    expect(isAllowedRequestHost("", packagedPolicy)).toBe(false);
+  });
+
+  it("accepts explicitly configured hosts and allowlisted origins", () => {
+    expect(isAllowedRequestHost("vellium.lan:3001", { ...packagedPolicy, serverHost: "vellium.lan" })).toBe(true);
+    expect(isAllowedRequestHost("vellium.example", { ...packagedPolicy, allowedOrigins: ["https://vellium.example"] })).toBe(true);
+    expect(isAllowedRequestHost("0.0.0.0:3001", { ...packagedPolicy, serverHost: "0.0.0.0" })).toBe(false);
+  });
+
+  it("leaves host trust to mandatory Basic Auth in public mode", () => {
+    expect(isAllowedRequestHost("vellium.example", { ...packagedPolicy, publicMode: true, serverHost: "0.0.0.0" })).toBe(true);
   });
 });

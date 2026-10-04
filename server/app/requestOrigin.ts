@@ -48,6 +48,44 @@ function isTrustedDevelopmentOrigin(origin: URL): boolean {
   return origin.protocol === "http:" && isLoopbackHostname(origin.hostname) && origin.port === "1420";
 }
 
+function parseHostHeaderHostname(rawHost: string): string | null {
+  try {
+    return normalizeConfiguredHost(new URL(`http://${rawHost.trim()}`).hostname);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * DNS-rebinding guard: a browser that reaches the local server through an
+ * attacker-controlled domain sends that domain as Host (and omits Origin on
+ * same-origin GETs), so local mode only answers loopback/configured hosts.
+ * Public mode is gated by mandatory Basic Auth, whose browser credentials are
+ * never sent to a rebinding origin.
+ */
+export function isAllowedRequestHost(
+  rawHost: string | undefined,
+  policy: RequestOriginPolicy
+): boolean {
+  if (policy.publicMode) return true;
+  if (rawHost === undefined) return true;
+  const hostname = parseHostHeaderHostname(rawHost);
+  if (!hostname) return false;
+  if (isLoopbackHostname(hostname)) return true;
+  const configuredHost = normalizeConfiguredHost(policy.serverHost);
+  if (configuredHost && configuredHost !== "0.0.0.0" && configuredHost !== "::" && hostname === configuredHost) {
+    return true;
+  }
+  for (const rawOrigin of policy.allowedOrigins || []) {
+    try {
+      if (normalizeConfiguredHost(new URL(rawOrigin).hostname) === hostname) return true;
+    } catch {
+      // Ignore malformed allowlist entries instead of weakening the check.
+    }
+  }
+  return false;
+}
+
 export function isAllowedRequestOrigin(
   rawOrigin: string | undefined,
   policy: RequestOriginPolicy

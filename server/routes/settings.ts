@@ -11,6 +11,7 @@ import { createRequestTimeout } from "../services/requestTimeout.js";
 import { LOCAL_INFERENCE_URL } from "../services/localInference.js";
 import { LOCAL_TERATTS_MODEL_ID, LOCAL_TERATTS_VOICES } from "../../src/shared/localModelConfig.js";
 import { normalizeSamplerPresets } from "../../src/shared/samplerPresets.js";
+import { maskSettingsSecrets, resolveDiscoverySecret, resolveSettingsSecretPatch } from "../services/settingsSecrets.js";
 
 const router = Router();
 
@@ -340,8 +341,8 @@ function normalizeMcpServer(raw: unknown, fallbackIndex = 1): McpServerConfig | 
   const url = String(row.url || "").trim();
   const command = String(row.command || row.cmd || (url ? "npx" : "")).trim();
   const args = normalizeArgs(row.args || row.arguments || (url ? `-y mcp-remote ${url}` : ""));
-  if (describeBlockedMcpLaunch(command, args)) return null;
   const env = normalizeEnv(row.env);
+  if (describeBlockedMcpLaunch(command, args, env)) return null;
   const cwd = String(row.cwd || "").trim();
   const timeoutMsRaw = Number(row.timeoutMs);
   const defaultTimeout = url ? 45000 : 15000;
@@ -439,7 +440,7 @@ router.use("/mcp", (req, res, next) => {
 });
 
 router.get("/", (_req, res) => {
-  res.json(getSettings());
+  res.json(maskSettingsSecrets(getSettings()));
 });
 
 router.patch("/", (req, res) => {
@@ -507,7 +508,8 @@ router.patch("/", (req, res) => {
       ? "whisper"
       : patchData.sttSource === "system" ? "system" : current.sttSource,
     sttBaseUrl: String(patchData.sttBaseUrl ?? current.sttBaseUrl ?? "").trim().slice(0, 2048),
-    sttApiKey: String(patchData.sttApiKey ?? current.sttApiKey ?? "").trim().slice(0, 4096),
+    ttsApiKey: resolveSettingsSecretPatch(patchData.ttsApiKey, current.ttsApiKey).slice(0, 4096),
+    sttApiKey: resolveSettingsSecretPatch(patchData.sttApiKey, current.sttApiKey).slice(0, 4096),
     sttModel: String(patchData.sttModel ?? current.sttModel ?? "whisper-1").trim().slice(0, 200),
     sttLanguage: String(patchData.sttLanguage ?? current.sttLanguage ?? "").trim().slice(0, 24),
     samplerConfig: { ...current.samplerConfig, ...(patchData.samplerConfig ?? {}) },
@@ -552,14 +554,19 @@ router.patch("/", (req, res) => {
     )
   };
   db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(updated));
-  res.json(updated);
+  res.json(maskSettingsSecrets(updated));
 });
 
 router.post("/tts/models", async (req, res) => {
   const current = getSettings();
   const body = req.body as { baseUrl?: unknown; apiKey?: unknown; adapterId?: unknown } | undefined;
   const baseUrl = String(body?.baseUrl ?? current.ttsBaseUrl ?? "").trim();
-  const apiKey = String(body?.apiKey ?? current.ttsApiKey ?? "").trim();
+  const apiKey = resolveDiscoverySecret({
+    requestedKey: body?.apiKey,
+    requestedBaseUrl: baseUrl,
+    storedKey: current.ttsApiKey,
+    storedBaseUrl: current.ttsBaseUrl
+  });
   const adapterId = String(body?.adapterId ?? current.ttsAdapterId ?? "").trim();
 
   if (!baseUrl) {
@@ -597,7 +604,12 @@ router.post("/tts/voices", async (req, res) => {
   const current = getSettings();
   const body = req.body as { baseUrl?: unknown; apiKey?: unknown; adapterId?: unknown } | undefined;
   const baseUrl = String(body?.baseUrl ?? current.ttsBaseUrl ?? "").trim();
-  const apiKey = String(body?.apiKey ?? current.ttsApiKey ?? "").trim();
+  const apiKey = resolveDiscoverySecret({
+    requestedKey: body?.apiKey,
+    requestedBaseUrl: baseUrl,
+    storedKey: current.ttsApiKey,
+    storedBaseUrl: current.ttsBaseUrl
+  });
   const adapterId = String(body?.adapterId ?? current.ttsAdapterId ?? "").trim();
 
   if (!baseUrl) {
@@ -635,7 +647,12 @@ router.post("/stt/models", async (req, res) => {
   const current = getSettings();
   const body = req.body as { baseUrl?: unknown; apiKey?: unknown } | undefined;
   const baseUrl = String(body?.baseUrl ?? current.sttBaseUrl ?? "").trim();
-  const apiKey = String(body?.apiKey ?? current.sttApiKey ?? "").trim();
+  const apiKey = resolveDiscoverySecret({
+    requestedKey: body?.apiKey,
+    requestedBaseUrl: baseUrl,
+    storedKey: current.sttApiKey,
+    storedBaseUrl: current.sttBaseUrl
+  });
   if (!baseUrl) {
     res.json([]);
     return;

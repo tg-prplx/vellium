@@ -61,4 +61,13 @@ describe("buildPluginAssetHeaders", () => {
     expect(headers["Content-Security-Policy"]).toContain("default-src 'none'");
     expect(headers["X-Content-Type-Options"]).toBe("nosniff");
   });
+
+  it("forces an opaque origin for plugin documents opened outside the sandboxed iframe", () => {
+    for (const ext of ["html", "htm", "xhtml"]) {
+      expect(buildPluginAssetHeaders(ext)["Content-Security-Policy"]).toMatch(/; sandbox allow-scripts allow-forms allow-downloads$/);
+    }
+    const svgPolicy = buildPluginAssetHeaders("svg")["Content-Security-Policy"];
+    expect(svgPolicy).toMatch(/; sandbox$/);
+    expect(svgPolicy).not.toContain("script-src");
+  });
 });

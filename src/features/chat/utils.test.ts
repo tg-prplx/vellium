@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FileAttachment } from "../../shared/types/contracts";
-import { imageSourceFromAttachment, normalizeReasoningDisplayText, parseToolCallContent, parseToolResultDisplay, renderContentWithFallback, renderMarkdown } from "./utils";
+import { imageSourceFromAttachment, normalizeReasoningDisplayText, parseToolCallContent, parseToolResultDisplay, renderContent, renderContentWithFallback, renderMarkdown } from "./utils";
 
 const originalWindow = globalThis.window;
 
@@ -106,5 +106,30 @@ describe("chat content rendering", () => {
 
     expect(html).toContain("![generated]");
     expect(html).not.toBe("");
+  });
+
+  const strict = { sanitizeMarkdown: true, allowExternalLinks: false, allowRemoteImages: false, allowUnsafeUploads: false };
+
+  it("treats protocol-relative and whitespace-obfuscated URLs as remote", () => {
+    for (const url of ["//tracker.example/p.png", "/\\tracker.example/p.png", "/\t/tracker.example/p.png"]) {
+      const html = renderContent(`![x](<${url}>) [l](<${url}>)`, undefined, undefined, strict);
+      expect(html, url).not.toContain("tracker.example\"");
+      expect(html, url).not.toContain("<img");
+      expect(html, url).not.toContain("<a ");
+    }
+    expect(renderContent("![x](/api/uploads/a.png)", undefined, undefined, strict)).toContain('src="/api/uploads/a.png"');
+  });
+
+  it("only lets loopback images bypass the remote-image setting", () => {
+    expect(renderContent("![x](http://127.0.0.1:7860/file=out.png)", undefined, undefined, strict)).toContain("<img");
+    expect(renderContent("![x](http://192.168.1.1/reboot.cgi)", undefined, undefined, strict)).not.toContain("<img");
+    expect(renderContent("![x](http://nas.local/a.png)", undefined, undefined, strict)).not.toContain("<img");
+  });
+
+  it("allowlists inline HTML when strict sanitization is disabled", () => {
+    const relaxed = { ...strict, sanitizeMarkdown: false };
+    const html = renderContent('<span style="color:red">Hi</span> <img src=x onerror=alert(1)> <script>alert(2)</script> [l](javascript:alert(3))', undefined, undefined, relaxed);
+    expect(html).toContain('<span style="color:red">Hi</span>');
+    expect(html).not.toMatch(/<img|<script|onerror|javascript:/i);
   });
 });

@@ -1,6 +1,7 @@
 import type { TranslationKey } from "../../../shared/i18n";
 import type { AppSettings } from "../../../shared/types/contracts";
-import { FieldLabel, InputField } from "./FormControls";
+import { InputField } from "./FormControls";
+import { SettingRow, SettingsGroup } from "./SettingRow";
 
 interface RuntimeTuningSettingsProps {
   group: "generation" | "context";
@@ -19,38 +20,56 @@ function clampedDecimal(value: string, fallback: number, min: number, max: numbe
   return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
 }
 
+type NumericSetting = {
+  key: keyof AppSettings;
+  label: TranslationKey;
+  min: number;
+  max: number;
+  decimal?: boolean;
+};
+
+const GENERATION_FIELDS: NumericSetting[] = [
+  { key: "endpointDiscoveryTimeoutSeconds", label: "settings.endpointDiscoveryTimeout", min: 5, max: 300 },
+  { key: "speechTranscriptionTimeoutSeconds", label: "settings.speechTranscriptionTimeout", min: 15, max: 1800 },
+  { key: "translationTimeoutSeconds", label: "settings.translationTimeout", min: 5, max: 600 },
+  { key: "translationMaxTokens", label: "settings.translationMaxTokens", min: 64, max: 32768 },
+  { key: "translationTemperature", label: "settings.translationTemperature", min: 0, max: 2, decimal: true },
+  { key: "autoConversationDefaultTurns", label: "settings.autoConversationTurns", min: 1, max: 50 },
+  { key: "autoConversationDelayMs", label: "settings.autoConversationDelay", min: 0, max: 10000 }
+];
+
+const CONTEXT_FIELDS: NumericSetting[] = [
+  { key: "contextMaxMessages", label: "settings.contextMaxMessages", min: 0, max: 1000 },
+  { key: "reasoningMaxChars", label: "settings.reasoningMaxChars", min: 1000, max: 100000 },
+  { key: "compressionFallbackMessages", label: "settings.compressionFallbackMessages", min: 1, max: 100 },
+  { key: "compressionMaxTokens", label: "settings.compressionMaxTokens", min: 128, max: 32768 },
+  { key: "compressionTemperature", label: "settings.compressionTemperature", min: 0, max: 2, decimal: true }
+];
+
 export function RuntimeTuningSettings({ group, settings, onPatch, t }: RuntimeTuningSettingsProps) {
   const autosave = { commitMode: "debounced" as const, debounceMs: 420 };
-
-  if (group === "generation") {
-    return (
-      <div id="settings-runtime-tuning" className="settings-section scroll-mt-24">
-        <div className="settings-section-title">{t("settings.runtimeTuning")}</div>
-        <p className="settings-section-desc">{t("settings.runtimeTuningDesc")}</p>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <div><FieldLabel>{t("settings.endpointDiscoveryTimeout")}</FieldLabel><InputField type="number" value={String(settings.endpointDiscoveryTimeoutSeconds)} onChange={(value) => onPatch({ endpointDiscoveryTimeoutSeconds: clampedInteger(value, settings.endpointDiscoveryTimeoutSeconds, 5, 300) })} {...autosave} /></div>
-          <div><FieldLabel>{t("settings.speechTranscriptionTimeout")}</FieldLabel><InputField type="number" value={String(settings.speechTranscriptionTimeoutSeconds)} onChange={(value) => onPatch({ speechTranscriptionTimeoutSeconds: clampedInteger(value, settings.speechTranscriptionTimeoutSeconds, 15, 1800) })} {...autosave} /></div>
-          <div><FieldLabel>{t("settings.translationTimeout")}</FieldLabel><InputField type="number" value={String(settings.translationTimeoutSeconds)} onChange={(value) => onPatch({ translationTimeoutSeconds: clampedInteger(value, settings.translationTimeoutSeconds, 5, 600) })} {...autosave} /></div>
-          <div><FieldLabel>{t("settings.translationMaxTokens")}</FieldLabel><InputField type="number" value={String(settings.translationMaxTokens)} onChange={(value) => onPatch({ translationMaxTokens: clampedInteger(value, settings.translationMaxTokens, 64, 32768) })} {...autosave} /></div>
-          <div><FieldLabel>{t("settings.translationTemperature")}</FieldLabel><InputField type="number" value={String(settings.translationTemperature)} onChange={(value) => onPatch({ translationTemperature: clampedDecimal(value, settings.translationTemperature, 0, 2) })} {...autosave} /></div>
-          <div><FieldLabel>{t("settings.autoConversationTurns")}</FieldLabel><InputField type="number" value={String(settings.autoConversationDefaultTurns)} onChange={(value) => onPatch({ autoConversationDefaultTurns: clampedInteger(value, settings.autoConversationDefaultTurns, 1, 50) })} {...autosave} /></div>
-          <div><FieldLabel>{t("settings.autoConversationDelay")}</FieldLabel><InputField type="number" value={String(settings.autoConversationDelayMs)} onChange={(value) => onPatch({ autoConversationDelayMs: clampedInteger(value, settings.autoConversationDelayMs, 0, 10000) })} {...autosave} /></div>
-        </div>
-      </div>
-    );
-  }
-
+  const fields = group === "generation" ? GENERATION_FIELDS : CONTEXT_FIELDS;
   return (
-    <div id="settings-context-tuning" className="settings-section scroll-mt-24">
-      <div className="settings-section-title">{t("settings.contextTuning")}</div>
-      <p className="settings-section-desc">{t("settings.contextTuningDesc")}</p>
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
-        <div><FieldLabel>{t("settings.contextMaxMessages")}</FieldLabel><InputField type="number" value={String(settings.contextMaxMessages)} onChange={(value) => onPatch({ contextMaxMessages: clampedInteger(value, settings.contextMaxMessages, 0, 1000) })} {...autosave} /></div>
-        <div><FieldLabel>{t("settings.reasoningMaxChars")}</FieldLabel><InputField type="number" value={String(settings.reasoningMaxChars)} onChange={(value) => onPatch({ reasoningMaxChars: clampedInteger(value, settings.reasoningMaxChars, 1000, 100000) })} {...autosave} /></div>
-        <div><FieldLabel>{t("settings.compressionFallbackMessages")}</FieldLabel><InputField type="number" value={String(settings.compressionFallbackMessages)} onChange={(value) => onPatch({ compressionFallbackMessages: clampedInteger(value, settings.compressionFallbackMessages, 1, 100) })} {...autosave} /></div>
-        <div><FieldLabel>{t("settings.compressionMaxTokens")}</FieldLabel><InputField type="number" value={String(settings.compressionMaxTokens)} onChange={(value) => onPatch({ compressionMaxTokens: clampedInteger(value, settings.compressionMaxTokens, 128, 32768) })} {...autosave} /></div>
-        <div><FieldLabel>{t("settings.compressionTemperature")}</FieldLabel><InputField type="number" value={String(settings.compressionTemperature)} onChange={(value) => onPatch({ compressionTemperature: clampedDecimal(value, settings.compressionTemperature, 0, 2) })} {...autosave} /></div>
+    <SettingsGroup
+      id={group === "generation" ? "settings-runtime-tuning" : "settings-context-tuning"}
+      title={t(group === "generation" ? "settings.runtimeTuning" : "settings.contextTuning")}
+      description={t(group === "generation" ? "settings.runtimeTuningDesc" : "settings.contextTuningDesc")}
+    >
+      <div className="settings-row-columns">
+        {fields.map((field) => {
+          const current = Number(settings[field.key]);
+          return (
+            <SettingRow key={field.key} label={t(field.label)}>
+              <InputField type="number" value={String(current)} {...autosave}
+                onChange={(value) => onPatch({
+                  [field.key]: field.decimal
+                    ? clampedDecimal(value, current, field.min, field.max)
+                    : clampedInteger(value, current, field.min, field.max)
+                } as Partial<AppSettings>)} />
+            </SettingRow>
+          );
+        })}
       </div>
-    </div>
+    </SettingsGroup>
   );
 }

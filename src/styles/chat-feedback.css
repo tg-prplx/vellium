@@ -81,3 +81,153 @@
 .reply-variant-switcher svg { width: 14px; height: 14px; }
 .chat-message-user .reply-variant-switcher { margin-left: auto; }
 .message-more-menu > .message-icon-button { width: 29px; height: 29px; padding: 0; border-color: transparent; border-radius: 8px; }
+
+/* Character pickers: a grid without a column template grows to its longest line and spills
+   past the sidebar. Pin every column to the panel width so long names and tags truncate. */
+.chat-character-picker,
+.chat-character-picker-list,
+.chat-multi-available-list,
+.chat-multi-selected-list {
+  grid-template-columns: minmax(0, 1fr);
+}
+.chat-character-picker > *,
+.chat-character-option,
+.chat-multi-selected-item { min-width: 0; }
+.chat-character-option:hover { transform: none; }
+.chat-character-option-meta { font-size: 10px; }
+.chat-character-mode-switch > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chat-multi-create-button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 12px; }
+
+/* Auto-conversation: one quiet pill that morphs from "turns + start" into a progress bar. */
+.auto-convo {
+  --auto-convo-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  position: relative;
+  display: grid;
+  width: 156px;
+  height: 26px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  transition: width 420ms var(--auto-convo-ease);
+}
+.auto-convo.is-running { width: 200px; }
+.auto-convo-idle,
+.auto-convo-running {
+  grid-area: 1 / 1;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  transition: opacity 200ms ease, transform 420ms var(--auto-convo-ease), filter 200ms ease;
+}
+.auto-convo.is-running .auto-convo-idle { opacity: 0; transform: scale(0.97); filter: blur(2px); pointer-events: none; }
+.auto-convo:not(.is-running) .auto-convo-running { opacity: 0; transform: scale(0.97); filter: blur(2px); pointer-events: none; }
+.auto-convo.is-running .auto-convo-running { transition-delay: 60ms; }
+
+.auto-convo-idle {
+  gap: 2px;
+  padding: 0 2px 0 8px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+}
+.auto-convo-idle input {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+.auto-convo-idle input::-webkit-inner-spin-button,
+.auto-convo-idle input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.auto-convo-idle input:focus { outline: none; color: var(--color-accent); }
+.auto-convo-idle > span { padding: 0 6px 0 3px; color: var(--color-text-tertiary); font-size: 11px; }
+.auto-convo-start {
+  display: inline-flex;
+  height: 22px;
+  margin-left: auto;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-left: 1px solid var(--color-border-subtle);
+  border-radius: 0 999px 999px 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: color var(--motion-fast) ease;
+}
+.auto-convo-start:hover:not(:disabled) { color: var(--color-accent); }
+.auto-convo-start:disabled { opacity: 0.4; cursor: not-allowed; }
+.auto-convo-start svg { width: 8px; height: 8px; }
+
+.auto-convo-running { gap: 4px; }
+.auto-convo-track {
+  position: relative;
+  display: flex;
+  height: 26px;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+}
+.auto-convo-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 10px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  transition: width 600ms var(--auto-convo-ease);
+}
+/* A soft sweep shows the run is alive between turns; it only exists while running. */
+.auto-convo.is-running .auto-convo-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-accent) 22%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: autoConvoSweep 1.8s ease-in-out infinite;
+}
+.auto-convo-label {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 10px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.auto-convo-stop {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: var(--color-text-tertiary);
+  transition: background var(--motion-fast) ease, color var(--motion-fast) ease, transform 160ms ease;
+}
+.auto-convo-stop:hover { background: var(--color-danger-subtle); color: var(--color-danger); }
+.auto-convo-stop:active { transform: scale(0.9); }
+.auto-convo-stop svg { width: 10px; height: 10px; }
+
+@keyframes autoConvoSweep {
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auto-convo,
+  .auto-convo-idle,
+  .auto-convo-running,
+  .auto-convo-fill { transition: none; }
+  .auto-convo.is-running .auto-convo-fill::after { animation: none; }
+}

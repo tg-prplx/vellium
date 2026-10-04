@@ -248,3 +248,6 @@
   .charforge-layout { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); }
   .charforge-inspector { grid-column: 2; }
 }
+
+/* The editor actions sit at the left edge, so their overflow menu opens rightwards. */
+.char-editor-actions .character-actions-menu-panel { right: auto; left: 0; }

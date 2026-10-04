@@ -123,7 +123,7 @@ export function CharacterForgeWorkspace({
 
       <div className="panel-shell ui-panel-shell charforge-panel charforge-editor-panel">
         {showGenerator ? (
-          <div className="charforge-generator">
+          <div key="generator" className="motion-tabpanel charforge-generator">
             <div className="char-editor-header mb-4">
               <div className="char-editor-header-top">
                 <span className="charforge-generator-mark">{sparkIcon}</span>
@@ -163,7 +163,7 @@ export function CharacterForgeWorkspace({
             </div>
           </div>
         ) : selected ? (
-          <div className="flex h-full min-h-0 flex-col">
+          <div key={selected.id} className="motion-tabpanel flex h-full min-h-0 flex-col">
             <div className="char-editor-header mb-4">
               <div className="char-editor-header-top">
                 <AvatarBadge name={selected.name} src={resolveApiAssetUrl(selected.avatarUrl)} className="h-14 w-14 flex-shrink-0 rounded-2xl" />
@@ -191,7 +191,7 @@ export function CharacterForgeWorkspace({
                 </button>
               ))}
             </div>
-            <div className="charforge-fields" role="tabpanel">
+            <div key={editor.section} className="motion-tabpanel charforge-fields" role="tabpanel">
               {editor.section === "core" ? (
                 <label>
                   <span className="char-editor-label">{t("chars.name")}</span>

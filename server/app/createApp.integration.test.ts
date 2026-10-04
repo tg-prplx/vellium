@@ -1,5 +1,5 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { createServer, type Server as HttpServer } from "http";
+import { createServer, request as httpRequest, type Server as HttpServer } from "http";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { AddressInfo } from "net";
@@ -464,11 +464,8 @@ process.stdin.on("data", (chunk) => {
                     function: {
                       name: commandTool,
                       arguments: JSON.stringify({
-                        command: "node",
-                        args: [
-                          "-p",
-                          "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).name"
-                        ],
+                        command: "grep",
+                        args: ["name", "package.json"],
                         cwd: ".",
                         timeoutMs: 10000
                       })
@@ -887,8 +884,8 @@ process.stdin.on("data", (chunk) => {
               .filter(Boolean);
             const commandTool = toolNames.find((name) => name === "workspace_run_command") || toolNames[0] || "";
             streamToolCall("tool-call-command-1", commandTool, {
-              command: "node",
-              args: ["-p", "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).name"],
+              command: "grep",
+              args: ["name", "package.json"],
               cwd: ".",
               timeoutMs: 10000
             });
@@ -1526,7 +1523,7 @@ process.stdin.on("data", (chunk) => {
                 });
               }
               if (promptText.includes("command-tool-agent-task")) {
-                if (promptText.includes("Command: node -p JSON.parse(require('fs').readFileSync('package.json', 'utf8')).name")) {
+                if (promptText.includes("Command: grep name package.json")) {
                   return JSON.stringify({
                     summary: "Command output reviewed",
                     assistantMessage: "I ran a workspace command and confirmed the project identity from package.json.",
@@ -1557,11 +1554,8 @@ process.stdin.on("data", (chunk) => {
                   toolCalls: [{
                     tool: commandToolMatch[1],
                     arguments: {
-                      command: "node",
-                      args: [
-                        "-p",
-                        "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).name"
-                      ],
+                      command: "grep",
+                      args: ["name", "package.json"],
                       cwd: ".",
                       timeoutMs: 10000
                     },
@@ -3600,7 +3594,7 @@ process.stdin.on("data", (chunk) => {
     ))).toBe(true);
     expect(enabledState.events.some((event: { type: string; content: string }) => (
       event.type === "tool_result"
-      && String(event.content || "").includes("Command: node -p")
+      && String(event.content || "").includes("Command: grep")
       && String(event.content || "").includes("vellium")
     ))).toBe(true);
 
@@ -4644,6 +4638,125 @@ process.stdin.on("data", (chunk) => {
     );
     expect(importedProject.scenes.some((scene: { content: string }) => scene.content.includes("Roundtrip scene one content."))).toBe(true);
     expect(importedProject.scenes.some((scene: { content: string }) => scene.content.includes("Roundtrip scene two content."))).toBe(true);
+  });
+
+  it("rejects DNS-rebinding Host headers before serving API data", async () => {
+    const port = Number(new URL(baseUrl).port);
+    const getWithHost = (host: string) => new Promise<{ status: number; body: string }>((resolvePromise, reject) => {
+      const req = httpRequest({ host: "127.0.0.1", port, path: "/api/settings", headers: { Host: host } }, (res) => {
+        let body = "";
+        res.on("data", (chunk) => { body += chunk; });
+        res.on("end", () => resolvePromise({ status: res.statusCode || 0, body }));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+
+    const rebinding = await getWithHost(`attacker.example:${port}`);
+    expect(rebinding.status).toBe(421);
+    expect(rebinding.body).not.toContain("ttsApiKey");
+
+    const loopback = await getWithHost(`localhost:${port}`);
+    expect(loopback.status).toBe(200);
+  });
+
+  it("masks stored TTS/STT secrets and never forwards them to a different endpoint", async () => {
+    await updateSettings({
+      ttsBaseUrl: mockProviderBaseUrl,
+      ttsApiKey: "sk-tts-audit-secret-1234",
+      sttBaseUrl: mockProviderBaseUrl,
+      sttApiKey: "sk-stt-audit-secret-5678"
+    });
+    try {
+      const settings = await parseJsonResponse("/api/settings", await fetch(`${baseUrl}/api/settings`));
+      expect(settings.ttsApiKey).toBe("sk-t***1234");
+      expect(settings.sttApiKey).toBe("sk-s***5678");
+      expect(JSON.stringify(settings)).not.toContain("audit-secret");
+
+      const patched = await parseJsonResponse("/api/settings", await requestJson("/api/settings", {
+        method: "PATCH",
+        body: { ...settings, theme: settings.theme }
+      }));
+      expect(patched.ttsApiKey).toBe("sk-t***1234");
+      const stored = JSON.parse((db.prepare("SELECT payload FROM settings WHERE id = 1").get() as { payload: string }).payload);
+      expect(stored.ttsApiKey).toBe("sk-tts-audit-secret-1234");
+      expect(stored.sttApiKey).toBe("sk-stt-audit-secret-5678");
+
+      lastA2AgentAuthorization = "not-requested";
+      const foreign = await requestJson("/api/settings/tts/models", {
+        method: "POST",
+        body: { baseUrl: `${new URL(mockProviderBaseUrl).origin}/a2agent/v1`, apiKey: settings.ttsApiKey }
+      });
+      expect(foreign.status).toBe(502);
+      expect(lastA2AgentAuthorization).toBe("");
+    } finally {
+      await updateSettings({ ttsApiKey: "", sttApiKey: "" });
+    }
+  });
+
+  it("ignores imported card avatar paths/URLs and never deletes files outside the avatars directory", async () => {
+    const victimPath = join(dataDir, "avatar-victim.txt");
+    writeFileSync(victimPath, "keep me");
+    const onePixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    const imported = await postJson("/api/characters/import", {
+      rawJson: JSON.stringify({ spec: "chara_card_v2", spec_version: "2.0", data: { name: "Avatar Audit", avatar: "../avatar-victim.txt" } })
+    });
+    expect(imported.avatarUrl).toBeNull();
+    const firstUpload = await requestJson(`/api/characters/${imported.id}/avatar`, {
+      method: "POST",
+      body: { base64Data: onePixelPng, filename: "a.png" }
+    });
+    expect(firstUpload.ok).toBe(true);
+    expect(existsSync(victimPath)).toBe(true);
+
+    // Rows written by older versions may still carry a traversal path.
+    db.prepare("UPDATE characters SET avatar_path = ? WHERE id = ?").run("../avatar-victim.txt", imported.id);
+    const secondUpload = await requestJson(`/api/characters/${imported.id}/avatar`, {
+      method: "POST",
+      body: { base64Data: onePixelPng, filename: "b.png" }
+    });
+    expect(secondUpload.ok).toBe(true);
+    expect(existsSync(victimPath)).toBe(true);
+    expect(readFileSync(victimPath, "utf8")).toBe("keep me");
+
+    const remote = await postJson("/api/characters/import", {
+      rawJson: JSON.stringify({ spec: "chara_card_v2", spec_version: "2.0", data: { name: "Remote Avatar", avatar: "https://cdn.example/avatar.png" } })
+    });
+    expect(remote.avatarUrl).toBeNull();
+  });
+
+  it("does not let unauthenticated callers replace the local account or its recovery key", async () => {
+    const created = await requestJson("/api/account/create", { method: "POST", body: { password: "first-pass", recoveryKey: "first-recovery" } });
+    expect(created.ok).toBe(true);
+    const replaced = await requestJson("/api/account/create", { method: "POST", body: { password: "attacker-pass" } });
+    expect(replaced.status).toBe(409);
+
+    const rotateWithoutSecret = await requestJson("/api/account/rotate-recovery", { method: "POST", body: { newRecoveryKey: "attacker" } });
+    expect(rotateWithoutSecret.status).toBe(403);
+    const unlockWithAttackerKey = await postJson("/api/account/unlock", { password: "x", recoveryKey: "attacker" });
+    expect(unlockWithAttackerKey).toBe(false);
+
+    const rotated = await requestJson("/api/account/rotate-recovery", { method: "POST", body: { newRecoveryKey: "second-recovery", password: "first-pass" } });
+    expect(rotated.ok).toBe(true);
+    expect(await postJson("/api/account/unlock", { password: "wrong", recoveryKey: "second-recovery" })).toBe(true);
+  });
+
+  it("throttles repeated failed account unlock attempts", async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(await postJson("/api/account/unlock", { password: `wrong-${attempt}` })).toBe(false);
+    }
+    const throttled = await requestJson("/api/account/unlock", { method: "POST", body: { password: "first-pass" } });
+    expect(throttled.status).toBe(429);
+    expect(Number(throttled.headers.get("retry-after"))).toBeGreaterThan(0);
+  });
+
+  it("only summarizes writer scenes through POST so cross-site GETs cannot spend model calls", async () => {
+    const viaGet = await fetch(`${baseUrl}/api/writer/scenes/missing-scene/summarize`);
+    expect(viaGet.status).toBe(404);
+    const viaPost = await requestJson("/api/writer/scenes/missing-scene/summarize", { method: "POST" });
+    expect(viaPost.status).toBe(404);
+    expect(await viaPost.json()).toEqual({ error: "Scene not found" });
   });
 
   async function postJson(path: string, body: unknown) {

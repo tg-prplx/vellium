@@ -57,7 +57,7 @@ export const writerClient = {
   writerSceneExpand: (sceneId: string) => post<Scene>(`/writer/scenes/${sceneId}/expand`, undefined, LONG_RUNNING_REQUEST_OPTIONS),
   writerSceneRewrite: (sceneId: string, tone?: string) =>
     post<Scene>(`/writer/scenes/${sceneId}/rewrite`, tone ? { tone } : {}, LONG_RUNNING_REQUEST_OPTIONS),
-  writerSceneSummarize: (sceneId: string) => get<string>(`/writer/scenes/${sceneId}/summarize`, LONG_RUNNING_REQUEST_OPTIONS),
+  writerSceneSummarize: (sceneId: string) => post<string>(`/writer/scenes/${sceneId}/summarize`, undefined, LONG_RUNNING_REQUEST_OPTIONS),
   writerConsistencyRun: (projectId: string) =>
     post<ConsistencyIssue[]>(`/writer/projects/${projectId}/consistency`, undefined, LONG_RUNNING_REQUEST_OPTIONS),
   writerExportMarkdown: (projectId: string) =>

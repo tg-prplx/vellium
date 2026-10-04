@@ -1064,7 +1064,7 @@ export function PetsScreen() {
       )}
       center={(
         selected && draft ? (
-          <div className="flex h-full min-h-0 flex-col">
+          <div key={selected.id} className="motion-tabpanel flex h-full min-h-0 flex-col">
             <div className="char-editor-header mb-4">
               <div className="char-editor-header-top">
                 <PetAssetPreview name={draft.name || selected.name} src={draft.spriteUrl || selected.avatarUrl}
@@ -1098,7 +1098,7 @@ export function PetsScreen() {
                 </button>
               ))}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1" role="tabpanel">
+            <div key={rightView} className="motion-tabpanel min-h-0 flex-1 overflow-y-auto pr-1" role="tabpanel">
               {renderRightPanelContent()}
             </div>
           </div>

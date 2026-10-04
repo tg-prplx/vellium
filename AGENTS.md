@@ -401,7 +401,10 @@ feature implementations.
 ### MCP
 
 - MCP child-process command allowlisting and inline-eval blocking are security
-  boundaries. Do not weaken them to make one server easier to launch.
+  boundaries. Do not weaken them to make one server easier to launch. They stop
+  one-liners and code-injecting env vars (`NODE_OPTIONS` preloads, `LD_PRELOAD`,
+  ...) but do not sandbox `npx`/`uvx` packages, so MCP configuration remains
+  trusted user input.
 - Support both JSONL and Content-Length framing through the existing lifecycle.
 - Always close temporary MCP clients after discovery/test/generation.
 - Normalize tool results, including media, before sending them back to a model or
@@ -423,6 +426,10 @@ feature implementations.
 - Workspace roots, path containment, command classes, destructive operations,
   network commands, shell commands, and git writes have separate gates.
 - Preserve confirmation semantics and regression tests for dangerous operations.
+- `workspace_run_command` auto-runs only the read-only allowlist in
+  `server/services/workspaceCommandPolicy.ts`; every other command needs user
+  confirmation. Do not grow that allowlist with commands that can spawn programs
+  or read outside the workspace. Workspace edit tools must not write `.git/`.
 - Do not broaden a safe tool into an arbitrary shell escape.
 
 ## 12. Security boundaries
@@ -439,7 +446,8 @@ Changes in these files require adversarial review and focused tests:
 
 Preserve these guarantees:
 
-- API requests are restricted to allowed origins in local mode.
+- API requests are restricted to allowed origins in local mode, and local mode
+  rejects non-loopback/unconfigured `Host` headers (DNS-rebinding guard).
 - Public/non-loopback binding requires explicit opt-in and Basic Auth.
 - CSP, frame restrictions, `nosniff`, permissions policy, and no-store API headers
   are not removed as a convenience workaround.
@@ -447,6 +455,14 @@ Preserve these guarantees:
 - New external navigation is denied unless explicitly allowlisted.
 - Provider URLs are validated against local/security mode policies.
 - API keys are masked at response boundaries and never logged in tests or errors.
+  Settings secrets (`ttsApiKey`, `sttApiKey`) go through `settingsSecrets.ts`.
+- Imported character cards never set `avatar_path` (card paths enabled file
+  deletion, remote URLs act as tracking pixels); local avatar files are
+  resolved with `resolveStoredAvatarFile` before any deletion.
+- Chat HTML is never inserted raw: with `sanitizeMarkdown` off it still passes
+  the allowlist in `src/features/chat/htmlSanitizer.ts`. Only loopback images
+  bypass `allowRemoteImages`; protocol-relative `//host` URLs count as remote.
+- GET routes must not trigger model calls or other paid/stateful work.
 - Uploads, plugin assets, and tool output cannot become silent script execution.
 
 `npm audit` is only the dependency gate. A security review must also inspect trust

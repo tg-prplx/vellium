@@ -1,4 +1,11 @@
 export const en = {
+  "settings.externalEndpoint": "External endpoint",
+  "settings.themeMode": "Color scheme",
+  "chat.autoConvoProgress": "{speaker} · {current} / {total}",
+  "chat.autoConvoStarting": "Starting…",
+  "chat.startGroupChat": "Start group chat",
+  "chat.pickerSingle": "Single",
+  "chat.pickerGroup": "Group",
   "settings.textAndLanguage": "Text & language",
   "settings.application": "Application",
   "writing.characterGenerateHint": "Describe who you want; the model drafts a full character card you can edit.",

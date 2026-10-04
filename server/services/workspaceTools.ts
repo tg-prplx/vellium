@@ -2,6 +2,12 @@ import { spawn } from "child_process";
 import { existsSync, realpathSync } from "fs";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve } from "path";
+import {
+  buildWorkspaceCommandEnv,
+  isAutoApprovedWorkspaceCommand,
+  isInlineInterpreterCommand,
+  isProtectedWorkspaceMetadataPath
+} from "./workspaceCommandPolicy.js";
 
 export interface WorkspaceToolDefinition {
   type: "function";
@@ -42,7 +48,8 @@ export type WorkspaceCommandRiskCategory =
   | "shell_escape"
   | "network"
   | "git_write"
-  | "file_mutation";
+  | "file_mutation"
+  | "unreviewed_command";
 
 const MAX_LIST_RESULTS = 200;
 const MAX_SEARCH_RESULTS = 80;
@@ -478,6 +485,14 @@ function ensureInsideWorkspace(rootDir: string, targetPath: string) {
   return candidate;
 }
 
+function ensureMutableWorkspacePath(rootDir: string, targetPath: string) {
+  const candidate = ensureInsideWorkspace(rootDir, targetPath);
+  if (isProtectedWorkspaceMetadataPath(rootDir, candidate)) {
+    throw new Error("Workspace tools cannot modify .git metadata");
+  }
+  return candidate;
+}
+
 async function assertTextFile(filePath: string) {
   const handle = await readFile(filePath);
   const sample = handle.subarray(0, BINARY_SAMPLE_BYTES);
@@ -515,10 +530,7 @@ function describeBlockedCommand(params: {
     return `Shell commands like "${normalizedCommand}" are blocked unless shell escapes are explicitly enabled.`;
   }
   if (!params.policy.allowShellCommands) {
-    if ((normalizedCommand === "node" && args.some((arg) => arg === "-e" || arg === "--eval"))
-      || ((normalizedCommand === "python" || normalizedCommand === "python3") && args.includes("-c"))
-      || (normalizedCommand === "ruby" && args.includes("-e"))
-      || (normalizedCommand === "perl" && args.includes("-e"))) {
+    if (isInlineInterpreterCommand(normalizedCommand, args)) {
       return `Inline script execution for "${normalizedCommand}" is blocked unless shell-style commands are explicitly enabled.`;
     }
   }
@@ -564,6 +576,8 @@ export function describeBlockedWorkspaceCommand(params: {
 export function classifyWorkspaceCommandRisk(params: {
   command: string;
   args: string[];
+  rootDir?: string;
+  cwd?: string;
 }): WorkspaceCommandRiskCategory | null {
   const normalizedCommand = basename(params.command || "").toLowerCase();
   const args = params.args.map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
@@ -575,10 +589,7 @@ export function classifyWorkspaceCommandRisk(params: {
   if (SHELL_COMMANDS.has(normalizedCommand)) {
     return "shell_escape";
   }
-  if ((normalizedCommand === "node" && args.some((arg) => arg === "-e" || arg === "--eval"))
-    || ((normalizedCommand === "python" || normalizedCommand === "python3") && args.includes("-c"))
-    || (normalizedCommand === "ruby" && args.includes("-e"))
-    || (normalizedCommand === "perl" && args.includes("-e"))) {
+  if (isInlineInterpreterCommand(normalizedCommand, args)) {
     return "shell_escape";
   }
   if (NETWORK_COMMANDS.has(normalizedCommand)) {
@@ -602,6 +613,14 @@ export function classifyWorkspaceCommandRisk(params: {
   }
   if ((normalizedCommand === "sed" || normalizedCommand === "perl") && args.includes("-i")) {
     return "file_mutation";
+  }
+  if (params.rootDir !== undefined && !isAutoApprovedWorkspaceCommand({
+    command: params.command,
+    args: params.args,
+    rootDir: params.rootDir,
+    cwd: params.cwd
+  })) {
+    return "unreviewed_command";
   }
   return null;
 }
@@ -822,7 +841,7 @@ async function writeWorkspaceFile(rootDir: string, args: Record<string, unknown>
   if (mode !== "overwrite" && mode !== "append" && mode !== "create") {
     throw new Error("mode must be overwrite, append, or create");
   }
-  const absoluteFile = ensureInsideWorkspace(rootDir, inputPath);
+  const absoluteFile = ensureMutableWorkspacePath(rootDir, inputPath);
   await mkdir(dirname(absoluteFile), { recursive: true });
   const exists = await stat(absoluteFile).then((fileStats) => fileStats.isFile()).catch(() => false);
   if (mode === "create" && exists) {
@@ -848,7 +867,7 @@ async function writeWorkspaceFile(rootDir: string, args: Record<string, unknown>
 async function makeWorkspaceDirectory(rootDir: string, args: Record<string, unknown>): Promise<ToolResult> {
   const inputPath = sanitizeText(args.path, 400);
   if (!inputPath) throw new Error("workspace_make_directory requires a path");
-  const absoluteDir = ensureInsideWorkspace(rootDir, inputPath);
+  const absoluteDir = ensureMutableWorkspacePath(rootDir, inputPath);
   await mkdir(absoluteDir, { recursive: true });
   const message = `Created directory ${formatWorkspacePath(rootDir, absoluteDir)}.`;
   return {
@@ -862,8 +881,8 @@ async function moveWorkspacePath(rootDir: string, args: Record<string, unknown>)
   const toPath = sanitizeText(args.to, 400);
   if (!fromPath || !toPath) throw new Error("workspace_move_path requires from and to");
   const overwrite = normalizeBoolean(args.overwrite, false);
-  const absoluteFrom = ensureInsideWorkspace(rootDir, fromPath);
-  const absoluteTo = ensureInsideWorkspace(rootDir, toPath);
+  const absoluteFrom = ensureMutableWorkspacePath(rootDir, fromPath);
+  const absoluteTo = ensureMutableWorkspacePath(rootDir, toPath);
   const fromStats = await stat(absoluteFrom).catch(() => null);
   if (!fromStats) throw new Error("Source path not found");
   const destinationExists = await stat(absoluteTo).then(() => true).catch(() => false);
@@ -886,7 +905,7 @@ async function deleteWorkspacePath(rootDir: string, args: Record<string, unknown
   const inputPath = sanitizeText(args.path, 400);
   if (!inputPath) throw new Error("workspace_delete_path requires a path");
   const recursive = normalizeBoolean(args.recursive, false);
-  const absolutePath = ensureInsideWorkspace(rootDir, inputPath);
+  const absolutePath = ensureMutableWorkspacePath(rootDir, inputPath);
   const pathStats = await stat(absolutePath).catch(() => null);
   if (!pathStats) throw new Error("Path not found");
   if (pathStats.isDirectory() && !recursive) {
@@ -904,7 +923,7 @@ async function multiEditWorkspaceFile(rootDir: string, args: Record<string, unkn
   const inputPath = sanitizeText(args.path, 400);
   if (!inputPath) throw new Error("workspace_multi_edit requires a path");
   const edits = normalizeEdits(args.edits);
-  const absoluteFile = ensureInsideWorkspace(rootDir, inputPath);
+  const absoluteFile = ensureMutableWorkspacePath(rootDir, inputPath);
   const fileStats = await stat(absoluteFile).catch(() => null);
   if (!fileStats?.isFile()) {
     throw new Error("File not found");
@@ -959,7 +978,7 @@ async function insertTextInFile(rootDir: string, args: Record<string, unknown>):
     throw new Error("Specify exactly one of before, after, or atLine");
   }
 
-  const absoluteFile = ensureInsideWorkspace(rootDir, inputPath);
+  const absoluteFile = ensureMutableWorkspacePath(rootDir, inputPath);
   const fileStats = await stat(absoluteFile).catch(() => null);
   if (!fileStats?.isFile()) {
     throw new Error("File not found");
@@ -1009,7 +1028,7 @@ async function replaceTextInFile(rootDir: string, args: Record<string, unknown>)
   if (!search) throw new Error("workspace_replace_text requires search text");
   const replace = String(args.replace ?? "");
   const replaceAll = normalizeBoolean(args.replaceAll, false);
-  const absoluteFile = ensureInsideWorkspace(rootDir, inputPath);
+  const absoluteFile = ensureMutableWorkspacePath(rootDir, inputPath);
   const fileStats = await stat(absoluteFile).catch(() => null);
   if (!fileStats?.isFile()) {
     throw new Error("File not found");
@@ -1077,7 +1096,7 @@ async function runWorkspaceCommand(rootDir: string, args: Record<string, unknown
 
   const child = spawn(executable, argv, {
     cwd,
-    env: process.env,
+    env: buildWorkspaceCommandEnv(),
     stdio: ["pipe", "pipe", "pipe"],
     shell: false
   });

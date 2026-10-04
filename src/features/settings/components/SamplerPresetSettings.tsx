@@ -69,11 +69,7 @@ export function SamplerPresetSettings({
   }
 
   return (
-    <div className="settings-field-group space-y-3">
-      <div>
-        <div className="text-xs font-semibold text-text-secondary">{t("settings.samplerPresets")}</div>
-        <p className="mt-1 text-[10px] text-text-tertiary">{t("settings.samplerPresetsDesc")}</p>
-      </div>
+    <div className="space-y-3">
       <div className="flex gap-2">
         <input
           value={name}

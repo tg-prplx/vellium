@@ -85,7 +85,7 @@ export function LiveAvatarStage({
           />
         ) : (
           <div className="live-avatar-static-fallback" aria-label={characterName}>
-            {avatarUrl ? <img src={avatarUrl} alt="" draggable={false} /> : (
+            {avatarUrl ? <img key={avatarUrl} src={avatarUrl} alt="" draggable={false} /> : (
               <span className="live-avatar-monogram" aria-hidden="true">{characterName.trim().charAt(0).toUpperCase() || "?"}</span>
             )}
             {renderError ? <span className="live-avatar-error">{renderError}</span> : null}

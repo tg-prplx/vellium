@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SettingRow, SettingsGroup } from "./SettingRow";
 import { LocalModelsSetup } from "../../../components/LocalModelsSetup";
 import { api } from "../../../shared/api";
 import { useI18n } from "../../../shared/i18n";
@@ -10,7 +11,7 @@ import {
 } from "../../../shared/localModelConfig";
 import { RealtimeTtsPlayer } from "../../../shared/realtimeTts";
 import type { AppSettings, ProviderModel } from "../../../shared/types/contracts";
-import { FieldLabel, InputField, SelectField, TextareaField, ToggleSwitch } from "./FormControls";
+import { InputField, SelectField, TextareaField, ToggleSwitch } from "./FormControls";
 
 const STANDARD_OPENAI_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
 const AUTOSAVE_PROPS = { commitMode: "debounced" as const, debounceMs: 420 };
@@ -229,97 +230,67 @@ export function TextToSpeechSettings({
   );
 
   return (
-    <div id="settings-tts" className="settings-section scroll-mt-24">
-      <div className="settings-section-header">
-        <div>
-          <div className="settings-section-title">{t("settings.tts")}</div>
-          <p className="settings-section-desc">{t("settings.ttsDesc")}</p>
-        </div>
-        <label className="flex items-center gap-2 text-xs text-text-secondary" title={t("settings.ttsRealtimeHint")}>
-          <span>{t("settings.ttsRealtime")}</span>
-          <ToggleSwitch checked={settings.ttsRealtime === true} onChange={(event) => void onPatch({ ttsRealtime: event.target.checked })} />
-        </label>
+    <SettingsGroup id="settings-tts" title={t("settings.tts")} description={t("settings.ttsDesc")}>
+      <SettingRow toggle label={t("settings.ttsRealtime")} description={t("settings.ttsRealtimeHint")}>
+        <ToggleSwitch ariaLabel={t("settings.ttsRealtime")} checked={settings.ttsRealtime === true} onChange={(event) => void onPatch({ ttsRealtime: event.target.checked })} />
+      </SettingRow>
+
+      <div className="settings-group-block">
+        <LocalModelsSetup locale={settings.interfaceLanguage || "en"} componentIds={["tts"]} />
       </div>
 
-      <LocalModelsSetup locale={settings.interfaceLanguage || "en"} componentIds={["tts"]} />
-
       {bundledTeraActive ? (
-        <div className="mt-4 space-y-4 rounded-xl border border-border-subtle bg-bg-secondary p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-text-primary">{t("settings.teraVoiceLibrary")}</div>
-              <p className="mt-1 max-w-3xl text-[11px] leading-relaxed text-text-tertiary">{t("settings.teraVoiceLibraryDesc")}</p>
-            </div>
-            <span className="rounded-full border border-success-border bg-success-subtle px-2.5 py-1 text-[10px] font-semibold text-success">
-              TeraTTSv2 · 44.1 kHz
-            </span>
+        <SettingRow wide label={t("settings.teraVoiceLibrary")} description={t("settings.teraVoiceLibraryDesc")}
+          aside={<span className="rounded-full border border-success-border bg-success-subtle px-2.5 py-1 text-[10px] font-semibold text-success">TeraTTSv2 · 44.1 kHz</span>}>
+          <div className="space-y-4">
+            {renderTeraVoiceGroup("ru")}
+            {renderTeraVoiceGroup("en")}
           </div>
-          {renderTeraVoiceGroup("ru")}
-          {renderTeraVoiceGroup("en")}
-        </div>
+        </SettingRow>
       ) : (
-        <div className="mt-4">
-          <div className="mb-1.5 flex items-center justify-between gap-3">
-            <FieldLabel>{t("settings.ttsVoice")}</FieldLabel>
-            <button type="button" onClick={() => void loadVoices()} disabled={loadingVoices || !settings.ttsBaseUrl} className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60">
-              {loadingVoices ? t("settings.loadingOptions") : t("settings.loadVoices")}
-            </button>
-          </div>
+        <SettingRow label={t("settings.ttsVoice")}
+          aside={<button type="button" onClick={() => void loadVoices()} disabled={loadingVoices || !settings.ttsBaseUrl} className="setting-inline-button">{loadingVoices ? t("settings.loadingOptions") : t("settings.loadVoices")}</button>}>
           <SelectField value={settings.ttsVoice || ""} onChange={(voice) => void onPatch({ ttsVoice: voice })}>
             <option value="">{t("settings.selectVoice")}</option>
             {externalVoiceOptions.map((voice) => <option key={voice.id} value={voice.id}>{voice.label || voice.id}</option>)}
           </SelectField>
-        </div>
+        </SettingRow>
       )}
 
-      <div className="mt-4 rounded-xl border border-border-subtle bg-bg-primary p-4">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="text-xs font-semibold text-text-primary">{t("settings.ttsPreview")}</div>
-            <div className="mt-0.5 text-[10px] text-text-tertiary">{settings.ttsVoice || t("settings.selectVoice")}</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => void playPreview()}
-            disabled={!settings.ttsVoice || !settings.ttsBaseUrl || !settings.ttsModel}
-            className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60"
-          >
+      <SettingRow wide label={t("settings.ttsPreview")} description={settings.ttsVoice || t("settings.selectVoice")}
+        aside={(
+          <button type="button" onClick={() => void playPreview()} disabled={!settings.ttsVoice || !settings.ttsBaseUrl || !settings.ttsModel}
+            className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60">
             <VoiceIcon playing={previewState === "playing"} />
             {previewState === "loading" ? t("settings.ttsPreviewGenerating") : previewState === "playing" ? t("settings.ttsPreviewStop") : t("settings.ttsPreviewPlay")}
           </button>
-        </div>
+        )}>
         <TextareaField value={previewText} onChange={setPreviewText} rows={2} placeholder={t("settings.ttsPreviewText")} />
-      </div>
+      </SettingRow>
 
       {status ? (
-        <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${status.tone === "error" ? "border-danger-border bg-danger-subtle text-danger" : status.tone === "success" ? "border-success-border bg-success-subtle text-success" : "border-border-subtle bg-bg-primary text-text-secondary"}`}>
-          {status.text}
-        </div>
+        <p className={`settings-group-note is-${status.tone}`}>{status.text}</p>
       ) : null}
 
-      <div className="mt-4 border-t border-border-subtle pt-4">
-        <p className="mb-3 text-[11px] leading-relaxed text-text-tertiary">{t("localModels.externalTtsHint")}</p>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <div className="space-y-3">
-            <div><FieldLabel>{t("settings.ttsEndpoint")}</FieldLabel><InputField value={settings.ttsBaseUrl || ""} onChange={(value) => void onPatch({ ttsBaseUrl: value })} placeholder="https://api.openai.com/v1" {...AUTOSAVE_PROPS} /></div>
-            <div><FieldLabel>{t("settings.apiKey")}</FieldLabel><InputField type="password" value={settings.ttsApiKey || ""} onChange={(value) => void onPatch({ ttsApiKey: value })} placeholder={t("settings.apiKey")} {...AUTOSAVE_PROPS} /></div>
-            <div><FieldLabel>{t("settings.ttsAdapterId")}</FieldLabel><InputField value={settings.ttsAdapterId || ""} onChange={(value) => void onPatch({ ttsAdapterId: value.trim() || null })} placeholder={t("settings.ttsAdapterIdPlaceholder")} {...AUTOSAVE_PROPS} /></div>
-          </div>
-          <div>
-            <div className="mb-1.5 flex items-center justify-between gap-3">
-              <FieldLabel>{t("settings.ttsModel")}</FieldLabel>
-              <button type="button" onClick={() => void loadModels()} disabled={loadingModels || !settings.ttsBaseUrl} className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60">
-                {loadingModels ? t("settings.loadingOptions") : t("settings.loadModels")}
-              </button>
-            </div>
-            <SelectField value={settings.ttsModel || ""} onChange={(model) => void onPatch({ ttsModel: model })}>
-              <option value="">{t("settings.selectModel")}</option>
-              {settings.ttsModel && !models.some((model) => model.id === settings.ttsModel) ? <option value={settings.ttsModel}>{settings.ttsModel}</option> : null}
-              {models.map((model) => <option key={model.id} value={model.id}>{model.label || model.id}</option>)}
-            </SelectField>
-          </div>
-        </div>
-      </div>
-    </div>
+      <h4 className="settings-subheading">{t("settings.externalEndpoint")}</h4>
+      <p className="settings-subheading-desc">{t("localModels.externalTtsHint")}</p>
+      <SettingRow label={t("settings.ttsEndpoint")}>
+        <InputField value={settings.ttsBaseUrl || ""} onChange={(value) => void onPatch({ ttsBaseUrl: value })} placeholder="https://api.openai.com/v1" {...AUTOSAVE_PROPS} />
+      </SettingRow>
+      <SettingRow label={t("settings.apiKey")}>
+        <InputField type="password" value={settings.ttsApiKey || ""} onChange={(value) => void onPatch({ ttsApiKey: value })} placeholder={t("settings.apiKey")} {...AUTOSAVE_PROPS} />
+      </SettingRow>
+      <SettingRow label={t("settings.ttsAdapterId")}>
+        <InputField value={settings.ttsAdapterId || ""} onChange={(value) => void onPatch({ ttsAdapterId: value.trim() || null })} placeholder={t("settings.ttsAdapterIdPlaceholder")} {...AUTOSAVE_PROPS} />
+      </SettingRow>
+      <SettingRow label={t("settings.ttsModel")}
+        aside={<button type="button" onClick={() => void loadModels()} disabled={loadingModels || !settings.ttsBaseUrl} className="setting-inline-button">{loadingModels ? t("settings.loadingOptions") : t("settings.loadModels")}</button>}>
+        <SelectField value={settings.ttsModel || ""} onChange={(model) => void onPatch({ ttsModel: model })}>
+          <option value="">{t("settings.selectModel")}</option>
+          {settings.ttsModel && !models.some((model) => model.id === settings.ttsModel) ? <option value={settings.ttsModel}>{settings.ttsModel}</option> : null}
+          {models.map((model) => <option key={model.id} value={model.id}>{model.label || model.id}</option>)}
+        </SelectField>
+      </SettingRow>
+    </SettingsGroup>
   );
 }

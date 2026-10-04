@@ -2,6 +2,7 @@ import { Router } from "express";
 import { existsSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { db, newId, now, AVATARS_DIR, DEFAULT_SETTINGS, isLocalhostUrl, INOCHI_MODELS_DIR } from "../db.js";
+import { resolveStoredAvatarFile } from "../domain/characterAvatars.js";
 import { parseCharacterLoreBook } from "../domain/lorebooks.js";
 import { buildOpenAiSamplingPayload, buildKoboldSamplerConfig, normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "../services/providerApi.js";
@@ -427,7 +428,9 @@ router.post("/import", (req, res) => {
     const scenario = String(data.scenario || "");
     const mesExample = String(data.mes_example || "");
     const creatorNotes = String(data.creator_notes || "");
-    const avatarPath = data.avatar ? String(data.avatar) : null;
+    // Card-supplied avatar paths/URLs are untrusted: local paths enabled file
+    // deletion and remote URLs act as tracking pixels. Avatars are uploaded separately.
+    const avatarPath = null;
     const ts = now();
     const parsedLorebook = parseCharacterLoreBook(data);
     let lorebookId: string | null = null;
@@ -763,9 +766,8 @@ router.post("/:id/avatar", (req, res) => {
   }
   writeFileSync(filePath, buffer);
 
-  const previousAvatar = String(existing.avatar_path || "");
-  if (previousAvatar && !previousAvatar.startsWith("http")) {
-    const previousPath = join(AVATARS_DIR, previousAvatar);
+  const previousPath = resolveStoredAvatarFile(AVATARS_DIR, existing.avatar_path);
+  if (previousPath) {
     try {
       if (existsSync(previousPath) && previousPath !== filePath) {
         unlinkSync(previousPath);

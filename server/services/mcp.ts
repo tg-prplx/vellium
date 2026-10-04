@@ -84,7 +84,127 @@ export function isAllowedMcpCommand(raw: unknown): boolean {
   return ALLOWED_MCP_COMMANDS.has(base);
 }
 
-export function describeBlockedMcpLaunch(commandRaw: unknown, argsRaw: unknown): string {
+const REMOTE_OR_INLINE_MODULE = /^(data|https?):/i;
+const NODE_PRELOAD_OPTIONS = new Set(["-r", "--require", "--import", "--loader", "--experimental-loader"]);
+// Environment variables that make an allowed interpreter load attacker-chosen code.
+const BLOCKED_MCP_ENV_KEYS = new Set([
+  "LD_PRELOAD",
+  "LD_AUDIT",
+  "DYLD_INSERT_LIBRARIES",
+  "BASH_ENV",
+  "ENV",
+  "PERL5OPT",
+  "RUBYOPT",
+  "PYTHONSTARTUP",
+  "PYTHONINSPECT"
+]);
+
+function isPowerShellOptionPrefix(arg: string, option: string, minLength: number): boolean {
+  const name = arg.replace(/^[-/]+/, "").split(":")[0];
+  return name.length >= minLength && option.startsWith(name);
+}
+
+function describeBlockedNodeArgs(args: string[]): string {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    const [flag, inlineValue] = arg.includes("=") ? [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)] : [arg, ""];
+    if (flag === "--eval" || flag === "--print") return "Inline eval for node is not allowed in MCP server commands.";
+    // Short option clusters such as -e, -p, -pe and -ep evaluate inline code.
+    if (/^-[a-z]*[ep][a-z]*$/.test(flag)) return "Inline eval for node is not allowed in MCP server commands.";
+    if (NODE_PRELOAD_OPTIONS.has(flag)) {
+      const value = inlineValue || args[index + 1] || "";
+      if (REMOTE_OR_INLINE_MODULE.test(value)) return "Inline or remote preload modules are not allowed in MCP server commands.";
+    }
+  }
+  return "";
+}
+
+function describeBlockedPythonArgs(args: string[]): string {
+  const blocked = "Inline or package-management execution for python is not allowed in MCP server commands.";
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!/^-[A-Za-z]/.test(arg)) continue;
+    // Python short flags may be clustered (-Bc) and take their value inline (-cCODE, -mpip).
+    const cluster = arg.slice(1);
+    for (let charIndex = 0; charIndex < cluster.length; charIndex += 1) {
+      const flag = cluster[charIndex];
+      if (flag === "c") return blocked;
+      if (flag === "m") {
+        const moduleName = (cluster.slice(charIndex + 1) || args[index + 1] || "").toLowerCase();
+        if (moduleName === "pip" || moduleName === "ensurepip" || moduleName.startsWith("pip.")) return blocked;
+        break;
+      }
+      if (flag === "W" || flag === "X") {
+        if (charIndex === cluster.length - 1) index += 1;
+        break;
+      }
+    }
+  }
+  return "";
+}
+
+const POWERSHELL_VALUE_OPTIONS = [
+  "executionpolicy",
+  "windowstyle",
+  "outputformat",
+  "inputformat",
+  "configurationname",
+  "version",
+  "psconsolefile",
+  "workingdirectory",
+  "settingsfile",
+  "custompipename"
+];
+
+function describeBlockedPowerShellArgs(args: string[]): string {
+  const blocked = "Inline command execution for PowerShell is not allowed in MCP server commands.";
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    // A bare argument before -File is interpreted as a command string.
+    if (!/^[-/]/.test(arg)) return blocked;
+    const name = arg.replace(/^[-/]+/, "").split(":")[0];
+    if (isPowerShellOptionPrefix(arg, "command", 1)
+      || isPowerShellOptionPrefix(arg, "encodedcommand", 1)
+      || name === "ec") {
+      return blocked;
+    }
+    // Everything after -File belongs to the script.
+    if (isPowerShellOptionPrefix(arg, "file", 1)) return "";
+    if (!arg.includes(":") && (name === "ep" || POWERSHELL_VALUE_OPTIONS.some((option) => name.length >= 2 && option.startsWith(name)))) {
+      index += 1;
+    }
+  }
+  return "";
+}
+
+export function describeBlockedMcpEnv(envRaw: unknown): string {
+  const entries = envRaw && typeof envRaw === "object" && !Array.isArray(envRaw)
+    ? Object.entries(envRaw as Record<string, unknown>).map(([key, value]) => [key, String(value ?? "")] as const)
+    : String(envRaw || "").split(/\r?\n/).map((line) => {
+      const idx = line.indexOf("=");
+      return idx > 0 ? [line.slice(0, idx), line.slice(idx + 1)] as const : null;
+    }).filter((entry): entry is readonly [string, string] => entry !== null);
+  for (const [rawKey, value] of entries) {
+    const key = rawKey.trim().toUpperCase();
+    if (BLOCKED_MCP_ENV_KEYS.has(key) || key.startsWith("DYLD_")) {
+      return `Environment variable ${key} is not allowed in MCP server configuration.`;
+    }
+    if (key === "NODE_OPTIONS") {
+      const tokens = value.split(/\s+/).filter(Boolean);
+      if (describeBlockedNodeArgs(tokens)) {
+        return "NODE_OPTIONS may not preload inline or remote code in MCP server configuration.";
+      }
+    }
+  }
+  return "";
+}
+
+/**
+ * Blocks inline code execution through the allowed launchers. This is a guard
+ * against smuggling a one-liner into a launcher; it does not sandbox the MCP
+ * package itself, so MCP server configuration remains trusted user input.
+ */
+export function describeBlockedMcpLaunch(commandRaw: unknown, argsRaw: unknown, envRaw?: unknown): string {
   const command = String(commandRaw || "").trim();
   if (!isAllowedMcpCommand(command)) {
     return command ? `MCP command is not allowed: ${command}` : "MCP command is required";
@@ -97,27 +217,26 @@ export function describeBlockedMcpLaunch(commandRaw: unknown, argsRaw: unknown):
   const normalizedArgs = args.map((arg) => arg.toLowerCase());
   const firstArg = normalizedArgs[0] || "";
 
-  const hasOption = (...options: string[]) => normalizedArgs.some((arg) =>
-    options.some((option) => arg === option || arg.startsWith(`${option}=`))
-  );
-
-  if (base === "node" && hasOption("-e", "--eval")) {
+  if (base === "node") {
+    const reason = describeBlockedNodeArgs(normalizedArgs);
+    if (reason) return reason;
+  }
+  if (base === "deno" && (firstArg === "eval" || normalizedArgs.some((arg) => /^(-e|--eval)(=|$)/.test(arg)))) {
     return `Inline eval for ${base} is not allowed in MCP server commands.`;
   }
-  if (base === "deno" && (firstArg === "eval" || hasOption("-e", "--eval"))) {
-    return `Inline eval for ${base} is not allowed in MCP server commands.`;
+  if (base === "python" || base === "python3") {
+    const reason = describeBlockedPythonArgs(args);
+    if (reason) return reason;
   }
-  if ((base === "python" || base === "python3") && normalizedArgs.some((arg) => arg === "-c" || arg === "-m" && normalizedArgs[normalizedArgs.indexOf(arg) + 1] === "pip")) {
-    return `Inline or package-management execution for ${base} is not allowed in MCP server commands.`;
+  if (base === "powershell" || base === "pwsh") {
+    const reason = describeBlockedPowerShellArgs(normalizedArgs);
+    if (reason) return reason;
   }
-  if ((base === "powershell" || base === "pwsh") && normalizedArgs.some((arg) => arg === "-command" || arg === "-encodedcommand" || arg === "-enc")) {
-    return `Inline command execution for ${base} is not allowed in MCP server commands.`;
-  }
-  if (base === "cmd" && (firstArg === "/c" || firstArg === "/k")) {
+  if (base === "cmd" && normalizedArgs.some((arg) => /^\/[ckr]/.test(arg))) {
     return "Inline cmd execution is not allowed in MCP server commands.";
   }
 
-  return "";
+  return envRaw === undefined ? "" : describeBlockedMcpEnv(envRaw);
 }
 
 let cachedShellPath: string | null | undefined;
@@ -429,7 +548,7 @@ class McpStdioClient {
   private stderrTail = "";
 
   constructor(private readonly config: McpServerConfig, wireFormat?: StdioWireFormat) {
-    const blockedReason = describeBlockedMcpLaunch(config.command, config.args);
+    const blockedReason = describeBlockedMcpLaunch(config.command, config.args, config.env);
     if (blockedReason) {
       throw new Error(blockedReason);
     }

@@ -25,7 +25,7 @@ import rpRoutes from "../routes/rp.js";
 import settingsRoutes from "../routes/settings.js";
 import updateRoutes from "../routes/updates.js";
 import writerRoutes from "../routes/writer.js";
-import { isAllowedRequestOrigin } from "./requestOrigin.js";
+import { isAllowedRequestHost, isAllowedRequestOrigin, type RequestOriginPolicy } from "./requestOrigin.js";
 import { buildContentSecurityPolicy } from "./contentSecurityPolicy.js";
 import { buildPermissionsPolicy } from "./permissionsPolicy.js";
 
@@ -49,11 +49,11 @@ function isHeadlessPublicModeEnabled() {
   return process.env.SLV_SERVER_PUBLIC === "1";
 }
 
-function requestOriginAllowed(origin: string | undefined): boolean {
+function currentRequestOriginPolicy(): RequestOriginPolicy {
   const serveStatic = process.env.SLV_SERVE_STATIC === "1" || process.env.ELECTRON_SERVE_STATIC === "1";
   const defaultPort = serveStatic ? 3001 : 3002;
   const configuredPort = Number(process.env.SLV_SERVER_PORT || defaultPort);
-  return isAllowedRequestOrigin(origin, {
+  return {
     publicMode: isHeadlessPublicModeEnabled(),
     serveStatic,
     serverHost: String(process.env.SLV_SERVER_HOST || "127.0.0.1"),
@@ -64,7 +64,15 @@ function requestOriginAllowed(origin: string | undefined): boolean {
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean)
-  });
+  };
+}
+
+function requestOriginAllowed(origin: string | undefined): boolean {
+  return isAllowedRequestOrigin(origin, currentRequestOriginPolicy());
+}
+
+function requestHostAllowed(host: string | undefined): boolean {
+  return isAllowedRequestHost(host, currentRequestOriginPolicy());
 }
 
 function resolveBasicAuthSecret() {
@@ -316,6 +324,14 @@ export function createApp() {
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", isHeadlessPublicModeEnabled());
+
+  app.use((req, res, next) => {
+    if (!requestHostAllowed(req.headers.host)) {
+      res.status(421).type("text/plain").send("Host blocked by security policy");
+      return;
+    }
+    next();
+  });
 
   app.use(cors((req, callback) => {
     const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;

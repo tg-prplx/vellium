@@ -1,4 +1,11 @@
 export const zh = {
+  "settings.externalEndpoint": "外部端点",
+  "settings.themeMode": "配色方案",
+  "chat.autoConvoProgress": "{speaker} · {current} / {total}",
+  "chat.autoConvoStarting": "正在开始…",
+  "chat.startGroupChat": "创建群聊",
+  "chat.pickerSingle": "单人",
+  "chat.pickerGroup": "群聊",
   "settings.textAndLanguage": "文字与语言",
   "settings.application": "应用",
   "writing.characterGenerateHint": "描述你想要的角色，模型会生成一张可编辑的完整角色卡。",

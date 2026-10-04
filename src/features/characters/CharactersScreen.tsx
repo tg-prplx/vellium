@@ -1047,7 +1047,7 @@ export function CharactersScreen() {
       }
       center={
         selected ? (
-          <div className="flex h-full flex-col">
+          <div key={selected.id} className="motion-tabpanel flex h-full flex-col">
             {/* Header with avatar and actions */}
             <div className="char-editor-header mb-4">
               <div className="char-editor-header-top">
@@ -1181,7 +1181,7 @@ export function CharactersScreen() {
 
             {/* GUI editor fields — sectioned */}
             {editorTab === "profile" ? (
-            <div className="flex-1 space-y-2 overflow-y-auto">
+            <div key="profile" className="motion-tabpanel flex-1 space-y-2 overflow-y-auto">
               {/* Section: Identity */}
               <div className="char-editor-section">
                 <button onClick={() => toggleEditorSection("identity")} className="char-editor-section-toggle">
@@ -1512,7 +1512,7 @@ export function CharactersScreen() {
               </div>
             </div>
             ) : (
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div key="scene" className="motion-tabpanel min-h-0 flex-1 overflow-y-auto">
                 <CharacterSceneStateEditor
                   value={sceneDefaultsDraft}
                   onChange={(nextValue) => {

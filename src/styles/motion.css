@@ -1,0 +1,257 @@
+/* Motion system, final layer.
+   One vocabulary for the whole app: things enter by rising a few pixels while fading in,
+   menus grow from the control that opened them, and pressed controls give a small squeeze.
+   Rules:
+   - Entrances use `animation-fill-mode: backwards` and end at `transform: none`, so no
+     container keeps a transform afterwards (a lingering transform would re-anchor every
+     `position: fixed` popover and modal inside it).
+   - No infinite loops here; the global reduced-motion switch in chat-artifacts.css still
+     collapses every animation and transition to 1ms. */
+
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-pop: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --dur-1: 140ms;
+  --dur-2: 220ms;
+  --dur-3: 320ms;
+  --dur-4: 460ms;
+  --rise: 8px;
+}
+
+@keyframes vMotionRise {
+  from { opacity: 0; transform: translateY(var(--rise)); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes vMotionFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes vMotionPop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes vMotionPopUp {
+  from { opacity: 0; transform: translateY(4px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes vMotionSlideIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes vMotionScaleIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes vMotionShake {
+  0%, 100% { transform: none; }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+
+/* ── Screens: every tab change rises in (keep-alive screens toggle display, which restarts it). */
+.app-screen-keepalive.is-active {
+  animation: vMotionRise var(--dur-3) var(--ease-out) backwards;
+}
+
+/* ── Settings: category content cascades in, page title first. */
+.settings-workbench-header,
+.settings-workbench-chip-row {
+  animation: vMotionFade var(--dur-2) var(--ease-out) backwards;
+}
+.settings-content-inner > .space-y-4 > * {
+  animation: vMotionRise var(--dur-3) var(--ease-out) backwards;
+}
+.settings-content-inner > .space-y-4 > :nth-child(2) { animation-delay: 40ms; }
+.settings-content-inner > .space-y-4 > :nth-child(3) { animation-delay: 80ms; }
+.settings-content-inner > .space-y-4 > :nth-child(4) { animation-delay: 120ms; }
+.settings-content-inner > .space-y-4 > :nth-child(n + 5) { animation-delay: 160ms; }
+.settings-nav-item { transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out); }
+.settings-nav-item.is-active { animation: none; }
+.settings-nav-item .settings-nav-icon { transition: transform var(--dur-2) var(--ease-pop), opacity var(--dur-2) ease; }
+.settings-nav-item:hover .settings-nav-icon { transform: scale(1.08); }
+
+/* ── Tab panels that remount on tab change (editor tabs, pet tabs, forge sections). */
+.motion-tabpanel {
+  animation: vMotionRise var(--dur-2) var(--ease-out) backwards;
+  --rise: 5px;
+}
+
+/* ── Tabs: smooth state changes for every tab family. */
+.char-editor-tabs button,
+.characters-inspector-tabs > button,
+.chat-inspector-navigation button,
+.settings-workbench-chip,
+.chat-character-mode-switch > button {
+  transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out),
+    border-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out);
+}
+.char-editor-tabs button.is-active,
+.chat-character-mode-switch > button.is-active {
+  animation: vMotionScaleIn var(--dur-2) var(--ease-pop) backwards;
+}
+
+/* ── Lists and cards: short cascades on first render. */
+.character-gallery-grid > .character-card,
+.pet-asset-grid > .pet-asset-tile,
+.pet-state-list > .pet-state-row,
+.charforge-list-scroll > .character-library-item,
+.chat-character-picker-list > .chat-character-option,
+.chat-multi-available-list > .chat-character-option,
+.chat-sidebar-list > .chat-sidebar-item {
+  animation: vMotionRise var(--dur-3) var(--ease-out) backwards;
+  --rise: 6px;
+}
+.character-gallery-grid > :nth-child(2),
+.charforge-list-scroll > :nth-child(2),
+.chat-character-picker-list > :nth-child(2),
+.chat-multi-available-list > :nth-child(2),
+.chat-sidebar-list > :nth-child(2),
+.pet-asset-grid > :nth-child(2),
+.pet-state-list > :nth-child(2) { animation-delay: 30ms; }
+.character-gallery-grid > :nth-child(3),
+.charforge-list-scroll > :nth-child(3),
+.chat-character-picker-list > :nth-child(3),
+.chat-multi-available-list > :nth-child(3),
+.chat-sidebar-list > :nth-child(3),
+.pet-state-list > :nth-child(3) { animation-delay: 60ms; }
+.character-gallery-grid > :nth-child(4),
+.charforge-list-scroll > :nth-child(4),
+.chat-character-picker-list > :nth-child(4),
+.chat-multi-available-list > :nth-child(4),
+.chat-sidebar-list > :nth-child(4),
+.pet-state-list > :nth-child(4) { animation-delay: 90ms; }
+.character-gallery-grid > :nth-child(n + 5),
+.charforge-list-scroll > :nth-child(n + 5),
+.chat-character-picker-list > :nth-child(n + 5),
+.chat-multi-available-list > :nth-child(n + 5),
+.chat-sidebar-list > :nth-child(n + 5),
+.pet-state-list > :nth-child(n + 5) { animation-delay: 120ms; }
+
+.character-card {
+  transition: transform var(--dur-2) var(--ease-out), border-color var(--dur-2) ease,
+    background-color var(--dur-2) ease, box-shadow var(--dur-2) var(--ease-out);
+}
+.character-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgb(0 0 0 / 0.16); }
+.character-card .character-card-avatar { transition: transform var(--dur-3) var(--ease-pop); }
+.character-card:hover .character-card-avatar { transform: scale(1.05); }
+
+.character-library-item,
+.chat-character-option,
+.pets-library-item {
+  transition: background-color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out),
+    color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out), transform var(--dur-1) ease;
+}
+.character-library-item.is-active,
+.pets-library-item.is-active { animation: vMotionSlideIn var(--dur-2) var(--ease-out) backwards; --rise: 0px; }
+
+/* ── Menus and popovers grow out of the control that opened them. */
+.message-more-menu-panel.is-down,
+.live-menu-panel,
+.chat-simple-more-menu[open] > .chat-simple-more-menu-panel,
+.task-manager-popover,
+.app-nav-menu {
+  transform-origin: top right;
+  animation: vMotionPop var(--dur-2) var(--ease-out) backwards;
+}
+.message-more-menu-panel.is-up {
+  transform-origin: bottom left;
+  animation: vMotionPopUp var(--dur-2) var(--ease-out) backwards;
+}
+.message-more-menu-panel.is-up.is-end { transform-origin: bottom right; }
+.message-more-menu-panel.is-down { transform-origin: top left; }
+.character-actions-menu[open] > .character-actions-menu-panel {
+  transform-origin: top left;
+  animation: vMotionPop var(--dur-2) var(--ease-out) backwards;
+}
+.app-nav-menu { transform-origin: top center; }
+
+/* Popover children follow a beat later so the surface lands first. */
+.live-menu-panel .live-session-menu > *,
+.message-more-menu-panel > button,
+.character-actions-menu[open] .character-actions-menu-panel > button {
+  animation: vMotionFade var(--dur-2) ease 60ms backwards;
+}
+
+/* ── Hover toolbars and floating controls. */
+.chat-simple-layout .chat-message .message-actions {
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out);
+}
+.reply-variant-switcher { animation: vMotionFade var(--dur-2) ease backwards; }
+
+/* ── Feedback surfaces: errors, statuses and badges announce themselves. */
+.chat-generation-failure { animation: vMotionRise var(--dur-3) var(--ease-out) backwards; }
+.chat-generation-failure-heading > svg { animation: vMotionShake 360ms var(--ease-in-out) 200ms 1 backwards; }
+.pet-desktop-state,
+.charforge-error,
+.characters-preview-description { animation: vMotionFade var(--dur-2) ease backwards; }
+.chat-character-picker { animation: vMotionPop var(--dur-2) var(--ease-out) backwards; transform-origin: top left; }
+
+/* ── Press feedback for buttons that do not already move on their own. */
+.char-editor-btn,
+.live-quiet-button,
+.live-pill,
+.auto-convo-start,
+.chat-simple-action-button,
+.message-icon-button,
+.charforge-create-entry,
+.charforge-chips button,
+.chat-character-option,
+.character-card,
+.settings-nav-item,
+.chat-simple-thread-action-btn,
+.chat-generation-failure button,
+.vellium-button {
+  -webkit-tap-highlight-color: transparent;
+}
+.char-editor-btn:active:not(:disabled),
+.live-quiet-button:active:not(:disabled),
+.live-pill:active:not(:disabled),
+.auto-convo-start:active:not(:disabled),
+.chat-simple-action-button:active:not(:disabled),
+.message-icon-button:active:not(:disabled),
+.charforge-create-entry:active,
+.charforge-chips button:active,
+.chat-character-option:active,
+.character-card:active,
+.settings-nav-item:active,
+.chat-simple-thread-action-btn:active:not(:disabled),
+.chat-generation-failure button:active:not(:disabled),
+.vellium-button:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 80ms;
+}
+.char-editor-btn:hover { transform: none; }
+
+/* ── Live: stage changes are felt, not seen as jumps. */
+.live-screen .live-avatar-static-fallback img,
+.live-screen .live-avatar-monogram {
+  animation: vMotionScaleIn var(--dur-4) var(--ease-out) backwards;
+}
+.live-screen .live-avatar-copy strong,
+.live-screen .live-avatar-copy span { transition: color var(--dur-2) ease; }
+.live-screen .live-avatar-copy strong { animation: vMotionFade var(--dur-2) ease backwards; }
+.live-screen .live-controls button { transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out), transform var(--dur-1) ease; }
+.live-screen .live-controls button:active { transform: scale(0.95); }
+.live-screen .live-avatar-mic { transition: background-color var(--dur-2) ease, box-shadow var(--dur-3) var(--ease-out), transform var(--dur-1) ease; }
+.live-identity-copy strong,
+.live-status { transition: color var(--dur-2) ease; }
+
+/* ── Pets: the preview responds to changes in size with a springy settle. */
+.pet-desktop-figure { transition: transform var(--dur-4) var(--ease-pop); }
+.pet-desktop-avatar { animation: vMotionScaleIn var(--dur-4) var(--ease-pop) backwards; }
+.pet-desktop-bubble { animation: vMotionPopUp var(--dur-3) var(--ease-out) 120ms backwards; transform-origin: bottom left; }
+
+/* ── Toggles: the thumb glides. */
+input[type="checkbox"] { transition: background-color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out), box-shadow var(--dur-2) ease; }
+
+/* ── Focus rings ease in instead of snapping. */
+:where(button, a, input, select, textarea, summary):focus-visible {
+  transition: box-shadow var(--dur-1) ease, outline-color var(--dur-1) ease;
+}

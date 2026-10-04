@@ -1,4 +1,11 @@
 export const ja = {
+  "settings.externalEndpoint": "外部エンドポイント",
+  "settings.themeMode": "配色",
+  "chat.autoConvoProgress": "{speaker} · {current} / {total}",
+  "chat.autoConvoStarting": "開始中…",
+  "chat.startGroupChat": "グループチャットを開始",
+  "chat.pickerSingle": "ひとり",
+  "chat.pickerGroup": "グループ",
   "settings.textAndLanguage": "テキストと言語",
   "settings.application": "アプリ",
   "writing.characterGenerateHint": "作りたいキャラクターを説明すると、編集できる完全なキャラクターカードをモデルが作成します。",

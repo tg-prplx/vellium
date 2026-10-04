@@ -6,6 +6,7 @@ import { normalizeApiParamPolicy } from "../services/apiParamPolicy.js";
 import { normalizeRuntimeTuningSettings } from "../services/runtimeTuning.js";
 import { createRequestTimeout } from "../services/requestTimeout.js";
 import { probeLlamaCppEndpoint, setLlamaCppModelLoaded } from "../services/llamaCppApi.js";
+import { maskSettingsSecrets } from "../services/settingsSecrets.js";
 import { normalizeSamplerPresets, resolveModelSamplerPreset } from "../../src/shared/samplerPresets.js";
 
 const router = Router();
@@ -415,7 +416,7 @@ router.post("/set-active", (req, res) => {
     samplerConfig: modelPreset ? { ...modelPreset.samplerConfig } : settings.samplerConfig
   };
   db.prepare("UPDATE settings SET payload = ? WHERE id = 1").run(JSON.stringify(updated));
-  res.json(updated);
+  res.json(maskSettingsSecrets(updated));
 });
 
 router.post("/:id/runtime-config", (req, res) => {

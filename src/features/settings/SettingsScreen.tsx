@@ -17,7 +17,7 @@ import { WallpaperThemePanel } from "./components/WallpaperThemePanel";
 import { RuntimeTuningSettings } from "./components/RuntimeTuningSettings";
 import { SpeechToTextSettings } from "./components/SpeechToTextSettings";
 import { TextToSpeechSettings } from "./components/TextToSpeechSettings";
-import { UpdateCheckSetting } from "./components/UpdateCheckSetting";
+import { SettingRow, SettingsGroup, SettingSlider } from "./components/SettingRow";
 import { SamplerPresetSettings } from "./components/SamplerPresetSettings";
 import { LocalModelsSetup } from "../../components/LocalModelsSetup";
 import { LegacyScreen } from "../legacy/public";
@@ -1759,27 +1759,26 @@ export function SettingsScreen({
           {/* ===== INTERFACE ===== */}
           {activeCategory === "interface" && (
             <div className="space-y-4">
-              <div id="settings-general" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.theme")}</div>
-                <div className="space-y-3">
-                  <div className="settings-field-narrow">
+              <SettingsGroup id="settings-general" title={t("settings.theme")}>
+                  <SettingRow label={t("settings.themeMode")}>
                     <SelectField value={settings.theme} onChange={handleThemeModeChange}>
                       <option value="dark">{t("settings.dark")}</option>
                       <option value="light">{t("settings.light")}</option>
                       <option value="cream-rose">{t("settings.creamRose")}</option>
                       <option value="custom">{t("settings.themePlugin")}</option>
                     </SelectField>
-                  </div>
+                  </SettingRow>
                   {pluginThemes.length > 0 && (
-                    <div>
-                      <FieldLabel>{t("settings.pluginTheme")}</FieldLabel>
-                      <SelectField value={settings.pluginThemeId || ""} onChange={(v) => applyPluginTheme(v || pluginThemes[0]?.id || "")}>
-                        <option value="">{t("settings.selectPluginTheme")}</option>
-                        {pluginThemes.map((theme) => (
-                          <option key={theme.id} value={theme.id}>{theme.pluginName} · {theme.label}</option>
-                        ))}
-                      </SelectField>
-                      <div className="settings-theme-grid mt-2">
+                    <>
+                      <SettingRow label={t("settings.pluginTheme")}>
+                        <SelectField value={settings.pluginThemeId || ""} onChange={(v) => applyPluginTheme(v || pluginThemes[0]?.id || "")}>
+                          <option value="">{t("settings.selectPluginTheme")}</option>
+                          {pluginThemes.map((theme) => (
+                            <option key={theme.id} value={theme.id}>{theme.pluginName} · {theme.label}</option>
+                          ))}
+                        </SelectField>
+                      </SettingRow>
+                      <div className="settings-theme-grid">
                         {pluginThemes.map((theme) => {
                           const isActive = settings.theme === "custom" && settings.pluginThemeId === theme.id;
                           const accent = theme.variables["--color-accent"] || (theme.base === "light" ? "#1e66f5" : "#8aadf4");
@@ -1845,15 +1844,12 @@ export function SettingsScreen({
                           );
                         })}
                       </div>
-                    </div>
+                    </>
                   )}
                   {settings.theme === "custom" && pluginThemes.length === 0 && (
-                    <div className="rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-tertiary">
-                      {t("settings.noPluginThemes")}
-                    </div>
+                    <p className="settings-group-note">{t("settings.noPluginThemes")}</p>
                   )}
-                </div>
-              </div>
+              </SettingsGroup>
 
               <div id="settings-wallpaper" className="settings-section scroll-mt-24">
                   <div className="settings-wallpaper-studio">
@@ -1985,231 +1981,188 @@ export function SettingsScreen({
                   </div>
               </div>
 
-              <div id="settings-text-language" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.textAndLanguage")}</div>
-                <div className="grid gap-6 md:grid-cols-2">
-                  <div>
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <FieldLabel>{t("settings.textSize")}</FieldLabel>
-                      <span className="text-xs text-text-tertiary">{Math.round(settings.fontScale * 100)}%</span>
-                    </div>
-                    <input type="range" min={0.65} max={1.5} step={0.05} value={settings.fontScale} onChange={(e) => patch({ fontScale: Number(e.target.value) })} className="w-full" />
-                  </div>
-                  <div>
-                    <FieldLabel>{t("settings.interfaceLanguage")}</FieldLabel>
-                    <SelectField value={settings.interfaceLanguage || "en"} onChange={(v) => changeInterfaceLanguage(v as "en" | "ru" | "zh" | "ja")}>
-                      <option value="en">{t("common.english")}</option>
-                      <option value="ru">{t("common.russian")}</option>
-                      <option value="zh">{t("common.chinese")}</option>
-                      <option value="ja">{t("common.japanese")}</option>
-                    </SelectField>
-                  </div>
-                </div>
-              </div>
+              <SettingsGroup id="settings-text-language" title={t("settings.textAndLanguage")}>
+                <SettingRow label={t("settings.textSize")}>
+                  <SettingSlider ariaLabel={t("settings.textSize")} min={0.65} max={1.5} step={0.05} value={settings.fontScale}
+                    format={(value) => `${Math.round(value * 100)}%`} onChange={(value) => patch({ fontScale: value })} />
+                </SettingRow>
+                <SettingRow label={t("settings.interfaceLanguage")}>
+                  <SelectField value={settings.interfaceLanguage || "en"} onChange={(v) => changeInterfaceLanguage(v as "en" | "ru" | "zh" | "ja")}>
+                    <option value="en">{t("common.english")}</option>
+                    <option value="ru">{t("common.russian")}</option>
+                    <option value="zh">{t("common.chinese")}</option>
+                    <option value="ja">{t("common.japanese")}</option>
+                  </SelectField>
+                </SettingRow>
+              </SettingsGroup>
 
-              <div id="settings-application" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.application")}</div>
-                <div className="space-y-2">
-                  <UpdateCheckSetting checked={settings.checkForUpdates !== false} onChange={(checked) => { void patch({ checkForUpdates: checked }); }} />
-                  <div className="settings-toggle-row">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-text-primary">{t("settings.welcomeTour")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.welcomeTourDesc")}</div>
-                    </div>
-                    <button type="button" className={secondaryActionClass} onClick={() => window.dispatchEvent(new Event("welcome-tour-start"))}>
-                      <SettingsActionIcon name="tour" />
-                      {t("settings.welcomeTourStart")}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <SettingsGroup id="settings-application" title={t("settings.application")}>
+                <SettingRow toggle label={t("settings.checkForUpdates")} description={t("settings.checkForUpdatesDesc")}>
+                  <ToggleSwitch ariaLabel={t("settings.checkForUpdates")} checked={settings.checkForUpdates !== false} onChange={(e) => { void patch({ checkForUpdates: e.target.checked }); }} />
+                </SettingRow>
+                <SettingRow toggle label={t("settings.welcomeTour")} description={t("settings.welcomeTourDesc")}>
+                  <button type="button" className={secondaryActionClass} onClick={() => window.dispatchEvent(new Event("welcome-tour-start"))}>
+                    <SettingsActionIcon name="tour" />
+                    {t("settings.welcomeTourStart")}
+                  </button>
+                </SettingRow>
+              </SettingsGroup>
             </div>
           )}
 
           {/* ===== GENERATION ===== */}
           {activeCategory === "generation" && (
             <div className="space-y-4">
-              <div id="settings-output-behaviour" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.outputBehaviour")}</div>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div><FieldLabel>{t("settings.responseLanguage")}</FieldLabel><InputField value={settings.responseLanguage} onChange={(v) => patch({ responseLanguage: v })} {...autosaveProps} /></div>
-                  <div><FieldLabel>{t("settings.translateLanguage")}</FieldLabel><InputField value={settings.translateLanguage || settings.responseLanguage || "English"} onChange={(v) => patch({ translateLanguage: v })} {...autosaveProps} /></div>
-                  <div>
-                    <FieldLabel>{t("settings.censorship")}</FieldLabel>
-                    <SelectField value={settings.censorshipMode} onChange={(v) => patch({ censorshipMode: v as AppSettings["censorshipMode"] })}>
-                      <option value="Unfiltered">{t("settings.unfiltered")}</option>
-                      <option value="Filtered">{t("settings.filtered")}</option>
-                    </SelectField>
-                  </div>
-                </div>
-              </div>
+              <SettingsGroup id="settings-output-behaviour" title={t("settings.outputBehaviour")}>
+                <SettingRow label={t("settings.responseLanguage")}>
+                  <InputField value={settings.responseLanguage} onChange={(v) => patch({ responseLanguage: v })} {...autosaveProps} />
+                </SettingRow>
+                <SettingRow label={t("settings.translateLanguage")}>
+                  <InputField value={settings.translateLanguage || settings.responseLanguage || "English"} onChange={(v) => patch({ translateLanguage: v })} {...autosaveProps} />
+                </SettingRow>
+                <SettingRow label={t("settings.censorship")}>
+                  <SelectField value={settings.censorshipMode} onChange={(v) => patch({ censorshipMode: v as AppSettings["censorshipMode"] })}>
+                    <option value="Unfiltered">{t("settings.unfiltered")}</option>
+                    <option value="Filtered">{t("settings.filtered")}</option>
+                  </SelectField>
+                </SettingRow>
+              </SettingsGroup>
               <RuntimeTuningSettings group="generation" settings={settings} onPatch={(next) => void patch(next)} t={t} />
-              <div id="settings-sampler-defaults" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.samplerDefaults")}</div>
-                <div className="space-y-4">
+              <SettingsGroup id="settings-sampler-defaults" title={t("settings.samplerDefaults")}>
+                <SettingRow wide label={t("settings.samplerPresets")} description={t("settings.samplerPresetsDesc")}>
                   <SamplerPresetSettings settings={settings} onPatch={patch} />
-                  <div className="grid gap-x-8 gap-y-4 md:grid-cols-2">
+                </SettingRow>
+                {([
+                  { key: "temperature" as const, label: t("inspector.temperature"), min: 0, max: 2 },
+                  { key: "topP" as const, label: t("inspector.topP"), min: 0, max: 1 },
+                  { key: "frequencyPenalty" as const, label: t("inspector.freqPenalty"), min: 0, max: 2 },
+                  { key: "presencePenalty" as const, label: t("inspector.presPenalty"), min: 0, max: 2 }
+                ]).map(({ key, label, min, max }) => (
+                  <SettingRow key={key} label={label}>
+                    <SettingSlider ariaLabel={label} min={min} max={max} step={0.05} value={settings.samplerConfig[key]} onChange={(value) => patchSampler({ [key]: value })} />
+                  </SettingRow>
+                ))}
+                <SettingRow label={t("inspector.maxTokens")}>
+                  <InputField type="number" value={String(settings.samplerConfig.maxTokens)} onChange={(v) => patchSampler({ maxTokens: clampInteger(v, settings.samplerConfig.maxTokens, 1, 32768) })} {...autosaveProps} />
+                </SettingRow>
+                <SettingRow label={t("settings.stopSequences")}>
+                  <InputField value={(settings.samplerConfig.stop || []).join(", ")} onChange={(v) => patchSampler({ stop: v.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder={t("settings.stopSequencesPlaceholder")} {...autosaveProps} />
+                </SettingRow>
+                <h4 className="settings-subheading">{t("settings.koboldSampler")}</h4>
+                {([
+                  { key: "topK" as const, label: "Top-K", min: 0, max: 300, step: 1, fallback: 100 },
+                  { key: "topA" as const, label: "Top-A", min: 0, max: 1, step: 0.01, fallback: 0 },
+                  { key: "minP" as const, label: "Min-P", min: 0, max: 1, step: 0.01, fallback: 0 },
+                  { key: "typical" as const, label: "Typical", min: 0, max: 1, step: 0.01, fallback: 1 },
+                  { key: "tfs" as const, label: "TFS", min: 0, max: 1, step: 0.01, fallback: 1 },
+                  { key: "nSigma" as const, label: "N-Sigma", min: 0, max: 1, step: 0.01, fallback: 0 },
+                  { key: "repetitionPenalty" as const, label: t("settings.koboldRepetitionPenalty"), min: 0, max: 2, step: 0.01, fallback: 1.1 }
+                ]).map(({ key, label, min, max, step, fallback }) => (
+                  <SettingRow key={key} label={label}>
+                    <SettingSlider ariaLabel={label} min={min} max={max} step={step} value={Number(settings.samplerConfig[key] ?? fallback)}
+                      format={(value) => (step >= 1 ? String(Math.round(value)) : value.toFixed(2))} onChange={(value) => patchSampler({ [key]: value })} />
+                  </SettingRow>
+                ))}
+                <SettingRow wide label={t("settings.koboldMemoryLabel")}>
+                  <TextareaField value={settings.samplerConfig.koboldMemory || ""} onChange={(v) => patchSampler({ koboldMemory: v })} className="h-20 text-xs" placeholder={t("settings.koboldMemoryPlaceholder")} {...autosaveProps} />
+                </SettingRow>
+                <SettingRow label={t("settings.koboldPhraseBansLabel")}>
+                  <InputField value={koboldBansInput} onChange={setKoboldBansInput} onBlur={() => patchSampler({ koboldBannedPhrases: parsePhraseBansInput(koboldBansInput) })} placeholder={t("settings.koboldPhraseBansPlaceholder")} />
+                </SettingRow>
+                <SettingRow toggle label={t("settings.koboldUseDefaultBadwordsIds")}>
+                  <ToggleSwitch ariaLabel={t("settings.koboldUseDefaultBadwordsIds")} checked={settings.samplerConfig.koboldUseDefaultBadwords === true} onChange={(e) => patchSampler({ koboldUseDefaultBadwords: e.target.checked })} />
+                </SettingRow>
+              </SettingsGroup>
+
+              <SettingsGroup id="settings-api-param-forwarding" title={t("settings.apiParamForwarding")} description={t("settings.apiParamForwardingDesc")}>
+                <h4 className="settings-subheading is-first">{t("settings.apiParamsOpenAi")}</h4>
+                <SettingRow toggle label={t("settings.sendSampler")}>
+                  <ToggleSwitch ariaLabel={t("settings.sendSampler")} checked={apiParamPolicy.openai.sendSampler} onChange={(e) => void patchApiParamPolicy({ openai: { sendSampler: e.target.checked } })} />
+                </SettingRow>
+                <div className="settings-row-columns">
                   {([
-                    { key: "temperature" as const, label: t("inspector.temperature"), min: 0, max: 2 },
-                    { key: "topP" as const, label: t("inspector.topP"), min: 0, max: 1 },
-                    { key: "frequencyPenalty" as const, label: t("inspector.freqPenalty"), min: 0, max: 2 },
-                    { key: "presencePenalty" as const, label: t("inspector.presPenalty"), min: 0, max: 2 }
-                  ]).map(({ key, label, min, max }) => (
-                    <div key={key}>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <FieldLabel>{label}</FieldLabel>
-                        <span className="text-xs text-text-tertiary">{settings.samplerConfig[key].toFixed(2)}</span>
-                      </div>
-                      <input type="range" min={min} max={max} step={0.05} value={settings.samplerConfig[key]} onChange={(e) => patchSampler({ [key]: Number(e.target.value) })} className="w-full" />
-                    </div>
+                    { key: "temperature" as const, label: t("inspector.temperature") },
+                    { key: "topP" as const, label: t("inspector.topP") },
+                    { key: "frequencyPenalty" as const, label: t("inspector.freqPenalty") },
+                    { key: "presencePenalty" as const, label: t("inspector.presPenalty") },
+                    { key: "maxTokens" as const, label: t("inspector.maxTokens") },
+                    { key: "stop" as const, label: t("settings.stopSequences") }
+                  ]).map((item) => (
+                    <SettingRow key={item.key} toggle label={item.label} disabled={!apiParamPolicy.openai.sendSampler}>
+                      <ToggleSwitch ariaLabel={item.label} checked={apiParamPolicy.openai[item.key]} disabled={!apiParamPolicy.openai.sendSampler}
+                        onChange={(e) => void patchApiParamPolicy({ openai: { ...apiParamPolicy.openai, [item.key]: e.target.checked } })} />
+                    </SettingRow>
                   ))}
-                  <div><FieldLabel>{t("inspector.maxTokens")}</FieldLabel><InputField type="number" value={String(settings.samplerConfig.maxTokens)} onChange={(v) => patchSampler({ maxTokens: clampInteger(v, settings.samplerConfig.maxTokens, 1, 32768) })} {...autosaveProps} /></div>
-                  <div><FieldLabel>{t("settings.stopSequences")}</FieldLabel><InputField value={(settings.samplerConfig.stop || []).join(", ")} onChange={(v) => patchSampler({ stop: v.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder={t("settings.stopSequencesPlaceholder")} {...autosaveProps} /></div>
-                  </div>
-
-                  <div className="settings-field-group">
-                    <div className="mb-3 text-xs font-semibold text-text-secondary">{t("settings.koboldSampler")}</div>
-                    <div className="grid grid-cols-2 gap-x-8 gap-y-3 xl:grid-cols-3">
-                      {([
-                        { key: "topK" as const, label: "Top-K", min: 0, max: 300, step: 1, fallback: 100 },
-                        { key: "topA" as const, label: "Top-A", min: 0, max: 1, step: 0.01, fallback: 0 },
-                        { key: "minP" as const, label: "Min-P", min: 0, max: 1, step: 0.01, fallback: 0 },
-                        { key: "typical" as const, label: "Typical", min: 0, max: 1, step: 0.01, fallback: 1 },
-                        { key: "tfs" as const, label: "TFS", min: 0, max: 1, step: 0.01, fallback: 1 },
-                        { key: "nSigma" as const, label: "N-Sigma", min: 0, max: 1, step: 0.01, fallback: 0 },
-                        { key: "repetitionPenalty" as const, label: "Rep. Penalty", min: 0, max: 2, step: 0.01, fallback: 1.1 }
-                      ]).map(({ key, label, min, max, step, fallback }) => (
-                        <div key={key}>
-                          <div className="mb-1.5 flex items-center justify-between">
-                            <FieldLabel>{label}</FieldLabel>
-                            <span className="text-xs text-text-tertiary">{Number(settings.samplerConfig[key] ?? fallback).toFixed(2)}</span>
-                          </div>
-                          <input type="range" min={min} max={max} step={step} value={Number(settings.samplerConfig[key] ?? fallback)} onChange={(e) => patchSampler({ [key]: Number(e.target.value) })} className="w-full" />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-3"><FieldLabel>{t("settings.koboldMemoryLabel")}</FieldLabel><TextareaField value={settings.samplerConfig.koboldMemory || ""} onChange={(v) => patchSampler({ koboldMemory: v })} className="h-20 text-xs" placeholder={t("settings.koboldMemoryPlaceholder")} {...autosaveProps} /></div>
-                    <div className="mt-3"><FieldLabel>{t("settings.koboldPhraseBansLabel")}</FieldLabel><InputField value={koboldBansInput} onChange={setKoboldBansInput} onBlur={() => patchSampler({ koboldBannedPhrases: parsePhraseBansInput(koboldBansInput) })} placeholder={t("settings.koboldPhraseBansPlaceholder")} /></div>
-                    <label className="mt-3 flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2">
-                      <span className="text-xs font-medium text-text-secondary">{t("settings.koboldUseDefaultBadwordsIds")}</span>
-                      <ToggleSwitch checked={settings.samplerConfig.koboldUseDefaultBadwords === true} onChange={(e) => patchSampler({ koboldUseDefaultBadwords: e.target.checked })} />
-                    </label>
-                  </div>
                 </div>
-              </div>
-
-              <div id="settings-api-param-forwarding" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.apiParamForwarding")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.apiParamForwardingDesc")}</p>
-                <div className="space-y-3">
-                  <div className="settings-field-group">
-                    <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.apiParamsOpenAi")}</div>
-                    <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
-                      <span>{t("settings.sendSampler")}</span>
-                      <ToggleSwitch checked={apiParamPolicy.openai.sendSampler} onChange={(e) => void patchApiParamPolicy({ openai: { sendSampler: e.target.checked } })} />
-                    </label>
-                    <div className={`mt-2 grid grid-cols-2 gap-2 ${apiParamPolicy.openai.sendSampler ? "" : "opacity-60"}`}>
-                      {([
-                        { key: "temperature" as const, label: t("inspector.temperature") },
-                        { key: "topP" as const, label: t("inspector.topP") },
-                        { key: "frequencyPenalty" as const, label: t("inspector.freqPenalty") },
-                        { key: "presencePenalty" as const, label: t("inspector.presPenalty") },
-                        { key: "maxTokens" as const, label: t("inspector.maxTokens") },
-                        { key: "stop" as const, label: t("settings.stopSequences") }
-                      ]).map((item) => (
-                        <label key={item.key} className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-2.5 py-2 text-xs text-text-secondary">
-                          <span>{item.label}</span>
-                          <ToggleSwitch checked={apiParamPolicy.openai[item.key]} disabled={!apiParamPolicy.openai.sendSampler}
-                            onChange={(e) => void patchApiParamPolicy({ openai: { ...apiParamPolicy.openai, [item.key]: e.target.checked } })} />
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="settings-field-group">
-                    <div className="mb-2 text-xs font-semibold text-text-secondary">{t("settings.apiParamsKobold")}</div>
-                    <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
-                      <span>{t("settings.sendSampler")}</span>
-                      <ToggleSwitch checked={apiParamPolicy.kobold.sendSampler} onChange={(e) => void patchApiParamPolicy({ kobold: { sendSampler: e.target.checked } })} />
-                    </label>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      {([
-                        { key: "memory" as const, label: t("settings.koboldMemoryLabel"), disableWhenSamplerOff: false },
-                        { key: "maxTokens" as const, label: t("inspector.maxTokens"), disableWhenSamplerOff: true },
-                        { key: "temperature" as const, label: t("inspector.temperature"), disableWhenSamplerOff: true },
-                        { key: "topP" as const, label: t("inspector.topP"), disableWhenSamplerOff: true },
-                        { key: "topK" as const, label: "Top-K", disableWhenSamplerOff: true },
-                        { key: "topA" as const, label: "Top-A", disableWhenSamplerOff: true },
-                        { key: "minP" as const, label: "Min-P", disableWhenSamplerOff: true },
-                        { key: "typical" as const, label: "Typical", disableWhenSamplerOff: true },
-                        { key: "tfs" as const, label: "TFS", disableWhenSamplerOff: true },
-                        { key: "nSigma" as const, label: "N-Sigma", disableWhenSamplerOff: true },
-                        { key: "repetitionPenalty" as const, label: t("settings.koboldRepetitionPenalty"), disableWhenSamplerOff: true },
-                        { key: "repetitionPenaltyRange" as const, label: t("settings.koboldRepetitionPenaltyRange"), disableWhenSamplerOff: true },
-                        { key: "repetitionPenaltySlope" as const, label: t("settings.koboldRepetitionPenaltySlope"), disableWhenSamplerOff: true },
-                        { key: "samplerOrder" as const, label: t("settings.koboldSamplerOrder"), disableWhenSamplerOff: true },
-                        { key: "stop" as const, label: t("settings.stopSequences"), disableWhenSamplerOff: true },
-                        { key: "phraseBans" as const, label: t("settings.koboldPhraseBansLabel"), disableWhenSamplerOff: true },
-                        { key: "useDefaultBadwords" as const, label: t("settings.koboldUseDefaultBadwordsIds"), disableWhenSamplerOff: true }
-                      ]).map((item) => {
-                        const disabled = item.disableWhenSamplerOff && !apiParamPolicy.kobold.sendSampler;
-                        return (
-                          <label key={item.key} className={`flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-2.5 py-2 text-xs text-text-secondary ${disabled ? "opacity-60" : ""}`}>
-                            <span>{item.label}</span>
-                            <ToggleSwitch checked={apiParamPolicy.kobold[item.key]} disabled={disabled}
-                              onChange={(e) => void patchApiParamPolicy({ kobold: { ...apiParamPolicy.kobold, [item.key]: e.target.checked } })} />
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
+                <h4 className="settings-subheading">{t("settings.apiParamsKobold")}</h4>
+                <SettingRow toggle label={t("settings.sendSampler")}>
+                  <ToggleSwitch ariaLabel={t("settings.sendSampler")} checked={apiParamPolicy.kobold.sendSampler} onChange={(e) => void patchApiParamPolicy({ kobold: { sendSampler: e.target.checked } })} />
+                </SettingRow>
+                <div className="settings-row-columns">
+                  {([
+                    { key: "memory" as const, label: t("settings.koboldMemoryLabel"), disableWhenSamplerOff: false },
+                    { key: "maxTokens" as const, label: t("inspector.maxTokens"), disableWhenSamplerOff: true },
+                    { key: "temperature" as const, label: t("inspector.temperature"), disableWhenSamplerOff: true },
+                    { key: "topP" as const, label: t("inspector.topP"), disableWhenSamplerOff: true },
+                    { key: "topK" as const, label: "Top-K", disableWhenSamplerOff: true },
+                    { key: "topA" as const, label: "Top-A", disableWhenSamplerOff: true },
+                    { key: "minP" as const, label: "Min-P", disableWhenSamplerOff: true },
+                    { key: "typical" as const, label: "Typical", disableWhenSamplerOff: true },
+                    { key: "tfs" as const, label: "TFS", disableWhenSamplerOff: true },
+                    { key: "nSigma" as const, label: "N-Sigma", disableWhenSamplerOff: true },
+                    { key: "repetitionPenalty" as const, label: t("settings.koboldRepetitionPenalty"), disableWhenSamplerOff: true },
+                    { key: "repetitionPenaltyRange" as const, label: t("settings.koboldRepetitionPenaltyRange"), disableWhenSamplerOff: true },
+                    { key: "repetitionPenaltySlope" as const, label: t("settings.koboldRepetitionPenaltySlope"), disableWhenSamplerOff: true },
+                    { key: "samplerOrder" as const, label: t("settings.koboldSamplerOrder"), disableWhenSamplerOff: true },
+                    { key: "stop" as const, label: t("settings.stopSequences"), disableWhenSamplerOff: true },
+                    { key: "phraseBans" as const, label: t("settings.koboldPhraseBansLabel"), disableWhenSamplerOff: true },
+                    { key: "useDefaultBadwords" as const, label: t("settings.koboldUseDefaultBadwordsIds"), disableWhenSamplerOff: true }
+                  ]).map((item) => {
+                    const disabled = item.disableWhenSamplerOff && !apiParamPolicy.kobold.sendSampler;
+                    return (
+                      <SettingRow key={item.key} toggle label={item.label} disabled={disabled}>
+                        <ToggleSwitch ariaLabel={item.label} checked={apiParamPolicy.kobold[item.key]} disabled={disabled}
+                          onChange={(e) => void patchApiParamPolicy({ kobold: { ...apiParamPolicy.kobold, [item.key]: e.target.checked } })} />
+                      </SettingRow>
+                    );
+                  })}
                 </div>
-              </div>
-
+              </SettingsGroup>
             </div>
           )}
 
           {/* ===== CONTEXT ===== */}
           {activeCategory === "context" && (
             <div className="space-y-4">
-              <div id="settings-context-window" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.contextWindow")}</div>
-                <div className="space-y-3">
-                  <div><FieldLabel>{t("settings.contextSize")}</FieldLabel><InputField type="number" value={String(settings.contextWindowSize)} onChange={(v) => patch({ contextWindowSize: clampInteger(v, settings.contextWindowSize, 256, 1048576) })} {...autosaveProps} /></div>
-                  <div><FieldLabel>{t("settings.contextTailWithSummary")}</FieldLabel><InputField type="number" value={String(settings.contextTailBudgetWithSummaryPercent ?? 35)} onChange={(v) => patch({ contextTailBudgetWithSummaryPercent: clampInteger(v, settings.contextTailBudgetWithSummaryPercent ?? 35, 5, 95) })} {...autosaveProps} /></div>
-                  <div><FieldLabel>{t("settings.contextTailWithoutSummary")}</FieldLabel><InputField type="number" value={String(settings.contextTailBudgetWithoutSummaryPercent ?? 75)} onChange={(v) => patch({ contextTailBudgetWithoutSummaryPercent: clampInteger(v, settings.contextTailBudgetWithoutSummaryPercent ?? 75, 5, 95) })} {...autosaveProps} /></div>
-                  <div className="settings-toggle-row">
-                    <div>
-                      <div className="text-sm font-medium text-text-primary">{t("settings.strictGrounding")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.strictGroundingDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.strictGrounding !== false} onChange={(e) => patch({ strictGrounding: e.target.checked })} />
-                  </div>
-                  <p className="text-[10px] text-text-tertiary">{t("settings.contextDesc")}</p>
-                </div>
-              </div>
+              <SettingsGroup id="settings-context-window" title={t("settings.contextWindow")} description={t("settings.contextDesc")}>
+                <SettingRow label={t("settings.contextSize")}>
+                  <InputField type="number" value={String(settings.contextWindowSize)} onChange={(v) => patch({ contextWindowSize: clampInteger(v, settings.contextWindowSize, 256, 1048576) })} {...autosaveProps} />
+                </SettingRow>
+                <SettingRow label={t("settings.contextTailWithSummary")}>
+                  <InputField type="number" value={String(settings.contextTailBudgetWithSummaryPercent ?? 35)} onChange={(v) => patch({ contextTailBudgetWithSummaryPercent: clampInteger(v, settings.contextTailBudgetWithSummaryPercent ?? 35, 5, 95) })} {...autosaveProps} />
+                </SettingRow>
+                <SettingRow label={t("settings.contextTailWithoutSummary")}>
+                  <InputField type="number" value={String(settings.contextTailBudgetWithoutSummaryPercent ?? 75)} onChange={(v) => patch({ contextTailBudgetWithoutSummaryPercent: clampInteger(v, settings.contextTailBudgetWithoutSummaryPercent ?? 75, 5, 95) })} {...autosaveProps} />
+                </SettingRow>
+                <SettingRow toggle label={t("settings.strictGrounding")} description={t("settings.strictGroundingDesc")}>
+                  <ToggleSwitch ariaLabel={t("settings.strictGrounding")} checked={settings.strictGrounding !== false} onChange={(e) => patch({ strictGrounding: e.target.checked })} />
+                </SettingRow>
+              </SettingsGroup>
 
-              <div id="settings-chat-behaviour" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.conversationBehaviour")}</div>
-                <div className="space-y-2">
-                  {([
-                    { key: "useAlternateGreetings" as const, label: t("settings.altGreetingsRandom"), desc: t("settings.altGreetingsRandomDesc") },
-                    { key: "mergeConsecutiveRoles" as const, label: t("settings.mergeRoles"), desc: t("settings.mergeRolesDesc") }, { key: "includeReasoningInContext" as const, label: t("settings.includeReasoningInContext"), desc: t("settings.includeReasoningInContextDesc") }
-                  ]).map((item) => (
-                    <div key={item.key} className="settings-toggle-row">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-text-primary">{item.label}</div>
-                        <div className="mt-0.5 text-[11px] text-text-tertiary">{item.desc}</div>
-                      </div>
-                      <ToggleSwitch checked={settings[item.key] === true} onChange={(e) => patch({ [item.key]: e.target.checked })} />
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <SettingsGroup id="settings-chat-behaviour" title={t("settings.conversationBehaviour")}>
+                {([
+                  { key: "useAlternateGreetings" as const, label: t("settings.altGreetingsRandom"), desc: t("settings.altGreetingsRandomDesc") },
+                  { key: "mergeConsecutiveRoles" as const, label: t("settings.mergeRoles"), desc: t("settings.mergeRolesDesc") },
+                  { key: "includeReasoningInContext" as const, label: t("settings.includeReasoningInContext"), desc: t("settings.includeReasoningInContextDesc") }
+                ]).map((item) => (
+                  <SettingRow key={item.key} toggle label={item.label} description={item.desc}>
+                    <ToggleSwitch ariaLabel={item.label} checked={settings[item.key] === true} onChange={(e) => patch({ [item.key]: e.target.checked })} />
+                  </SettingRow>
+                ))}
+              </SettingsGroup>
               <RuntimeTuningSettings group="context" settings={settings} onPatch={(next) => void patch(next)} t={t} />
-              <div id="settings-scene-fields" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.sceneFields")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.sceneFieldsDesc")}</p>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <SettingsGroup id="settings-scene-fields" title={t("settings.sceneFields")} description={t("settings.sceneFieldsDesc")}>
+                <div className="settings-row-columns">
                   {([
                     { key: "dialogueStyle" as const, label: t("inspector.dialogueStyle") },
                     { key: "initiative" as const, label: t("inspector.initiative") },
@@ -2217,98 +2170,74 @@ export function SettingsScreen({
                     { key: "unpredictability" as const, label: t("inspector.unpredictability") },
                     { key: "emotionalDepth" as const, label: t("inspector.emotionalDepth") }
                   ]).map((item) => (
-                    <label key={item.key} className="flex cursor-pointer items-center justify-between rounded-lg border border-border-subtle bg-bg-primary px-3 py-2 text-xs text-text-secondary">
-                      <span>{item.label}</span>
-                      <ToggleSwitch checked={(settings.sceneFieldVisibility?.[item.key] ?? DEFAULT_SCENE_FIELD_VISIBILITY[item.key]) === true}
+                    <SettingRow key={item.key} toggle label={item.label}>
+                      <ToggleSwitch ariaLabel={item.label} checked={(settings.sceneFieldVisibility?.[item.key] ?? DEFAULT_SCENE_FIELD_VISIBILITY[item.key]) === true}
                         onChange={(e) => { void patchSceneFieldVisibility({ [item.key]: e.target.checked }); }} />
-                    </label>
+                    </SettingRow>
                   ))}
                 </div>
-              </div>
+              </SettingsGroup>
 
-              <div id="settings-rag-model" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.ragModel")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ragModelDesc")}</p>
-                <div className="space-y-2">
-                  <div>
-                    <FieldLabel>{t("settings.provider")}</FieldLabel>
-                    <SelectField value={settings.ragProviderId || ""} onChange={(v) => { void patch({ ragProviderId: v || null, ragModel: null }); }}>
-                      <option value="">({t("settings.activeModel")})</option>
-                      {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <SettingsGroup id="settings-rag-model" title={t("settings.ragModel")} description={t("settings.ragModelDesc")}>
+                <SettingRow label={t("settings.provider")}>
+                  <SelectField value={settings.ragProviderId || ""} onChange={(v) => { void patch({ ragProviderId: v || null, ragModel: null }); }}>
+                    <option value="">({t("settings.activeModel")})</option>
+                    {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </SelectField>
+                </SettingRow>
+                {settings.ragProviderId && (
+                  <SettingRow label={t("chat.model")} aside={<button type="button" onClick={() => void loadRagModels(settings.ragProviderId)} className="setting-inline-button">{t("settings.loadModels")}</button>}>
+                    <SelectField value={settings.ragModel || ""} onChange={(v) => patch({ ragModel: v || null })}>
+                      <option value="">{t("settings.selectModel")}</option>
+                      {ragModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                     </SelectField>
-                  </div>
-                  {settings.ragProviderId && (
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <FieldLabel>{t("chat.model")}</FieldLabel>
-                        <button onClick={() => void loadRagModels(settings.ragProviderId)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("settings.loadModels")}</button>
-                      </div>
-                      <SelectField value={settings.ragModel || ""} onChange={(v) => patch({ ragModel: v || null })}>
-                        <option value="">{t("settings.selectModel")}</option>
-                        {ragModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
-                      </SelectField>
-                    </div>
-                  )}
-                  <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
-                    <span>{t("settings.ragEnableByDefault")}</span>
-                    <ToggleSwitch checked={settings.ragEnabledByDefault === true} onChange={(e) => patch({ ragEnabledByDefault: e.target.checked })} />
-                  </label>
-                </div>
-              </div>
+                  </SettingRow>
+                )}
+                <SettingRow toggle label={t("settings.ragEnableByDefault")}>
+                  <ToggleSwitch ariaLabel={t("settings.ragEnableByDefault")} checked={settings.ragEnabledByDefault === true} onChange={(e) => patch({ ragEnabledByDefault: e.target.checked })} />
+                </SettingRow>
+              </SettingsGroup>
 
-              <div id="settings-rag-reranker" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.ragReranker")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ragRerankerDesc")}</p>
-                <div className="space-y-2">
-                  <label className="flex items-center justify-between rounded-lg border border-border-subtle bg-bg-secondary px-3 py-2 text-xs text-text-secondary">
-                    <span>{t("settings.ragRerankerEnable")}</span>
-                    <ToggleSwitch checked={settings.ragRerankEnabled === true} onChange={(e) => patch({ ragRerankEnabled: e.target.checked })} />
-                  </label>
-                  <div>
-                    <FieldLabel>{t("settings.provider")}</FieldLabel>
-                    <SelectField value={settings.ragRerankProviderId || ""} onChange={(v) => { void patch({ ragRerankProviderId: v || null, ragRerankModel: null }); }}>
-                      <option value="">({t("settings.activeModel")})</option>
-                      {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <SettingsGroup id="settings-rag-reranker" title={t("settings.ragReranker")} description={t("settings.ragRerankerDesc")}>
+                <SettingRow toggle label={t("settings.ragRerankerEnable")}>
+                  <ToggleSwitch ariaLabel={t("settings.ragRerankerEnable")} checked={settings.ragRerankEnabled === true} onChange={(e) => patch({ ragRerankEnabled: e.target.checked })} />
+                </SettingRow>
+                <SettingRow label={t("settings.provider")} disabled={settings.ragRerankEnabled !== true}>
+                  <SelectField value={settings.ragRerankProviderId || ""} onChange={(v) => { void patch({ ragRerankProviderId: v || null, ragRerankModel: null }); }}>
+                    <option value="">({t("settings.activeModel")})</option>
+                    {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </SelectField>
+                </SettingRow>
+                {settings.ragRerankProviderId && (
+                  <SettingRow label={t("chat.model")} disabled={settings.ragRerankEnabled !== true} aside={<button type="button" onClick={() => void loadRagRerankModels(settings.ragRerankProviderId)} className="setting-inline-button">{t("settings.loadModels")}</button>}>
+                    <SelectField value={settings.ragRerankModel || ""} onChange={(v) => patch({ ragRerankModel: v || null })}>
+                      <option value="">{t("settings.selectModel")}</option>
+                      {ragRerankModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                     </SelectField>
-                  </div>
-                  {settings.ragRerankProviderId && (
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <FieldLabel>{t("chat.model")}</FieldLabel>
-                        <button onClick={() => void loadRagRerankModels(settings.ragRerankProviderId)} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover">{t("settings.loadModels")}</button>
-                      </div>
-                      <SelectField value={settings.ragRerankModel || ""} onChange={(v) => patch({ ragRerankModel: v || null })}>
-                        <option value="">{t("settings.selectModel")}</option>
-                        {ragRerankModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
-                      </SelectField>
-                    </div>
-                  )}
-                  <div><FieldLabel>{t("settings.ragRerankTopN")}</FieldLabel><InputField type="number" value={String(settings.ragRerankTopN ?? 40)} onChange={(v) => patch({ ragRerankTopN: clampInteger(v, settings.ragRerankTopN ?? 40, 5, 200) })} {...autosaveProps} /></div>
-                </div>
-              </div>
+                  </SettingRow>
+                )}
+                <SettingRow label={t("settings.ragRerankTopN")} disabled={settings.ragRerankEnabled !== true}>
+                  <InputField type="number" value={String(settings.ragRerankTopN ?? 40)} onChange={(v) => patch({ ragRerankTopN: clampInteger(v, settings.ragRerankTopN ?? 40, 5, 200) })} {...autosaveProps} />
+                </SettingRow>
+              </SettingsGroup>
 
-              <div id="settings-rag-retrieval" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.ragRetrieval")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.ragRetrievalDesc")}</p>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div><FieldLabel>{t("settings.ragTopK")}</FieldLabel><InputField type="number" value={String(settings.ragTopK ?? 6)} onChange={(v) => patch({ ragTopK: clampInteger(v, settings.ragTopK ?? 6, 1, 12) })} {...autosaveProps} /></div>
-                  <div><FieldLabel>{t("settings.ragCandidateCount")}</FieldLabel><InputField type="number" value={String(settings.ragCandidateCount ?? 80)} onChange={(v) => patch({ ragCandidateCount: clampInteger(v, settings.ragCandidateCount ?? 80, 10, 300) })} {...autosaveProps} /></div>
-                  <div><FieldLabel>{t("settings.ragSimilarityThreshold")}</FieldLabel><InputField type="number" value={String(settings.ragSimilarityThreshold ?? 0.15)} onChange={(v) => patch({ ragSimilarityThreshold: clampDecimal(v, settings.ragSimilarityThreshold ?? 0.15, -1, 1, 2) })} {...autosaveProps} /></div>
-                  <div><FieldLabel>{t("settings.ragMaxContextTokens")}</FieldLabel><InputField type="number" value={String(settings.ragMaxContextTokens ?? 900)} onChange={(v) => patch({ ragMaxContextTokens: clampInteger(v, settings.ragMaxContextTokens ?? 900, 200, 4000) })} {...autosaveProps} /></div>
-                  <div><FieldLabel>{t("settings.ragChunkSize")}</FieldLabel><InputField type="number" value={String(settings.ragChunkSize ?? 1200)} onChange={(v) => patch({ ragChunkSize: clampInteger(v, settings.ragChunkSize ?? 1200, 300, 8000) })} {...autosaveProps} /></div>
-                  <div><FieldLabel>{t("settings.ragChunkOverlap")}</FieldLabel><InputField type="number" value={String(settings.ragChunkOverlap ?? 220)} onChange={(v) => patch({ ragChunkOverlap: clampInteger(v, settings.ragChunkOverlap ?? 220, 0, 3000) })} {...autosaveProps} /></div>
+              <SettingsGroup id="settings-rag-retrieval" title={t("settings.ragRetrieval")} description={t("settings.ragRetrievalDesc")}>
+                <div className="settings-row-columns">
+                  <SettingRow label={t("settings.ragTopK")}><InputField type="number" value={String(settings.ragTopK ?? 6)} onChange={(v) => patch({ ragTopK: clampInteger(v, settings.ragTopK ?? 6, 1, 12) })} {...autosaveProps} /></SettingRow>
+                  <SettingRow label={t("settings.ragCandidateCount")}><InputField type="number" value={String(settings.ragCandidateCount ?? 80)} onChange={(v) => patch({ ragCandidateCount: clampInteger(v, settings.ragCandidateCount ?? 80, 10, 300) })} {...autosaveProps} /></SettingRow>
+                  <SettingRow label={t("settings.ragSimilarityThreshold")}><InputField type="number" value={String(settings.ragSimilarityThreshold ?? 0.15)} onChange={(v) => patch({ ragSimilarityThreshold: clampDecimal(v, settings.ragSimilarityThreshold ?? 0.15, -1, 1, 2) })} {...autosaveProps} /></SettingRow>
+                  <SettingRow label={t("settings.ragMaxContextTokens")}><InputField type="number" value={String(settings.ragMaxContextTokens ?? 900)} onChange={(v) => patch({ ragMaxContextTokens: clampInteger(v, settings.ragMaxContextTokens ?? 900, 200, 4000) })} {...autosaveProps} /></SettingRow>
+                  <SettingRow label={t("settings.ragChunkSize")}><InputField type="number" value={String(settings.ragChunkSize ?? 1200)} onChange={(v) => patch({ ragChunkSize: clampInteger(v, settings.ragChunkSize ?? 1200, 300, 8000) })} {...autosaveProps} /></SettingRow>
+                  <SettingRow label={t("settings.ragChunkOverlap")}><InputField type="number" value={String(settings.ragChunkOverlap ?? 220)} onChange={(v) => patch({ ragChunkOverlap: clampInteger(v, settings.ragChunkOverlap ?? 220, 0, 3000) })} {...autosaveProps} /></SettingRow>
                 </div>
-              </div>
+              </SettingsGroup>
             </div>
           )}
 
           {/* ===== PROMPTS ===== */}
           {activeCategory === "prompts" && (
             <div className="space-y-4">
-              <div id="settings-prompt-templates" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.promptTemplates")}</div>
-                <p className="mb-4 text-[11px] text-text-tertiary">{t("settings.promptTemplatesDesc")}</p>
-                <div className="space-y-4">
+              <SettingsGroup id="settings-prompt-templates" title={t("settings.promptTemplates")} description={t("settings.promptTemplatesDesc")}>
                   {([
                     { key: "jailbreak" as const, label: t("prompt.jailbreak"), desc: t("prompt.jailbreakDesc") },
                     { key: "compressSummary" as const, label: t("prompt.compress"), desc: t("prompt.compressDesc") },
@@ -2318,20 +2247,16 @@ export function SettingsScreen({
                     { key: "writerRewrite" as const, label: t("prompt.writerRewrite"), desc: t("prompt.writerRewriteDesc") },
                     { key: "writerSummarize" as const, label: t("prompt.writerSummarize"), desc: t("prompt.writerSummarizeDesc") }
                   ]).map(({ key, label, desc }) => (
-                    <div key={key}>
-                      <FieldLabel>{label}</FieldLabel>
-                      <p className="mb-1.5 text-[10px] text-text-tertiary">{desc}</p>
+                    <SettingRow key={key} wide label={label} description={desc}>
                       <TextareaField value={settings.promptTemplates?.[key] ?? ""} onChange={(value) => { const tpl: PromptTemplates = { ...settings.promptTemplates, [key]: value }; patch({ promptTemplates: tpl }); }}
                         className="h-24 text-xs leading-relaxed" {...autosaveProps} />
-                    </div>
+                    </SettingRow>
                   ))}
-                </div>
-              </div>
+              </SettingsGroup>
 
-              <div id="settings-prompt-stack" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("inspector.promptStack")}</div>
-                <p className="mb-3 text-[11px] text-text-tertiary">{t("settings.promptStackDesc")}</p>
-                <div className="space-y-2">
+              <SettingsGroup id="settings-prompt-stack" title={t("inspector.promptStack")} description={t("settings.promptStackDesc")}
+                actions={<button type="button" onClick={() => void savePromptStack(DEFAULT_PROMPT_STACK)} className={secondaryActionClass}>{t("settings.promptStackReset")}</button>}>
+                <div className="settings-prompt-stack">
                   {orderedPromptStack.map((block) => (
                     <div key={block.id} draggable
                       onDragStart={() => setDraggedPromptBlockId(block.id)}
@@ -2354,83 +2279,57 @@ export function SettingsScreen({
                     </div>
                   ))}
                 </div>
-                <button onClick={() => void savePromptStack(DEFAULT_PROMPT_STACK)} className="mt-3 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-bg-hover">{t("settings.promptStackReset")}</button>
-              </div>
+              </SettingsGroup>
 
-              <div id="settings-default-system-prompts" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.defaultSysPrompt")}</div>
-                <p className="mb-2 text-[10px] text-text-tertiary">{t("settings.baseSysPromptDesc")}</p>
-                <TextareaField value={settings.defaultSystemPrompt} onChange={(value) => patch({ defaultSystemPrompt: value })}
-                  className="h-40 text-xs leading-relaxed"
-                  placeholder={t("settings.defaultSystemPromptPlaceholder")}
-                  {...autosaveProps} />
-                <p className="mt-2 text-[10px] text-text-tertiary">{t("settings.defaultSysPromptDesc")}</p>
-              </div>
+              <SettingsGroup id="settings-default-system-prompts" title={t("settings.defaultSysPrompt")} description={t("settings.baseSysPromptDesc")}>
+                <SettingRow wide label={t("settings.defaultSysPrompt")} description={t("settings.defaultSysPromptDesc")}>
+                  <TextareaField value={settings.defaultSystemPrompt} onChange={(value) => patch({ defaultSystemPrompt: value })}
+                    className="h-40 text-xs leading-relaxed"
+                    placeholder={t("settings.defaultSystemPromptPlaceholder")}
+                    {...autosaveProps} />
+                </SettingRow>
+              </SettingsGroup>
             </div>
           )}
 
           {/* ===== TOOLS ===== */}
           {activeCategory === "tools" && (
             <div className="space-y-4">
-              <div id="settings-tools-core" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.tools")}</div>
-                <div className="space-y-3">
-                  {toolCallingLocked && (
-                    <div className="rounded-lg border border-warning-border bg-warning-subtle px-3 py-2 text-xs text-warning">{t("settings.toolCallingKoboldDisabled")}</div>
-                  )}
-                  <div className={`settings-toggle-row ${toolCallingLocked ? "opacity-60" : ""}`}>
-                    <div>
-                      <div className="text-sm font-medium text-text-primary">{t("settings.toolCallingEnabled")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.toolCallingDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.toolCallingEnabled ?? false} disabled={toolCallingLocked} onChange={(e) => patch({ toolCallingEnabled: e.target.checked })} />
-                  </div>
-                  <div className={toolCallingLocked ? "opacity-60" : ""}>
-                    <FieldLabel>{t("settings.toolCallingPolicy")}</FieldLabel>
-                    <SelectField value={settings.toolCallingPolicy ?? "balanced"} onChange={(v) => patch({ toolCallingPolicy: v as AppSettings["toolCallingPolicy"] })} disabled={toolCallingLocked}>
-                      <option value="conservative">{t("settings.toolPolicyConservative")}</option>
-                      <option value="balanced">{t("settings.toolPolicyBalanced")}</option>
-                      <option value="aggressive">{t("settings.toolPolicyAggressive")}</option>
-                    </SelectField>
-                    <p className="mt-1 text-[10px] text-text-tertiary">{t("settings.toolCallingPolicyDesc")}</p>
-                  </div>
-                  <div className={toolCallingLocked ? "opacity-60" : ""}>
-                    <FieldLabel>{t("settings.maxToolCalls")}</FieldLabel>
-                    <InputField type="number" value={String(settings.maxToolCallsPerTurn ?? 4)} disabled={toolCallingLocked}
-                      onChange={(v) => { patch({ maxToolCallsPerTurn: clampInteger(v, settings.maxToolCallsPerTurn ?? 4, 1, 12) }); }}
-                      {...autosaveProps} />
-                  </div>
-                  <div className={`settings-toggle-row ${toolCallingLocked ? "opacity-60" : ""}`}>
-                    <div>
-                      <div className="text-sm font-medium text-text-primary">{t("settings.mcpAutoAttachTools")}</div>
-                      <div className="mt-0.5 text-[11px] text-text-tertiary">{t("settings.mcpAutoAttachToolsDesc")}</div>
-                    </div>
-                    <ToggleSwitch checked={settings.mcpAutoAttachTools ?? true} disabled={toolCallingLocked} onChange={(e) => patch({ mcpAutoAttachTools: e.target.checked })} />
-                  </div>
-                </div>
-              </div>
+              <SettingsGroup id="settings-tools-core" title={t("settings.tools")}>
+                {toolCallingLocked && <p className="settings-group-note is-warning">{t("settings.toolCallingKoboldDisabled")}</p>}
+                <SettingRow toggle label={t("settings.toolCallingEnabled")} description={t("settings.toolCallingDesc")} disabled={toolCallingLocked}>
+                  <ToggleSwitch ariaLabel={t("settings.toolCallingEnabled")} checked={settings.toolCallingEnabled ?? false} disabled={toolCallingLocked} onChange={(e) => patch({ toolCallingEnabled: e.target.checked })} />
+                </SettingRow>
+                <SettingRow label={t("settings.toolCallingPolicy")} description={t("settings.toolCallingPolicyDesc")} disabled={toolCallingLocked}>
+                  <SelectField value={settings.toolCallingPolicy ?? "balanced"} onChange={(v) => patch({ toolCallingPolicy: v as AppSettings["toolCallingPolicy"] })} disabled={toolCallingLocked}>
+                    <option value="conservative">{t("settings.toolPolicyConservative")}</option>
+                    <option value="balanced">{t("settings.toolPolicyBalanced")}</option>
+                    <option value="aggressive">{t("settings.toolPolicyAggressive")}</option>
+                  </SelectField>
+                </SettingRow>
+                <SettingRow label={t("settings.maxToolCalls")} disabled={toolCallingLocked}>
+                  <InputField type="number" value={String(settings.maxToolCallsPerTurn ?? 4)} disabled={toolCallingLocked}
+                    onChange={(v) => { patch({ maxToolCallsPerTurn: clampInteger(v, settings.maxToolCallsPerTurn ?? 4, 1, 12) }); }}
+                    {...autosaveProps} />
+                </SettingRow>
+                <SettingRow toggle label={t("settings.mcpAutoAttachTools")} description={t("settings.mcpAutoAttachToolsDesc")} disabled={toolCallingLocked}>
+                  <ToggleSwitch ariaLabel={t("settings.mcpAutoAttachTools")} checked={settings.mcpAutoAttachTools ?? true} disabled={toolCallingLocked} onChange={(e) => patch({ mcpAutoAttachTools: e.target.checked })} />
+                </SettingRow>
+              </SettingsGroup>
 
-              <div id="settings-security" className="settings-section scroll-mt-24">
-                <div className="settings-section-title">{t("settings.security")}</div>
-                <p className="mb-3 text-[10px] text-text-tertiary">{t("settings.securityDesc")}</p>
-                <div className="space-y-2">
-                  {([
-                    { key: "sanitizeMarkdown" as const, label: t("settings.securitySanitizeMarkdown"), desc: t("settings.securitySanitizeMarkdownDesc") },
-                    { key: "allowExternalLinks" as const, label: t("settings.securityAllowExternalLinks"), desc: t("settings.securityAllowExternalLinksDesc") },
-                    { key: "allowRemoteImages" as const, label: t("settings.securityAllowRemoteImages"), desc: t("settings.securityAllowRemoteImagesDesc") },
-                    { key: "allowUnsafeUploads" as const, label: t("settings.securityAllowUnsafeUploads"), desc: t("settings.securityAllowUnsafeUploadsDesc") }
-                  ]).map((item) => (
-                    <div key={item.key} className="settings-toggle-row">
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium text-text-primary">{item.label}</div>
-                        <div className="mt-0.5 text-[11px] text-text-tertiary">{item.desc}</div>
-                      </div>
-                      <ToggleSwitch checked={settings.security?.[item.key] === true}
-                        onChange={(e) => patch({ security: { ...(settings.security || {}), [item.key]: e.target.checked } })} />
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <SettingsGroup id="settings-security" title={t("settings.security")} description={t("settings.securityDesc")}>
+                {([
+                  { key: "sanitizeMarkdown" as const, label: t("settings.securitySanitizeMarkdown"), desc: t("settings.securitySanitizeMarkdownDesc") },
+                  { key: "allowExternalLinks" as const, label: t("settings.securityAllowExternalLinks"), desc: t("settings.securityAllowExternalLinksDesc") },
+                  { key: "allowRemoteImages" as const, label: t("settings.securityAllowRemoteImages"), desc: t("settings.securityAllowRemoteImagesDesc") },
+                  { key: "allowUnsafeUploads" as const, label: t("settings.securityAllowUnsafeUploads"), desc: t("settings.securityAllowUnsafeUploadsDesc") }
+                ]).map((item) => (
+                  <SettingRow key={item.key} toggle label={item.label} description={item.desc}>
+                    <ToggleSwitch ariaLabel={item.label} checked={settings.security?.[item.key] === true}
+                      onChange={(e) => patch({ security: { ...(settings.security || {}), [item.key]: e.target.checked } })} />
+                  </SettingRow>
+                ))}
+              </SettingsGroup>
 
               <div id="settings-plugins" className="settings-section scroll-mt-24">
                 <div className="mb-3 flex items-center justify-between gap-3">
@@ -2497,7 +2396,7 @@ export function SettingsScreen({
                     <div className="mt-1 break-all text-xs text-text-primary">{pluginCatalog?.bundledPluginsDir || "—"}</div>
                   </div>
                 </div>
-                <div className="mb-3 rounded-lg border border-border-subtle bg-bg-primary px-3 py-2.5">
+                <div className="mb-3">
                   <div className="settings-toggle-row">
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-text-primary">{t("settings.pluginDevAutoRefresh")}</div>

@@ -966,7 +966,7 @@ router.post("/scenes/:id/rewrite", async (req, res) => {
   });
 });
 
-router.get("/scenes/:id/summarize", async (req, res) => {
+router.post("/scenes/:id/summarize", async (req, res) => {
   const row = getSceneSummaryRow(req.params.id);
 
   if (!row) { res.status(404).json({ error: "Scene not found" }); return; }

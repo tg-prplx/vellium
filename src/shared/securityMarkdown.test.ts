@@ -43,23 +43,21 @@ describe("markdown security rendering", () => {
     expect(allowed).toContain("https://example.com/x.png");
   });
 
-  it("allows localhost and LAN images even when remote markdown images are disabled", () => {
-    const localhostImage = renderContent("![x](http://127.0.0.1:8188/view?filename=test.png&type=output)", undefined, undefined, {
+  it("allows loopback images but treats LAN hosts as remote when remote markdown images are disabled", () => {
+    const strict = {
       sanitizeMarkdown: true,
       allowExternalLinks: false,
       allowRemoteImages: false,
       allowUnsafeUploads: false
-    });
+    };
+    const localhostImage = renderContent("![x](http://127.0.0.1:8188/view?filename=test.png&type=output)", undefined, undefined, strict);
     expect(localhostImage).toContain("<img");
     expect(localhostImage).toContain("http://127.0.0.1:8188/view?filename=test.png&amp;type=output");
 
-    const lanImage = renderContent("![x](http://192.168.1.10:8188/view?filename=test.png&type=output)", undefined, undefined, {
-      sanitizeMarkdown: true,
-      allowExternalLinks: false,
-      allowRemoteImages: false,
-      allowUnsafeUploads: false
-    });
-    expect(lanImage).toContain("<img");
-    expect(lanImage).toContain("http://192.168.1.10:8188/view?filename=test.png&amp;type=output");
+    // LAN images could fire blind GET requests at routers/NAS from model output.
+    const lanUrl = "![x](http://192.168.1.10:8188/view?filename=test.png&type=output)";
+    expect(renderContent(lanUrl, undefined, undefined, strict)).not.toContain("<img");
+    expect(renderContent(lanUrl, undefined, undefined, { ...strict, allowRemoteImages: true }))
+      .toContain("http://192.168.1.10:8188/view?filename=test.png&amp;type=output");
   });
 });

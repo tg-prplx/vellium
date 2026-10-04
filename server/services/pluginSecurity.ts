@@ -51,6 +51,12 @@ export function sanitizePluginSettingsPatch(raw: unknown): Record<string, unknow
   return sanitized as Record<string, unknown>;
 }
 
+// Mirrors the PluginHost iframe sandbox so an asset opened as a top-level page
+// still runs in an opaque origin instead of the application origin.
+const PLUGIN_DOCUMENT_SANDBOX = "sandbox allow-scripts allow-forms allow-downloads";
+const PLUGIN_HTML_EXTENSIONS = new Set(["html", "htm", "xhtml"]);
+const PLUGIN_SCRIPTABLE_IMAGE_EXTENSIONS = new Set(["svg", "xml", "xsl"]);
+
 export function buildPluginAssetHeaders(ext: string): Record<string, string> {
   const common = {
     "Cache-Control": "no-store",
@@ -59,10 +65,16 @@ export function buildPluginAssetHeaders(ext: string): Record<string, string> {
     "Cross-Origin-Resource-Policy": "same-origin",
     "Referrer-Policy": "no-referrer"
   };
-  if (ext === "html") {
+  if (PLUGIN_HTML_EXTENSIONS.has(ext)) {
     return {
       ...common,
-      "Content-Security-Policy": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'"
+      "Content-Security-Policy": `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'self'; base-uri 'none'; form-action 'self'; object-src 'none'; ${PLUGIN_DOCUMENT_SANDBOX}`
+    };
+  }
+  if (PLUGIN_SCRIPTABLE_IMAGE_EXTENSIONS.has(ext)) {
+    return {
+      ...common,
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; sandbox"
     };
   }
   if (ext === "js") {

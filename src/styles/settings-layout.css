@@ -1,67 +1,245 @@
-/* Settings, final layer. Each top-level section is a panel like the Characters/Pets panels
-   (bg-secondary, subtle border, 12px radius), so rows and fields inside read the same way
-   in every category. Nested provider sections stay flat. */
+/* Settings, final layer.
+   One container per section, flat rows separated by hairlines inside it, quiet headings.
+   No card-in-card: the page header is plain text and rows are never boxed individually. */
 
-.settings-content-inner > .space-y-4 > .settings-section,
-.settings-content-inner > .space-y-4 > div > .settings-section {
-  margin: 0;
-  padding: 18px 20px 20px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 12px;
-  background: var(--color-bg-secondary);
-}
-
-.settings-content-inner > .space-y-4 > .settings-section.border-danger-border {
-  border-color: var(--color-danger-border);
-}
-
-.settings-content-inner .settings-section-title { margin-bottom: 12px; }
-.settings-content-inner .settings-section-header .settings-section-title { margin-bottom: 3px; }
-
-/* Rows inside a section panel sit on the page colour so they are visible, in every category. */
-.settings-section .settings-toggle-row,
-.settings-section .settings-field-group {
-  border-color: var(--color-border-subtle);
-  background: var(--color-bg-primary);
-}
-
-.settings-section .settings-toggle-row { min-height: 52px; padding: 10px 14px; }
-
-/* The wallpaper studio is already inside a section panel. */
-.settings-section > .settings-wallpaper-studio {
-  padding: 0;
+/* Page header: plain title and status, no panel chrome. */
+.settings-workbench-header {
+  margin-bottom: 6px;
+  padding: 2px 0 10px;
   border: 0;
   border-radius: 0;
   background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
-
-.settings-field-narrow { max-width: 360px; }
+.settings-workbench-kicker { display: none; }
+.settings-workbench-title { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+.settings-workbench-desc { margin-top: 6px; font-size: 13px; color: var(--color-text-tertiary); }
+.settings-workbench-pill { min-height: 28px; padding: 0 10px; font-size: 12px; font-weight: 500; background: var(--color-bg-secondary); }
 
 /* One in-page navigation, kept in reach while scrolling. */
 .settings-workbench-chip-row {
   position: sticky;
   top: 0;
   z-index: 6;
-  margin: 0 -28px 18px;
-  padding: 6px 28px 0;
+  margin: 0 -28px 20px;
+  padding: 4px 28px 0;
+  background: var(--color-bg-primary);
+}
+.settings-workbench-chip { min-height: 38px; padding: 0 12px; font-size: 13px; }
+
+/* Section container */
+.settings-content-inner > .space-y-4 > .settings-section,
+.settings-content-inner > .space-y-4 > div > .settings-section {
+  margin: 0;
+  padding: 16px 20px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-secondary);
+}
+.settings-content-inner > .space-y-4 > .settings-section.border-danger-border { border-color: var(--color-danger-border); }
+
+.settings-content-inner .settings-section-title {
+  margin: 0 0 14px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.settings-content-inner .settings-section-header { margin-bottom: 14px; }
+.settings-content-inner .settings-section-header .settings-section-title { margin-bottom: 4px; }
+.settings-content-inner .settings-section-desc { font-size: 12px; line-height: 1.5; }
+
+/* Flat rows: hairline separators instead of a box per row. */
+.settings-section .settings-toggle-row {
+  min-height: 52px;
+  margin: 0;
+  padding: 12px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.settings-section .settings-toggle-row + .settings-toggle-row,
+.settings-section .space-y-2 > .settings-toggle-row + .settings-toggle-row,
+.settings-section .settings-toggle-row + * > .settings-toggle-row:first-child { margin-top: 0; border-top: 1px solid var(--color-border-subtle); }
+.settings-section .space-y-2:has(> .settings-toggle-row) > * + * { margin-top: 0; }
+.settings-section .space-y-2:has(> .settings-toggle-row) > * + * { border-top: 1px solid var(--color-border-subtle); }
+.settings-section > .settings-section-title + .space-y-2 > .settings-toggle-row:first-child,
+.settings-section > p + .space-y-2 > .settings-toggle-row:first-child { padding-top: 4px; }
+.settings-section .space-y-2 > .settings-toggle-row:last-child { padding-bottom: 2px; }
+
+/* Grouped fields keep a light inset so a sub-group still reads as one unit. */
+.settings-section .settings-field-group {
+  padding: 14px 16px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
   background: var(--color-bg-primary);
 }
 
-.settings-workbench-chip { font-size: 12px; }
-
-/* Header summary card matches the section panels. */
-.settings-workbench-header {
-  border-color: var(--color-border-subtle);
-  border-radius: 12px;
-  background: var(--color-bg-secondary);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
-
+/* The wallpaper studio is already inside a section container. */
+.settings-section > .settings-wallpaper-studio { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .settings-section > .settings-wallpaper-studio .settings-wallpaper-title {
-  color: var(--color-text-primary);
-  font-size: 15px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+
+.settings-field-narrow { max-width: 360px; }
+
+/* Sidebar: lighter chrome around the status and help blocks. */
+.settings-sidebar-status { border-color: var(--color-border-subtle); }
+.settings-sidebar-footer { margin-top: auto; }
+
+/* Toggle grids (scene fields, parameter forwarding): rows separated by hairlines, no boxes. */
+.settings-section .grid:has(> .settings-toggle-row) { row-gap: 0; column-gap: 28px; }
+.settings-section .grid > .settings-toggle-row { min-height: 46px; padding: 10px 0; border-top: 1px solid var(--color-border-subtle); }
+.settings-section .grid > .settings-toggle-row:first-child { border-top: 0; }
+@media (min-width: 640px) {
+  .settings-section .sm\:grid-cols-2 > .settings-toggle-row:nth-child(2),
+  .settings-section .grid-cols-2 > .settings-toggle-row:nth-child(2) { border-top: 0; }
+}
+.settings-field-group .settings-toggle-row { min-height: 42px; }
+
+/* ── Settings groups and rows (SettingsGroup / SettingRow) ── */
+.settings-content-inner > .space-y-4 > .settings-group { padding: 0; }
+.settings-group-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 12px;
+}
+.settings-group-header .settings-section-title { margin: 0; }
+.settings-group-header .settings-section-desc { margin-top: 4px; max-width: 720px; }
+.settings-group-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 6px; }
+.settings-group-body { padding: 0 20px 6px; }
+
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 380px);
+  align-items: center;
+  gap: 8px 32px;
+  min-height: 56px;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.settings-group-body > .setting-row:first-child,
+.settings-group-body > :first-child > .setting-row:first-child { border-top: 0; }
+.setting-row.is-toggle { grid-template-columns: minmax(0, 1fr) auto; }
+.setting-row.is-wide { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+.setting-row.is-disabled { opacity: 0.55; }
+
+.setting-row-copy { min-width: 0; }
+.setting-row-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.setting-row-label > span { min-width: 0; }
+.setting-row-label > button { margin-left: auto; }
+.setting-row-desc { margin-top: 3px; color: var(--color-text-tertiary); font-size: 12px; line-height: 1.5; }
+.setting-row-control { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; }
+.setting-row-control > :is(.ui-field, select, input:not([type="checkbox"]), textarea) { width: 100%; }
+.setting-row.is-wide .setting-row-control { display: block; }
+.setting-row-control .ui-field { font-size: 13px; }
+
+.setting-slider { display: flex; width: 100%; align-items: center; gap: 12px; }
+.setting-slider input[type="range"] { min-width: 0; flex: 1 1 auto; }
+.setting-slider output {
+  min-width: 44px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* Small inline buttons inside rows. */
+.setting-inline-button {
+  padding: 3px 9px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 7px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.setting-inline-button:hover:not(:disabled) { background: var(--color-bg-hover); color: var(--color-text-primary); }
+
+/* Sub-heading that splits a long group into parts. */
+.settings-subheading {
+  margin: 0;
+  padding: 18px 0 6px;
+  border-top: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.settings-subheading + .setting-row { border-top: 0; }
+
+/* A note that belongs to a group, under its rows. */
+.settings-group-note { margin: 0; padding: 12px 0 10px; border-top: 1px solid var(--color-border-subtle); color: var(--color-text-tertiary); font-size: 12px; line-height: 1.5; }
+
+/* Short numeric fields and switches pair up in two columns. */
+.settings-row-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 48px; }
+.settings-row-columns > .setting-row { grid-template-columns: minmax(0, 1fr) minmax(110px, 150px); gap: 8px 20px; }
+.settings-row-columns > .setting-row.is-toggle { grid-template-columns: minmax(0, 1fr) auto; }
+.settings-row-columns > .setting-row:nth-child(-n + 2) { border-top: 0; }
+.settings-group-body > * + .settings-row-columns { border-top: 1px solid var(--color-border-subtle); }
+@media (max-width: 1100px) {
+  .settings-row-columns { grid-template-columns: minmax(0, 1fr); }
+  .settings-row-columns > .setting-row:nth-child(2) { border-top: 1px solid var(--color-border-subtle); }
+}
+.setting-row-control > input.ui-field[type="number"] { max-width: 160px; }
+.settings-group-body > .settings-subheading:first-child,
+.settings-subheading.is-first { padding-top: 4px; border-top: 0; }
+
+/* Theme cards: compact columns under the theme rows. */
+.settings-group-body > .settings-theme-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  padding: 14px 0 14px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+.settings-group-body > .settings-theme-grid .settings-theme-preview { height: 84px; }
+
+/* Wallpaper: preview on the left, its description and controls on the right. */
+.settings-section > .settings-wallpaper-studio {
+  grid-template-columns: minmax(260px, 420px) minmax(0, 1fr);
+  column-gap: 28px;
+  row-gap: 14px;
+  align-items: start;
+}
+.settings-section > .settings-wallpaper-studio > * { grid-column: 2; }
+.settings-section > .settings-wallpaper-studio > .settings-wallpaper-preview { grid-column: 1; grid-row: 1 / span 8; }
+.settings-section > .settings-wallpaper-studio > .settings-wallpaper-actions { justify-content: flex-start; }
+.settings-section > .settings-wallpaper-studio > .settings-wallpaper-controls { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1100px) {
+  .settings-section > .settings-wallpaper-studio { grid-template-columns: minmax(0, 1fr); }
+  .settings-section > .settings-wallpaper-studio > *,
+  .settings-section > .settings-wallpaper-studio > .settings-wallpaper-preview { grid-column: 1; grid-row: auto; }
+}
+
+/* Space between section containers: the section rule resets margins, so the stack owns the gap. */
+.settings-content-inner > .space-y-4 { display: flex; flex-direction: column; gap: 16px; }
+.settings-content-inner > .space-y-4 > * { margin-top: 0 !important; margin-bottom: 0 !important; }
+.settings-content-inner > .space-y-4 > .settings-provider-layout { gap: 16px; }
+.settings-prompt-stack { display: grid; gap: 6px; padding: 2px 0 14px; }
+.settings-group-note.is-warning { margin: 0 0 4px; padding: 8px 12px; border: 1px solid var(--color-warning-border); border-radius: 8px; background: var(--color-warning-subtle); color: var(--color-warning); }
+.settings-group-body > .settings-group-note:first-child { border-top: 0; }
+.settings-subheading-desc { margin: -2px 0 4px; color: var(--color-text-tertiary); font-size: 12px; line-height: 1.5; }
+.settings-subheading-desc + .setting-row { border-top: 0; }
+.settings-group-block { padding: 12px 0; border-top: 1px solid var(--color-border-subtle); }
+.settings-group-body > .settings-group-block:first-child { border-top: 0; padding-top: 2px; }
+.settings-group-note.is-error { color: var(--color-danger); }
+.settings-group-note.is-success { color: var(--color-success); }

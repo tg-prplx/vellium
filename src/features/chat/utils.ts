@@ -2,6 +2,7 @@ import { marked } from "marked";
 import { resolveApiAssetUrl } from "../../shared/api";
 import type { AppSettings, FileAttachment, PromptBlock, RpSceneState } from "../../shared/types/contracts";
 import { DEFAULT_CHAT_SECURITY_SETTINGS, DEFAULT_PROMPT_STACK, REASONING_CALL_NAME, type ChatMode } from "./constants";
+import { sanitizeHtmlFragment } from "./htmlSanitizer";
 
 export function replacePlaceholders(text: string, charName?: string, userName?: string): string {
   let result = text;
@@ -27,78 +28,69 @@ function escapeAttr(text: string): string {
   return escapeHtml(text).replace(/`/g, "&#96;");
 }
 
+// Browsers drop ASCII tab/newline inside URLs, so "/\t/host" would become "//host".
+function normalizeUrlInput(raw: string | null | undefined): string {
+  return String(raw || "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+}
+
 function sanitizeLinkUrl(raw: string | null | undefined, allowExternalLinks: boolean): string | null {
-  const href = String(raw || "").trim();
+  const href = normalizeUrlInput(raw);
   if (!href) return null;
   if (/^(javascript|data|vbscript|file):/i.test(href)) return null;
   if (/^(https?:|mailto:)/i.test(href)) {
     return allowExternalLinks ? href : null;
   }
-  if (/^(\/|#|\.{1,2}\/)/.test(href)) {
+  if (isSameOriginRelativeUrl(href) || href.startsWith("#")) {
     return href;
   }
   return null;
 }
 
-function isPrivateIpv4Host(hostname: string): boolean {
-  const parts = hostname.split(".").map((segment) => Number(segment));
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
-    return false;
-  }
-
-  return parts[0] === 10
-    || parts[0] === 127
-    || parts[0] === 0
-    || (parts[0] === 192 && parts[1] === 168)
-    || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31)
-    || (parts[0] === 169 && parts[1] === 254);
+// "//host/x" and "/\host/x" are protocol-relative URLs to another host, not app paths.
+function isSameOriginRelativeUrl(value: string): boolean {
+  return /^(\/|\.{1,2}\/)/.test(value) && !/^[\/\\]{2}/.test(value);
 }
 
-function isPrivateIpv6Host(hostname: string): boolean {
-  const normalized = hostname.toLowerCase();
-  return normalized === "::1"
-    || normalized.startsWith("fc")
-    || normalized.startsWith("fd")
-    || normalized.startsWith("fe80:");
-}
-
+// Only loopback images bypass the remote-image setting; LAN/private hosts are
+// treated as remote so model output cannot fire GET requests at routers or NAS.
 function isTrustedLocalImageUrl(raw: string): boolean {
   try {
     const parsed = new URL(raw);
     const hostname = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
     return hostname === "localhost"
-      || hostname.endsWith(".local")
-      || isPrivateIpv4Host(hostname)
-      || isPrivateIpv6Host(hostname);
+      || hostname === "::1"
+      || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
   } catch {
     return false;
   }
 }
 
 function sanitizeImageUrl(raw: string | null | undefined, allowRemoteImages: boolean): string | null {
-  const src = String(raw || "").trim();
+  const src = normalizeUrlInput(raw);
   if (!src) return null;
   if (/^(javascript|data|vbscript|file):/i.test(src)) return null;
   if (/^https?:/i.test(src)) {
     return allowRemoteImages || isTrustedLocalImageUrl(src) ? src : null;
   }
-  if (/^(\/|\.{1,2}\/)/.test(src)) {
+  if (isSameOriginRelativeUrl(src)) {
     return src;
   }
   return null;
 }
 
 function renderMarkdownSafe(text: string, security: AppSettings["security"]): string {
-  if (security.sanitizeMarkdown === false) {
-    return marked.parse(text, { async: false, breaks: false, gfm: true }) as string;
-  }
-
   const renderer = new marked.Renderer();
   const customRenderer = renderer as any;
+  const urlPolicy = {
+    sanitizeLinkUrl: (raw: string) => sanitizeLinkUrl(raw, security.allowExternalLinks),
+    sanitizeImageUrl: (raw: string) => sanitizeImageUrl(raw, security.allowRemoteImages)
+  };
 
+  // With strict sanitization off, inline HTML keeps formatting tags but still
+  // passes an allowlist; it is never inserted raw.
   customRenderer.html = (token: { text?: string } | string) => {
     const raw = typeof token === "string" ? token : String(token?.text || "");
-    return escapeHtml(raw);
+    return security.sanitizeMarkdown === false ? sanitizeHtmlFragment(raw, urlPolicy) : escapeHtml(raw);
   };
 
   customRenderer.link = function link(token: { href?: string; title?: string | null; tokens?: unknown[] }) {

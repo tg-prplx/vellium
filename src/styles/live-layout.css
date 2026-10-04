@@ -234,19 +234,29 @@
   height: 100%;
 }
 
+/* The visual box has a definite size, so the portrait is sized from it rather than from
+   its own pixels: it never spills under the status line and microphone. */
 .live-screen .live-avatar-static-fallback {
-  display: grid;
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: flex;
   width: auto;
-  height: min(100%, 400px);
-  place-items: center;
+  height: auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 10px;
 }
 
 .live-screen .live-avatar-static-fallback img {
+  display: block;
   width: auto;
-  height: 100%;
+  height: min(100%, 420px);
   max-width: 100%;
   aspect-ratio: 0.82;
+  object-fit: cover;
+  object-position: center 28%;
   border-radius: 28px;
   box-shadow: 0 24px 60px rgb(0 0 0 / 0.28);
 }

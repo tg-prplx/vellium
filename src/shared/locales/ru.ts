@@ -1,4 +1,11 @@
 export const ru = {
+  "settings.externalEndpoint": "Внешний endpoint",
+  "settings.themeMode": "Цветовая схема",
+  "chat.autoConvoProgress": "{speaker} · {current} / {total}",
+  "chat.autoConvoStarting": "Запуск…",
+  "chat.startGroupChat": "Создать групповой чат",
+  "chat.pickerSingle": "Один",
+  "chat.pickerGroup": "Группа",
   "settings.textAndLanguage": "Текст и язык",
   "settings.application": "Приложение",
   "writing.characterGenerateHint": "Опишите, кого хотите получить, — модель соберёт полную карточку, которую можно отредактировать.",

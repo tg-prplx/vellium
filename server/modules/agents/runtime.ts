@@ -688,7 +688,9 @@ function determineDangerousActionRequest(params: {
   if (blockedReason) return null;
   const category = classifyWorkspaceCommandRisk({
     command,
-    args: argv
+    args: argv,
+    rootDir: getAgentThread(params.threadId)?.workspaceRoot || process.cwd(),
+    cwd: sanitizeText(args.cwd, 400) || "."
   });
   if (!category) return null;
   return {
@@ -712,6 +714,7 @@ function formatDangerousActionLabel(category: AgentPendingConfirmation["category
   if (category === "git_write") return "git write command";
   if (category === "file_mutation") return "file mutation command";
   if (category === "system_admin") return "system-level command";
+  if (category === "unreviewed_command") return "command outside the read-only allowlist";
   return "dangerous action";
 }
 

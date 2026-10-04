@@ -78,6 +78,7 @@ import { SceneControlsEditor } from "./components/SceneControlsEditor";
 import { SimpleSceneModal } from "./components/SimpleSceneModal";
 import { BranchManager } from "./components/BranchManager";
 import { ChatHistoryList } from "./components/ChatHistoryList";
+import { AutoConversationControl, type AutoConversationProgress } from "./components/AutoConversationControl";
 import { MessageActions, ReplyVariantSwitcher } from "./components/MessageActions";
 import { ChatHistorySearch } from "./components/ChatHistorySearch";
 import { ChatRpPresets } from "./components/ChatRpPresets";
@@ -106,6 +107,11 @@ interface StreamingToolCall {
   args: string;
   status: "running" | "done";
   result?: string;
+}
+
+/** Second line in character pickers: tags, else the description; nothing rather than filler. */
+function characterMeta(character: { tags?: string[]; description?: string; personality?: string }) {
+  return character.tags?.slice(0, 2).join(" · ") || character.description || character.personality || "";
 }
 
 export function ChatScreen() {
@@ -165,6 +171,7 @@ export function ChatScreen() {
   const [multiCharPickerMode, setMultiCharPickerMode] = useState<"new" | "edit">("new");
   const [multiCharDraftIds, setMultiCharDraftIds] = useState<string[]>([]);
   const [autoConvoRunning, setAutoConvoRunning] = useState(false);
+  const [autoConvoProgress, setAutoConvoProgress] = useState<AutoConversationProgress | null>(null);
   const [autoConversationConfig, setAutoConversationConfig] = useState({ turns: 5, delayMs: 500 });
   const [multiCharCollapsed, setMultiCharCollapsed] = useState(false);
   const autoConvoRef = useRef(false);
@@ -915,8 +922,10 @@ export function ChatScreen() {
       stopStreamingUi();
       autoConvoRef.current = false;
       setAutoConvoRunning(false);
+      setAutoConvoProgress(null);
       if (taskId) {
-        failBackgroundTask(taskId, t("chat.stop"));
+        // A stop the user asked for is a cancellation, not a failure to surface as an error.
+        updateBackgroundTask(taskId, { status: "cancelled", result: t("chat.stop"), finishedAt: Date.now() });
         clearChatBackgroundTask(taskId);
       }
       if (activeChatIdRef.current === targetChatId) await refreshActiveTimeline();
@@ -1375,6 +1384,7 @@ export function ChatScreen() {
     await flushPromptStack();
     autoConvoRef.current = true;
     setAutoConvoRunning(true);
+    setAutoConvoProgress(null);
     const taskId = startChatBackgroundTask(t("chat.autoConvo"), {
       ...getChatTaskTemplate(activeChat.id),
       progress: 0
@@ -1411,6 +1421,7 @@ export function ChatScreen() {
       if (!autoConvoRef.current) break;
 
       const charName = charNames[(startIndex + turn) % charNames.length];
+      setAutoConvoProgress({ done: turn, total: turns, speaker: charName });
       updateBackgroundTask(taskId, {
         progress: (turn / turns) * 100,
         progressLabel: `${turn + 1} / ${turns} · ${charName}`
@@ -1435,6 +1446,7 @@ export function ChatScreen() {
         break;
       }
 
+      setAutoConvoProgress({ done: turn + 1, total: turns, speaker: charName });
       updateBackgroundTask(taskId, {
         progress: ((turn + 1) / turns) * 100,
         progressLabel: `${turn + 1} / ${turns} ${t("chat.turns")}`
@@ -1447,6 +1459,7 @@ export function ChatScreen() {
 
     autoConvoRef.current = false;
     setAutoConvoRunning(false);
+    setAutoConvoProgress(null);
     stopStreamingUi();
     if (backgroundChatTaskIdRef.current === taskId) {
       finishBackgroundTask(taskId);
@@ -1458,9 +1471,10 @@ export function ChatScreen() {
     const taskId = resolveActiveChatTaskId();
     autoConvoRef.current = false;
     setAutoConvoRunning(false);
+    setAutoConvoProgress(null);
     stopStreamingUi();
     if (taskId) {
-      failBackgroundTask(taskId, t("chat.autoConvoStop"));
+      updateBackgroundTask(taskId, { status: "cancelled", result: t("chat.autoConvoStop"), finishedAt: Date.now() });
       clearChatBackgroundTask(taskId);
     }
     if (activeChat) {
@@ -1922,13 +1936,13 @@ export function ChatScreen() {
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
-                    <span>{t("chat.pickCharacter")}</span>
+                    <span>{t("chat.pickerSingle")}</span>
                   </button>
                   <button type="button" role="tab" aria-selected="false" onClick={toggleNewMultiCharPicker}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.36-1.86M17 20H7m10 0v-2a5 5 0 00-10 0v2m0 0H2v-2a3 3 0 015.36-1.86M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
-                    <span>{t("chat.multiChar")}</span>
+                    <span>{t("chat.pickerGroup")}</span>
                   </button>
                 </div>
                 <div className="chat-character-search-wrap">
@@ -1959,7 +1973,7 @@ export function ChatScreen() {
                         />
                         <span className="min-w-0 flex-1">
                           <span className="chat-character-option-name">{char.name}</span>
-                          <span className="chat-character-option-meta">{char.tags?.slice(0, 2).join(" · ") || char.personality || t("chat.pickCharacter")}</span>
+                          {characterMeta(char) ? <span className="chat-character-option-meta">{characterMeta(char)}</span> : null}
                         </span>
                         <svg className="chat-character-option-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -1998,13 +2012,13 @@ export function ChatScreen() {
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
-                    <span>{t("chat.pickCharacter")}</span>
+                    <span>{t("chat.pickerSingle")}</span>
                   </button>
                   <button type="button" className="is-active" role="tab" aria-selected="true">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.36-1.86M17 20H7m10 0v-2a5 5 0 00-10 0v2m0 0H2v-2a3 3 0 015.36-1.86M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
-                    <span>{t("chat.multiChar")}</span>
+                    <span>{t("chat.pickerGroup")}</span>
                   </button>
                 </div>
 
@@ -2054,7 +2068,7 @@ export function ChatScreen() {
                           />
                           <span className="min-w-0 flex-1">
                             <span className="chat-character-option-name">{ch.name}</span>
-                            <span className="chat-character-option-meta">{ch.tags?.slice(0, 2).join(" · ") || ch.personality || t("chat.pickCharacter")}</span>
+                            {characterMeta(ch) ? <span className="chat-character-option-meta">{characterMeta(ch)}</span> : null}
                           </span>
                           <button onClick={() => removeCharacterFromPicker(cid)}
                             className="chat-multi-selected-remove" aria-label={`${t("chat.removeCharacter")}: ${ch.name}`}>
@@ -2080,7 +2094,7 @@ export function ChatScreen() {
                       />
                       <span className="min-w-0 flex-1">
                         <span className="chat-character-option-name">{char.name}</span>
-                        <span className="chat-character-option-meta">{char.tags?.slice(0, 2).join(" · ") || char.personality || t("chat.pickCharacter")}</span>
+                        {characterMeta(char) ? <span className="chat-character-option-meta">{characterMeta(char)}</span> : null}
                       </span>
                       <svg className="chat-character-option-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
@@ -2096,7 +2110,7 @@ export function ChatScreen() {
                     handleCreateChat(multiIds[0], multiIds);
                   }}
                     className="chat-multi-create-button">
-                    {t("chat.multiChar")} · {multiCharDraftIds.length}
+                    {t("chat.startGroupChat")} · {multiCharDraftIds.length}
                   </button>
                 )}
               </div>
@@ -2422,27 +2436,15 @@ export function ChatScreen() {
                     </button>
                   </div>
                   {chatCharacters.length > 1 && (
-                    <div className="chat-multi-bar-auto">
-                      <input type="number" min={1} max={50} value={autoConversationConfig.turns}
-                        onChange={(e) => {
-                          const parsed = Number(e.target.value);
-                          const next = Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 1;
-                          setAutoConversationConfig((current) => ({ ...current, turns: next }));
-                        }}
-                        className="chat-multi-bar-turns-input" />
-                      <span className="text-[9px] text-text-tertiary">{t("chat.turns")}</span>
-                      {autoConvoRunning ? (
-                        <button onClick={stopAutoConversation}
-                          className="chat-multi-bar-auto-btn is-stop">
-                          {t("chat.autoConvoStop")}
-                        </button>
-                      ) : (
-                        <button onClick={startAutoConversation} disabled={chatGenerationBusy}
-                          className="chat-multi-bar-auto-btn">
-                          {t("chat.autoConvoStart")}
-                        </button>
-                      )}
-                    </div>
+                    <AutoConversationControl
+                      turns={autoConversationConfig.turns}
+                      onTurns={(next) => setAutoConversationConfig((current) => ({ ...current, turns: next }))}
+                      running={autoConvoRunning}
+                      progress={autoConvoProgress}
+                      disabled={chatGenerationBusy}
+                      onStart={() => { void startAutoConversation(); }}
+                      onStop={stopAutoConversation}
+                    />
                   )}
                 </div>
               </div>
