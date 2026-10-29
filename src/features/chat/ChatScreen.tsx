@@ -89,6 +89,9 @@ import { ChatRpPresets } from "./components/ChatRpPresets";
 import { SimpleInspectorNavigation, type SimpleInspectorSection } from "./components/SimpleInspectorNavigation";
 import { SimpleChatActionsMenu } from "./components/SimpleChatActionsMenu";
 import { RpReasoningToggle } from "./components/RpReasoningToggle";
+import { ChatModeHint } from "./components/ChatModeHint";
+import { ChatSystemPromptField } from "./components/ChatSystemPromptField";
+import { ModelSetupNotice } from "./components/ModelSetupNotice";
 import { SamplerPresetSelect } from "./components/SamplerPresetSelect";
 import {
   failBackgroundTask,
@@ -101,6 +104,7 @@ import { useMessageTranslation } from "./hooks/useMessageTranslation";
 import { useChatJsonExport } from "./hooks/useChatJsonExport";
 import { useBranchManagement } from "./hooks/useBranchManagement";
 import { useRpReasoningToggle } from "./hooks/useRpReasoningToggle";
+import { usePureChatSystemPrompt } from "./hooks/usePureChatSystemPrompt";
 import { useTtsPlayback } from "./hooks/useTtsPlayback";
 import { useComposerFileDrop } from "./hooks/useComposerFileDrop";
 import { useLiveChatContextSync } from "./hooks/useLiveChatContextSync";
@@ -160,6 +164,9 @@ export function ChatScreen() {
     translateMessage: handleTranslate
   } = useMessageTranslation(setErrorText);
   const [activeModelLabel, setActiveModelLabel] = useState<string>("");
+  const [activatingModel, setActivatingModel] = useState(false);
+  const [modelStatusLoaded, setModelStatusLoaded] = useState(false);
+  const { pureChatSystemPrompt, updatePureChatSystemPrompt } = usePureChatSystemPrompt();
   const [chatSearchQuery, setChatSearchQuery] = useState("");
   const [showChatSearchModal, setShowChatSearchModal] = useState(false);
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
@@ -280,6 +287,7 @@ export function ChatScreen() {
   }, [promptStack]);
   const chatMode = resolveChatMode(sceneState);
   const activeModelDisplayLabel = modelDisplayName(activeModelLabel);
+  const needsModel = modelStatusLoaded && !activeModelLabel;
   const pureChatMode = chatMode === "pure_chat";
   const simpleModeActive = alternateSimpleMode && !zenMode;
   const { openSidebar: openSimpleSidebar, openInspector: openSimpleInspector } = useSimplePanelController({
@@ -504,6 +512,7 @@ export function ChatScreen() {
     setActiveChat,
     setChatProviderId,
     setActiveModelLabel,
+    setModelStatusLoaded,
     setChatModelId,
     setSamplerConfig,
     setSamplerPresets,
@@ -862,8 +871,17 @@ export function ChatScreen() {
     }
   }
 
+  // Without an active model the server only echoes a placeholder; guide to the picker instead.
+  function promptForModel(): boolean {
+    if (!needsModel) return false;
+    if (simpleModeActive) setShowModelSelector(true);
+    else setErrorText(t("chat.modelSetupPickTitle"));
+    return true;
+  }
+
   async function handleSend() {
     if ((!input.trim() && attachments.length === 0) || chatGenerationBusy) return;
+    if (promptForModel()) return;
     let targetChatId = activeChat?.id;
     let targetBranchId = activeBranchId;
     setErrorText("");
@@ -951,6 +969,7 @@ export function ChatScreen() {
 
   async function handleRegenerate() {
     if (!activeChat || chatGenerationBusy) return;
+    if (promptForModel()) return;
     const targetChatId = activeChat.id;
     const targetBranchId = activeBranchId;
     setErrorText("");
@@ -1157,18 +1176,26 @@ export function ChatScreen() {
     }
   }
 
-  async function applyModelFromChat() {
-    if (!chatProviderId || !chatModelId) return;
+  // Picking a model applies it right away; a separate OK step left the picker
+  // showing a model that chat was not using yet.
+  async function selectChatModel(modelId: string) {
+    setChatModelId(modelId);
+    if (!chatProviderId || !modelId || activatingModel) return;
+    setActivatingModel(true);
     try {
-      const result = await api.providerActivateModel(chatProviderId, chatModelId);
+      const result = await api.providerActivateModel(chatProviderId, modelId);
       const updated = result.settings;
+      // Writer and Settings stay mounted; tell them before applying our friendlier label.
+      window.dispatchEvent(new CustomEvent("settings-change", { detail: updated }));
+      window.dispatchEvent(new CustomEvent("active-model-change", { detail: updated }));
       setActiveModelLabel(result.activeModelLabel || updated.activeModel || "");
       if (updated.activeProviderId) setChatProviderId(updated.activeProviderId);
       if (result.actualModelId) setChatModelId(result.actualModelId);
-      setShowModelSelector(false);
       if (updated.samplerConfig) setSamplerConfig(updated.samplerConfig);
     } catch (error) {
       setErrorText(String(error));
+    } finally {
+      setActivatingModel(false);
     }
   }
 
@@ -2213,11 +2240,12 @@ export function ChatScreen() {
                         {!zenMode && contextTrigger}
                         {!zenMode && <BranchManager branches={branches} activeBranchId={activeBranchId} disabled={chatGenerationBusy} onSelect={setActiveBranchId} onRename={renameBranch} onDelete={removeBranch} />}
                       </div>
-                      <div className="mt-3 grid gap-2 xl:grid-cols-[minmax(180px,1fr)_minmax(240px,1.2fr)_160px_auto]">
+                      <div className="mt-3 grid gap-2 xl:grid-cols-[minmax(180px,1fr)_minmax(240px,1.2fr)_180px]">
                         <div>
                           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("settings.provider")}</label>
                           <select
                             value={chatProviderId}
+                            disabled={activatingModel}
                             onChange={(e) => setChatProviderId(e.target.value)}
                             className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
                           >
@@ -2229,10 +2257,11 @@ export function ChatScreen() {
                           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-tertiary">{t("chat.model")}</label>
                           <select
                             value={chatModelId}
-                            onChange={(e) => setChatModelId(e.target.value)}
-                            className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary"
+                            disabled={activatingModel || loadingModels || !chatProviderId}
+                            onChange={(e) => { void selectChatModel(e.target.value); }}
+                            className="w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary disabled:opacity-60"
                           >
-                            <option value="">{t("settings.selectModel")}</option>
+                            <option value="">{chatProviderId ? t("settings.selectModel") : t("chat.selectProviderFirst")}</option>
                             {models.map((m) => (<option key={m.id} value={m.id}>{m.label || m.id}</option>))}
                           </select>
                         </div>
@@ -2248,16 +2277,8 @@ export function ChatScreen() {
                             <option value="pure_chat">{t("inspector.modePureChat")}</option>
                           </select>
                         </div>
-                        <div className="flex items-end">
-                          <button
-                            onClick={() => { void applyModelFromChat(); }}
-                            disabled={!chatProviderId || !chatModelId}
-                            className="w-full rounded-lg bg-accent px-3 py-2 text-[11px] font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            {t("chat.ok")}
-                          </button>
-                        </div>
                       </div>
+                      <ChatModeHint chatMode={chatMode} hasCharacter={chatCharacterIds.length > 0} onSwitchToPureChat={() => setChatMode("pure_chat")} className="mt-2" />
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-text-tertiary">
                         {activeModelLabel ? (
                           <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2 py-1 text-success">
@@ -2272,10 +2293,9 @@ export function ChatScreen() {
                             {t("chat.noModel")}
                           </span>
                         )}
-                        {loadingModels && <span>{t("chat.loading")}</span>}
+                        {(loadingModels || activatingModel) && <span>{t("chat.loading")}</span>}
                         <SamplerPresetSelect presets={samplerPresets} samplerConfig={samplerConfig} disabled={chatGenerationBusy} onApply={(preset) => setSamplerConfig({ ...preset.samplerConfig })} />
                         <RpReasoningToggle enabled={rpReasoningEnabled} disabled={chatGenerationBusy || savingRpReasoning} variant="status" onToggle={() => { void toggleRpReasoning(); }} />
-                        {chatMode === "light_rp" && <span>{t("inspector.modeLightRpHint")}</span>}
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -2473,6 +2493,7 @@ export function ChatScreen() {
                   {t("chat.startConvo")}
                 </h2>
                 <p className="chat-simple-hero-subtitle">{t("chat.startConvoDesc")}</p>
+                {needsModel && !showModelSelector && <ModelSetupNotice hasProviders={providers.length > 0} onChooseModel={() => setShowModelSelector(true)} />}
               </div>
             )}
 
@@ -2889,7 +2910,7 @@ export function ChatScreen() {
                     : "h-[80px] w-full resize-none rounded-xl border border-border bg-bg-primary px-4 py-2.5 pr-10 text-sm text-text-primary placeholder:text-text-tertiary"}
                   aria-label={t("chat.writeMessage")}
                   title={t("chat.placeholder")}
-                  placeholder={simpleHomeState ? t("chat.simplePlaceholder") : t(simpleModeActive ? "chat.writeMessage" : "chat.placeholder")} />
+                  placeholder={simpleHomeState ? t(chatMode === "pure_chat" ? "chat.simplePlaceholderPure" : "chat.simplePlaceholder") : t(simpleModeActive ? "chat.writeMessage" : "chat.placeholder")} />
                 {simpleModeActive && (
                   <div className="chat-simple-composer-bar">
                     <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
@@ -2911,6 +2932,9 @@ export function ChatScreen() {
                       modelTriggerRef={modelSelectorTriggerRef}
                       modelOpen={showModelSelector}
                       onModel={() => setShowModelSelector(previous => !previous)}
+                      chatMode={chatMode}
+                      chatModeDisabled={chatGenerationBusy}
+                      onChatMode={(mode) => { setChatMode(mode); if (mode === "pure_chat") setSimpleSceneOpen(false); }}
                       reasoning={rpReasoningEnabled}
                       reasoningDisabled={chatGenerationBusy || savingRpReasoning}
                       onReasoning={() => { void toggleRpReasoning(); }}
@@ -2975,38 +2999,30 @@ export function ChatScreen() {
                       </div>
                     </div>
                     <div className="chat-simple-model-form">
+                      {needsModel && <ModelSetupNotice compact hasProviders={providers.length > 0} />}
                       <label className="chat-simple-model-label">{t("settings.provider")}</label>
-                      <select value={chatProviderId} onChange={(e) => setChatProviderId(e.target.value)}
+                      <select value={chatProviderId} disabled={activatingModel} onChange={(e) => setChatProviderId(e.target.value)}
                         className="chat-simple-model-select">
                         <option value="">{t("settings.selectProvider")}</option>
                         {providers.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
                       </select>
                       <label className="chat-simple-model-label">{t("chat.model")}</label>
-                      <select value={chatModelId} onChange={(e) => setChatModelId(e.target.value)}
+                      <select value={chatModelId} disabled={activatingModel || loadingModels || !chatProviderId} onChange={(e) => { void selectChatModel(e.target.value); }}
                         className="chat-simple-model-select">
-                        <option value="">{t("settings.selectModel")}</option>
+                        <option value="">{chatProviderId ? t("settings.selectModel") : t("chat.selectProviderFirst")}</option>
                         {models.map((m) => (<option key={m.id} value={m.id}>{m.label || m.id}</option>))}
                       </select>
                       <SamplerPresetSelect presets={samplerPresets} samplerConfig={samplerConfig} disabled={chatGenerationBusy} variant="simple" onApply={(preset) => setSamplerConfig({ ...preset.samplerConfig })} />
                     </div>
                     <div className="chat-simple-model-footer">
-                      <span className="text-[10px] text-text-tertiary">{loadingModels ? t("chat.loading") : `${models.length} ${t("chat.model")}`}</span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowModelSelector(false)}
-                          className="chat-simple-popover-secondary"
-                        >
-                          {t("chat.cancel")}
-                        </button>
-                        <button
-                          onClick={() => { void applyModelFromChat(); }}
-                          disabled={!chatProviderId || !chatModelId || loadingModels}
-                          className="chat-simple-popover-primary"
-                        >
-                          {t("chat.ok")}
-                        </button>
-                      </div>
+                      <span className="text-[10px] text-text-tertiary">{loadingModels || activatingModel ? t("chat.loading") : t("chat.modelAppliesInstantly")}</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowModelSelector(false)}
+                        className="chat-simple-popover-primary"
+                      >
+                        {t("chat.doneButton")}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -3080,13 +3096,19 @@ export function ChatScreen() {
             </div>
             {simpleModeActive && simpleHomeState && (
               <div className="chat-simple-quick-row">
-                {[
+                {(chatMode === "pure_chat" ? [
+                  { label: t("chat.simpleQuickExplain"), value: t("chat.simplePromptExplain"), icon: "M12 3a6 6 0 00-3.5 10.9V17h7v-3.1A6 6 0 0012 3zM9 21h6M9 17h6" },
+                  { label: t("chat.simpleQuickSummarize"), value: t("chat.simplePromptSummarize"), icon: "M5 6h14M5 12h10M5 18h6" },
+                  { label: t("chat.simpleQuickBrainstorm"), value: t("chat.simplePromptBrainstorm"), icon: "M12 3v3m6.4-.4l-2.1 2.1M21 12h-3M5.6 5.6l2.1 2.1M3 12h3m6 3a3 3 0 100-6 3 3 0 000 6z" },
+                  { label: t("chat.simpleQuickImprove"), value: t("chat.simplePromptImprove"), icon: "M4 19.5V15l10.8-10.8a2.1 2.1 0 013 3L7 18H4zM13.5 5.5l3 3" },
+                  { label: t("chat.simpleQuickPlan"), value: t("chat.simplePromptPlan"), icon: "M5 6h11M5 12h7M5 18h9m4-1l2 2 3-4" }
+                ] : [
                   { label: t("chat.simpleQuickWrite"), value: t("chat.simplePromptScene"), icon: "M4 19.5V15l10.8-10.8a2.1 2.1 0 013 3L7 18H4zM13.5 5.5l3 3" },
                   { label: t("chat.simpleQuickLearn"), value: t("chat.simplePromptCharacter"), icon: "M12 3L3 8l9 5 9-5-9-5zM5 11.5V16l7 4 7-4v-4.5" },
                   { label: t("chat.simpleQuickCode"), value: t("chat.simplePromptDialogue"), icon: "M8 9l-3 3 3 3m8-6l3 3-3 3m-2-9l-4 12" },
                   { label: t("chat.simpleQuickLife"), value: t("chat.simplePromptLore"), icon: "M12 3a6 6 0 00-3.5 10.9V17h7v-3.1A6 6 0 0012 3zM9 21h6M9 17h6" },
                   { label: t("chat.simpleQuickChoice"), value: t("chat.simplePromptChapter"), icon: "M5 6h11M5 12h7M5 18h9m4-1l2 2 3-4" }
-                ].map((item) => (
+                ]).map((item) => (
                   <button
                     key={item.label}
                     onClick={() => setInput(item.value)}
@@ -3126,17 +3148,16 @@ export function ChatScreen() {
                   </select>
                 </div>
               )}
-              {chatMode === "light_rp" && (!simpleModeActive || simpleInspectorSection === "context") && (
-                <p className="mt-2 text-[10px] text-text-tertiary">{t("inspector.modeLightRpHint")}</p>
+              {simpleModeActive && simpleInspectorSection === "context" && (
+                <ChatModeHint chatMode={chatMode} hasCharacter={chatCharacterIds.length > 0} onSwitchToPureChat={() => setChatMode("pure_chat")} className="mt-2" />
               )}
-              <div className="mt-3" hidden={simpleModeActive && simpleInspectorSection !== "advanced"}>
-                <div className="mb-2 text-sm font-medium text-text-primary">{t("inspector.systemPrompt")}</div>
-                <textarea
-                  value={systemPromptBlock?.content || ""}
-                  aria-label={t("inspector.systemPrompt")}
-                  onChange={(e) => setSystemPromptContent(e.target.value)}
-                  className="h-20 w-full rounded-lg border border-border bg-bg-secondary px-3 py-2 text-xs text-text-primary placeholder:text-text-tertiary"
-                  placeholder={t("inspector.systemPromptPlaceholder")}
+              <div className={simpleModeActive ? "mt-3" : ""} hidden={simpleModeActive && simpleInspectorSection !== "advanced"}>
+                <ChatSystemPromptField
+                  chatMode={chatMode}
+                  rpPrompt={systemPromptBlock?.content || ""}
+                  onRpPromptChange={setSystemPromptContent}
+                  purePrompt={pureChatSystemPrompt}
+                  onPurePromptChange={updatePureChatSystemPrompt}
                 />
               </div>
             </div>

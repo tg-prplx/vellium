@@ -3,6 +3,8 @@ import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
 import { isAbortError } from "../../shared/errors";
+import { reuseUnchangedItems } from "../../shared/dataCatalog";
+import { useDataCatalogRefresh } from "../../shared/useDataCatalogRefresh";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../components/Panels";
 import { ToggleSwitch } from "../../components/FormControls";
@@ -362,6 +364,14 @@ export function CharactersScreen() {
   useEffect(() => {
     loadCharacters();
   }, [loadCharacters]);
+
+  // Characters created or edited elsewhere (Character Forge, chat, translation) show up
+  // without a reload; unchanged entries keep their identity so the open editor keeps its draft.
+  useDataCatalogRefresh(["characters"], () => {
+    api.characterList()
+      .then((list) => setCharacters((prev) => reuseUnchangedItems(prev, list)))
+      .catch(() => undefined);
+  });
 
   useEffect(() => {
     let cancelled = false;

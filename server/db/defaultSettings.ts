@@ -23,6 +23,8 @@ Every roleplay message starts with a concrete action or a spoken line, never wit
 Bad: she looks like she loves dominance games, everything soft yet devilishly provocative.
 Good: she runs a nail along his jaw and tilts her head, waiting.`;
 
+export const DEFAULT_PURE_CHAT_SYSTEM_PROMPT = "You are a helpful assistant. Answer clearly and directly, use Markdown when it helps readability, and say so when you are not sure.";
+
 export function migrateDefaultSystemPrompt(value: unknown): string {
   if (
     value === undefined
@@ -30,6 +32,18 @@ export function migrateDefaultSystemPrompt(value: unknown): string {
     || value === PREVIOUS_DEFAULT_SYSTEM_PROMPT
   ) return DEFAULT_SYSTEM_PROMPT;
   return typeof value === "string" ? value : DEFAULT_SYSTEM_PROMPT;
+}
+
+// Pure Chat used to share the prompt stack "system" block with RP. Seed the new
+// dedicated prompt from that block once so a custom Pure Chat prompt survives.
+export function migratePureChatSystemPrompt(settings: Record<string, unknown>): string {
+  if (typeof settings.pureChatSystemPrompt === "string") return settings.pureChatSystemPrompt;
+  const stack = Array.isArray(settings.promptStack) ? settings.promptStack : [];
+  const systemBlock = stack.find((block) => (
+    block && typeof block === "object" && (block as { kind?: unknown }).kind === "system"
+  )) as { content?: unknown } | undefined;
+  const legacyContent = typeof systemBlock?.content === "string" ? systemBlock.content.trim() : "";
+  return legacyContent || DEFAULT_PURE_CHAT_SYSTEM_PROMPT;
 }
 
 export const DEFAULT_SETTINGS = {
@@ -210,6 +224,7 @@ export const DEFAULT_SETTINGS = {
     }
   },
   defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+  pureChatSystemPrompt: DEFAULT_PURE_CHAT_SYSTEM_PROMPT,
   strictGrounding: true,
   rpReasoningEnabled: false,
   includeReasoningInContext: true,

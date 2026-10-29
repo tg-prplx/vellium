@@ -5,6 +5,9 @@ import { api, resolveApiAssetUrl } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { triggerBlobDownload } from "../../shared/download";
+import { pickLoadedModelId } from "../../shared/modelSelection";
+import { reuseUnchangedItems } from "../../shared/dataCatalog";
+import { useDataCatalogRefresh } from "../../shared/useDataCatalogRefresh";
 import { CollapsibleSection } from "./components/CollapsibleSection";
 import { WritingWorkspaceModeSwitch } from "./components/WritingWorkspaceModeSwitch";
 import { WriterCastEmptyState, WriterEmptyState } from "./components/WriterEmptyState";
@@ -19,6 +22,7 @@ import {
   SEVERITY_STYLES
 } from "./constants";
 import type {
+  AppSettings,
   BookProject,
   Chapter,
   CharacterDetail,
@@ -91,6 +95,7 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
   const [writerRagCollectionIds, setWriterRagCollectionIds] = useState<string[]>([]);
   const [writerProviderId, setWriterProviderId] = useState("");
   const [writerModelId, setWriterModelId] = useState("");
+  const [activatingModel, setActivatingModel] = useState(false);
   const [activeModelLabel, setActiveModelLabel] = useState("");
   const [loadingModels, setLoadingModels] = useState(false);
   const [summaryLenses, setSummaryLenses] = useState<WriterSummaryLens[]>([]);
@@ -144,6 +149,25 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
     }).catch(() => {});
   }, []);
 
+  useDataCatalogRefresh(["characters", "providers", "ragCollections"], (kind) => {
+    if (kind === "characters") api.characterList().then((list) => setCharacters((prev) => reuseUnchangedItems(prev, list))).catch(() => {});
+    if (kind === "providers") api.providerList().then(setProviders).catch(() => {});
+    if (kind === "ragCollections") api.ragCollectionList().then(setRagCollections).catch(() => {});
+  });
+
+  // The model can be switched from Chat or Settings while this screen stays mounted.
+  useEffect(() => {
+    const onActiveModelChange = (event: Event) => {
+      const detail = (event as CustomEvent<AppSettings>).detail;
+      if (!detail) return;
+      setWriterProviderId(detail.activeProviderId || "");
+      setWriterModelId(detail.activeModel || "");
+      setActiveModelLabel(detail.activeModel || "");
+    };
+    window.addEventListener("active-model-change", onActiveModelChange);
+    return () => window.removeEventListener("active-model-change", onActiveModelChange);
+  }, []);
+
   const writingSimpleModeActive = alternateSimpleMode;
 
   useEffect(() => {
@@ -181,10 +205,7 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
     api.providerFetchModels(writerProviderId)
       .then((list) => {
         setModels(list);
-        setWriterModelId((prev) => {
-          if (list.length === 0) return "";
-          return list.some((m) => m.id === prev) ? prev : list[0].id;
-        });
+        setWriterModelId((prev) => pickLoadedModelId(list, prev));
       })
       .catch(() => {
         setModels([]);
@@ -361,21 +382,29 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
     }
   }
 
-  async function applyWriterModel() {
-    if (!writerProviderId || !writerModelId) return;
+  // Picking a model applies it right away so the picker never shows a model that is not in use.
+  async function selectWriterModel(modelId: string) {
+    setWriterModelId(modelId);
+    if (!writerProviderId || !modelId || activatingModel) return;
+    setActivatingModel(true);
     try {
-      const result = await api.providerActivateModel(writerProviderId, writerModelId);
+      const result = await api.providerActivateModel(writerProviderId, modelId);
       const updated = result.settings;
+      // Announce first: our own listener sets the raw id, the friendlier label below wins.
+      window.dispatchEvent(new CustomEvent("settings-change", { detail: updated }));
+      window.dispatchEvent(new CustomEvent("active-model-change", { detail: updated }));
       if (updated.activeProviderId) setWriterProviderId(updated.activeProviderId);
       if (result.actualModelId) {
         setWriterModelId(result.actualModelId);
         setActiveModelLabel(result.activeModelLabel || result.actualModelId);
       } else {
-        setActiveModelLabel(writerModelId);
+        setActiveModelLabel(modelId);
       }
-      log(`${t("writing.modelSet")}: ${result.activeModelLabel || updated.activeModel || writerModelId}`);
+      log(`${t("writing.modelSet")}: ${result.activeModelLabel || updated.activeModel || modelId}`);
     } catch (err) {
       log(`${t("writing.logError")}: ${String(err)}`);
+    } finally {
+      setActivatingModel(false);
     }
   }
 
@@ -1597,6 +1626,7 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
             <div className="flex flex-wrap items-center gap-1.5">
               <select
                 value={writerProviderId}
+                disabled={activatingModel}
                 onChange={(e) => setWriterProviderId(e.target.value)}
                 className="min-w-[170px] flex-1 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
               >
@@ -1607,8 +1637,8 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
               </select>
               <select
                 value={writerModelId}
-                onChange={(e) => setWriterModelId(e.target.value)}
-                disabled={!writerProviderId || loadingModels}
+                onChange={(e) => { void selectWriterModel(e.target.value); }}
+                disabled={!writerProviderId || loadingModels || activatingModel}
                 className="min-w-[170px] flex-1 rounded-md border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary disabled:opacity-40"
               >
                 <option value="">
@@ -1618,14 +1648,8 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
                   <option key={model.id} value={model.id}>{model.label || model.id}</option>
                 ))}
               </select>
-              <button
-                onClick={applyWriterModel}
-                disabled={!writerProviderId || !writerModelId}
-                className="rounded-md border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover disabled:opacity-40"
-              >
-                {t("writing.useModel")}
-              </button>
             </div>
+            <p className="mt-1.5 text-[10px] text-text-tertiary">{activatingModel ? t("chat.loading") : t("chat.modelAppliesInstantly")}</p>
           </div>
 
           <div className="writing-control-panel">

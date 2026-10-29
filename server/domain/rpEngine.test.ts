@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_PURE_CHAT_SYSTEM_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
   LEGACY_DEFAULT_SYSTEM_PROMPT,
   PREVIOUS_DEFAULT_SYSTEM_PROMPT,
-  migrateDefaultSystemPrompt
+  migrateDefaultSystemPrompt,
+  migratePureChatSystemPrompt
 } from "../db/defaultSettings.js";
 import {
   buildMessageArray,
@@ -61,6 +63,15 @@ describe("default roleplay system prompt", () => {
     expect(migrateDefaultSystemPrompt(DEFAULT_SYSTEM_PROMPT)).toBe(DEFAULT_SYSTEM_PROMPT);
     expect(migrateDefaultSystemPrompt("My edited prompt for {{char}}")).toBe("My edited prompt for {{char}}");
     expect(migrateDefaultSystemPrompt("")).toBe("");
+  });
+
+  it("seeds the Pure Chat prompt without borrowing the roleplay default", () => {
+    expect(migratePureChatSystemPrompt({})).toBe(DEFAULT_PURE_CHAT_SYSTEM_PROMPT);
+    expect(migratePureChatSystemPrompt({ defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT })).toBe(DEFAULT_PURE_CHAT_SYSTEM_PROMPT);
+    expect(migratePureChatSystemPrompt({ promptStack: [{ kind: "system", content: "  " }] })).toBe(DEFAULT_PURE_CHAT_SYSTEM_PROMPT);
+    expect(migratePureChatSystemPrompt({ promptStack: [{ kind: "system", content: "My pure prompt" }] })).toBe("My pure prompt");
+    expect(migratePureChatSystemPrompt({ pureChatSystemPrompt: "", promptStack: [{ kind: "system", content: "Old" }] })).toBe("");
+    expect(migratePureChatSystemPrompt({ pureChatSystemPrompt: "Edited" })).toBe("Edited");
   });
 
   it("resolves char and user placeholders for single and multi-character prompts", () => {

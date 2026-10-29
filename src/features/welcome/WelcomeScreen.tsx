@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { PROVIDER_PRESETS } from "../../shared/providerPresets";
-import type { AppSettings } from "../../shared/types/contracts";
+import type { AppSettings, ProviderModel } from "../../shared/types/contracts";
 import type { LocalModelInstallResult } from "../../shared/types/localModels";
 import { LocalModelsSetup } from "../../components/LocalModelsSetup";
 import { LlamaCppQuickSetup } from "../../components/LlamaCppQuickSetup";
@@ -40,8 +40,15 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
   const [isSaving, setIsSaving] = useState(false);
   const [setupError, setSetupError] = useState("");
   const [localModelsConfigured, setLocalModelsConfigured] = useState(Boolean(initialSettings.activeProviderId));
+  const [cloudModels, setCloudModels] = useState<ProviderModel[] | null>(null);
+  const [cloudModelId, setCloudModelId] = useState("");
+  const [cloudModelsLoading, setCloudModelsLoading] = useState(false);
+  const [cloudModelsError, setCloudModelsError] = useState("");
   const selectedPreset = useMemo(() => PROVIDER_PRESETS.find((preset) => preset.key === selectedPresetKey) ?? null, [selectedPresetKey]);
-  const cloudReady = connectionMode !== "cloud" || Boolean(selectedPreset && (selectedPreset.localOnly || providerApiKey.trim()));
+  const cloudKeyReady = Boolean(selectedPreset && (selectedPreset.localOnly || providerApiKey.trim()));
+  // Finishing with a provider but no model left chat answering with an echo
+  // placeholder, so a model is required unless the provider lists none.
+  const cloudReady = connectionMode !== "cloud" || (cloudKeyReady && cloudModels !== null && (Boolean(cloudModelId) || cloudModels.length === 0));
   const modelStepReady = connectionMode === "later" || (connectionMode === "cloud" ? cloudReady : localModelsConfigured);
   const steps = [t("welcome.stepBasics"), t("welcome.stepModel"), t("welcome.stepReady")];
 
@@ -50,6 +57,34 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
     setInterfaceLanguage(next);
     if (!responseLanguage.trim() || responseLanguage === previousDefault) setResponseLanguage(RESPONSE_LANGUAGE_BY_LOCALE[next]);
     onPreviewLocale(next);
+  }
+
+  function resetCloudModels() {
+    setCloudModels(null);
+    setCloudModelId("");
+    setCloudModelsError("");
+  }
+
+  async function loadCloudModels() {
+    if (!selectedPreset || !cloudKeyReady || cloudModelsLoading) return;
+    setCloudModelsLoading(true);
+    setCloudModelsError("");
+    try {
+      const list = await api.providerPreviewModels({
+        baseUrl: selectedPreset.baseUrl,
+        apiKey: providerApiKey.trim() || (selectedPreset.localOnly ? "local-key" : ""),
+        fullLocalOnly: selectedPreset.localOnly,
+        providerType: selectedPreset.providerType
+      });
+      setCloudModels(list);
+      setCloudModelId((prev) => list.some((model) => model.id === prev) ? prev : list.length === 1 ? list[0].id : "");
+    } catch (error) {
+      setCloudModels(null);
+      setCloudModelId("");
+      setCloudModelsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCloudModelsLoading(false);
+    }
   }
 
   async function handleFinish() {
@@ -68,8 +103,12 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
           fullLocalOnly: selectedPreset.localOnly,
           providerType: selectedPreset.providerType
         });
-        providerPatch.activeProviderId = selectedPreset.defaultId;
-        providerPatch.activeModel = null;
+        if (cloudModelId) {
+          await api.providerActivateModel(selectedPreset.defaultId, cloudModelId);
+        } else {
+          providerPatch.activeProviderId = selectedPreset.defaultId;
+          providerPatch.activeModel = null;
+        }
       }
       await onComplete({
         interfaceLanguage,
@@ -137,9 +176,22 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
                 {connectionMode === "download" ? <LocalModelsSetup locale={interfaceLanguage} compact componentIds={["llm"]} onInstalled={handleLocalModelsInstalled} /> : null}
                 {connectionMode === "cloud" ? (
                   <div className="welcome-cloud-setup">
-                    <label><span>{t("welcome.selectPreset")}</span><select value={selectedPresetKey} onChange={(event) => setSelectedPresetKey(event.target.value)}>{PROVIDER_PRESETS.filter((preset) => !preset.localOnly).map((preset) => <option key={preset.key} value={preset.key}>{preset.label}</option>)}</select></label>
-                    <label><span>{t("welcome.presetApiKey")}</span><input type="password" value={providerApiKey} onChange={(event) => setProviderApiKey(event.target.value)} placeholder={selectedPreset?.apiKeyHint || ""} /></label>
-                    {!cloudReady ? <p>{t("welcome.apiKeyNeeded")}</p> : null}
+                    <label><span>{t("welcome.selectPreset")}</span><select value={selectedPresetKey} onChange={(event) => { setSelectedPresetKey(event.target.value); resetCloudModels(); }}>{PROVIDER_PRESETS.filter((preset) => !preset.localOnly).map((preset) => <option key={preset.key} value={preset.key}>{preset.label}</option>)}</select></label>
+                    <label><span>{t("welcome.presetApiKey")}</span><input type="password" value={providerApiKey} onChange={(event) => { setProviderApiKey(event.target.value); resetCloudModels(); }} placeholder={selectedPreset?.apiKeyHint || ""} /></label>
+                    <div className="welcome-cloud-models">
+                      <button type="button" className="secondary" disabled={!cloudKeyReady || cloudModelsLoading} onClick={() => void loadCloudModels()}>
+                        {cloudModelsLoading ? t("welcome.checkingKey") : cloudModels ? t("welcome.reloadModels") : t("welcome.checkKeyLoadModels")}
+                      </button>
+                      {cloudModels && cloudModels.length > 0 ? (
+                        <label><span>{t("welcome.chooseModel")}</span><select value={cloudModelId} onChange={(event) => setCloudModelId(event.target.value)}><option value="">{t("settings.selectModel")}</option>{cloudModels.map((model) => <option key={model.id} value={model.id}>{model.label || model.id}</option>)}</select></label>
+                      ) : null}
+                    </div>
+                    {cloudModelsError ? <p>{t("welcome.modelsLoadFailed")}: {cloudModelsError}</p>
+                      : !cloudKeyReady ? <p>{t("welcome.apiKeyNeeded")}</p>
+                      : cloudModels === null ? <p className="is-hint">{t("welcome.checkKeyHint")}</p>
+                      : cloudModels.length === 0 ? <p className="is-hint">{t("welcome.noModelsListed")}</p>
+                      : !cloudModelId ? <p>{t("welcome.chooseModelHint")}</p>
+                      : <p className="is-ok">{t("welcome.keyWorks")}</p>}
                   </div>
                 ) : null}
                 {connectionMode === "later" ? <div className="welcome-later-note">{t("welcome.laterNote")}</div> : null}
@@ -150,7 +202,7 @@ export function WelcomeScreen({ initialSettings, onComplete, onPreviewLocale }: 
           {step === 2 ? (
             <>
               <header><span>{t("welcome.stepReady")}</span><h2>{t("welcome.readyTitle")}</h2><p>{t("welcome.readyDesc")}</p></header>
-              <div className="welcome-ready-summary"><div><span>{t("welcome.interfaceLanguage")}</span><b>{interfaceLanguage.toUpperCase()}</b></div><div><span>{t("welcome.modelSource")}</span><b>{modes.find((mode) => mode.id === connectionMode)?.title}</b></div><div><span>{t("welcome.dataMode")}</span><b>{connectionMode === "later" ? t("welcome.dataModeNone") : connectionMode === "cloud" ? t("welcome.dataModeCloud") : t("welcome.dataModeLocal")}</b></div></div>
+              <div className="welcome-ready-summary"><div><span>{t("welcome.interfaceLanguage")}</span><b>{interfaceLanguage.toUpperCase()}</b></div><div><span>{t("welcome.modelSource")}</span><b>{connectionMode === "cloud" && cloudModelId ? `${selectedPreset?.label} · ${cloudModelId}` : modes.find((mode) => mode.id === connectionMode)?.title}</b></div><div><span>{t("welcome.dataMode")}</span><b>{connectionMode === "later" ? t("welcome.dataModeNone") : connectionMode === "cloud" ? t("welcome.dataModeCloud") : t("welcome.dataModeLocal")}</b></div></div>
               <details className="welcome-advanced-preferences"><summary>{t("welcome.advancedPreferences")}</summary><div><label><span>{t("welcome.responseLanguage")}</span><input value={responseLanguage} onChange={(event) => setResponseLanguage(event.target.value)} /></label><label><span>{t("welcome.censorship")}</span><select value={censorshipMode} onChange={(event) => setCensorshipMode(event.target.value as AppSettings["censorshipMode"])}><option value="Unfiltered">{t("settings.unfiltered")}</option><option value="Filtered">{t("settings.filtered")}</option></select></label></div></details>
               <div className="welcome-ready-callout"><span>✓</span><div><b>{t("welcome.readyCalloutTitle")}</b><p>{t("welcome.readyCalloutDesc")}</p></div></div>
             </>

@@ -1,11 +1,7 @@
 import { describeChatGenerationError } from "../../../shared/chatGenerationError";
 import { useI18n } from "../../../shared/i18n";
+import { openProviderSettings } from "./ModelSetupNotice";
 
-function openProviderSettings() {
-  window.dispatchEvent(new CustomEvent("open-settings-view", {
-    detail: { category: "providers", sectionId: "settings-providers" }
-  }));
-}
 
 export function ChatGenerationFailure({ error, onRetry, onContext, busy }: {
   error: string;

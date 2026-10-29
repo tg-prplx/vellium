@@ -11,6 +11,7 @@ import { buildLiveAvatarControlPrompt, normalizeLiveAvatarCapabilities } from ".
 import type { LiveAvatarControlCapabilities } from "../../../src/shared/types/inochiAvatar.js";
 import type { ContextSource } from "../../../src/shared/types/chatContext.js";
 import { resolveContextBudget } from "./contextBudget.js";
+import { DEFAULT_PURE_CHAT_SYSTEM_PROMPT } from "../../db/defaultSettings.js";
 import { accountContext } from "./contextAccounting.js";
 import { prepareOpenAiCompatibleMessages } from "./providerMessages.js";
 
@@ -45,8 +46,11 @@ export async function buildChatContext(params: BuildChatContextParams) {
   const pureChatMode = chatMode === "pure_chat";
   const lightRpMode = chatMode === "light_rp";
   const strictGrounding = (settings as { strictGrounding?: unknown }).strictGrounding !== false;
-  const rpReasoningEnabled = (settings as { rpReasoningEnabled?: unknown }).rpReasoningEnabled === true;
+  // RP reasoning is a roleplay instruction; Pure Chat promises none of those.
+  const rpReasoningEnabled = !pureChatMode && (settings as { rpReasoningEnabled?: unknown }).rpReasoningEnabled === true;
   const systemBlockContent = String(blocks.find((block) => block.kind === "system")?.content || "").trim();
+  const rawPureChatSystemPrompt = (settings as { pureChatSystemPrompt?: unknown }).pureChatSystemPrompt;
+  const pureChatSystemPrompt = (typeof rawPureChatSystemPrompt === "string" ? rawPureChatSystemPrompt : DEFAULT_PURE_CHAT_SYSTEM_PROMPT).trim();
 
   const resolvedUserName = (params.userPersona?.name || "").trim() || "User";
   const personaInstruction = [
@@ -167,9 +171,11 @@ export async function buildChatContext(params: BuildChatContextParams) {
     let apiMessages: ChatCompletionMessage[];
 
     if (pureChatMode) {
+      // Pure Chat never inherits the RP default prompt or the prompt stack; the
+      // character's own system prompt still travels inside its card context.
       systemPrompt = buildSillyTavernCompatiblePurePrompt({
-        baseSystemPrompt: resolvedBaseSystemPrompt,
-        currentCharacter: promptCharacterCard,
+        baseSystemPrompt: pureChatSystemPrompt,
+        currentCharacter: currentCharCard,
         characterCards,
         currentCharacterName: params.overrideCharacterName || promptCharacterCard?.name,
         userName: resolvedUserName,
@@ -329,7 +335,7 @@ export async function buildChatContext(params: BuildChatContextParams) {
   }
   const includedIds = new Set(promptTimeline.map(item => item.id));
   const candidatePositions = new Map(candidates.map((item, index) => [item.id, index]));
-  return { settings, providerId, modelId, samplerConfig, liveAvatar, timeline, promptTimeline,
+  return { settings: { ...settings, rpReasoningEnabled }, providerId, modelId, samplerConfig, liveAvatar, timeline, promptTimeline,
     ragSourcesForAssistant, apiMessages: assembled.apiMessages, messages: assembled.messages, ...assembled.accounting,
     config, contextSummary, contextWindowBudget, reservedOutputTokens, maxMessages, includeReasoning,
     history: timeline.map(item => ({ id: item.id, role: item.role, content: item.content.slice(0, 500), tokens: item.tokenCount,

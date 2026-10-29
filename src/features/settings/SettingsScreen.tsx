@@ -4,6 +4,8 @@ import { api } from "../../shared/api";
 import { useI18n } from "../../shared/i18n";
 import { triggerBlobDownload } from "../../shared/download";
 import { PROVIDER_PRESETS, type ProviderPreset } from "../../shared/providerPresets";
+import { pickLoadedModelId } from "../../shared/modelSelection";
+import { useDataCatalogRefresh } from "../../shared/useDataCatalogRefresh";
 import { buildManagedBackendCommand, defaultManagedBackendConfig, defaultManagedBackendLlamaCppOptions, normalizeManagedBackends, parseManagedBackendCommand, resolveManagedBackendBaseUrl } from "../../shared/managedBackends";
 import type { ApiParamPolicy, AppSettings, ManagedBackendConfig, ManagedBackendLogEntry, ManagedBackendRuntimeState, McpDiscoveredTool, McpServerConfig, McpServerTestResult, PluginDescriptor, PromptBlock, PromptTemplates, ProviderModel, ProviderProfile, SamplerConfig } from "../../shared/types/contracts";
 import { FieldLabel, InputField, SelectField, TextareaField, ToggleSwitch } from "./components/FormControls";
@@ -158,6 +160,8 @@ export function SettingsScreen({
   const { t } = useI18n();
   const { catalog: pluginCatalog, plugins, loading: pluginsLoading, error: pluginError, setPluginEnabled, refresh: refreshPlugins, pendingPluginStates } = usePlugins();
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const [providerResult, setProviderResult] = useState("");
   const [resultVariant, setResultVariant] = useState<"info" | "success" | "error">("info");
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
@@ -298,7 +302,14 @@ export function SettingsScreen({
   useEffect(() => {
     const handleSettingsChange = (event: Event) => {
       const next = (event as CustomEvent<AppSettings>).detail;
-      if (next && typeof next === "object") setSettings(next);
+      if (!next || typeof next !== "object") return;
+      const previous = settingsRef.current;
+      setSettings(next);
+      // The active model may have been switched from Chat or Writer while Settings stayed mounted.
+      if (previous && (previous.activeProviderId !== next.activeProviderId || previous.activeModel !== next.activeModel)) {
+        setSelectedProviderId(next.activeProviderId || "");
+        setSelectedModelId(next.activeModel || "");
+      }
     };
     window.addEventListener("settings-change", handleSettingsChange);
     return () => window.removeEventListener("settings-change", handleSettingsChange);
@@ -794,6 +805,7 @@ export function SettingsScreen({
       showResult(t("settings.settingsResetDone"), "success");
     });
   }
+  useDataCatalogRefresh(["providers"], () => { api.providerList().then(setProviders).catch(() => undefined); });
   function refreshProviders() { void runSettingsAction(async () => setProviders(await api.providerList())); }
   async function saveProvider() {
     if (settingsActionBusy) return;
@@ -870,10 +882,7 @@ export function SettingsScreen({
     try {
       const list = await api.providerFetchModels(selectedProviderId);
       setModels(list);
-      setSelectedModelId((prev) => {
-        if (list.length === 0) return "";
-        return list.some((model) => model.id === prev) ? prev : list[0].id;
-      });
+      setSelectedModelId((prev) => pickLoadedModelId(list, prev, activeModelForProvider(selectedProviderId)));
       showResult(
         list.length ? `${t("settings.modelsLoaded")}: ${list.length}` : t("settings.noModelsReturned"),
         list.length ? "success" : "info"
@@ -889,10 +898,7 @@ export function SettingsScreen({
     try {
       const list = await api.providerPreviewModels(buildProviderDraftPayload());
       setModels(list);
-      setSelectedModelId((prev) => {
-        if (list.length === 0) return "";
-        return list.some((model) => model.id === prev) ? prev : list[0].id;
-      });
+      setSelectedModelId((prev) => pickLoadedModelId(list, prev));
       showResult(
         list.length ? `${t("settings.modelsLoaded")}: ${list.length}` : t("settings.noModelsReturned"),
         list.length ? "success" : "info"
@@ -953,15 +959,17 @@ export function SettingsScreen({
     }
   }
 
-  async function applyActiveModel() {
+  // Choosing a model applies it immediately, so the picker never shows a model chat is not using.
+  async function applyActiveModel(modelId: string) {
     if (settingsActionBusy) return;
-    if (!selectedProviderId || !selectedModelId) { showResult(t("settings.selectProviderAndModelFirst"), "error"); return; }
+    setSelectedModelId(modelId);
+    if (!selectedProviderId || !modelId) return;
     await runSettingsAction(async () => {
-      const result = await api.providerActivateModel(selectedProviderId, selectedModelId);
-      setSettings(result.settings); setSelectedModelId(result.actualModelId || selectedModelId);
+      const result = await api.providerActivateModel(selectedProviderId, modelId);
+      setSettings(result.settings); setSelectedModelId(result.actualModelId || modelId);
       window.dispatchEvent(new CustomEvent("settings-change", { detail: result.settings }));
       window.dispatchEvent(new CustomEvent("active-model-change", { detail: result.settings }));
-      showResult(`${t("settings.activeModelSet")}: ${selectedProviderId} / ${result.activeModelLabel || result.actualModelId || selectedModelId}`, "success");
+      showResult(`${t("settings.activeModelSet")}: ${selectedProviderId} / ${result.activeModelLabel || result.actualModelId || modelId}`, "success");
     });
   }
 
@@ -1157,16 +1165,17 @@ export function SettingsScreen({
     window.dispatchEvent(new CustomEvent("locale-change", { detail: lang }));
   }
 
+  function activeModelForProvider(id: string) {
+    return settingsRef.current?.activeProviderId === id ? settingsRef.current.activeModel : null;
+  }
+
   // Auto-load models when provider selection changes in settings
   useEffect(() => {
     if (!selectedProviderId) { setModels([]); setSelectedModelId(""); return; }
     api.providerFetchModels(selectedProviderId)
       .then((list) => {
         setModels(list);
-        setSelectedModelId((prev) => {
-          if (list.length === 0) return "";
-          return list.some((m) => m.id === prev) ? prev : list[0].id;
-        });
+        setSelectedModelId((prev) => pickLoadedModelId(list, prev, activeModelForProvider(selectedProviderId)));
       })
       .catch(() => {
         setModels([]);
@@ -1283,7 +1292,6 @@ export function SettingsScreen({
   const activeCategoryConfig = categoryNav.find((item) => item.id === activeCategory) ?? categoryNav[0];
   const draftHasApiKey = Boolean(providerApiKey.trim()) || Boolean(editingProvider?.apiKeyMasked);
   const canTestProvider = Boolean(providerBaseUrl.trim());
-  const canActivateSelectedModel = Boolean(selectedProviderId && selectedModelId);
   const primaryActionClass = "inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-text-inverse hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60";
   const secondaryActionClass = "inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60";
   const subtleChipClass = "inline-flex items-center rounded-md border border-border-subtle bg-bg-primary px-2 py-1 text-[10px] font-medium text-text-secondary";
@@ -1614,10 +1622,13 @@ export function SettingsScreen({
                   <div className="space-y-3">
                     <div>
                       <FieldLabel>{t("settings.provider")}</FieldLabel>
-                      <SelectField value={selectedProviderId} onChange={setSelectedProviderId}>
+                      <SelectField value={selectedProviderId} onChange={setSelectedProviderId} disabled={settingsActionBusy}>
                         <option value="">{t("settings.selectProvider")}</option>
                         {providers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </SelectField>
+                      {selectedProviderId && selectedProviderId !== settings.activeProviderId && (
+                        <p className="mt-1.5 text-[11px] text-warning">{t("settings.providerNotActiveHint")}</p>
+                      )}
                     </div>
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
@@ -1627,7 +1638,7 @@ export function SettingsScreen({
                           {t("settings.loadModels")}
                         </button>
                       </div>
-                      <SelectField value={selectedModelId} onChange={setSelectedModelId}>
+                      <SelectField value={selectedModelId} onChange={(value) => { void applyActiveModel(value); }} disabled={!selectedProviderId || settingsActionBusy}>
                         <option value="">{t("settings.selectModel")}</option>
                         {models.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}
                       </SelectField>
@@ -1636,10 +1647,15 @@ export function SettingsScreen({
                       {models.length ? `${t("settings.modelsLoaded")}: ${models.length}` : t("settings.noModelsReturned")}
                       {selectedProviderProfile?.baseUrl ? ` • ${selectedProviderProfile.baseUrl}` : ""}
                     </div>
-                    <button onClick={applyActiveModel} disabled={!canActivateSelectedModel || settingsActionBusy} className={primaryActionClass}>
-                      <SettingsActionIcon name="activate" />
-                      {t("settings.useModel")}
-                    </button>
+                    <div className={`${insetPanelClass} flex items-center gap-2 px-3 py-2 text-xs`}>
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${settings.activeModel ? "bg-success" : "bg-warning"}`} aria-hidden="true" />
+                      <span className="text-text-tertiary">{t("settings.activeModelInUse")}:</span>
+                      <span className="min-w-0 truncate font-medium text-text-primary">
+                        {settings.activeModel
+                          ? `${providers.find((p) => p.id === settings.activeProviderId)?.name || settings.activeProviderId || ""} / ${settings.activeModel}`
+                          : t("chat.noModel")}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -2288,6 +2304,12 @@ export function SettingsScreen({
                   <TextareaField value={settings.defaultSystemPrompt} onChange={(value) => patch({ defaultSystemPrompt: value })}
                     className="h-40 text-xs leading-relaxed"
                     placeholder={t("settings.defaultSystemPromptPlaceholder")}
+                    {...autosaveProps} />
+                </SettingRow>
+                <SettingRow wide label={t("settings.pureChatSysPrompt")} description={t("settings.pureChatSysPromptDesc")}>
+                  <TextareaField value={settings.pureChatSystemPrompt ?? ""} onChange={(value) => patch({ pureChatSystemPrompt: value })}
+                    className="h-24 text-xs leading-relaxed"
+                    placeholder={t("inspector.systemPromptPurePlaceholder")}
                     {...autosaveProps} />
                 </SettingRow>
               </SettingsGroup>

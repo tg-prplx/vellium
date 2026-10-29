@@ -1,6 +1,9 @@
-import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { api } from "../../shared/api";
 import { subscribeCharacterCatalogChanged } from "../../shared/characterCatalog";
+import { pickLoadedModelId } from "../../shared/modelSelection";
+import { useDataCatalogRefresh } from "../../shared/useDataCatalogRefresh";
+import type { DataCatalogKind } from "../../shared/dataCatalog";
 import type {
   BranchNode,
   CharacterDetail,
@@ -32,6 +35,7 @@ interface ChatBootstrapParams {
   setActiveChat: Dispatch<SetStateAction<ChatSession | null>>;
   setChatProviderId: Dispatch<SetStateAction<string>>;
   setActiveModelLabel: Dispatch<SetStateAction<string>>;
+  setModelStatusLoaded?: Dispatch<SetStateAction<boolean>>;
   setChatModelId: Dispatch<SetStateAction<string>>;
   setSamplerConfig: Dispatch<SetStateAction<SamplerConfig>>;
   setSamplerPresets: Dispatch<SetStateAction<SamplerPreset[]>>;
@@ -90,6 +94,7 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
         params.setActiveModelLabel("");
         params.setChatModelId("");
       }
+      params.setModelStatusLoaded?.(true);
       if (settings.samplerConfig) params.setSamplerConfig(settings.samplerConfig);
       params.setSamplerPresets(settings.samplerPresets || []);
       params.setPromptStack(normalizePromptStack(settings.promptStack));
@@ -128,6 +133,30 @@ export function useChatBootstrap(params: ChatBootstrapParams) {
       unsubscribeCharacters();
     };
   }, []);
+
+  // Chat stays mounted, so lists edited on other screens (Settings, LoreBooks,
+  // Knowledge, Live) are refreshed here instead of waiting for a page reload.
+  const refreshSequenceRef = useRef<Partial<Record<DataCatalogKind, number>>>({});
+  useDataCatalogRefresh(["personas", "lorebooks", "ragCollections", "providers"], (kind) => {
+    const sequence = (refreshSequenceRef.current[kind] ?? 0) + 1;
+    refreshSequenceRef.current[kind] = sequence;
+    const isLatest = () => sequence === refreshSequenceRef.current[kind];
+    if (kind === "personas") {
+      api.personaList().then((list) => {
+        if (!isLatest()) return;
+        params.setPersonas(list);
+        params.setActivePersona((current) => list.find((persona) => persona.id === current?.id)
+          ?? list.find((persona) => persona.isDefault)
+          ?? null);
+      }).catch(() => {});
+    } else if (kind === "lorebooks") {
+      api.lorebookList().then((list) => { if (isLatest()) params.setLorebooks(list); }).catch(() => {});
+    } else if (kind === "ragCollections") {
+      api.ragCollectionList().then((list) => { if (isLatest()) params.setRagCollections(list); }).catch(() => {});
+    } else if (kind === "providers") {
+      api.providerList().then((list) => { if (isLatest()) params.setProviders(list); }).catch(() => {});
+    }
+  });
 }
 
 interface ProviderModelLoaderParams {
@@ -150,10 +179,7 @@ export function useProviderModelLoader(params: ProviderModelLoaderParams) {
     api.providerFetchModels(chatProviderId)
       .then((list) => {
         setModels(list);
-        setChatModelId((prev) => {
-          if (list.length === 0) return "";
-          return list.some((m) => m.id === prev) ? prev : list[0].id;
-        });
+        setChatModelId((prev) => pickLoadedModelId(list, prev));
       })
       .catch(() => {
         setModels([]);

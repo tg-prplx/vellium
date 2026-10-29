@@ -7,6 +7,7 @@ import {
   useChatJsonExport
 } from "../../chat/public";
 import { api } from "../../../shared/api";
+import { useDataCatalogRefresh } from "../../../shared/useDataCatalogRefresh";
 import {
   failBackgroundTask,
   finishBackgroundTask,
@@ -129,6 +130,10 @@ export function LiveChatControlPanel({
   const [lorebooks, setLorebooks] = useState<LoreBook[]>([]);
   const [selectedLorebookIds, setSelectedLorebookIds] = useState<string[]>([]);
   const [ragCollections, setRagCollections] = useState<RagCollection[]>([]);
+  useDataCatalogRefresh(["lorebooks", "ragCollections"], (kind) => {
+    if (kind === "lorebooks") api.lorebookList().then(setLorebooks).catch(() => {});
+    else api.ragCollectionList().then(setRagCollections).catch(() => {});
+  });
   const [ragEnabled, setRagEnabled] = useState(false);
   const [ragCollectionIds, setRagCollectionIds] = useState<string[]>([]);
   const [sampler, setSampler] = useState<SamplerConfig | null>(null);

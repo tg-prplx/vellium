@@ -297,3 +297,10 @@
   .llama-quick-fields { grid-template-columns: minmax(0, 1fr); }
   .llama-quick-header, .llama-endpoint-found { align-items: flex-start; }
 }
+.welcome-cloud-models { display: grid; grid-column: 1 / -1; grid-template-columns: auto minmax(0, 1fr); align-items: end; gap: 12px; }
+.welcome-cloud-models > button { height: 42px; border: 1px solid var(--color-border); border-radius: 10px; padding: 0 14px; color: var(--color-text-primary); background: var(--color-bg-secondary); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.welcome-cloud-models > button:hover:not(:disabled) { border-color: var(--color-accent); }
+.welcome-cloud-models > button:disabled { opacity: 0.5; cursor: not-allowed; }
+.welcome-cloud-setup p.is-hint { color: var(--color-text-tertiary); }
+.welcome-cloud-setup p.is-ok { color: var(--color-success); }
+@media (max-width: 640px) { .welcome-cloud-models { grid-template-columns: minmax(0, 1fr); } }

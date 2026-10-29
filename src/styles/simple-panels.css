@@ -437,3 +437,30 @@
   .chat-simple-sidebar-panel,
   .chat-simple-right-panel { transition: none !important; }
 }
+
+/* Chat mode menu in the simple composer: opens upward from the controls row. */
+.chat-simple-mode-menu > .chat-simple-more-menu-panel { top: auto; bottom: calc(100% + 8px); left: 0; right: auto; width: min(320px, calc(100vw - 32px)); min-width: 0; transform-origin: bottom left; }
+.chat-simple-mode-menu.is-disabled > summary { opacity: 0.5; cursor: not-allowed; }
+.chat-simple-mode-menu-title { padding: 6px 10px 4px; color: var(--color-text-tertiary); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.chat-simple-mode-menu .chat-simple-more-menu-panel > button { align-items: flex-start; min-height: 0; padding: 8px 10px; }
+.chat-simple-mode-menu .chat-simple-more-menu-panel > button.is-active { background: var(--color-accent-subtle); color: var(--color-text-primary); }
+.chat-simple-mode-menu .chat-simple-more-menu-panel > button.is-active svg { color: var(--color-accent); }
+.chat-simple-mode-menu .chat-simple-more-menu-panel > button > svg:first-child { margin-top: 1px; }
+.chat-simple-mode-menu-text { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.chat-simple-mode-menu-text b { color: var(--color-text-primary); font-size: 12px; font-weight: 600; }
+.chat-simple-mode-menu-text small { color: var(--color-text-tertiary); font-size: 11px; line-height: 1.35; white-space: normal; }
+.chat-simple-controls .chat-simple-mode-menu-check { width: 14px; height: 14px; margin-top: 2px; }
+.chat-simple-more-menu.chat-simple-mode-menu[open] > .chat-simple-more-menu-panel { transform-origin: bottom left; animation-name: vMotionPopUp; }
+
+/* No-model notice on the simple chat home and inside the model picker. */
+.chat-model-setup-notice { pointer-events: auto; display: flex; align-items: center; gap: 10px; margin-top: 16px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--color-warning) 28%, transparent); border-radius: 12px; background: color-mix(in srgb, var(--color-warning) 9%, var(--color-bg-secondary)); text-align: left; }
+.chat-model-setup-notice.is-compact { margin: 0 0 10px; padding: 8px 10px; }
+.chat-model-setup-notice-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 999px; background: var(--color-warning); }
+.chat-model-setup-notice-title { color: var(--color-text-primary); font-size: 13px; font-weight: 600; }
+.chat-model-setup-notice.is-compact .chat-model-setup-notice-title { font-size: 12px; font-weight: 500; }
+.chat-model-setup-notice p { margin: 2px 0 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.4; }
+.chat-model-setup-notice-action { flex: 0 0 auto; padding: 6px 12px; border: 0; border-radius: 8px; background: var(--color-accent); color: var(--color-text-inverse); font-size: 12px; font-weight: 600; }
+.chat-model-setup-notice-action:hover { background: var(--color-accent-hover); }
+@media (max-width: 560px) { .chat-model-setup-notice { flex-wrap: wrap; } }
+/* The composer stack is display: contents, so drop the home hero (z-index 1) under the open mode menu instead. */
+.chat-simple-layout:has(.chat-simple-mode-menu[open]) .chat-simple-hero { z-index: 0; }

@@ -1,6 +1,7 @@
 import type { AppSettings, ManagedBackendConfig, ManagedBackendRuntimeState, ProviderModel, ProviderProfile } from "../types/contracts";
 import { managedBackendModelId, normalizeManagedBackends, parseManagedBackendModelId, resolveManagedBackendBaseUrl } from "../managedBackends";
 import { get, post } from "./core";
+import { notifyAfterDataCatalogMutation } from "../dataCatalog";
 import { accountSettingsClient } from "./accountSettingsClient";
 import type { LlamaCppEndpointStatus } from "../types/llamaCpp";
 
@@ -110,7 +111,7 @@ async function resolveManagedBackendModel(providerId: string, backendId: string)
 
 export const providerClient = {
   providerUpsert: (profile: Omit<ProviderProfile, "apiKeyMasked"> & { apiKey: string }) =>
-    post<ProviderProfile>("/providers", profile),
+    notifyAfterDataCatalogMutation("providers", post<ProviderProfile>("/providers", profile)),
   providerList: () => get<ProviderProfile[]>("/providers"),
   providerFetchModels: async (providerId: string) => {
     const [models, managedBackends, runtimeStates] = await Promise.all([

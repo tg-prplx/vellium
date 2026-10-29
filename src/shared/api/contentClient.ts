@@ -1,5 +1,6 @@
 import type { CharacterDetail, FileAttachment, LoreBook, RagBinding, RagCollection, RagDocument, RagIngestResult, UserPersona } from "../types/contracts";
 import { notifyAfterCharacterCatalogMutation } from "../characterCatalog";
+import { notifyAfterDataCatalogMutation } from "../dataCatalog";
 import { del, get, patchReq, post, put, requestBlob } from "./core";
 
 export const contentClient = {
@@ -26,17 +27,21 @@ export const contentClient = {
   ),
   lorebookList: () => get<LoreBook[]>("/lorebooks"),
   lorebookGet: (id: string) => get<LoreBook>(`/lorebooks/${id}`),
-  lorebookCreate: (data: Partial<LoreBook>) => post<LoreBook>("/lorebooks", data),
-  lorebookImportWorldInfo: (data: unknown) => post<LoreBook>("/lorebooks/import/world-info", { data }),
-  lorebookTranslateCopy: (id: string, targetLanguage?: string, signal?: AbortSignal) =>
-    post<LoreBook>(`/lorebooks/${id}/translate-copy`, { targetLanguage }, { timeoutMs: 0, signal }),
-  lorebookUpdate: (id: string, data: Partial<LoreBook>) => put<LoreBook>(`/lorebooks/${id}`, data),
-  lorebookDelete: (id: string) => del<{ ok: boolean }>(`/lorebooks/${id}`),
+  lorebookCreate: (data: Partial<LoreBook>) => notifyAfterDataCatalogMutation("lorebooks", post<LoreBook>("/lorebooks", data)),
+  lorebookImportWorldInfo: (data: unknown) => notifyAfterDataCatalogMutation("lorebooks", post<LoreBook>("/lorebooks/import/world-info", { data })),
+  lorebookTranslateCopy: (id: string, targetLanguage?: string, signal?: AbortSignal) => notifyAfterDataCatalogMutation(
+    "lorebooks",
+    post<LoreBook>(`/lorebooks/${id}/translate-copy`, { targetLanguage }, { timeoutMs: 0, signal })
+  ),
+  lorebookUpdate: (id: string, data: Partial<LoreBook>) => notifyAfterDataCatalogMutation("lorebooks", put<LoreBook>(`/lorebooks/${id}`, data)),
+  lorebookDelete: (id: string) => notifyAfterDataCatalogMutation("lorebooks", del<{ ok: boolean }>(`/lorebooks/${id}`)),
   lorebookExportWorldInfo: (id: string) => requestBlob("GET", `/lorebooks/${id}/export/world-info`),
   ragCollectionList: () => get<RagCollection[]>("/rag/collections"),
-  ragCollectionCreate: (data: { name: string; description?: string; scope?: "global" | "chat" | "writer" }) => post<RagCollection>("/rag/collections", data),
-  ragCollectionUpdate: (id: string, data: { name?: string; description?: string; scope?: "global" | "chat" | "writer" }) => patchReq<RagCollection>(`/rag/collections/${id}`, data),
-  ragCollectionDelete: (id: string) => del<{ ok: boolean; id: string }>(`/rag/collections/${id}`),
+  ragCollectionCreate: (data: { name: string; description?: string; scope?: "global" | "chat" | "writer" }) =>
+    notifyAfterDataCatalogMutation("ragCollections", post<RagCollection>("/rag/collections", data)),
+  ragCollectionUpdate: (id: string, data: { name?: string; description?: string; scope?: "global" | "chat" | "writer" }) =>
+    notifyAfterDataCatalogMutation("ragCollections", patchReq<RagCollection>(`/rag/collections/${id}`, data)),
+  ragCollectionDelete: (id: string) => notifyAfterDataCatalogMutation("ragCollections", del<{ ok: boolean; id: string }>(`/rag/collections/${id}`)),
   ragDocumentList: (collectionId: string) => get<RagDocument[]>(`/rag/collections/${collectionId}/documents`),
   ragIngestDocument: (collectionId: string, payload: {
     title: string;
@@ -48,9 +53,9 @@ export const contentClient = {
   }) => post<RagIngestResult>(`/rag/collections/${collectionId}/documents`, payload),
   ragDocumentDelete: (documentId: string) => del<{ ok: boolean; id: string }>(`/rag/documents/${documentId}`),
   personaList: () => get<UserPersona[]>("/personas"),
-  personaCreate: (data: Partial<UserPersona>) => post<UserPersona>("/personas", data),
-  personaUpdate: (id: string, data: Partial<UserPersona>) => put<UserPersona>(`/personas/${id}`, data),
-  personaDelete: (id: string) => del<void>(`/personas/${id}`),
-  personaSetDefault: (id: string) => post<{ ok: boolean }>(`/personas/${id}/set-default`),
+  personaCreate: (data: Partial<UserPersona>) => notifyAfterDataCatalogMutation("personas", post<UserPersona>("/personas", data)),
+  personaUpdate: (id: string, data: Partial<UserPersona>) => notifyAfterDataCatalogMutation("personas", put<UserPersona>(`/personas/${id}`, data)),
+  personaDelete: (id: string) => notifyAfterDataCatalogMutation("personas", del<void>(`/personas/${id}`)),
+  personaSetDefault: (id: string) => notifyAfterDataCatalogMutation("personas", post<{ ok: boolean }>(`/personas/${id}/set-default`)),
   uploadFile: (base64Data: string, filename: string) => post<FileAttachment>("/upload", { base64Data, filename })
 };

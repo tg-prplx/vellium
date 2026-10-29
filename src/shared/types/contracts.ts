@@ -766,7 +766,7 @@ export interface AppSettings {
   samplerConfig: SamplerConfig;
   samplerPresets: SamplerPreset[];
   apiParamPolicy: ApiParamPolicy;
-  defaultSystemPrompt: string;
+  defaultSystemPrompt: string; pureChatSystemPrompt: string;
   strictGrounding: boolean;
   rpReasoningEnabled: boolean;
   includeReasoningInContext: boolean;

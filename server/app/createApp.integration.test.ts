@@ -335,7 +335,7 @@ process.stdin.on("data", (chunk) => {
             return flattenMockContent((message as { content?: unknown }).content);
           })
           .join("\n\n");
-        if (promptText.includes("single-system-template-check")) {
+        if (promptText.includes("single-system-template-check") || promptText.includes("pure-prompt-isolation-check")) {
           lastChatTemplateMessages = messages as Array<{ role?: unknown; content?: unknown }>;
         }
         const hasPriorAssistantCapabilityContext = messages.some((message) => (
@@ -1866,6 +1866,50 @@ process.stdin.on("data", (chunk) => {
     expect(lastChatTemplateMessages.slice(1).some((message) => message.role === "system")).toBe(false);
     expect(lastChatTemplateMessages.filter((message) => message.role === "user").at(-1)?.content).toBe("single-system-template-check");
     await updateSettings({ rpReasoningEnabled: false });
+  });
+
+  it("uses the dedicated Pure Chat prompt instead of the roleplay default and prompt stack", async () => {
+    const before = await parseJsonResponse("/api/settings", await fetch(`${baseUrl}/api/settings`)) as {
+      promptStack: Array<{ kind: string; content: string }>;
+      pureChatSystemPrompt: string;
+    };
+    expect(typeof before.pureChatSystemPrompt).toBe("string");
+    await updateSettings({
+      activeProviderId: "mock-openai",
+      activeModel: "mock-model",
+      toolCallingEnabled: false,
+      defaultSystemPrompt: "RP-DEFAULT-MARKER",
+      pureChatSystemPrompt: "PURE-CHAT-MARKER",
+      rpReasoningEnabled: true,
+      promptStack: before.promptStack.map((block) => (block.kind === "system" ? { ...block, content: "RP-STACK-MARKER" } : block))
+    });
+    const created = await postJson("/api/chats", { title: "Pure Prompt Isolation" });
+    await postJson("/api/rp/scene-state", {
+      chatId: created.id,
+      chatMode: "pure_chat",
+      pureChatMode: true,
+      mood: "neutral",
+      pacing: "balanced",
+      intensity: 0.5,
+      variables: {}
+    });
+    lastChatTemplateMessages = [];
+    const sendResponse = await fetch(`${baseUrl}/api/chats/${created.id}/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "pure-prompt-isolation-check" })
+    });
+    expect(sendResponse.ok).toBe(true);
+    await sendResponse.text();
+
+    const systemText = String(lastChatTemplateMessages.find((message) => message.role === "system")?.content || "");
+    expect(systemText).toContain("PURE-CHAT-MARKER");
+    expect(systemText).not.toContain("RP-DEFAULT-MARKER");
+    expect(systemText).not.toContain("RP-STACK-MARKER");
+    expect(systemText).not.toContain("Never break character");
+    expect(systemText).not.toContain("<think>");
+
+    await updateSettings({ promptStack: before.promptStack, pureChatSystemPrompt: before.pureChatSystemPrompt, rpReasoningEnabled: false });
   });
 
   it("persists manual character ordering and prepends new characters", async () => {

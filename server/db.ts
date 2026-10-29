@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { DEFAULT_SETTINGS, migrateDefaultSystemPrompt } from "./db/defaultSettings.js";
+import { DEFAULT_SETTINGS, migrateDefaultSystemPrompt, migratePureChatSystemPrompt } from "./db/defaultSettings.js";
 import { applyMigrations } from "./db/migrations.js";
 import { encryptStoredSecrets } from "./db/secretMigration.js";
 import { ensureDataDirs, resolveDbPath, DATA_DIR, AVATARS_DIR, UPLOADS_DIR, PLUGINS_DIR, BUNDLED_PLUGINS_DIR, INOCHI_DIR, INOCHI_MODELS_DIR } from "./db/paths.js";
@@ -97,6 +97,10 @@ function ensureDefaultSettingsRow() {
     const migratedSystemPrompt = migrateDefaultSystemPrompt(parsed.defaultSystemPrompt);
     if (migratedSystemPrompt !== parsed.defaultSystemPrompt) {
       parsed.defaultSystemPrompt = migratedSystemPrompt;
+      changed = true;
+    }
+    if (typeof parsed.pureChatSystemPrompt !== "string") {
+      parsed.pureChatSystemPrompt = migratePureChatSystemPrompt(parsed);
       changed = true;
     }
     if (changed) {

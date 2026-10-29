@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { Badge, EmptyState, PanelTitle, ThreePanelLayout } from "../../components/Panels";
 import { api } from "../../shared/api";
+import { reuseUnchangedItems } from "../../shared/dataCatalog";
+import { useDataCatalogRefresh } from "../../shared/useDataCatalogRefresh";
 import { buildFilenameBase, triggerBlobDownload } from "../../shared/download";
 import { useI18n } from "../../shared/i18n";
 import { PetAppearancePanel } from "./components/PetAppearancePanel";
@@ -367,6 +369,15 @@ export function PetsScreen() {
   useEffect(() => {
     void loadCharacters();
   }, [loadCharacters]);
+
+  useDataCatalogRefresh(["characters"], () => {
+    api.characterList()
+      .then((list) => {
+        setCharacters((prev) => reuseUnchangedItems(prev, list));
+        setSelectedId((current) => current && list.some((character) => character.id === current) ? current : list.find(hasPetTag)?.id || list[0]?.id || null);
+      })
+      .catch(() => undefined);
+  });
 
   useEffect(() => {
     const input = importPetFolderRef.current;

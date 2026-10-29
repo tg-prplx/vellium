@@ -456,6 +456,9 @@ router.patch("/", (req, res) => {
     checkForUpdates: patchData.checkForUpdates === undefined
       ? current.checkForUpdates
       : patchData.checkForUpdates === true,
+    pureChatSystemPrompt: typeof patchData.pureChatSystemPrompt === "string"
+      ? patchData.pureChatSystemPrompt.slice(0, 20000)
+      : current.pureChatSystemPrompt,
     ttsRealtime: patchData.ttsRealtime === undefined
       ? current.ttsRealtime
       : patchData.ttsRealtime === true,

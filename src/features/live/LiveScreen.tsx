@@ -14,6 +14,8 @@ import {
   type AttachmentViewerState
 } from "../chat/public";
 import { api } from "../../shared/api";
+import { reuseUnchangedItems } from "../../shared/dataCatalog";
+import { useDataCatalogRefresh } from "../../shared/useDataCatalogRefresh";
 import { resolveApiAssetUrl } from "../../shared/api/core";
 import {
   failBackgroundTask,
@@ -303,6 +305,12 @@ export function LiveScreen() {
     window.speechSynthesis?.cancel();
     setSpeechLevel(0);
   }, []);
+
+  useDataCatalogRefresh(["characters", "personas", "providers"], (kind) => {
+    if (kind === "characters") api.characterList().then((list) => setCharacters((prev) => reuseUnchangedItems(prev, list))).catch(() => {});
+    if (kind === "personas") api.personaList().then(setPersonas).catch(() => {});
+    if (kind === "providers") api.providerList().then(setProviders).catch(() => {});
+  });
 
   useEffect(() => {
     mountedRef.current = true;
