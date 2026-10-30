@@ -43,4 +43,18 @@ describe("provider presets", () => {
       providerType: "openai"
     });
   });
+
+  it("includes the optional Cheaper Inference OpenAI-compatible profile", () => {
+    expect(PROVIDER_PRESETS).toContainEqual({
+      key: "cheaperinference",
+      label: "Cheaper Inference",
+      description: "Cheaper Inference OpenAI-compatible API",
+      baseUrl: "https://api.cheaperinference.com/v1",
+      defaultId: "cheaperinference",
+      defaultName: "Cheaper Inference",
+      apiKeyHint: "ci_live_...",
+      localOnly: false,
+      providerType: "openai"
+    });
+  });
 });

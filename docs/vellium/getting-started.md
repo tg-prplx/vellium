@@ -85,6 +85,7 @@ Vellium can create a provider profile quickly from either `Welcome` or later in 
 | `OpenRouter` | You want a unified model catalog through OpenRouter | OpenAI-compatible |
 | `Requesty` | You want a unified model catalog through Requesty | OpenAI-compatible |
 | `Demon Route` | You want open-weight roleplay and uncensored fine-tunes through Demon Route | OpenAI-compatible |
+| `Cheaper Inference` | You want models from several labs through the Cheaper Inference gateway | OpenAI-compatible |
 | `A2Agent` | You use the A2Agent OpenAI-compatible API gateway | OpenAI-compatible |
 | `Custom` | You use another compatible API that the presets do not cover | OpenAI-compatible |
 

@@ -89,6 +89,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     providerType: "openai"
   },
   {
+    key: "cheaperinference",
+    label: "Cheaper Inference",
+    description: "Cheaper Inference OpenAI-compatible API",
+    baseUrl: "https://api.cheaperinference.com/v1",
+    defaultId: "cheaperinference",
+    defaultName: "Cheaper Inference",
+    apiKeyHint: "ci_live_...",
+    localOnly: false,
+    providerType: "openai"
+  },
+  {
     key: "a2agent",
     label: "A2Agent",
     description: "A2Agent OpenAI-compatible API gateway",

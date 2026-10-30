@@ -38,6 +38,7 @@ From both `Settings` and `Welcome`, you can create a provider profile from a pre
 - `OpenRouter`
 - `Requesty`
 - `Demon Route`
+- `Cheaper Inference`
 - `A2Agent`
 - `Custom`
 
@@ -94,6 +95,16 @@ focused on roleplay and uncensored fine-tunes; see https://demonroute.com/models
 If the model list cannot be loaded, add one or more model IDs to `manual
 fallback models`. Demon Route uses the existing `OpenAI-compatible` provider
 path.
+
+### Cheaper Inference setup
+
+Choose `Cheaper Inference` from the quick presets, enter your Cheaper Inference
+API key from https://cheaperinference.com (keys start with `ci_live_`), save the
+profile, and use `Load models`. Vellium queries the authenticated
+`https://api.cheaperinference.com/v1/models` endpoint, which returns bare model
+IDs such as `gpt-5.4-mini`, `claude-sonnet-5`, and `deepseek-v4-flash`. If the
+model list cannot be loaded, add one or more model IDs to `manual fallback
+models`. Cheaper Inference uses the existing `OpenAI-compatible` provider path.
 
 ### Provider types
 

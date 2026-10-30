@@ -10,8 +10,8 @@
 
 Vellium is a local-first desktop workbench for AI chat, character roleplay, live
 voice conversations, and long-form writing. It connects to OpenAI-compatible
-APIs, OpenRouter, Requesty, Demon Route, LM Studio, Ollama, KoboldCpp, and
-configurable custom endpoints. Chats, characters, projects, settings, and knowledge collections are
+APIs, OpenRouter, Requesty, Demon Route, Cheaper Inference, LM Studio, Ollama,
+KoboldCpp, and configurable custom endpoints. Chats, characters, projects, settings, and knowledge collections are
 stored locally in SQLite.
 
 <p align="center">
