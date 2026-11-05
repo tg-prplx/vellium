@@ -39,6 +39,7 @@ From both `Settings` and `Welcome`, you can create a provider profile from a pre
 - `Requesty`
 - `Demon Route`
 - `Cheaper Inference`
+- `cheapaimodel`
 - `A2Agent`
 - `Custom`
 
@@ -105,6 +106,17 @@ profile, and use `Load models`. Vellium queries the authenticated
 IDs such as `gpt-5.4-mini`, `claude-sonnet-5`, and `deepseek-v4-flash`. If the
 model list cannot be loaded, add one or more model IDs to `manual fallback
 models`. Cheaper Inference uses the existing `OpenAI-compatible` provider path.
+
+### cheapaimodel setup
+
+Choose `cheapaimodel` from the quick presets, enter an API key from
+https://console.cheapaimodel.ai/keys (keys start with `sk-`), save the profile,
+and use `Load models`. Vellium queries the authenticated
+`https://api.cheapaimodel.ai/v1/models` endpoint, which returns model IDs such as
+`deepseek-v4-1-flash`, `glm-5.3`, and `kimi-k3`. Usage is billed per token from a
+prepaid USD balance; current prices are listed at https://cheapaimodel.ai/models.
+If the model list cannot be loaded, add one or more model IDs to `manual fallback
+models`. cheapaimodel uses the existing `OpenAI-compatible` provider path.
 
 ### Provider types
 
