@@ -111,6 +111,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     providerType: "openai"
   },
   {
+    key: "api-route",
+    label: "API Route",
+    description: "API Route OpenAI-compatible API",
+    baseUrl: "https://global.api-route.com/v1",
+    defaultId: "api-route",
+    defaultName: "API Route",
+    apiKeyHint: "API Route API key",
+    localOnly: false,
+    providerType: "openai"
+  },
+  {
     key: "custom",
     label: "Custom",
     description: "Any OpenAI-compatible provider",

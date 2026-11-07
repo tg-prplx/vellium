@@ -87,6 +87,7 @@ Vellium can create a provider profile quickly from either `Welcome` or later in 
 | `Demon Route` | You want open-weight roleplay and uncensored fine-tunes through Demon Route | OpenAI-compatible |
 | `Cheaper Inference` | You want models from several labs through the Cheaper Inference gateway | OpenAI-compatible |
 | `A2Agent` | You use the A2Agent OpenAI-compatible API gateway | OpenAI-compatible |
+| `API Route` | You use API Route with your own API key | OpenAI-compatible |
 | `Custom` | You use another compatible API that the presets do not cover | OpenAI-compatible |
 
 ## Minimal Working Setup

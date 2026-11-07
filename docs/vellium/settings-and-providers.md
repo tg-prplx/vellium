@@ -40,6 +40,7 @@ From both `Settings` and `Welcome`, you can create a provider profile from a pre
 - `Demon Route`
 - `Cheaper Inference`
 - `A2Agent`
+- `API Route`
 - `Custom`
 
 ### Manual provider setup
@@ -105,6 +106,18 @@ profile, and use `Load models`. Vellium queries the authenticated
 IDs such as `gpt-5.4-mini`, `claude-sonnet-5`, and `deepseek-v4-flash`. If the
 model list cannot be loaded, add one or more model IDs to `manual fallback
 models`. Cheaper Inference uses the existing `OpenAI-compatible` provider path.
+
+### API Route setup
+
+Choose `API Route` from the quick presets, enter an API key from
+https://www.api-route.com, save the profile, and use `Load models`. Vellium
+queries the authenticated `https://global.api-route.com/v1/models` endpoint,
+so the available model IDs reflect your key's permissions. Select a returned
+model as the active model. If discovery is unavailable, add an accessible
+model ID to `manual fallback models`.
+
+API Route uses the existing `OpenAI-compatible` provider path for chat,
+streaming, and tool calls. API usage is billed separately by API Route.
 
 ### Provider types
 
