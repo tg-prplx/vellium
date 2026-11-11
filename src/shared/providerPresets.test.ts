@@ -2,6 +2,19 @@ import { describe, expect, it } from "vitest";
 import { PROVIDER_PRESETS } from "./providerPresets";
 
 describe("provider presets", () => {
+  it("includes API Route as an optional remote OpenAI-compatible profile", () => {
+    const preset = PROVIDER_PRESETS.find((entry) => entry.key === "api-route");
+    expect(preset).toMatchObject({
+      label: "API Route",
+      baseUrl: "https://global.api-route.com/v1",
+      defaultId: "api-route",
+      localOnly: false,
+      providerType: "openai"
+    });
+    expect(PROVIDER_PRESETS.filter((entry) => entry.defaultId === "api-route")).toHaveLength(1);
+    expect(PROVIDER_PRESETS[0].key).toBe("openai");
+  });
+
   it("includes the optional A2Agent OpenAI-compatible profile", () => {
     expect(PROVIDER_PRESETS).toContainEqual({
       key: "a2agent",
