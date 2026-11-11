@@ -86,6 +86,7 @@ Vellium can create a provider profile quickly from either `Welcome` or later in 
 | `Requesty` | You want a unified model catalog through Requesty | OpenAI-compatible |
 | `Demon Route` | You want open-weight roleplay and uncensored fine-tunes through Demon Route | OpenAI-compatible |
 | `Cheaper Inference` | You want models from several labs through the Cheaper Inference gateway | OpenAI-compatible |
+| `cheapaimodel` | You want DeepSeek, GLM, Kimi, and Grok models on a prepaid, pay-per-token balance | OpenAI-compatible |
 | `A2Agent` | You use the A2Agent OpenAI-compatible API gateway | OpenAI-compatible |
 | `Custom` | You use another compatible API that the presets do not cover | OpenAI-compatible |
 
