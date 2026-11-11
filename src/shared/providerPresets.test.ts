@@ -70,4 +70,18 @@ describe("provider presets", () => {
       providerType: "openai"
     });
   });
+
+  it("includes the optional cheapaimodel OpenAI-compatible profile", () => {
+    expect(PROVIDER_PRESETS).toContainEqual({
+      key: "cheapaimodel",
+      label: "cheapaimodel",
+      description: "cheapaimodel OpenAI-compatible API",
+      baseUrl: "https://api.cheapaimodel.ai/v1",
+      defaultId: "cheapaimodel",
+      defaultName: "cheapaimodel",
+      apiKeyHint: "sk-...",
+      localOnly: false,
+      providerType: "openai"
+    });
+  });
 });

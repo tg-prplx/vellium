@@ -39,6 +39,7 @@ From both `Settings` and `Welcome`, you can create a provider profile from a pre
 - `Requesty`
 - `Demon Route`
 - `Cheaper Inference`
+- `cheapaimodel`
 - `A2Agent`
 - `API Route`
 - `Custom`

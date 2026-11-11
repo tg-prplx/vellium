@@ -100,6 +100,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     providerType: "openai"
   },
   {
+    key: "cheapaimodel",
+    label: "cheapaimodel",
+    description: "cheapaimodel OpenAI-compatible API",
+    baseUrl: "https://api.cheapaimodel.ai/v1",
+    defaultId: "cheapaimodel",
+    defaultName: "cheapaimodel",
+    apiKeyHint: "sk-...",
+    localOnly: false,
+    providerType: "openai"
+  },
+  {
     key: "a2agent",
     label: "A2Agent",
     description: "A2Agent OpenAI-compatible API gateway",
