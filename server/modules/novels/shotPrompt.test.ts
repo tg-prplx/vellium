@@ -13,3 +13,6 @@ it("uses a neutral camera fallback rather than inventing a new costume or place"
 it("rejects shot-level art directions and lighting that compete with the locked style and set",()=>{
  expect(canonicalShot("Watercolor painting with thick brush strokes. Photorealistic 3D render. Golden hour sunlight. She waves toward the viewer. Medium shot.",true,true)).toBe("She waves toward the viewer. Medium shot.");
 });
+it("preserves a changed action when only a comma-separated lighting suffix conflicts",()=>{
+ expect(canonicalShot("She lifts the key and looks toward the viewer, soft light.",true,true)).toBe("She lifts the key and looks toward the viewer");
+});

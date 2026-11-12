@@ -1,6 +1,7 @@
+import {defaultNovelSystemPrompt} from "../modules/novels/systemPrompt.js";
 import { prepareNovelIllustrations } from "../modules/novels/illustrationPlan.js";
 import { Router, type Request, type Response } from "express";
-import { createNovel, deleteNovel, getNovel, listNovels, saveNovelProgress, writeNovel } from "../modules/novels/repository.js";
+import { createNovel, resetNovelHistory, deleteNovel, getNovel, listNovels, saveNovelProgress, writeNovel } from "../modules/novels/repository.js";
 import { integer, normalizeConfig, record, text } from "../modules/novels/normalize.js";
 import { generateNovel } from "../modules/novels/generation.js";
 import { renderNovelImages } from "../modules/novels/images.js";
@@ -15,6 +16,7 @@ function fail(res: Response, error: unknown) {
 function unlocked(id: string) { if (active.has(id)) throw Object.assign(new Error("Novel generation is already running"), { status: 409 }); }
 router.get("/", (_req, res) => { res.json(listNovels()); });
 router.post("/", (req, res) => { try { res.status(201).json(createNovel(req.body)); } catch (error) { fail(res, error); } });
+router.post("/prompt-preview",(req,res)=>{try{res.json({defaultPrompt:defaultNovelSystemPrompt(normalizeConfig(req.body?.config))});}catch(error){fail(res,error);}});
 router.get("/:id", (req, res) => { try { res.json(getNovel(req.params.id)); } catch (error) { fail(res, error); } });
 router.patch("/:id", (req, res) => {
   try {
@@ -33,6 +35,13 @@ router.patch("/:id", (req, res) => {
     if (input.cursor) saved.cursor = saveNovelProgress(story.id, input.cursor);
     res.json(saved);
   } catch (error) { fail(res, error); }
+});
+router.post("/:id/reset",(req,res)=>{
+  try{
+    unlocked(req.params.id);const story=getNovel(req.params.id);
+    if(req.body?.revision!==story.revision)throw Object.assign(new Error("Novel changed; reload before resetting"),{status:409});
+    res.json(resetNovelHistory(story));
+  }catch(error){fail(res,error);}
 });
 router.delete("/:id", (req, res) => { try { unlocked(req.params.id); deleteNovel(req.params.id); res.json({ ok: true }); } catch (error) { fail(res, error); } });
 router.post("/:id/progress", (req, res) => {

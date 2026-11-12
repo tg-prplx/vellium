@@ -4,7 +4,7 @@ import type { NovelCharacter, NovelStory } from "../../../src/shared/types/novel
 import { record } from "./normalize.js";
 
 export function compactCharacter(c: NovelCharacter) {
-  return Object.fromEntries(Object.entries({ id:c.id, name:c.name, appearance:c.appearance || c.description, outfit:c.outfit, state:c.state }).filter(([,v])=>v));
+  return Object.fromEntries(Object.entries({ id:c.id, name:c.name, ...(c.sourceCharacterId?{sourceCharacterId:c.sourceCharacterId}:{}), ...(c.isGroup?{isGroup:true}:{}), appearance:c.appearance || c.description, outfit:c.outfit, state:c.state }).filter(([,v])=>v));
 }
 /** Project legacy turns without sending old summaries/facts/threads back to the model.
  * Projection is deterministic, so subsequent requests still reuse identical bytes. */

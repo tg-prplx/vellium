@@ -1,3 +1,4 @@
+import type {NovelImagePov} from "../../../shared/types/novels";
 import {NovelStyleSwitch} from "./NovelStyleSwitch";
 import { useRef, useState } from "react";
 import { useI18n } from "../../../shared/i18n";
@@ -31,8 +32,10 @@ export function NovelVisualsStep({ config, patch }: SetupFieldsProps) {
         <p>{t("novel.setup.workflowHelp")}</p>
       </div>
       {error && <p role="alert" className="novel-error">{error}</p>}
+      <label className="novel-field"><span>{t("novel.imagePov")}</span><select aria-label={t("novel.imagePov")} value={config.imagePov||"dynamic"} onChange={e=>patch({imagePov:e.target.value as NovelImagePov})}>{(["first","third","over-shoulder","dynamic"] as const).map(mode=><option key={mode} value={mode}>{t(`novel.imagePov.${mode}`)}</option>)}</select><p>{t("novel.imagePovHint")}</p></label>
+      {(config.imagePov==="first"||config.imagePov==="over-shoulder") && <label className="novel-field"><span>{t("novel.imageViewpoint")}</span><input aria-label={t("novel.imageViewpoint")} value={config.imagePovCharacter||""} onChange={e=>patch({imagePovCharacter:e.target.value})} placeholder={t("novel.viewpointHint")}/></label>}
       <NovelStyleSwitch {...props} />
-      <NovelNumberField {...props} name="imagesPerScene" label="novel.frames" min={1} max={4} />
+      <NovelNumberField {...props} name="imagesPerScene" label="novel.frames" min={1} max={4} /><p className="novel-hint">{t("novel.framePlanHint")}</p>
       <details className="novel-advanced"><summary>{t("novel.setup.advancedImages")}</summary>
         <div className="novel-form-grid"><NovelNumberField {...props} name="width" label="novel.width" min={256} max={2048} /><NovelNumberField {...props} name="height" label="novel.height" min={256} max={2048} /></div>
         <p className="novel-hint">{t("novel.workflowHint")}</p>

@@ -46,3 +46,29 @@ describe("local scene JSON recovery", () => {
     expect(Object.hasOwn(parsed as object,'__proto__')).toBe(true);
   });
 });
+
+it('repairs missing property and array commas without dropping later shots or people',()=>{
+ const raw=`{"scenes":[{"title":"Synthetic" "lines":[{"speaker":"Test" "text":"A complete line."} {"speaker":"Test","text":"Another complete line."}] "illustrations":[{"prompt":"The key turns. Close shot." "characterIds":[] "atLine":0} {"prompt":"The box opens. Detail shot.","characterIds":[],"atLine":1}]}] "characters":[{"id":"a" "name":"Test" "appearance":"brown hair"}]}`;
+ const draft=story();draft.config.imagesEnabled=true;draft.config.imagesPerScene=2;
+ const parsed=parseNovelBatch(raw,draft)[0];
+ expect(parsed.lines.map(line=>line.text)).toEqual(['A complete line.','Another complete line.']);
+ expect(parsed.illustrations.map(frame=>frame.atLine)).toEqual([0,1]);
+ expect(parsed.memory.characters[0]).toMatchObject({id:'a',name:'Test',appearance:'brown hair'});
+});
+it('repairs missing commas between scenes and repeated commas while preserving literal punctuation',()=>{
+ const raw='{"scenes":['+JSON.stringify(scene)+',, '+JSON.stringify(scene)+' '+JSON.stringify(scene)+',,]}';
+ expect(parseNovelBatch(raw,story()).map(item=>item.lines)).toEqual([scene.lines,scene.lines,scene.lines]);
+ expect(readSceneJson("{a:[true false null -2 3.5],,b:'literal },] punctuation',,}")).toEqual({a:[true,false,null,-2,3.5],b:'literal },] punctuation'});
+});
+it('keeps completed image prompts but does not invent an unfinished image or line after repair',()=>{
+ const raw='{"scenes":[{"lines":[{"text":"Complete prose."}] "illustrations":[{"prompt":"The key rests on the table. Detail shot.","characterIds":[],"atLine":0} {"prompt":"Unfinished';
+ const draft=story();draft.config.imagesEnabled=true;
+ const parsed=parseNovelBatch(raw,draft)[0];
+ expect(parsed.illustrations).toHaveLength(1);expect(parsed.illustrations[0].prompt).toBe('The key rests on the table. Detail shot.');
+ expect(parsed.lines).toEqual([{speaker:'',text:'Complete prose.'}]);
+});
+it('does not resume past arbitrary expressions or turn them into generated prose',()=>{
+ const raw='{"scenes":['+JSON.stringify(scene)+' process.exit(), {"lines":[{"text":"Must not be recovered past arbitrary code"}]}]}';
+ expect(parseNovelBatch(raw,story())).toHaveLength(1);
+ expect(()=>parseNovelBatch('{scenes:process.exit()}',story())).toThrow();
+});

@@ -1,3 +1,4 @@
+import {MAX_NOVEL_SCENES_PER_TURN} from "../../shared/types/novels";
 import type { NovelConfig } from "../../shared/types/novels";
 import type { TranslationKey } from "../../shared/i18n";
 export type NovelSetupStep = "story" | "generation" | "visuals" | "review";
@@ -20,7 +21,7 @@ export function novelStepProblem(step: NovelSetupStep, config: NovelConfig): Tra
     catch { return "novel.setup.needComfyUrl"; }
     if (!isNovelWorkflow(config.workflow)) return "novel.setup.needWorkflow";
   }
-  if (step === "generation" && (!Number.isFinite(config.scenesPerTurn) || config.scenesPerTurn < 1 || config.scenesPerTurn > 5 || !Number.isFinite(config.maxTokens) || config.maxTokens < 1000 || config.maxTokens > 16000 || !Number.isFinite(config.contextChars) || config.contextChars < 8000 || config.contextChars > 120000)) return "novel.setup.invalidLimits";
+  if (step === "generation" && (!Number.isFinite(config.scenesPerTurn) || config.scenesPerTurn < 1 || config.scenesPerTurn > MAX_NOVEL_SCENES_PER_TURN || !Number.isFinite(config.maxTokens) || config.maxTokens < 1000 || config.maxTokens > 16000 || !Number.isFinite(config.contextChars) || config.contextChars < 8000 || config.contextChars > 120000)) return "novel.setup.invalidLimits";
   if (step === "visuals" && config.imagesEnabled && (!Number.isFinite(config.imagesPerScene) || config.imagesPerScene < 1 || config.imagesPerScene > 4 || !Number.isFinite(config.width) || config.width < 256 || config.width > 2048 || !Number.isFinite(config.height) || config.height < 256 || config.height > 2048)) return "novel.setup.invalidDimensions";
   return null;
 }

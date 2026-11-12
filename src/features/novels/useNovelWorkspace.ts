@@ -77,6 +77,12 @@ export function useNovelWorkspace() {
     try { await api.novelProgress(story.id, cursor); return true; }
     catch (e) { if(currentId.current===story.id)setError(String(e)); return false; }
   }
+  async function reset() {
+    if(!story || running.current)return;
+    running.current=true;setBusy(true);setError("");
+    try{const next=await api.novelReset(story);if(currentId.current===next.id)setStory(next);await refresh().catch(()=>{});return next;}
+    catch(e){setError(String(e));}finally{running.current=false;setBusy(false);}
+  }
   async function remove(id = story?.id) {
     if (!id || running.current) return false;
     running.current = true; setBusy(true); setError("");
@@ -88,7 +94,7 @@ export function useNovelWorkspace() {
     } catch (e) { setError(String(e)); return false; }
     finally { running.current = false; setBusy(false); }
   }
-  return { list, story, busy, loading, error, open, create, save, progress, generate, remove, clearError: () => setError(""),
+  return { list, story, busy, loading, error, open, create, save, progress, generate, reset, remove, clearError: () => setError(""),
     close: () => { if (!running.current) { currentId.current = null; setStory(null); } },
     cancel: () => { abortRef.current?.abort(); if (story) void api.novelAbort(story.id).catch(() => {}); } };
 }

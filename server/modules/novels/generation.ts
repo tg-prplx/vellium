@@ -1,3 +1,5 @@
+import {novelQuestionPolicy} from "./questionPolicy.js";
+import {novelResponseFormat} from "./responseSchema.js";
 import {normalizeApiParamPolicy} from "../../services/apiParamPolicy.js";
 import {compactNovelContext,novelCompactionTarget} from "./compaction.js";
 import { DEFAULT_SETTINGS, db, isLocalhostUrl } from "../../db.js";
@@ -39,7 +41,7 @@ export async function generateNovel(story: NovelStory, action: string, signal: A
     return result.content;
   },next=>writeNovel(next,next.revision),signal);
   const { messages, user } = novelMessages(story, action);
-  const params = { provider, modelId, messages, signal, promptCacheKey: `novel:${story.id}`, apiParamPolicy: settings.apiParamPolicy,
+  const params = { provider, modelId, messages, signal, responseFormat:novelResponseFormat(story.config,provider,novelQuestionPolicy(story)),allowUnstructuredFallback:true, promptCacheKey: `novel:${story.id}`, apiParamPolicy: settings.apiParamPolicy,
     // Chat stop strings can cut JSON mid-value; chat-only memory must not
     // inject a second RP prompt into the novel. Keep ordinary sampling choices.
     samplerConfig: { ...settings.samplerConfig, stop: [], koboldMemory: "", maxTokens: story.config.maxTokens } };

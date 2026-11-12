@@ -11,8 +11,8 @@ import { NovelNarratorStep } from "./NovelNarratorStep";
 import { NovelVisualsStep } from "./NovelVisualsStep";
 import { NovelSetupReview } from "./NovelSetupReview";
 
-export function NovelSetup({ initial, title: initialTitle, busy, onClose, onSave, onDelete, draft, onDraftChange, submitError }: {
-  initial?: NovelConfig; title?: string; busy: boolean; onDelete?: () => void; onClose: () => void;
+export function NovelSetup({ initial, title: initialTitle, busy, onClose, onSave, onDelete, onReset, draft, onDraftChange, submitError }: {
+  initial?: NovelConfig; title?: string; busy: boolean; onDelete?: () => void; onReset?:()=>void; onClose: () => void;
   onSave: (title: string, config: NovelConfig) => Promise<unknown>;
   draft?: NovelDraft | null; onDraftChange?: (draft: NovelDraft) => void; submitError?: string;
 }) {
@@ -92,6 +92,7 @@ export function NovelSetup({ initial, title: initialTitle, busy, onClose, onSave
     footer={<div className="novel-wizard-footer">
       <div className="novel-wizard-footer-note" role="status">{busy ? t("novel.setup.starting") : t(editing ? "novel.setup.settingsFuture" : "novel.setup.draftHint")}</div>
       <div className="novel-wizard-footer-actions">{onDelete && <button type="button" className="novel-delete-action" onClick={onDelete} disabled={busy}>{t("novel.delete")}</button>}
+        {onReset && <button type="button" className="novel-delete-action" disabled={busy} onClick={onReset}>{t("novel.resetHistory")}</button>}
         <button type="button" disabled={busy} onClick={!editing && index > 0 ? () => navigate(steps[index - 1]) : onClose}>{t(!editing && index > 0 ? "novel.previous" : "chat.cancel")}</button>
         <button type="submit" form={formId} className="novel-primary" disabled={busy}>{t(busy ? "chat.loading" : editing ? "novel.save" : last ? "novel.setup.startReading" : "novel.setup.nextStep")}{!busy && !editing && !last ? " →" : ""}</button>
       </div>

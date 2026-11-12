@@ -45,7 +45,7 @@ export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLib
     if (!scene) { if (!busy) void onGenerate(); return; }
     if (!atSceneEnd) setLineIndex((n) => n + 1);
     else if (sceneIndex < story.scenes.length - 1) { setSceneIndex((n) => n + 1); setLineIndex(0); }
-    else if (!busy && !scene.question && !scene.choices.length && !advancing.current) {
+    else if (!busy && !action.trim() && !scene.question && !scene.choices.length && !advancing.current) {
       advancing.current = true;
       void onGenerate().then((result) => { if (result && result.scenes.length > story.scenes.length) { setSceneIndex(story.scenes.length); setLineIndex(0); } }).finally(() => { advancing.current = false; });
     }
@@ -63,18 +63,26 @@ export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLib
         e.preventDefault(); next();
       }
       else if (e.key === "ArrowLeft") { e.preventDefault(); previous(); }
+      else if (e.key.toLowerCase() === "s" && !busy) {e.preventDefault();onSettings();}
       else if (e.key.toLowerCase() === "h") setHidden((v) => !v);
       else if (e.key === "Escape") { setHidden(false); setAuto(false); if(speech.enabled)speech.stop(); }
     };
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   });
   useEffect(() => {
-    if (!auto || busy || panel || paused || !pageVisible || (speech.enabled && !speech.done) || (atEnd && (scene?.question || scene?.choices.length))) return;
+    if (!auto || busy || action.trim() || panel || paused || !pageVisible || (speech.enabled && !speech.done) || (atEnd && (scene?.question || scene?.choices.length))) return;
     const timer = setTimeout(() => { if (rootRef.current?.getClientRects().length && !document.hidden) next(); }, speech.enabled ? 450 : Math.max(3200, (line?.text.length || 0) * 45));
     return () => clearTimeout(timer);
   });
-  async function answer(value: string) { if (!value.trim() || busy) return; setAuto(false); setAction(""); const nextStory = await onGenerate(value); if (atEnd && nextStory && nextStory.scenes.length > story.scenes.length) { setSceneIndex(story.scenes.length); setLineIndex(0); } }
-  return <div className={`novel-reader ${hidden ? "is-hidden" : ""} ${atEnd && (scene?.question || scene?.choices.length) ? "has-choice" : ""}`} ref={rootRef} onClick={(event) => {
+  async function answer(value: string) {
+    if (!value.trim() || busy || advancing.current || paused || panel) return;
+    advancing.current=true;setAuto(false);
+    try {
+      const nextStory=await onGenerate(value.trim());
+      if(nextStory && nextStory.scenes.length>story.scenes.length){setAction("");setSceneIndex(story.scenes.length);setLineIndex(0);}
+    }finally{advancing.current=false;}
+  }
+  return <div className={`novel-reader ${hidden ? "is-hidden" : ""} ${atEnd && scene ? "has-choice" : ""}`} ref={rootRef} onClick={(event) => {
     if (panel || (event.target as HTMLElement).closest("button,a,input,textarea,select,form,[role=dialog]")) return;
     if (window.getSelection()?.toString()) return;
     if (hidden) { setHidden(false); return; }
@@ -102,10 +110,10 @@ export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLib
         {scene ? <>
           <div className="novel-dialogue-heading"><span>{line?.speaker || t("novel.narrator")}</span><small>{String(sceneIndex + 1).padStart(2, "0")} / {String(story.scenes.length).padStart(2, "0")} · {lineIndex + 1}/{scene.lines.length}</small></div>
           <button className={`novel-dialogue ${revealed ? "is-revealed" : ""}`} onClick={next} aria-label={t("novel.next")}><span key={`${scene.id}-${lineIndex}`}>{line?.text}</span>{!atEnd && <i aria-hidden="true">▾</i>}</button>
-          {atEnd && (scene.question || scene.choices.length > 0) && <section className="novel-choices" aria-label={t("novel.yourChoice")}>
-            <p>{scene.question || t("novel.yourChoice")}</p>
+          {atEnd && <section className="novel-choices" aria-label={t("novel.yourChoice")}>
+            {(scene.question || scene.choices.length>0) && <p>{scene.question || t("novel.yourChoice")}</p>}
             {scene.choices.map((choice, i) => <button disabled={busy} key={`${i}-${choice}`} onClick={() => void answer(choice)}><span>{i + 1}</span>{choice}</button>)}
-            <form onSubmit={(e) => { e.preventDefault(); void answer(action); }}><input aria-label={t("novel.customAction")} placeholder={t("novel.customAction")} value={action} disabled={busy} onChange={(e) => setAction(e.target.value)} /><button disabled={busy || !action.trim()} type="submit">↵</button></form>
+            <form onSubmit={(e) => { e.preventDefault(); void answer(action); }}><input aria-label={t("novel.customAction")} placeholder={t("novel.customAction")} value={action} disabled={busy} maxLength={6000} onFocus={()=>setAuto(false)} onChange={(e) => {setAuto(false);setAction(e.target.value);}} /><button aria-label={t("novel.sendAction")} disabled={busy || !action.trim()} type="submit">↵</button></form>
           </section>}
         </> : <div className="novel-opening"><span className="novel-eyebrow">{t("novel.ready")}</span><h2>{story.title}</h2><p>{t("novel.readyHint")}</p><button className="novel-primary" disabled={busy} onClick={() => void onGenerate()}>{t("novel.begin")}</button></div>}
         <footer className="novel-reader-controls" aria-label={t("novel.controls")}>
@@ -114,12 +122,13 @@ export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLib
           {selectedFrame?.status === "ready" && <button disabled={busy} onClick={() => void onGenerate(undefined, selectedFrame.id, true)}>{t("novel.redraw")}</button>}
           <button aria-pressed={speech.enabled} title={t("novel.ttsHint")} onClick={speech.toggle}>{t("novel.autoTts")}: {t(speech.enabled?"novel.ttsOn":"novel.ttsOff")}</button>
           {speech.enabled && !speech.error && <button disabled={!line} onClick={speech.status==="playing" || speech.status==="loading" ? speech.stop : speech.replay}>{t(speech.status==="playing" || speech.status==="loading" ? "novel.ttsStop" : "novel.ttsReplay")}</button>}
+          <button onClick={onSettings} disabled={busy} title={t("novel.settingsShortcut")}>{t("novel.settings")}</button>
           <button onClick={() => setPanel("journal")}>{t("novel.journal")}</button>
           <button onClick={() => setPanel("memory")}>{t("novel.memory")}</button>
           <button onClick={async () => { const result = await onSave({ scene: sceneIndex, line: lineIndex }); if (result) setBookmarkSaved(true); }} disabled={busy || !scene}>{t(bookmarkSaved ? "novel.bookmarked" : "novel.bookmark")}</button>
           <button onClick={() => setHidden(true)}>{t("novel.hideUi")}</button>
           <span className="novel-control-spacer" />
-          <button className="novel-continue" onClick={next} disabled={(busy && atEnd) || (atEnd && Boolean(scene?.question || scene?.choices.length))}>{t(atEnd ? "novel.continue" : "novel.next")} →</button>
+          <button className="novel-continue" onClick={next} disabled={(busy && atEnd) || (atEnd && Boolean(action.trim() || scene?.question || scene?.choices.length))}>{t(atEnd ? "novel.continue" : "novel.next")} →</button>
         </footer>
       </main>
     </>}

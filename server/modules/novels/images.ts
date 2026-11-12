@@ -46,7 +46,11 @@ export async function renderNovelImages(story: NovelStory, signal: AbortSignal, 
         const history = record(await (await comfyFetch(config.comfyUrl, `history/${encodeURIComponent(promptId)}`, signal)).json());
         const job = record(history[promptId]); const status = record(job.status);
         if (status.status_str === "error") throw new Error("ComfyUI image job failed");
-        for (const output of Object.values(record(job.outputs))) {
+        const outputs=Object.entries(record(job.outputs)).sort(([a],[b])=>{
+          const score=(id:string)=>record(graph[id]).class_type==="SaveImage"?0:1;
+          return score(a)-score(b);
+        });
+        for (const [,output] of outputs) {
           const images = record(output).images;
           if (Array.isArray(images) && images.length) { image = record(images[0]); break; }
         }

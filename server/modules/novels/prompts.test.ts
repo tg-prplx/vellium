@@ -75,7 +75,7 @@ describe("novel cache and continuity", () => {
     const story=initial();const character={id:"test",name:"Synthetic",appearance:"unique visual anchor",description:"unique visual anchor",personality:"patient",state:"garden",relationships:""};
     story.cast=[{...character,state:""}];story.memory.characters=[character];
     const request=novelMessages(story,"");const user=JSON.parse(request.user);
-    expect(user.maxScenes).toBe(story.config.scenesPerTurn);expect(user.replyTokenLimit).toBe(story.config.maxTokens);
+    expect(user.maxScenes).toBe(2);expect(user.replyTokenLimit).toBe(story.config.maxTokens);
     expect(user.characters).toEqual([{id:"test",name:"Synthetic",state:"garden"}]);
     expect(request.messages[0].content.split("unique visual anchor")).toHaveLength(2);
     expect(request.messages[0].content).toContain('"appearance":"English identity:');
@@ -85,7 +85,7 @@ describe("novel cache and continuity", () => {
   it("anchors opening shots at zero and prevents generating invisible duplicate shots", () => {
     const story=initial();story.config.imagesPerScene=4;
     const output={...scene(),illustrations:[{prompt:"First",atLine:1},{prompt:"Second",atLine:1},{prompt:"Invisible",atLine:1}]};
-    expect(parseNovelBatch(JSON.stringify({scenes:[output]}),story)[0].illustrations.map(f=>f.atLine)).toEqual([0,1]);
+    expect(parseNovelBatch(JSON.stringify({scenes:[output]}),story)[0].illustrations.map(f=>f.atLine)).toEqual([0]);
   });
   it("never silently drops uncompressed oversized history", () => {
     const story = initial(); story.memory.summary = "Distant durable event";
@@ -109,4 +109,76 @@ it("still schedules the opening image when a new response has prose but omitted 
  const story=initial();const result=parseNovelBatch('{"scenes":[{"location":"Synthetic garden","lines":[{"speaker":"Test","text":"Synthetic completed line."}]}]}',story);
  expect(result[0].illustrations).toHaveLength(1);expect(result[0].illustrations[0]).toMatchObject({atLine:0,status:"pending"});
  expect(result[0].lines[0].text).toBe("Synthetic completed line.");
+});
+
+it("uses fewer than the image ceiling, respects intentional cut positions and keeps cast shot-specific",()=>{
+ const story=initial();story.config.imagesPerScene=3;
+ const raw={characters:[{id:"a",name:"A",appearance:"red hair"},{id:"b",name:"B",appearance:"black hair"}],scenes:[{lines:Array.from({length:8},(_,i)=>({speaker:i%2?"A":"B",text:`Synthetic line ${i}`})),illustrations:[{prompt:"A smiles. Medium shot.",characterIds:["a"],atLine:0},{prompt:"The key turns. Close shot.",characterIds:[],atLine:5}]}]};
+ const result=parseNovelBatch(JSON.stringify(raw),story)[0];expect(result.illustrations).toHaveLength(2);expect(result.illustrations.map(f=>f.atLine)).toEqual([0,5]);expect(result.illustrations.map(f=>f.characterIds)).toEqual([["a"],[]]);
+});
+
+it("accepts twenty scenes without clipping the plan at the former five-scene ceiling",async()=>{
+ const {normalizeConfig}=await import('./normalize.js');const story=initial();story.config=normalizeConfig({...story.config,scenesPerTurn:20,questionFrequency:'off'});
+ expect(story.config.scenesPerTurn).toBe(20);const parsed=parseNovelBatch(JSON.stringify({scenes:Array.from({length:20},()=>scene())}),story);expect(parsed).toHaveLength(20);expect(new Set(parsed.map(s=>s.illustrations[0].seed)).size).toBe(20);
+});
+
+it("replaces default system instructions per novel while keeping the world, cast and current input",()=>{
+ const story=initial();story.config.systemPrompt='SYNTHETIC_CUSTOM_NOVEL_PROMPT: return scenes JSON.';story.config.premise='SYNTHETIC_WORLD';
+ const request=novelMessages(story,'SYNTHETIC_ACTION');expect(request.messages[0].content).toContain('SYNTHETIC_CUSTOM_NOVEL_PROMPT');expect(request.messages[0].content).toContain('SYNTHETIC_WORLD');expect(request.messages[0].content).not.toContain('SHOT PLANNING');expect(request.user).toContain('SYNTHETIC_ACTION');
+ story.config.systemPrompt='';expect(novelMessages(story,'').messages[0].content).toContain('SHOT PLANNING');
+});
+
+it("requests developed-scene coverage within the per-scene limit without changing reply limits",()=>{
+ const story=initial();story.config.imagesPerScene=4;
+ const request=novelMessages(story,'Continue');
+ expect(JSON.parse(request.user)).toMatchObject({maxIllustrationsPerScene:4,replyTokenLimit:story.config.maxTokens,shotPolicy:{developedSceneMinLines:6,developedSceneMinFrames:2}});
+ expect(request.messages[0].content).toContain('separately for EVERY scene');
+ expect(request.messages[0].content).not.toContain('A quiet exchange needs only one image');
+ story.config.imagesPerScene=1;expect(JSON.parse(novelMessages(story,'').user).shotPolicy.developedSceneMinFrames).toBe(1);
+ story.config.imagesEnabled=false;expect(JSON.parse(novelMessages(story,'').user)).not.toHaveProperty('shotPolicy');
+});
+
+it('inherits omitted scene metadata across a batch and later turns without repeating the setting',()=>{
+ const story=initial();story.config.povCharacter='Explorer';
+ const first=parseNovelBatch(JSON.stringify({scenes:[{location:'Observatory',setting:'Circular stone hall, brass telescope, skylight.',lines:[{text:'Synthetic opening.'}]},{lines:[{text:'Synthetic continuation.'}]}]}),story);
+ expect(first.map(scene=>scene.pov)).toEqual(['Explorer','Explorer']);
+ expect(first[1].location).toBe('Observatory');expect(first[1].visuals).toEqual(first[0].visuals);expect(first[1].title).toBe('Synthetic continuation.');
+ story.scenes=first;const request=novelMessages(story,'');
+ expect(JSON.parse(request.user).sceneDefaults).toEqual({pov:'Explorer'});
+ expect(request.messages[0].content).toContain('SCENE METADATA IS CHANGES-ONLY');
+ const minimal=request.messages[0].content.split('Minimal continuation format: ')[1].split('\n')[0];
+ expect(minimal).not.toMatch(/"title"|"location"|"setting"|"pov"/);
+ const next=parseNovelBatch(JSON.stringify({scenes:[{lines:[{text:'Another synthetic turn.'}]}]}),story)[0];
+ expect(next.pov).toBe('Explorer');expect(next.location).toBe('Observatory');expect(next.visuals).toEqual(first[0].visuals);
+});
+it('inherits dynamic viewpoint changes within a batch and uses newly configured fixed viewpoints',()=>{
+ const story=initial();story.config.pov='dynamic';
+ const scenes=parseNovelBatch(JSON.stringify({scenes:[{pov:'Alice',lines:[{text:'Synthetic opening.'}]},{pov:'Beatrice',lines:[{text:'Synthetic switch.'}]},{lines:[{text:'Synthetic continuation.'}]}]}),story);
+ expect(scenes.map(scene=>scene.pov)).toEqual(['Alice','Beatrice','Beatrice']);
+ story.scenes=scenes;story.config.pov='first';story.config.povCharacter='Explorer';
+ expect(parseNovelBatch(JSON.stringify({scenes:[{lines:[{text:'Synthetic configured viewpoint.'}]}]}),story)[0].pov).toBe('Explorer');
+});
+it('accepts sparse narration and shot metadata without losing cast, cuts or defaults',async()=>{
+ const story=initial();story.config.pov='first';story.config.imagePov='first';story.config.povCharacter='Viewer';
+ const scenes=parseNovelBatch(JSON.stringify({characters:[{id:'viewer',name:'Viewer',appearance:'short silver hair',outfit:'green coat'},{id:'guest',name:'Guest',appearance:'brown hair',outfit:'blue coat'}],scenes:[{location:'Observatory',setting:'Stone hall, brass telescope, skylight.',lines:['Synthetic narration.',{speaker:'Guest',text:'Synthetic greeting.'},'Synthetic gesture.'],illustrations:[{prompt:'Guest waves. Medium shot.',characterIds:['guest']},{prompt:'Guest points. Close-up.',characterIds:['guest'],atLine:2}]}]}),story);
+ const scene=scenes[0];expect(scene.pov).toBe('Viewer');expect(scene.lines[0]).toEqual({speaker:'',text:'Synthetic narration.'});expect(scene.lines[1].speaker).toBe('Guest');
+ expect(scene.illustrations.map(frame=>frame.atLine)).toEqual([0,2]);expect(scene.choices).toEqual([]);expect(scene.question).toBe('');
+ const {novelImagePrompt}=await import('./imagePrompt.js');const prompt=novelImagePrompt(story,scene,scene.illustrations[0]);
+ expect(prompt).toContain('first-person view');expect(prompt).toContain('brown hair');expect(prompt).toContain('blue coat');expect(prompt).not.toContain('silver hair');
+ const instructions=novelMessages(story,'').messages[0].content;
+ expect(instructions).toContain('omit camera="external"');expect(instructions).toContain('Omit redundant subjectNames');expect(instructions).toContain('narration can be a plain string');
+});
+it('explicitly requests opening exposition as story prose while keeping continuation metadata sparse',()=>{
+ const story=initial();const opening=novelMessages(story,'');
+ expect(JSON.parse(opening.user)).toMatchObject({phase:'opening'});
+ expect(JSON.parse(opening.user).action).toContain('in narration');
+ expect(opening.messages[0].content).toContain('begin the first scene\'s lines with 2-4 readable narration passages');
+ expect(opening.messages[0].content).toContain('technical data supplements the narration');
+ expect(opening.messages[0].content).toContain('SCENE METADATA IS CHANGES-ONLY');
+ const prose=['Synthetic opening establishes the old observatory and the falling rain.','The adult explorer waits beside a brass telescope, meeting her guide for the first time.',{speaker:'Guide',text:'Synthetic greeting.'}];
+ const parsed=parseNovelBatch(JSON.stringify({scenes:[{location:'Observatory',setting:'Stone hall, brass telescope, skylight.',lines:prose}]}),story);
+ expect(parsed[0].lines.map(line=>line.text)).toEqual(prose.map(line=>typeof line==='string'?line:line.text));
+ story.scenes=parsed;story.memory=parsed[0].memory;story.turns=[{user:opening.user,assistant:JSON.stringify({scenes:[{lines:prose}]}),throughSceneId:parsed[0].id}];
+ const next=novelMessages(story,'Follow the guide.');expect(JSON.parse(next.user)).toMatchObject({phase:'continuation',action:'Follow the guide.'});
+ expect(next.messages.slice(0,opening.messages.length)).toEqual(opening.messages);
 });

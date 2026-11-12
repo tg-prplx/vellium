@@ -53,3 +53,12 @@ export function saveNovelProgress(id: string, value: unknown) {
   return cursor;
 }
 export function deleteNovel(id: string) { db.prepare("DELETE FROM novels WHERE id = ?").run(id); }
+export function resetNovelHistory(story:NovelStory) {
+  return db.transaction(()=>{
+    const {contextCheckpoint,...rest}=story;
+    const next=writeNovel({...rest,scenes:[],turns:[],cursor:{scene:0,line:0},cache:null,
+      memory:{summary:"",facts:[],threads:[],characters:structuredClone(story.cast)}},story.revision);
+    db.prepare("UPDATE novels SET reading_cursor = NULL WHERE id = ?").run(story.id);
+    return next;
+  })();
+}

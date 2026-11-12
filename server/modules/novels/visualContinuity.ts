@@ -3,14 +3,16 @@ import {createHash} from "crypto";
 import type {NovelScene,NovelStory} from "../../../src/shared/types/novels.js";
 import {record,text} from "./normalize.js";
 
-export function visualNoiseSeed(story:NovelStory,scene:NovelScene) {
+export function visualNoiseSeed(story:NovelStory,scene:NovelScene,shotId="") {
   const location=scene.visuals?.location || scene.location;
   const setting=scene.visuals?.setting || location;
-  return createHash("sha256").update(`${story.id}\0${location}\0${setting}`).digest().readUInt32BE(0)&0x7fffffff;
+  return createHash("sha256").update(`${story.id}\0${location}\0${setting}\0${scene.id || ""}\0${shotId}`).digest().readUInt32BE(0)&0x7fffffff;
 }
 /** A model-proposed visual change must cite an actual complete narrative line.
  * Rephrased labels and repeated outfits alone cannot mutate the current anchors. */
 function hasSceneChange(scene:NovelScene,value:unknown) {
+  // A compact line index cites the same saved prose without echoing it in JSON.
+  if(typeof value==='number')return Number.isInteger(value) && value>=0 && (scene.lines[value]?.text.trim().length||0)>=12;
   const change=record(value);
   return Number.isInteger(change.line) && typeof change.line==="number" && change.line>=0 &&
     text(change.quote).length>=12 && scene.lines[change.line]?.text.trim()===text(change.quote);
@@ -40,9 +42,8 @@ export function applyVisualContinuity(story:NovelStory,scenes:NovelScene[],sourc
     }
     scene.location=location;
     scene.visuals={location,setting,outfits:{...outfits}};
-    // Related shots start from the same noise instead of rerolling every frame.
-    // This reduces one source of variation; it is not an identity guarantee.
-    const seed=visualNoiseSeed(story,scene);
-    for(const frame of scene.illustrations)frame.seed=seed;
+    // Each planned image needs independent noise. Continuity comes from the
+    // explicit visual anchors, not reusing identical noise for different shots.
+    for(const frame of scene.illustrations)frame.seed=visualNoiseSeed(story,scene,frame.id);
   }
 }

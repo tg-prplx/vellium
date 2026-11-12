@@ -14,6 +14,11 @@ export interface UnifiedProviderRow {
   adapter_id?: string | null;
 }
 
+export interface UnifiedResponseFormat {
+  type: "json_schema";
+  json_schema: {name:string;strict?:boolean;schema:Record<string,unknown>};
+}
+
 export interface UnifiedGenerateMessage {
   role: string;
   content: unknown;
@@ -150,9 +155,12 @@ export async function unifiedGenerateText(params: {
   apiParamPolicy?: unknown;
   signal?: AbortSignal;
   promptCacheKey?: string;
+  responseFormat?: UnifiedResponseFormat;
+  allowUnstructuredFallback?: boolean;
 }): Promise<{ content: string; reasoning: string; providerType: "openai" | "koboldcpp" | "custom"; usage?: ReturnType<typeof generationUsage> }> {
   const providerType = normalizeProviderType(params.provider.provider_type);
   const sc = params.samplerConfig || {};
+  if(params.responseFormat && providerType!=="openai")throw new Error("JSON-schema output requires an OpenAI-compatible provider");
 
   if (providerType === "koboldcpp") {
     const koboldPolicy = normalizeApiParamPolicy(params.apiParamPolicy).kobold;
@@ -220,12 +228,16 @@ export async function unifiedGenerateText(params: {
         ...message,
         role: normalizeOpenAiMessageRole(String(message.role || "user"), params.provider)
       })),
-      ...openAiSampling
+      ...openAiSampling,
+      ...(params.responseFormat?{response_format:params.responseFormat}:{})
     }),
     signal: params.signal
   });
   if (!response.ok) {
     const errText = await response.text().catch(() => "");
+    const schemaRejected=params.responseFormat && params.allowUnstructuredFallback &&
+      [400,422,500,501].includes(response.status) && /response[_ -]?format|json[_ -]?schema|structured[ _-]?(?:output|response)|(?:schema|grammar).*(?:unsupported|invalid|reject|compil|not support)|(?:unsupported|invalid|reject|not support).*(?:schema|grammar)/i.test(errText);
+    if(schemaRejected)return unifiedGenerateText({...params,responseFormat:undefined,allowUnstructuredFallback:false});
     throw new Error(errText || `OpenAI-compatible request failed (${response.status})`);
   }
   const body = await response.json().catch(() => ({})) as {

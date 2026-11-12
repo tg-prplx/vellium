@@ -1,5 +1,6 @@
 /** Recover already-written JSON values locally. Never invent missing prose or
- * execute model output. An unfinished string is discarded, not completed. */
+ * execute model output. Repair separators only at recognizable value/property
+ * boundaries. An unfinished string is discarded, not completed. */
 export function readSceneJson(raw: string): unknown {
   if (raw.length > 500000) throw new Error("Model response exceeds the novel limit");
   const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
@@ -38,6 +39,8 @@ export function readSceneJson(raw: string): unknown {
       const result: unknown[] | Record<string, unknown> = array ? [] : Object.create(null);
       while (pos < clean.length) {
         space();
+        // Repeated/trailing commas carry no story data.
+        while(clean[pos]===","){pos++;space();}
         if (clean[pos] === (array ? "]" : "}")) { pos++; return result; }
         let key = "";
         if (!array) {
@@ -57,6 +60,14 @@ export function readSceneJson(raw: string): unknown {
         space();
         if (clean[pos] === ",") { pos++; continue; }
         if (clean[pos] === (array ? "]" : "}")) { pos++; return result; }
+        // A missing comma must not discard completed later lines, shots or cast.
+        // Continue only at an unambiguous next JSON member; never skip arbitrary
+        // text or try to execute expressions from the response.
+        const tail=clean.slice(pos);
+        const nextMember=array
+          ? /^(?:[\[\{"']|true\b|false\b|null\b|-?\d)/.test(tail)
+          : /^(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[a-zA-Z_][\w-]*)\s*:/.test(tail);
+        if(nextMember)continue;
         return result;
       }
       return result;

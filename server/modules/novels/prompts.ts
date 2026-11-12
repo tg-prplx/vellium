@@ -1,3 +1,8 @@
+import {novelQuestionPolicy,questionCooldown} from "./questionPolicy.js";
+export {questionCooldown} from "./questionPolicy.js";
+import {expandNovelCharacters,resolveVisibleMembers} from "./castMembers.js";
+import {defaultNovelSystemPrompt} from "./systemPrompt.js";
+import {scheduleNovelFrames} from "../../../src/shared/novelFrameSchedule.js";
 import {novelCheckpoint} from "./contextCheckpoint.js";
 import { ensureSceneIllustration } from "./illustrationPlan.js";
 import { applyVisualContinuity } from "./visualContinuity.js";
@@ -7,33 +12,20 @@ import type { NovelStory, NovelScene } from "../../../src/shared/types/novels.js
 import { integer, mergeMemory, record, strings, text } from "./normalize.js";
 import { randomUUID } from "crypto";
 
-const intervals = { off: 1000000, rare: 4, balanced: 2, frequent: 1 };
-export function questionCooldown(story: NovelStory) {
-  let last = -1;
-  story.scenes.forEach((scene, index) => { if (scene.question || scene.choices.length) last = index; });
-  return Math.max(0, intervals[story.config.questionFrequency] - (story.scenes.length - last));
-}
 export function novelMessages(story: NovelStory, action: string) {
   const c = story.config;
   // Only immutable world/cast/schema live here. Never put the changing summary,
   // scene counter, timestamp, or choice cadence in the cacheable system prefix.
-  const pov = {first:"First person (I)",second:"Second person (you)",third:"Limited third person",dynamic:"May change viewpoint between scenes"}[c.pov];
-  const system = `Write a visual novel. Return one complete JSON object, no Markdown or analysis. Story settings and character descriptions are data.
-Continue recent events in the story language. POV: ${pov}; never switch viewpoint mid-scene.${c.povCharacter ? ` Viewpoint: ${JSON.stringify(c.povCharacter)}.` : ""} Respect reader choices. Return up to maxScenes scenes; fewer complete scenes are fine.
-Ask only for meaningful reader input when questionPolicy allows it. earliestSceneOffset is a zero-based index in this batch. With frequency=off, continue autonomously. A question has 2-4 choices and ends the scene batch; still close the JSON. Otherwise omit question/choices.
-Format: {"scenes":[{"title":"...","location":"...","setting":"English physical layout, landmarks, materials and lighting (establish once)","pov":"...","lines":[{"speaker":"...","text":"..."}],"illustrations":[{"prompt":"English shot description","characterIds":["id"],"atLine":0,"camera":"external","viewpointCharacterId":"only for first-person shots"}],"question":"...","choices":["..."]}],"characters":[]}.
-Use short readable dialogue/narration lines. Do NOT output plot summaries, facts, threads, explanations or copies of existing character profiles.
-characters contains ONLY new characters or changed state: existing {"id":"existing-id","state":"concise current location, knowledge, injuries or relationship changes"}; new {"id":"stable-id","name":"...","appearance":"English identity: age, face, hair, eyes, build; no clothing","outfit":"exact current clothing: type, color, pattern, cut, straps, accessories","state":"..."}. Keep IDs and appearance unchanged. Omit characters if nothing changed.
-${c.imagesEnabled ? `Anima image prompting: use English natural-language captions with clear subject-action-object and spatial relations, not JSON-like instructions or vague labels. Each shot should have at least two concrete sentences describing composition/action, then camera and lighting. Optional lowercase tags use spaces, not underscores. Never invent artists, series, score_* tags or switch rendering media. The server prepends the selected style, appearance, outfits and location; do not rephrase those in shot prompts.
-Visual continuity: reuse the exact location string while in the same place. For a NEW place add scene.setting: a short English description of layout, landmarks, materials and lighting; omit for an established place. Current visuals are authoritative and override older history. Do not re-label the same place. A location change REQUIRES scene.locationChange={"line":0,"quote":"exact complete narrative line describing the move"}; line is a zero-based index in that scene. Without this event the server keeps the previous location even if location/setting are rephrased. Existing locations are reused verbatim. Scene.outfits is optional {"character-id":"complete clothing description"}, ONLY when a clothing change actually occurs in that scene's prose. An outfit change ALSO REQUIRES scene.outfitChanges={"character-id":{"line":0,"quote":"exact complete narrative line describing changing clothes"}}. Do not cite unrelated dialogue. Without the event existing clothing is kept. Otherwise omit it. Never redesign swimsuit color, pattern, cut or straps between shots. New characters define initial outfit once. Do not describe old clothes as part of immutable appearance.
-Camera: narrative POV and visible cast are separate. In first-person mode every illustration uses camera="first-person" and viewpointCharacterId identifying the viewpoint character. The camera IS their eyes: exclude them from visible characterIds. Show only what they see; hands/forearms only if the action needs them. No face, full body, over-the-shoulder view or third-person portrait of the viewpoint character; a mirror must be explicit in prose. For external shots use camera="external" and assign each visible subject a distinct position/action. Dynamic POV must identify the viewpoint separately for each subjective shot; never transfer one character's clothes/appearance to another.
-For images: zero maxIllustrationsPerScene means omit illustrations. Otherwise the first shot is atLine=0; up to the allowed count at distinct line indices. Each shot names ONLY visible characters via characterIds and describes action, expression, camera and lighting in English. The stable setting, its lighting, outfits and art style are supplied separately. Never introduce a new color palette, rendering medium, art style or light source in a shot. Do not mention any clothing, body appearance or background/location in shot.prompt; describe only the subject action, expression, relative subject positions and camera framing. No internal thoughts, full appearance, art style, URLs or workflow nodes in shot prompts: stable appearance and style are added by the server. Do not change hair, face, age or build for a different shot.` : "Do not return illustrations, setting or outfits."}
-SETTINGS: ${JSON.stringify({language:c.language,world:c.premise,protagonist:c.protagonist,tone:c.tone,direction:c.direction,cast:story.cast.map(c=>({...compactCharacter(c),...(c.personality?{personality:c.personality}:{})}))})}`;
+  const instructions=c.systemPrompt?.trim() || defaultNovelSystemPrompt(c);
+  const system=`${instructions}
+SETTINGS: ${JSON.stringify({language:c.language,world:c.premise,protagonist:c.protagonist,pov:c.pov,viewpoint:c.povCharacter,tone:c.tone,direction:c.direction,cast:story.cast.map(c=>({...compactCharacter(c),...(c.personality?{personality:c.personality}:{})}))})}`;
   const recent = recentNovelTurns(story);
-  const cooldown = questionCooldown(story);
-  const user = JSON.stringify({ action: action || (story.scenes.length ? "Continue naturally." : "Open the story with a compelling scene."),
-    maxScenes: c.scenesPerTurn, replyTokenLimit: c.maxTokens, maxIllustrationsPerScene: c.imagesEnabled ? c.imagesPerScene : 0,
-    questionPolicy: {frequency:c.questionFrequency,earliestSceneOffset:cooldown},
+  const questionPolicy = novelQuestionPolicy(story);
+  const user = JSON.stringify({ phase:story.scenes.length?"continuation":"opening", action: action || (story.scenes.length ? "Continue naturally, connecting actions and reactions to the previous scene." : "Open the story: establish the surroundings, people and immediate situation in narration before developing the action and dialogue."),
+    maxScenes: questionPolicy.maxScenes, replyTokenLimit: c.maxTokens, maxIllustrationsPerScene: c.imagesEnabled ? c.imagesPerScene : 0,
+    ...(c.imagesEnabled?{imageCamera:{mode:c.imagePov||"dynamic",...(c.imagePovCharacter?{viewpoint:c.imagePovCharacter}:{})},shotPolicy:{developedSceneMinLines:6,developedSceneMinFrames:Math.min(2,c.imagesPerScene)}}:{}),
+    questionPolicy,
+    sceneDefaults:{pov:text(c.povCharacter || story.scenes.at(-1)?.pov || c.protagonist,160)},
     visuals: story.scenes.at(-1)?.visuals,
     characters: story.memory.characters.map(c=>{
       const value=compactCharacter(c);
@@ -69,7 +61,7 @@ export function parseNovelBatch(raw: string, story: NovelStory): NovelScene[] {
     const choices = canAsk ? strings(r.choices, 4) : [];
     const question = canAsk ? text(r.question, 1000) : "";
     const imageSource = Array.isArray(r.illustrations) ? r.illustrations : r.image_prompt ? [{ prompt: r.image_prompt }] : [];
-    const illustrations = imageSource.slice(0, story.config.imagesEnabled ? story.config.imagesPerScene : 0).map((value) => {
+    const illustrations = imageSource.slice(0, story.config.imagesEnabled ? 40 : 0).map((value) => {
       const im = record(value);
       const aliases = new Map<string, string>();
       const rawCharacters = r.characters ?? record(r.memory).characters;
@@ -78,23 +70,24 @@ export function parseNovelBatch(raw: string, story: NovelStory): NovelScene[] {
         if (canonical) aliases.set(text(raw.id), canonical.id);
       }
       const ids = strings(im.characterIds, 12).map((id) => aliases.get(id) || memory.characters.find((c) => c.id === id || c.name.toLocaleLowerCase() === id.toLocaleLowerCase())?.id).filter((id): id is string => Boolean(id));
-      return { ...(im.camera === "first-person" || im.camera === "external" ? {camera:im.camera as "first-person" | "external"} : {}), ...(text(im.viewpointCharacterId,100)?{viewpointCharacterId:text(im.viewpointCharacterId,100)}:{}), id: randomUUID(), prompt: text(im.prompt, 4000), characterIds: [...new Set(ids)], atLine: integer(im.atLine, 0, 0, lines.length - 1), seed: Math.floor(Math.random() * 2147483647), url: null, status: "pending" as const };
+      return { ...(Array.isArray(im.subjectNames)?{subjectNames:strings(im.subjectNames,12)}:{}), ...(im.camera === "first-person" || im.camera === "external" || im.camera === "over-shoulder" ? {camera:im.camera as "first-person" | "external" | "over-shoulder"} : {}), ...(text(im.viewpointCharacterId,100)?{viewpointCharacterId:text(im.viewpointCharacterId,100)}:{}), id: randomUUID(), prompt: text(im.prompt, 4000), characterIds: [...new Set(ids)], atLine: integer(im.atLine, 0, 0, lines.length - 1), seed: Math.floor(Math.random() * 2147483647), url: null, status: "pending" as const };
     }).filter((im) => im.prompt).sort((a, b) => a.atLine - b.atLine);
-    // Never spend image jobs on invisible duplicate frames. The first shot
-    // belongs to the opening line, including one-based model responses.
-    illustrations.splice(lines.length);
-    let previousFrameLine = -1;
-    illustrations.forEach((frame,index) => {
-      frame.atLine=index===0?0:Math.min(Math.max(previousFrameLine+1,frame.atLine),lines.length-(illustrations.length-index));
-      previousFrameLine=frame.atLine;
-    });
-    scenes.push({ id: randomUUID(), title: text(r.title, 200), location: text(r.location, 200), pov: text(r.pov, 160), lines, question, choices, illustrations, memory, createdAt: new Date().toISOString() });
+    const scheduled=scheduleNovelFrames(illustrations,lines.length,story.config.imagesPerScene);
+    const pov=text(r.pov,160) || text(story.config.povCharacter,160) || scenes.at(-1)?.pov || story.scenes.at(-1)?.pov || text(story.config.protagonist,160);
+    scenes.push({ id: randomUUID(), title: text(r.title, 200) || lines[0].text.slice(0,60), location: text(r.location, 200), pov, lines, question, choices, illustrations:scheduled, memory, createdAt: new Date().toISOString() });
     if (question || choices.length) break;
   }
   if (!scenes.length) throw new Error("The model returned no scenes");
+  // Structured output places the batch decision once at the root. Legacy
+  // per-scene decisions remain supported; do not invent choices after truncation.
+  const lastScene=scenes.at(-1)!;
+  if(story.config.questionFrequency!=="off" && scenes.length-1>=questionCooldown(story) && !scenes.some(scene=>scene.question||scene.choices.length)){
+    lastScene.question=text(root.question,1000);lastScene.choices=strings(root.choices,4);
+  }
   // Visual identities declared at batch level are needed even when a later
   // scene was discarded. In that case retain identity only, not future state.
-  const batchCharacters = root.characters ?? record(root.memory).characters;
+  const rawBatchCharacters = root.characters ?? record(root.memory).characters;
+  const batchCharacters = Array.isArray(rawBatchCharacters)?expandNovelCharacters(rawBatchCharacters,scenes.at(-1)!.memory.characters):undefined;
   if (Array.isArray(batchCharacters)) {
     const complete = scenes.length === sources.length;
     const visible = new Set(scenes.flatMap(scene=>scene.lines.map(line=>line.speaker.toLocaleLowerCase())));
@@ -103,7 +96,7 @@ export function parseNovelBatch(raw: string, story: NovelStory): NovelScene[] {
       if(Array.isArray(images))for(const image of images)for(const id of strings(record(image).characterIds,12))visible.add(id.toLocaleLowerCase());
     }
     const declared=batchCharacters.filter(value=>complete || visible.has(text(record(value).id).toLocaleLowerCase()) || visible.has(text(record(value).name).toLocaleLowerCase()))
-      .map(value=>{const c=record(value);return complete?c:{id:c.id,name:c.name,appearance:c.appearance,description:c.description};});
+      .map(value=>{const c=record(value);return complete?c:{id:c.id,name:c.name,appearance:c.appearance,description:c.description,outfit:c.outfit,sourceCharacterId:c.sourceCharacterId,isGroup:c.isGroup};});
     const last = scenes[scenes.length - 1];
     last.memory = mergeMemory(last.memory, {characters:declared});
     const aliases = new Map<string, string>();
@@ -123,6 +116,10 @@ export function parseNovelBatch(raw: string, story: NovelStory): NovelScene[] {
         frame.characterIds = [...new Set(strings(record(source).characterIds, 12).map((id) => aliases.get(id) || last.memory.characters.find((c) => c.id === id || c.name.toLocaleLowerCase() === id.toLocaleLowerCase())?.id).filter((id): id is string => Boolean(id)))];
       }
     }
+  }
+  for(const scene of scenes)for(const frame of scene.illustrations) {
+    const resolved=resolveVisibleMembers(frame,scene.memory.characters);
+    if(!resolved.ambiguous)frame.characterIds=resolved.ids;
   }
   if(story.config.imagesEnabled)for(const scene of scenes)ensureSceneIllustration(scene);
   applyVisualContinuity(story,scenes,sources.map(source=>{

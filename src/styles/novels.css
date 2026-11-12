@@ -236,3 +236,4 @@
 .novel-style-prompt { color: var(--color-text-tertiary); font-size: 11px; line-height: 1.6; }
 .novel-style-prompt summary { cursor: pointer; }
 .novel-style-prompt p { margin-top: 8px; }
+.novel-system-prompt { font: 12px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace; resize: vertical; min-height: 220px; }

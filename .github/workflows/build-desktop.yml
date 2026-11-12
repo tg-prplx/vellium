@@ -329,6 +329,10 @@ jobs:
             -name "*.AppImage.blockmap" -o \
             -name "vellium-teratts-v2-runtime-*" -o \
             -name "vellium-whisper-*.tar.gz" -o \
+            -name "novell.yml" -o \
+            -name "novell-linux.yml" -o \
+            -name "novell-mac.yml" -o \
+            -name "novell-mac-arm64.yml" -o \
             -name "b.yml" -o \
             -name "b-linux.yml" -o \
             -name "b-mac.yml" -o \
