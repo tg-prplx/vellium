@@ -133,6 +133,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     providerType: "openai"
   },
   {
+    key: "uberllm",
+    label: "UberLLM",
+    description: "UberLLM OpenAI-compatible API",
+    baseUrl: "https://api.uberllm.dev/v1",
+    defaultId: "uberllm",
+    defaultName: "UberLLM",
+    apiKeyHint: "ull_...",
+    localOnly: false,
+    providerType: "openai"
+  },
+  {
     key: "custom",
     label: "Custom",
     description: "Any OpenAI-compatible provider",

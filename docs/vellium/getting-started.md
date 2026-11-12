@@ -89,6 +89,7 @@ Vellium can create a provider profile quickly from either `Welcome` or later in 
 | `cheapaimodel` | You want DeepSeek, GLM, Kimi, and Grok models on a prepaid, pay-per-token balance | OpenAI-compatible |
 | `A2Agent` | You use the A2Agent OpenAI-compatible API gateway | OpenAI-compatible |
 | `API Route` | You use API Route with your own API key | OpenAI-compatible |
+| `UberLLM` | You want GPT, Claude, Gemini, DeepSeek, GLM, Qwen and Kimi models on one prepaid key | OpenAI-compatible |
 | `Custom` | You use another compatible API that the presets do not cover | OpenAI-compatible |
 
 ## Minimal Working Setup

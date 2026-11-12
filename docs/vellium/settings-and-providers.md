@@ -42,6 +42,7 @@ From both `Settings` and `Welcome`, you can create a provider profile from a pre
 - `cheapaimodel`
 - `A2Agent`
 - `API Route`
+- `UberLLM`
 - `Custom`
 
 ### Manual provider setup
@@ -119,6 +120,17 @@ model ID to `manual fallback models`.
 
 API Route uses the existing `OpenAI-compatible` provider path for chat,
 streaming, and tool calls. API usage is billed separately by API Route.
+
+### UberLLM setup
+
+Choose `UberLLM` from the quick presets, enter an API key from
+https://uberllm.dev/signup (keys start with `ull_`), save the profile, and use
+`Load models`. Vellium queries `https://api.uberllm.dev/v1/models`, which
+returns `vendor/model` IDs such as `deepseek/deepseek-v4.1-flash`,
+`anthropic/claude-sonnet-4.6`, and `z-ai/glm-5.2`. If the model list cannot be
+loaded, add one or more model IDs to `manual fallback models`. UberLLM uses the
+existing `OpenAI-compatible` provider path. Usage is billed from a prepaid
+UberLLM balance; per-model prices are listed at https://uberllm.dev/models.
 
 ### Provider types
 

@@ -84,4 +84,18 @@ describe("provider presets", () => {
       providerType: "openai"
     });
   });
+
+  it("includes the optional UberLLM OpenAI-compatible profile", () => {
+    expect(PROVIDER_PRESETS).toContainEqual({
+      key: "uberllm",
+      label: "UberLLM",
+      description: "UberLLM OpenAI-compatible API",
+      baseUrl: "https://api.uberllm.dev/v1",
+      defaultId: "uberllm",
+      defaultName: "UberLLM",
+      apiKeyHint: "ull_...",
+      localOnly: false,
+      providerType: "openai"
+    });
+  });
 });
