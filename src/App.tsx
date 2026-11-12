@@ -1,8 +1,10 @@
+import { NovelFeatureNotice } from "./components/NovelFeatureNotice";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PluginActionBar, PluginActionModalHost, PluginActionToastHost, PluginFrame, PluginProvider, usePlugins } from "./features/plugins/PluginHost";
 import { I18nContext, translations, useI18n, type Locale } from "./shared/i18n";
 import { api } from "./shared/api";
 import { TitleBar } from "./components/TitleBar";
+import { ImmersiveNavigation } from "./components/ImmersiveNavigation";
 import { TaskManager } from "./components/TaskManager";
 import { UpdateNotification } from "./components/UpdateNotification";
 import type { BackgroundTaskScope } from "./shared/backgroundTasks";
@@ -19,6 +21,7 @@ import {
 } from "./shared/wallpaperTheme";
 import { SettingsCommandPalette } from "./features/settings/components/SettingsCommandPalette";
 
+const NovelsScreen = lazy(() => import("./features/novels/NovelsScreen").then((module) => ({ default: module.NovelsScreen })));
 const ChatScreen = lazy(() => import("./features/chat/ChatScreen").then((module) => ({ default: module.ChatScreen })));
 const LiveScreen = lazy(() => import("./features/live/LiveScreen").then((module) => ({ default: module.LiveScreen })));
 const WritingScreen = lazy(() => import("./features/writer/WritingScreen").then((module) => ({ default: module.WritingScreen })));
@@ -29,12 +32,13 @@ const KnowledgeScreen = lazy(() => import("./features/knowledge/KnowledgeScreen"
 const SettingsScreen = lazy(() => import("./features/settings/SettingsScreen").then((module) => ({ default: module.SettingsScreen })));
 const WelcomeScreen = lazy(() => import("./features/welcome/WelcomeScreen").then((module) => ({ default: module.WelcomeScreen })));
 
-const CACHED_SCREEN_IDS = ["writing", "characters", "character-forge", "pets", "lorebooks", "knowledge", "settings"] as const;
+const CACHED_SCREEN_IDS = ["novels", "writing", "characters", "character-forge", "pets", "lorebooks", "knowledge", "settings"] as const;
 type CachedScreenId = typeof CACHED_SCREEN_IDS[number];
 const CORE_SCREEN_IDS = new Set<string>(["chat", "live", ...CACHED_SCREEN_IDS]);
 
 const preloadScreenModules: Partial<Record<string, () => Promise<unknown>>> = {
   live: () => import("./features/live/LiveScreen"),
+  novels: () => import("./features/novels/NovelsScreen"),
   writing: () => import("./features/writer/WritingScreen"),
   characters: () => import("./features/characters/CharactersScreen"),
   "character-forge": () => import("./features/writer/WritingScreen"),
@@ -126,6 +130,7 @@ function AppContent({
     return [
       { id: "chat", label: t("tab.chat"), icon: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z", kind: "core" },
       { id: "live", label: t("tab.live"), icon: "M12 3a3 3 0 00-3 3v6a3 3 0 006 0V6a3 3 0 00-3-3zm-7 8a7 7 0 0014 0M12 18v3m-4 0h8", kind: "core" },
+      { id: "novels", label: t("novel.workspace"), icon: "M4 5c3-1 5-1 8 1 3-2 5-2 8-1v14c-3-1-5-1-8 1-3-2-5-2-8-1zM12 6v14", kind: "core" },
       { id: "writing", label: t("tab.writing"), icon: "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z", kind: "core" },
       { id: "characters", label: t("tab.characters"), icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z", kind: "core" },
       { id: "character-forge", label: t("writing.characterForge"), icon: "M12 3v2m6.364.636l-1.414 1.414M21 12h-2M5 12H3m4.05-4.95L5.636 5.636M9 18h6m-5 3h4m-5.5-7.5a5 5 0 117 0c-.9.7-1.5 1.65-1.5 2.5h-4c0-.85-.6-1.8-1.5-2.5z", kind: "core" },
@@ -232,6 +237,7 @@ function AppContent({
   }, [navigateToTab]);
 
   const cachedScreens = useMemo<Record<CachedScreenId, React.ReactNode>>(() => ({
+    novels: <NovelsScreen />,
     writing: <WritingScreen key="writing-books" initialWorkspaceMode="books" lockWorkspaceMode />,
     characters: <CharactersScreen />,
     "character-forge": <WritingScreen key="character-forge" initialWorkspaceMode="characters" lockWorkspaceMode />,
@@ -309,7 +315,7 @@ function AppContent({
       return tab ? [tab] : [];
     });
     return [
-      { id: "work", label: t("tab.groupWork"), tabs: pick(["chat", "live", "writing"]) },
+      { id: "work", label: t("tab.groupWork"), tabs: pick(["chat", "live", "writing", "novels"]) },
       { id: "library", label: t("tab.groupLibrary"), tabs: pick(["characters", "lorebooks", "knowledge", "character-forge", "pets"]) },
       { id: "settings", label: t("tab.settings"), tabs: pick(["settings"]) },
       { id: "plugins", label: t("tab.groupPlugins"), tabs: tabs.filter((tab) => tab.kind === "plugin") }
@@ -403,16 +409,17 @@ function AppContent({
   );
 
   return (
-    <div className="app-shell flex h-full w-full flex-col overflow-hidden bg-bg-primary">
+    <div className={`app-shell flex h-full w-full flex-col overflow-hidden bg-bg-primary ${activeTab === "novels" ? "has-immersive-novel" : ""}`}>
+      <ImmersiveNavigation active={activeTab === "novels"}>
       {isElectron ? (
-        <TitleBar>
+        <TitleBar immersive={activeTab === "novels"}>
           <div className="app-header-inner flex w-full min-w-0 items-center px-7 py-1.5">
             <div className="app-header-layout grid w-full min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
               <div className="app-header-brand justify-self-start" style={noDrag}>
                 {brandNode}
               </div>
               <div className="app-header-nav min-w-0 justify-self-center">
-                {!compactNavigation ? renderTabsNode() : null}
+                {!compactNavigation || activeTab === "novels" ? renderTabsNode() : null}
               </div>
               <div className="app-header-tools justify-self-end" style={noDrag}>
                 {toolbarNode}
@@ -425,12 +432,13 @@ function AppContent({
           <div className="app-header-inner flex w-full min-w-0 items-center px-7 py-4">
             <div className="app-header-layout grid w-full min-w-0 grid-cols-[1fr_auto_1fr] items-center gap-3">
               <div className="app-header-brand justify-self-start">{brandNode}</div>
-              <div className="app-header-nav min-w-0 justify-self-center">{!compactNavigation ? renderTabsNode() : null}</div>
+              <div className="app-header-nav min-w-0 justify-self-center">{!compactNavigation || activeTab === "novels" ? renderTabsNode() : null}</div>
               <div className="app-header-tools justify-self-end">{toolbarNode}</div>
             </div>
           </div>
         </header>
       )}
+      </ImmersiveNavigation>
 
       <main className="app-main w-full flex-1 overflow-hidden p-4">
         <div className="tab-content-enter h-full">
@@ -462,7 +470,7 @@ function AppContent({
           ) : null}
         </div>
       </main>
-      {compactNavigation ? renderTabsNode(true) : null}
+      {compactNavigation && activeTab !== "novels" ? renderTabsNode(true) : null}
       <SettingsCommandPalette
         onNavigate={(entry) => {
           setPendingSettingsView({
@@ -511,6 +519,7 @@ function AppWorkspace({ locale }: { locale: Locale }) {
         onClose={() => setWelcomeTourOpen(false)}
         onNavigate={handleTourNavigate}
       />
+      <NovelFeatureNotice enabled={!welcomeTourOpen} onOpen={()=>setActiveTab("novels")} />
       <PluginActionModalHost />
       <PluginActionToastHost />
     </PluginProvider>

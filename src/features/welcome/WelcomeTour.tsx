@@ -146,7 +146,7 @@ export function WelcomeTour({ open, onClose, onNavigate }: WelcomeTourProps) {
   useLayoutEffect(() => {
     if (!open) return;
     const syncWorkspaceTop = () => {
-      const toolbar = document.querySelector<HTMLElement>(".app-shell > .app-header");
+      const toolbar = document.querySelector<HTMLElement>(".app-shell > .app-header, .app-shell > .app-navigation-shell > .app-header");
       setWorkspaceTop(toolbar ? Math.max(0, Math.round(toolbar.getBoundingClientRect().bottom)) : 0);
     };
     syncWorkspaceTop();

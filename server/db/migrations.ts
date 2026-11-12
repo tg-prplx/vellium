@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 
 const MIGRATIONS = [
+  "ALTER TABLE novels ADD COLUMN reading_cursor TEXT",
   "ALTER TABLE branches ADD COLUMN context_config TEXT NOT NULL DEFAULT '{}'",
   "ALTER TABLE messages ADD COLUMN generation_stats TEXT",
   "ALTER TABLE messages ADD COLUMN token_count_source TEXT",
@@ -47,6 +48,7 @@ const MIGRATIONS = [
 ];
 
 export function applyMigrations(db: Database.Database) {
+  db.exec("CREATE TABLE IF NOT EXISTS novels (id TEXT PRIMARY KEY, title TEXT NOT NULL, payload TEXT NOT NULL, reading_cursor TEXT, revision INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)");
   for (const sql of MIGRATIONS) {
     try {
       db.exec(sql);

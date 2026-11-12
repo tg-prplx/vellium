@@ -3,9 +3,10 @@ import { useI18n } from "../shared/i18n";
 
 interface TitleBarProps {
   children?: ReactNode;
+  immersive?: boolean;
 }
 
-export function TitleBar({ children }: TitleBarProps) {
+export function TitleBar({ children, immersive = false }: TitleBarProps) {
   const { t } = useI18n();
   const [platform, setPlatform] = useState<string>("");
   const [isMaximized, setIsMaximized] = useState(false);
@@ -26,13 +27,15 @@ export function TitleBar({ children }: TitleBarProps) {
   return (
     <div
       className="app-header relative z-80 flex h-12 shrink-0 items-center overflow-visible border-b border-border bg-bg-primary"
-      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+      // A translated-away drag region can still consume native pointer events.
+      // The immersive overlay must receive hover even over its empty space.
+      style={{ WebkitAppRegion: immersive ? "no-drag" : "drag" } as React.CSSProperties}
     >
       {/* macOS: spacer for native traffic lights */}
       {isMac && <div className="w-[78px] shrink-0" />}
 
-      {/* Content area (logo + tabs from App) — stays draggable,
-          individual interactive elements inside set no-drag themselves */}
+      {/* Normal title bars stay draggable; interactive controls and immersive
+          navigation receive pointer events through no-drag regions. */}
       <div className="flex flex-1 items-center overflow-visible">
         {children}
       </div>

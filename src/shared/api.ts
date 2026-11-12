@@ -8,6 +8,7 @@ import { extensionClient } from "./api/extensionClient";
 import { liveClient } from "./api/liveClient";
 import { pluginClient } from "./api/pluginClient";
 import { providerClient } from "./api/providerClient";
+import { novelClient } from "./api/novelClient";
 import { writerClient } from "./api/writerClient";
 
 export const api = {
@@ -20,5 +21,6 @@ export const api = {
   ...chatClient,
   ...contentClient,
   ...dataClient,
+  ...novelClient,
   ...writerClient
 };

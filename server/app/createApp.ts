@@ -26,6 +26,7 @@ import rpRoutes from "../routes/rp.js";
 import settingsRoutes from "../routes/settings.js";
 import updateRoutes from "../routes/updates.js";
 import writerRoutes from "../routes/writer.js";
+import novelRoutes from "../routes/novels.js";
 import { isAllowedRequestHost, isAllowedRequestOrigin, type RequestOriginPolicy } from "./requestOrigin.js";
 import { buildContentSecurityPolicy } from "./contentSecurityPolicy.js";
 import { buildPermissionsPolicy } from "./permissionsPolicy.js";
@@ -299,6 +300,7 @@ function registerRoutes(app: express.Express) {
   app.use("/api/inochi-avatars", inochiAvatarRoutes);
   app.use("/api/rag", ragRoutes);
   app.use("/api/writer", writerRoutes);
+  app.use("/api/novels", novelRoutes);
   app.use("/api/personas", personaRoutes);
 }
 

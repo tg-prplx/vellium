@@ -27,6 +27,8 @@ function taskScopeLabel(t: TaskTranslator, scope: BackgroundTaskScope) {
   switch (scope) {
     case "chat":
       return t("taskManager.scope.chat");
+    case "novels":
+      return t("novel.workspace");
     case "writing":
       return t("taskManager.scope.writing");
     case "characters":

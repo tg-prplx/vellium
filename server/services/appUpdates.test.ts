@@ -48,6 +48,10 @@ describe("app update checks", () => {
     );
   });
 
+  it("recognizes the novel release tag as the installed semver prerelease",()=>{
+    expect(buildAppUpdateInfo("1.9.5-b-novel",{tag_name:"v1.9.5b-novel"})).toMatchObject({updateAvailable:false,releaseUrl:"https://github.com/tg-prplx/vellium/releases/tag/v1.9.5b-novel"});
+  });
+
   it("rejects malformed release responses", () => {
     expect(() => buildAppUpdateInfo("1.0.2", { tag_name: "" })).toThrow(
       "missing a valid version"

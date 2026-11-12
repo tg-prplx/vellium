@@ -20,7 +20,7 @@ let pendingUpdate: Promise<AppUpdateInfo> | null = null;
 let failedUntil = 0;
 
 function normalizeVersion(value: unknown): string {
-  return String(value || "").trim().replace(/^v(?=\d)/i, "");
+  return String(value || "").trim().replace(/^v(?=\d)/i, "").replace(/^(\d+\.\d+\.\d+)([a-z][a-z0-9-]*)$/i, "$1-$2");
 }
 
 function releaseRepository(): string {

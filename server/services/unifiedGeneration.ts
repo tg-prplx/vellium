@@ -1,3 +1,4 @@
+import { generationUsage, promptCachePayload } from "./promptCache.js";
 import { splitThinkContent } from "../modules/chat/reasoning.js";
 import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "./apiParamPolicy.js";
 import { completeCustomAdapter } from "./customProviderAdapters.js";
@@ -148,7 +149,8 @@ export async function unifiedGenerateText(params: {
   samplerConfig?: Record<string, unknown>;
   apiParamPolicy?: unknown;
   signal?: AbortSignal;
-}): Promise<{ content: string; reasoning: string; providerType: "openai" | "koboldcpp" | "custom" }> {
+  promptCacheKey?: string;
+}): Promise<{ content: string; reasoning: string; providerType: "openai" | "koboldcpp" | "custom"; usage?: ReturnType<typeof generationUsage> }> {
   const providerType = normalizeProviderType(params.provider.provider_type);
   const sc = params.samplerConfig || {};
 
@@ -213,6 +215,7 @@ export async function unifiedGenerateText(params: {
     },
     body: JSON.stringify({
       model: params.modelId,
+      ...promptCachePayload(baseUrl, params.modelId, params.promptCacheKey),
       messages: params.messages.map((message) => ({
         ...message,
         role: normalizeOpenAiMessageRole(String(message.role || "user"), params.provider)
@@ -226,6 +229,7 @@ export async function unifiedGenerateText(params: {
     throw new Error(errText || `OpenAI-compatible request failed (${response.status})`);
   }
   const body = await response.json().catch(() => ({})) as {
+    usage?: { prompt_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
     choices?: Array<{
       message?: {
         content?: unknown;
@@ -275,6 +279,7 @@ export async function unifiedGenerateText(params: {
   return {
     content: split.content,
     reasoning: [directReasoning, split.reasoning].filter(Boolean).join("\n\n").trim(),
-    providerType
+    providerType,
+    usage: generationUsage(body.usage)
   };
 }

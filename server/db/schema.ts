@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 
 const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS novels (id TEXT PRIMARY KEY, title TEXT NOT NULL, payload TEXT NOT NULL, reading_cursor TEXT, revision INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS accounts (
     id TEXT PRIMARY KEY,
     password_hash TEXT NOT NULL,

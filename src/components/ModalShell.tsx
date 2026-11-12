@@ -86,7 +86,7 @@ export function ModalShell({
 
   useLayoutEffect(() => {
     const syncWorkspaceTop = () => {
-      const toolbar = document.querySelector<HTMLElement>(".app-shell > .app-header");
+      const toolbar = document.querySelector<HTMLElement>(".app-shell > .app-header, .app-shell > .app-navigation-shell > .app-header");
       setWorkspaceTop(toolbar ? Math.max(0, Math.round(toolbar.getBoundingClientRect().bottom)) : 0);
     };
     syncWorkspaceTop();
