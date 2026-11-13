@@ -1,3 +1,4 @@
+import {layersEnabled} from "./layers.js";
 import {visualNoiseSeed} from "./visualContinuity.js";
 import {randomUUID} from "crypto";
 import type {NovelStory,NovelScene} from "../../../src/shared/types/novels.js";
@@ -13,6 +14,8 @@ export function ensureSceneIllustration(scene:NovelScene) {
   return true;
 }
 export function prepareNovelIllustrations(story:NovelStory) {
+  // Layers mode draws backgrounds and sprites; scenes need no frame of their own.
+  if(layersEnabled(story.config))return false;
   let changed=false;
   for(const scene of story.scenes)if(ensureSceneIllustration(scene)){
     scene.illustrations[0].seed=visualNoiseSeed(story,scene,scene.illustrations[0].id);changed=true;

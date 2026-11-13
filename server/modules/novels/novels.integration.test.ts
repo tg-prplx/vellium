@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_NOVEL_CONFIG, type NovelStory } from "../../../src/shared/types/novels.js";
 
 // All story text in this suite is synthetic. The Vitest setup isolates the DB.
+// These cases cover the structured single-reply pipeline; lite mode has its own suite.
+const JSON_CONFIG = { ...DEFAULT_NOVEL_CONFIG, generationMode: "json" as const };
 describe.sequential("novel generation API", () => {
   let server: Server, mock: Server, base: string, endpoint: string;
   let lastImageType = "";
@@ -51,7 +53,7 @@ describe.sequential("novel generation API", () => {
       } else { response.statusCode = 404; response.end("{}"); }
     }); endpoint = await listen(mock);
     await json("/providers", { id: "novel-mock", name: "Novel mock", baseUrl: endpoint + "/v1", apiKey: "test-key", providerType: "openai" });
-    story = await json("/novels", { title: "Synthetic novel", config: { ...DEFAULT_NOVEL_CONFIG, premise: "Synthetic world", providerId: "novel-mock", modelId: "test", imagesEnabled: true, comfyUrl: endpoint, workflow } });
+    story = await json("/novels", { title: "Synthetic novel", config: { ...JSON_CONFIG, premise: "Synthetic world", providerId: "novel-mock", modelId: "test", imagesEnabled: true, comfyUrl: endpoint, workflow } });
   });
   afterAll(async () => { await Promise.all([server, mock].filter(Boolean).map((s) => new Promise<void>((resolve) => { s.closeAllConnections(); s.close(() => resolve()); }))); });
   it("does not generate on GET and rejects missing premise, unknown IDs and stale writes", async () => {
@@ -106,7 +108,7 @@ describe.sequential("novel generation API", () => {
     expect(story.scenes[0].illustrations[0].status).toBe("ready"); expect(imageCount).toBe(submissions);
   });
   it("saves usable truncated output in one model call and reuses the exact response in context", async () => {
-    const draft = await json("/novels", {config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic cut-off response",providerId:"novel-mock",modelId:"test"}});
+    const draft = await json("/novels", {config:{...JSON_CONFIG,premise:"Synthetic cut-off response",providerId:"novel-mock",modelId:"test"}});
     replyOverride = '{"scenes":[{"title":"Synthetic partial scene","lines":[{"speaker":"Tester","text":"Already paid for and complete."},{"text":"Not finished';
     const calls = count;
     try {
@@ -122,7 +124,7 @@ describe.sequential("novel generation API", () => {
     const settings = await json("/settings",undefined,"GET");
     try {
       await json("/settings",{systemPrompt:"SYNTHETIC_CHAT_RP_PROMPT",samplerConfig:{...settings.samplerConfig,stop:["}","Tester:"],koboldMemory:"SYNTHETIC_CHAT_MEMORY"}},"PATCH");
-      const draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic isolation fixture",providerId:"novel-mock",modelId:"test"}});
+      const draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic isolation fixture",providerId:"novel-mock",modelId:"test"}});
       await json(`/novels/${draft.id}/generate`,{revision:draft.revision});
       const request=bodies.at(-1)!;
       expect(request.stop).toBeUndefined();
@@ -131,7 +133,7 @@ describe.sequential("novel generation API", () => {
     } finally { await json("/settings",{systemPrompt:settings.systemPrompt,samplerConfig:settings.samplerConfig},"PATCH"); }
   });
   it("sends landscape Anima prompts with stable outfits, setting and a subjective camera",async()=>{
-    const draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic Anima fixture",providerId:"novel-mock",modelId:"test",pov:"first",imagePov:"first",povCharacter:"viewer",imagesEnabled:true,comfyUrl:endpoint,workflow:{...workflow,"4":{class_type:"EmptyLatentImage",inputs:{width:512,height:512}}}}});
+    const draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic Anima fixture",providerId:"novel-mock",modelId:"test",pov:"first",imagePov:"first",povCharacter:"viewer",imagesEnabled:true,comfyUrl:endpoint,workflow:{...workflow,"4":{class_type:"EmptyLatentImage",inputs:{width:512,height:512}}}}});
     const item={location:"Pool",lines:[{text:"Synthetic first line"},{text:"Synthetic second line"}],illustrations:[{prompt:"The guest waves at the viewer. Eye-level medium shot with soft light.",characterIds:["viewer","guest"],viewpointCharacterId:"viewer",camera:"first-person",atLine:0}]};
     replyOverride=JSON.stringify({characters:[{id:"viewer",name:"Viewer",appearance:"short black hair",outfit:"white shirt"},{id:"guest",name:"Guest",appearance:"long red hair, green eyes",outfit:"blue striped swimsuit"}],scenes:[{...item,setting:"white tiles, glass roof"},item]});
     try {
@@ -148,7 +150,7 @@ describe.sequential("novel generation API", () => {
   it("separates a shared card into persistent visual people and submits only the visible member",async()=>{
     const imported=await json("/characters/import",{rawJson:JSON.stringify({spec:"chara_card_v2",data:{name:"Expedition team",description:"Adult explorers Alice has red hair; Beatrice has black hair. They travel together."}})});
     const cardId=imported.id;
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,characterIds:[cardId],premise:"Synthetic shared card fixture",providerId:"novel-mock",modelId:"test",pov:"third",imagesEnabled:true,comfyUrl:endpoint,workflow}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,characterIds:[cardId],premise:"Synthetic shared card fixture",providerId:"novel-mock",modelId:"test",pov:"third",imagesEnabled:true,comfyUrl:endpoint,workflow}});
     const members=[{id:cardId,sourceCharacterId:cardId,name:"Alice",appearance:"red hair, green eyes",outfit:"blue coat"},{id:cardId,sourceCharacterId:cardId,name:"Beatrice",appearance:"black hair, brown eyes",outfit:"yellow jacket"}];
     replyOverride=JSON.stringify({characters:members,scenes:[{location:"Station",lines:[{speaker:"Alice",text:"Synthetic greeting."}],illustrations:[{prompt:"Alice raises her hand. Eye-level medium shot.",characterIds:[cardId],subjectNames:["Alice"],atLine:0}]}]});
     try {
@@ -170,7 +172,7 @@ describe.sequential("novel generation API", () => {
   });
   it("submits missing-image recovery to a custom Anima sampler without calling the text model",async()=>{
     const custom={"1":{class_type:"CLIPTextEncode",inputs:{text:"positive"}},"2":{class_type:"BasicGuider",inputs:{conditioning:["1",0]}},"3":{class_type:"SamplerCustomAdvanced",inputs:{guider:["2",0]}}};
-    const draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic recovery fixture",providerId:"novel-mock",modelId:"test",workflow:custom,comfyUrl:endpoint}});
+    const draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic recovery fixture",providerId:"novel-mock",modelId:"test",workflow:custom,comfyUrl:endpoint}});
     replyOverride=JSON.stringify({scenes:[{lines:[{speaker:"Test",text:"Synthetic line with no illustration plan"}]}]});
     let generated;
     try{generated=await json(`/novels/${draft.id}/generate`,{revision:draft.revision});}finally{replyOverride=undefined;}
@@ -180,7 +182,7 @@ describe.sequential("novel generation API", () => {
     const done=await json(`/novels/${draft.id}/images`,{revision:prepared.revision,illustrationId:prepared.scenes[0].illustrations[0].id});expect(imageCount).toBe(images+1);expect(count).toBe(calls);expect(done.scenes[0].illustrations[0].status).toBe("ready");
   });
   it("keeps the actual ComfyUI payload on the same set and costume despite model drift",async()=>{
-    const draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic drift fixture",providerId:"novel-mock",modelId:"test",pov:"third",imagesEnabled:true,comfyUrl:endpoint,workflow}});
+    const draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic drift fixture",providerId:"novel-mock",modelId:"test",pov:"third",imagesEnabled:true,comfyUrl:endpoint,workflow}});
     const lines=[{speaker:"Guest",text:"The guest smiles and raises her right hand."}];
     replyOverride=JSON.stringify({characters:[{id:"guest",name:"Guest",appearance:"long red hair, green eyes",outfit:"blue striped one-piece swimsuit"}],scenes:[
       {location:"Pool",setting:"white tiles, glass roof",lines,illustrations:[{prompt:"Watercolor painting with thick brush strokes. She raises her hand. Eye-level medium shot.",characterIds:["guest"],atLine:0}]},
@@ -193,7 +195,7 @@ describe.sequential("novel generation API", () => {
     }finally{replyOverride=undefined;}
   });
   it("automatically compacts growing context, persists the checkpoint and keeps full scenes",async()=>{
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic long context fixture",providerId:"novel-mock",modelId:"test",contextChars:8000,imagesEnabled:false}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic long context fixture",providerId:"novel-mock",modelId:"test",contextChars:8000,imagesEnabled:false}});
     const before=summaryCalls;
     for(let i=0;i<10;i++)draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision,action:`Synthetic decision ${i}`});
     expect(summaryCalls).toBeGreaterThan(before);expect(draft.scenes).toHaveLength(30);expect(draft.turns).toHaveLength(10);expect(draft.contextCheckpoint.throughTurn).toBeGreaterThan(0);
@@ -201,7 +203,7 @@ describe.sequential("novel generation API", () => {
     expect(bodies.some(body=>String(body.messages[0]?.content).includes("Earlier synthetic events: the explorer"))).toBe(true);
   });
   it("reuses a saved compaction checkpoint after the following scene request fails",async()=>{
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic checkpoint failure fixture",systemPrompt:"Write a visual novel. Return scenes JSON.",providerId:"novel-mock",modelId:"test",contextChars:8000,imagesEnabled:false}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic checkpoint failure fixture",systemPrompt:"Write a visual novel. Return scenes JSON.",providerId:"novel-mock",modelId:"test",contextChars:8000,imagesEnabled:false}});
     try{
       replyOverride=JSON.stringify({scenes:[{lines:[{text:"Synthetic older event "+"x".repeat(1150)},{text:"Synthetic consequence "+"y".repeat(1150)}]}]});
       for(let i=0;i<2;i++)draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision});
@@ -220,7 +222,7 @@ describe.sequential("novel generation API", () => {
   });
   it("snapshots optional Vellium cast without later library edits changing canon", async () => {
     const char = await json("/characters/import", { rawJson: JSON.stringify({ spec: "chara_card_v2", spec_version: "2.0", data: { name: "Synthetic guest", description: "silver hair, red scarf", personality: "patient" } }) });
-    const castStory = await json("/novels", { config: { ...DEFAULT_NOVEL_CONFIG, premise: "Test with guest", characterIds: [char.id] } });
+    const castStory = await json("/novels", { config: { ...JSON_CONFIG, premise: "Test with guest", characterIds: [char.id] } });
     await json(`/characters/${char.id}`, { name: "Renamed guest", description: "different" }, "PUT");
     const reloaded = await json(`/novels/${castStory.id}`, undefined, "GET");
     expect(reloaded.cast[0]).toMatchObject({ sourceCharacterId: char.id, name: "Synthetic guest", appearance: "silver hair, red scarf" });
@@ -247,7 +249,7 @@ describe.sequential("novel generation API", () => {
     expect((await json(`/novels/${story.id}/progress`, { scene: 9999, line: -99 }))).toEqual({ scene: story.scenes.length - 1, line: 0 });
   });
   it("deletes a selected novel permanently while preserving the other novels",async()=>{
-    const draft=await json("/novels",{title:"Synthetic deletion fixture",config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic deletion fixture"}});
+    const draft=await json("/novels",{title:"Synthetic deletion fixture",config:{...JSON_CONFIG,premise:"Synthetic deletion fixture"}});
     expect((await req(`/novels/${draft.id}`,undefined,"DELETE")).status).toBe(200);
     expect((await req(`/novels/${draft.id}`,undefined,"GET")).status).toBe(404);
     const list=await json("/novels",undefined,"GET");expect(list.some((item:{id:string})=>item.id===draft.id)).toBe(false);
@@ -256,7 +258,7 @@ describe.sequential("novel generation API", () => {
   it("resets generated history and checkpoints while keeping the original novel settings and cast",async()=>{
     const {getNovel,writeNovel}=await import("./repository.js");
     const char=await json("/characters/import",{rawJson:JSON.stringify({spec:"chara_card_v2",spec_version:"2.0",data:{name:"Synthetic reset guest",description:"red hair, blue coat"}})});
-    let draft=await json("/novels",{title:"Synthetic reset fixture",config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic reset world",providerId:"novel-mock",modelId:"test",characterIds:[char.id],scenesPerTurn:12,artStyle:"custom fixture art"}});
+    let draft=await json("/novels",{title:"Synthetic reset fixture",config:{...JSON_CONFIG,premise:"Synthetic reset world",providerId:"novel-mock",modelId:"test",characterIds:[char.id],scenesPerTurn:12,artStyle:"custom fixture art"}});
     draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision});
     draft=writeNovel({...getNovel(draft.id),contextCheckpoint:{text:"Synthetic earlier events",throughTurn:1,passes:1,updatedAt:""}},draft.revision);
     await json(`/novels/${draft.id}/progress`,{scene:1,line:1});const calls=count,images=imageCount;
@@ -269,14 +271,14 @@ describe.sequential("novel generation API", () => {
   it("previews the default prompt without model calls and persists custom instructions through reset",async()=>{
     const calls=count;
     const preview=await json("/novels/prompt-preview",{config:{imagesEnabled:true,pov:"first"}});expect(preview.defaultPrompt).toContain("SHOT PLANNING");expect(preview.defaultPrompt).not.toContain("SETTINGS:");expect(count).toBe(calls);
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic custom prompt world",providerId:"novel-mock",modelId:"test",systemPrompt:"SYNTHETIC_CUSTOM_INSTRUCTIONS. Return scenes JSON."}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic custom prompt world",providerId:"novel-mock",modelId:"test",systemPrompt:"SYNTHETIC_CUSTOM_INSTRUCTIONS. Return scenes JSON."}});
     expect((await json(`/novels/${draft.id}`,undefined,"GET")).config.systemPrompt).toBe(draft.config.systemPrompt);
     draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision});expect(bodies.at(-1)!.messages[0].content).toContain("SYNTHETIC_CUSTOM_INSTRUCTIONS");expect(bodies.at(-1)!.messages[0].content).not.toContain("Write a visual novel.");
     draft=await json(`/novels/${draft.id}/reset`,{revision:draft.revision});expect(draft.config.systemPrompt).toContain("SYNTHETIC_CUSTOM_INSTRUCTIONS");
     draft=await json(`/novels/${draft.id}`,{revision:draft.revision,config:{systemPrompt:""}},"PATCH");expect(draft.config.systemPrompt).toBe("");
   });
   it("carries a per-scene coverage request through to every planned ComfyUI cut",async()=>{
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic multi-cut scene",providerId:"novel-mock",modelId:"test",imagesEnabled:true,imagesPerScene:3,comfyUrl:endpoint,workflow}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic multi-cut scene",providerId:"novel-mock",modelId:"test",imagesEnabled:true,imagesPerScene:3,comfyUrl:endpoint,workflow}});
     const prompts=["A hand raises the key. Medium shot.","The fingers turn the key. Close-up.","The hand opens the box. Detail shot."];
     replyOverride=JSON.stringify({scenes:[0,1].map(()=>({location:"Workshop",lines:Array.from({length:8},(_,i)=>({text:`Synthetic visual beat ${i}.`})),illustrations:prompts.map((prompt,i)=>({prompt,characterIds:[],atLine:i*3}))}))});
     try {
@@ -292,7 +294,7 @@ describe.sequential("novel generation API", () => {
     }finally{replyOverride=undefined;}
   });
   it("locally repairs separators and retains later image plans without another model call",async()=>{
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic damaged JSON",providerId:"novel-mock",modelId:"test",imagesEnabled:true,imagesPerScene:2,comfyUrl:endpoint,workflow}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic damaged JSON",providerId:"novel-mock",modelId:"test",imagesEnabled:true,imagesPerScene:2,comfyUrl:endpoint,workflow}});
     const damaged='{"scenes":[{"lines":[{"text":"Complete opening."} {"text":"Complete reveal."}] "illustrations":[{"prompt":"The key rests on the table. Detail shot.","characterIds":[],"atLine":0} {"prompt":"The box opens. Close shot.","characterIds":[],"atLine":1}]}] "characters":[{"id":"fixture" "name":"Synthetic explorer" "appearance":"brown hair"}]}';
     replyOverride=damaged;
     try {
@@ -310,7 +312,7 @@ describe.sequential("novel generation API", () => {
   });
   it("submits old unsplit group-card frames instead of rejecting them before ComfyUI",async()=>{
     const imported=await json("/characters/import",{rawJson:JSON.stringify({spec:"chara_card_v2",data:{name:"Alice & Beatrice",description:"Two adult explorers: Alice has red hair, Beatrice has black hair."}})});
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,characterIds:[imported.id],premise:"Synthetic legacy group fixture",providerId:"novel-mock",modelId:"test",imagesEnabled:true,imagesPerScene:2,comfyUrl:endpoint,workflow}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,characterIds:[imported.id],premise:"Synthetic legacy group fixture",providerId:"novel-mock",modelId:"test",imagesEnabled:true,imagesPerScene:2,comfyUrl:endpoint,workflow}});
     replyOverride=JSON.stringify({scenes:[{lines:[{text:"Synthetic opening."},{text:"Synthetic continuation."}],illustrations:[{prompt:"Alice waves. Medium shot.",subjectNames:["Alice"],characterIds:[imported.id],atLine:0},{prompt:"She raises a hand. Close-up.",characterIds:[imported.id],atLine:1}]}]});
     try {
       draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision});
@@ -324,7 +326,7 @@ describe.sequential("novel generation API", () => {
     }finally{replyOverride=undefined;}
   });
   it("persists minimal continuations with inherited visuals and viewpoint through image rendering",async()=>{
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic sparse continuation",providerId:"novel-mock",modelId:"test",pov:"first",imagePov:"first",povCharacter:"Viewer",imagesEnabled:true,imagesPerScene:2,comfyUrl:endpoint,workflow}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic sparse continuation",providerId:"novel-mock",modelId:"test",pov:"first",imagePov:"first",povCharacter:"Viewer",imagesEnabled:true,imagesPerScene:2,comfyUrl:endpoint,workflow}});
     const opening={location:"Observatory",setting:"Stone hall, brass telescope, skylight.",lines:["Synthetic opening."],illustrations:[{prompt:"Guest waves. Medium shot.",characterIds:["guest"]}]};
     replyOverride=JSON.stringify({characters:[{id:"viewer",name:"Viewer",appearance:"silver hair",outfit:"green coat"},{id:"guest",name:"Guest",appearance:"brown hair",outfit:"blue coat"}],scenes:[opening]});
     try {
@@ -344,7 +346,7 @@ describe.sequential("novel generation API", () => {
   });
   it("automatically sends a schema to LM Studio and persists the manual off setting",async()=>{
     await json("/providers",{id:"lm-studio-mock",name:"LM Studio synthetic",baseUrl:endpoint+"/v1",apiKey:"test-key",providerType:"openai"});
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic schema acceptance",providerId:"lm-studio-mock",modelId:"test"}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic schema acceptance",providerId:"lm-studio-mock",modelId:"test"}});
     const before=count;
     draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision});
     expect(count).toBe(before+1);expect(bodies.at(-1)?.response_format?.type).toBe('json_schema');expect(draft.turns).toHaveLength(1);
@@ -353,7 +355,7 @@ describe.sequential("novel generation API", () => {
     expect((await json(`/novels/${draft.id}`,undefined,'GET')).config.structuredOutput).toBe('off');
   });
   it("falls back once after schema rejection and commits only the successful story response",async()=>{
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic rejected schema",providerId:"novel-mock",modelId:"test",structuredOutput:'json_schema'}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic rejected schema",providerId:"novel-mock",modelId:"test",structuredOutput:'json_schema'}});
     const before=count,offset=bodies.length;rejectSchema=true;
     try {
       draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision});
@@ -363,7 +365,7 @@ describe.sequential("novel generation API", () => {
     }finally{rejectSchema=false;}
   });
   it("sends mixed image cameras to ComfyUI independently of first-person prose and overrides them on redraw",async()=>{
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic independent image POV",providerId:"novel-mock",modelId:"test",pov:"first",povCharacter:"Viewer",imagePov:"dynamic",imagesEnabled:true,imagesPerScene:3,comfyUrl:endpoint,workflow}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic independent image POV",providerId:"novel-mock",modelId:"test",pov:"first",povCharacter:"Viewer",imagePov:"dynamic",imagesEnabled:true,imagesPerScene:3,comfyUrl:endpoint,workflow}});
     replyOverride=JSON.stringify({characters:[{id:"viewer",name:"Viewer",appearance:"silver hair",outfit:"green coat"},{id:"guest",name:"Guest",appearance:"brown hair",outfit:"blue coat"}],scenes:[{lines:["Synthetic opening.","Synthetic reaction.","Synthetic gesture."],illustrations:[{prompt:"Guest waves. Medium shot.",characterIds:["viewer","guest"],camera:"first-person",viewpointCharacterId:"viewer",atLine:0},{prompt:"Viewer and Guest shake hands. Medium shot.",characterIds:["viewer","guest"],camera:"external",atLine:1},{prompt:"Guest points. Close shot.",characterIds:["guest"],camera:"over-shoulder",viewpointCharacterId:"viewer",atLine:2}]}]});
     try {
       draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision});
@@ -371,16 +373,16 @@ describe.sequential("novel generation API", () => {
       const offset=imageBodies.length;draft=await json(`/novels/${draft.id}/images`,{revision:draft.revision});
       const prompts=imageBodies.slice(offset).map(graph=>String(graph['1'].inputs.text));expect(prompts).toHaveLength(3);
       expect(prompts[0]).toContain('first-person view');expect(prompts[0]).not.toContain('silver hair');
-      expect(prompts[1]).toContain('external camera');expect(prompts[1]).toContain('silver hair');
+      expect(prompts[1]).toContain('Third-person view');expect(prompts[1]).toContain('silver hair');
       expect(prompts[2]).toContain('Over-the-shoulder');expect(prompts[2]).toContain('green coat');
       draft=await json(`/novels/${draft.id}`,{revision:draft.revision,config:{imagePov:'third'}},'PATCH');
       const calls=count;draft=await json(`/novels/${draft.id}/images`,{revision:draft.revision,illustrationId:draft.scenes[0].illustrations[0].id});
-      expect(count).toBe(calls);expect(String(imageBodies.at(-1)!['1'].inputs.text)).toContain('external camera');expect(String(imageBodies.at(-1)!['1'].inputs.text)).toContain('silver hair');
+      expect(count).toBe(calls);expect(String(imageBodies.at(-1)!['1'].inputs.text)).toContain('Third-person view');expect(String(imageBodies.at(-1)!['1'].inputs.text)).toContain('silver hair');
       expect(draft.config.pov).toBe('first');expect(draft.config.imagePov).toBe('third');
     }finally{replyOverride=undefined;}
   });
   it("requires scheduled root choices in structured requests and accepts an unlisted free action",async()=>{
-    let draft=await json("/novels",{config:{...DEFAULT_NOVEL_CONFIG,premise:"Synthetic scheduled decisions",providerId:"novel-mock",modelId:"test",questionFrequency:'frequent',structuredOutput:'json_schema'}});
+    let draft=await json("/novels",{config:{...JSON_CONFIG,premise:"Synthetic scheduled decisions",providerId:"novel-mock",modelId:"test",questionFrequency:'frequent',structuredOutput:'json_schema'}});
     replyOverride=JSON.stringify({scenes:[{lines:['Synthetic complete decision scene.']}],question:'What do you do?',choices:['Wait','Ask the guide']});
     try {
       draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision});
@@ -394,6 +396,38 @@ describe.sequential("novel generation API", () => {
       draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision,action:'My own reply with questions off.'});
       expect(draft.scenes.at(-1).choices).toEqual([]);expect(JSON.parse(bodies.at(-1)!.messages.at(-1)!.content).action).toBe('My own reply with questions off.');
     }finally{replyOverride=undefined;}
+  });
+  it("uses one library card for a complete setting and cast without a separate premise or cast selection",async()=>{
+    const description='A mountain observatory with a brass telescope. Alice and Beatrice are adult explorers. '+ 'Synthetic lore detail. '.repeat(120).trim();
+    const source=await json('/characters/import',{rawJson:JSON.stringify({spec:'chara_card_v2',data:{name:'Observatory expedition',description,personality:'Alice is curious; Beatrice is patient.',scenario:'A storm traps both explorers at the observatory.',system_prompt:'Keep the observatory mystery grounded.',post_history_instructions:'Track the telescope discovery.',first_mes:'The adult explorers arrive before the storm.',mes_example:'Alice asks about the telescope.'}})});
+    let draft=await json('/novels',{settingCards:[{name:'Forged client snapshot'}],config:{...JSON_CONFIG,premise:'',settingCardIds:[source.id],providerId:'novel-mock',modelId:'test'}});
+    expect(draft.title).toBe('Observatory expedition');expect(draft.cast).toEqual([]);expect(draft.memory.characters).toEqual([]);
+    expect(draft.settingCards[0]).toMatchObject({description,scenario:'A storm traps both explorers at the observatory.',instructions:'Keep the observatory mystery grounded.',continuationInstructions:'Track the telescope discovery.'});
+    replyOverride=JSON.stringify({characters:[{id:'alice',sourceCharacterId:source.id,name:'Alice',appearance:'red hair',outfit:'blue coat'},{id:'beatrice',sourceCharacterId:source.id,name:'Beatrice',appearance:'black hair',outfit:'yellow coat'}],scenes:[{location:'Observatory',lines:[{speaker:'Alice',text:'Synthetic complete greeting.'}]}]});
+    try {
+      draft=await json(`/novels/${draft.id}/generate`,{revision:draft.revision});
+      const system=bodies.at(-1)!.messages[0].content;const settings=JSON.parse(system.split('SETTINGS: ')[1]);
+      expect(settings.storySources[0].description).toBe(description);expect(settings.cast).toEqual([]);expect(draft.memory.characters.map((c:{name:string})=>c.name)).toEqual(['Alice','Beatrice']);
+      await json(`/characters/${source.id}`,{name:'Changed library title',description:'Changed lore'},'PUT');
+      draft=await json(`/novels/${draft.id}`,{revision:draft.revision,config:{tone:'synthetic tone'}},'PATCH');expect(draft.settingCards[0].description).toBe(description);
+      await req(`/characters/${source.id}`,undefined,'DELETE');
+      draft=await json(`/novels/${draft.id}/reset`,{revision:draft.revision});expect(draft.settingCards[0].description).toBe(description);expect(draft.memory.characters).toEqual([]);
+      draft=await json(`/novels/${draft.id}`,{revision:draft.revision,config:{tone:'another synthetic tone'}},'PATCH');expect(draft.settingCards[0].description).toBe(description);
+      expect((await req(`/novels/${draft.id}`,{revision:draft.revision,config:{settingCardIds:[]}},'PATCH')).status).toBe(400);
+      expect((await json(`/novels/${draft.id}`,undefined,'GET')).settingCards[0].description).toBe(description);
+    }finally{replyOverride=undefined;}
+  });
+  it("adds/removes foundation cards for future generation and rejects missing or empty sources",async()=>{
+    const source=await json('/characters/import',{rawJson:JSON.stringify({spec:'chara_card_v2',data:{name:'Synthetic city',scenario:'A clockwork city and its adult residents prepare for a festival.'}})});
+    let draft=await json('/novels',{config:{...JSON_CONFIG,premise:'Synthetic original premise'}});
+    draft=await json(`/novels/${draft.id}`,{revision:draft.revision,config:{premise:'',settingCardIds:[source.id]},settingCards:[{name:'Forged'}]},'PATCH');
+    expect(draft.settingCards[0].name).toBe('Synthetic city');expect(draft.config.premise).toBe('');
+    expect((await req(`/novels/${draft.id}`,{revision:draft.revision,config:{settingCardIds:['missing']}},'PATCH')).status).toBe(400);
+    expect((await json(`/novels/${draft.id}`,undefined,'GET')).settingCards[0].name).toBe('Synthetic city');
+    draft=await json(`/novels/${draft.id}`,{revision:draft.revision,config:{premise:'Synthetic replacement premise',settingCardIds:[]}},'PATCH');expect(draft.settingCards).toEqual([]);
+    const empty=await json('/characters/import',{rawJson:JSON.stringify({spec:'chara_card_v2',data:{name:'Empty source'}})});
+    expect((await req('/novels',{config:{...JSON_CONFIG,premise:'',settingCardIds:[empty.id]}})).status).toBe(400);
+    expect((await req('/novels',{config:{...JSON_CONFIG,premise:'',settingCardIds:['missing']}})).status).toBe(400);
   });
   it("respects Full Local Mode for novel and image endpoints", async () => {
     await json("/settings", { fullLocalMode: true }, "PATCH");

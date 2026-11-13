@@ -3,6 +3,8 @@ import { splitThinkContent } from "../modules/chat/reasoning.js";
 import { buildKoboldSamplerConfig, buildOpenAiSamplingPayload, normalizeApiParamPolicy } from "./apiParamPolicy.js";
 import { completeCustomAdapter } from "./customProviderAdapters.js";
 import { fetchProviderResponse } from "./providerHttp.js";
+import { fetchChatStream } from "../modules/chat/streamRequest.js";
+import { readOpenAiTextStream } from "./openAiTextStream.js";
 import { buildKoboldGenerateBody, extractKoboldGeneratedText, normalizeProviderType, requestKoboldGenerate } from "./providerApi.js";
 
 export interface UnifiedProviderRow {
@@ -157,6 +159,9 @@ export async function unifiedGenerateText(params: {
   promptCacheKey?: string;
   responseFormat?: UnifiedResponseFormat;
   allowUnstructuredFallback?: boolean;
+  /** Receive visible text as it is generated. OpenAI-compatible providers
+   * stream; other provider types deliver the whole text once at the end. */
+  onText?: (delta: string) => void;
 }): Promise<{ content: string; reasoning: string; providerType: "openai" | "koboldcpp" | "custom"; usage?: ReturnType<typeof generationUsage> }> {
   const providerType = normalizeProviderType(params.provider.provider_type);
   const sc = params.samplerConfig || {};
@@ -185,6 +190,7 @@ export async function unifiedGenerateText(params: {
     }
     const generated = extractKoboldGeneratedText(await response.json().catch(() => ({})));
     const split = splitThinkContent(generated);
+    if (params.onText && split.content) params.onText(split.content);
     return { content: split.content, reasoning: split.reasoning, providerType };
   }
 
@@ -199,6 +205,7 @@ export async function unifiedGenerateText(params: {
       signal: params.signal
     });
     const split = splitThinkContent(generated);
+    if (params.onText && split.content) params.onText(split.content);
     return { content: split.content, reasoning: split.reasoning, providerType };
   }
 
@@ -215,30 +222,38 @@ export async function unifiedGenerateText(params: {
       maxTokens: 1024
     }
   });
-  const response = await fetchProviderResponse(`${baseUrl}/chat/completions`, {
+  const payload = {
+    model: params.modelId,
+    ...promptCachePayload(baseUrl, params.modelId, params.promptCacheKey),
+    messages: params.messages.map((message) => ({
+      ...message,
+      role: normalizeOpenAiMessageRole(String(message.role || "user"), params.provider)
+    })),
+    ...openAiSampling,
+    ...(params.responseFormat?{response_format:params.responseFormat}:{})
+  };
+  const init = {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${params.provider.api_key_cipher}`
     },
-    body: JSON.stringify({
-      model: params.modelId,
-      ...promptCachePayload(baseUrl, params.modelId, params.promptCacheKey),
-      messages: params.messages.map((message) => ({
-        ...message,
-        role: normalizeOpenAiMessageRole(String(message.role || "user"), params.provider)
-      })),
-      ...openAiSampling,
-      ...(params.responseFormat?{response_format:params.responseFormat}:{})
-    }),
     signal: params.signal
-  });
+  };
+  const response = params.onText
+    ? await fetchChatStream(`${baseUrl}/chat/completions`, init, payload)
+    : await fetchProviderResponse(`${baseUrl}/chat/completions`, { ...init, body: JSON.stringify(payload) });
   if (!response.ok) {
     const errText = await response.text().catch(() => "");
     const schemaRejected=params.responseFormat && params.allowUnstructuredFallback &&
       [400,422,500,501].includes(response.status) && /response[_ -]?format|json[_ -]?schema|structured[ _-]?(?:output|response)|(?:schema|grammar).*(?:unsupported|invalid|reject|compil|not support)|(?:unsupported|invalid|reject|not support).*(?:schema|grammar)/i.test(errText);
     if(schemaRejected)return unifiedGenerateText({...params,responseFormat:undefined,allowUnstructuredFallback:false});
     throw new Error(errText || `OpenAI-compatible request failed (${response.status})`);
+  }
+  if (params.onText) {
+    const streamed = await readOpenAiTextStream(response, params.onText, params.signal);
+    const split = splitThinkContent(streamed.content);
+    return { content: split.content, reasoning: split.reasoning, providerType, usage: generationUsage(streamed.usage) };
   }
   const body = await response.json().catch(() => ({})) as {
     usage?: { prompt_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };

@@ -4,18 +4,28 @@ import { useEffect, useRef, useState } from "react";
 import { ModalShell } from "../../../components/ModalShell";
 import { useI18n } from "../../../shared/i18n";
 import type { NovelStory } from "../../../shared/types/novels";
-import { resolveApiAssetUrl } from "../../../shared/api";
+import { NovelStage } from "./NovelStage";
+import { NovelImageTools } from "./NovelImageTools";
+import { NovelControl, NovelIcon, NovelMoreMenu } from "./NovelControls";
+import { sceneFrames, usesLayers } from "../layers";
 
-export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLibrary, onCancel, paused = false }: {
+export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLibrary, onCancel, onEditImage, onAddFrame, onToChat, onExportWriter, busyNote = "", paused = false }: {
   story: NovelStory; busy: boolean; onGenerate: (action?: string, illustrationId?: string, imagesOnly?: boolean) => Promise<NovelStory | undefined>;
   onSave: (cursor: NovelStory["cursor"]) => Promise<unknown>; onSettings: () => void; onLibrary: () => void; onCancel: () => void; paused?:boolean;
+  busyNote?: string;
+  onToChat: () => Promise<unknown>; onExportWriter: () => Promise<{ name: string } | undefined>;
+  onEditImage: (id: string, patch: { prompt?: string; reseed?: boolean }) => Promise<unknown>; onAddFrame: (sceneId: string, atLine: number, prompt: string) => Promise<unknown>;
 }) {
   const { t } = useI18n();
   const [sceneIndex, setSceneIndex] = useState(story.cursor.scene); const [lineIndex, setLineIndex] = useState(story.cursor.line);
   const [panel, setPanel] = useState<"journal" | "memory" | null>(null); const [action, setAction] = useState("");
   const [bookmarkSaved, setBookmarkSaved] = useState(false);
+  const [exported, setExported] = useState("");
   const [hidden, setHidden] = useState(false); const [auto, setAuto] = useState(false); const [revealed, setRevealed] = useState(false);
   const advancing = useRef(false);
+  // Scene count when a generation started. Streamed scenes may appear before
+  // the request returns; the reader moves to the first new one exactly once.
+  const jumpFrom = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const scene = story.scenes[sceneIndex]; const line = scene?.lines[lineIndex];
   const [pageVisible,setPageVisible]=useState(()=>!document.hidden);
@@ -23,10 +33,15 @@ export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLib
   const speech=useNovelSpeech(story.id,`${scene?.id||""}:${lineIndex}`,line?.text||"",pageVisible && !paused && !panel);
   const openSpeechSettings=()=>{speech.stop();window.dispatchEvent(new CustomEvent("open-settings-view",{detail:{category:"voice",sectionId:"settings-tts"}}));};
   const atSceneEnd = Boolean(scene && lineIndex >= scene.lines.length - 1); const atEnd = sceneIndex >= story.scenes.length - 1 && atSceneEnd;
-  const frames = scheduledNovelFrames(scene?.illustrations || [], scene?.lines.length || 1);
+  const layers = usesLayers(story.config);
+  // Layers mode: the background opens every scene, so a full frame starts at
+  // its own line instead of being moved to the first one.
+  const frames = layers ? sceneFrames(scene?.illustrations || []) : scheduledNovelFrames(scene?.illustrations || [], scene?.lines.length || 1);
   const frame = [...frames].reverse().find((im) => im.atLine <= lineIndex && im.status === "ready");
   const selectedFrame = [...frames].reverse().find((im) => im.atLine <= lineIndex);
-  const url = resolveApiAssetUrl(frame?.url);
+  const background = layers && scene?.background ? story.backgrounds?.[scene.background] : undefined;
+  // The picture the tools act on: the frame on screen, else the place's background.
+  const picture = selectedFrame || background;
   const progressRef = useRef<NovelStory["cursor"] | null>(null);
   const onSaveRef = useRef(onSave); onSaveRef.current = onSave;
   if (scene) progressRef.current = { scene: sceneIndex, line: lineIndex };
@@ -37,6 +52,12 @@ export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLib
     return () => clearTimeout(timer);
   }, [sceneIndex, lineIndex, story.scenes.length]);
   useEffect(() => () => { if (progressRef.current) void onSaveRef.current(progressRef.current); }, []);
+  useEffect(() => {
+    if (jumpFrom.current !== null && story.scenes.length > jumpFrom.current) { setSceneIndex(jumpFrom.current); setLineIndex(0); jumpFrom.current = null; return; }
+    // Streamed scenes vanish if a generation fails; never point past the end.
+    if (story.scenes.length && sceneIndex >= story.scenes.length) { setSceneIndex(story.scenes.length - 1); setLineIndex(0); }
+  }, [story.scenes.length]);
+  useEffect(() => { if (scene && lineIndex >= scene.lines.length) setLineIndex(Math.max(0, scene.lines.length - 1)); }, [scene, lineIndex]);
   useEffect(() => { setBookmarkSaved(false); setRevealed(false); rootRef.current?.querySelector(".novel-reading-surface")?.scrollTo(0,0); const timer = setTimeout(() => setRevealed(true), 650); return () => clearTimeout(timer); }, [sceneIndex, lineIndex]);
   useEffect(()=>{if(speech.status==="playing")setRevealed(true);},[speech.status]);
   function next() {
@@ -46,8 +67,8 @@ export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLib
     if (!atSceneEnd) setLineIndex((n) => n + 1);
     else if (sceneIndex < story.scenes.length - 1) { setSceneIndex((n) => n + 1); setLineIndex(0); }
     else if (!busy && !action.trim() && !scene.question && !scene.choices.length && !advancing.current) {
-      advancing.current = true;
-      void onGenerate().then((result) => { if (result && result.scenes.length > story.scenes.length) { setSceneIndex(story.scenes.length); setLineIndex(0); } }).finally(() => { advancing.current = false; });
+      advancing.current = true; jumpFrom.current = story.scenes.length;
+      void onGenerate().finally(() => { advancing.current = false; jumpFrom.current = null; });
     }
   }
   function previous() {
@@ -70,25 +91,25 @@ export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLib
     window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
   });
   useEffect(() => {
-    if (!auto || busy || action.trim() || panel || paused || !pageVisible || (speech.enabled && !speech.done) || (atEnd && (scene?.question || scene?.choices.length))) return;
+    if (!auto || (busy && atEnd) || action.trim() || panel || paused || !pageVisible || (speech.enabled && !speech.done) || (atEnd && (scene?.question || scene?.choices.length))) return;
     const timer = setTimeout(() => { if (rootRef.current?.getClientRects().length && !document.hidden) next(); }, speech.enabled ? 450 : Math.max(3200, (line?.text.length || 0) * 45));
     return () => clearTimeout(timer);
   });
   async function answer(value: string) {
     if (!value.trim() || busy || advancing.current || paused || panel) return;
-    advancing.current=true;setAuto(false);
+    advancing.current=true;setAuto(false);jumpFrom.current=story.scenes.length;
     try {
       const nextStory=await onGenerate(value.trim());
-      if(nextStory && nextStory.scenes.length>story.scenes.length){setAction("");setSceneIndex(story.scenes.length);setLineIndex(0);}
-    }finally{advancing.current=false;}
+      if(nextStory && nextStory.scenes.length>story.scenes.length)setAction("");
+    }finally{advancing.current=false;jumpFrom.current=null;}
   }
   return <div className={`novel-reader ${hidden ? "is-hidden" : ""} ${atEnd && scene ? "has-choice" : ""}`} ref={rootRef} onClick={(event) => {
-    if (panel || (event.target as HTMLElement).closest("button,a,input,textarea,select,form,[role=dialog]")) return;
+    if (panel || (event.target as HTMLElement).closest("button,a,input,textarea,select,form,summary,details,[role=dialog],[role=menu]")) return;
     if (window.getSelection()?.toString()) return;
     if (hidden) { setHidden(false); return; }
     next();
   }}>
-    <div className="novel-stage" style={url ? { backgroundImage: `url("${url}")` } : undefined} />
+    <NovelStage story={story} scene={scene} speaker={line?.speaker || ""} frameUrl={frame?.url} />
     <div className="novel-vignette" />
     <header className="novel-reader-top">
       <button onClick={onLibrary} disabled={busy} aria-label={t("novel.library")}>← <span>{t("novel.library")}</span></button>
@@ -103,10 +124,12 @@ export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLib
       <main className="novel-reading-surface" title={t("novel.advanceHint")}>
         {speech.enabled && (speech.status==="loading" || speech.status==="playing") && <div className="novel-speech-status" role="status"><span>{t(speech.status==="loading"?"novel.ttsLoading":"novel.ttsPlaying")}</span><button onClick={speech.stop}>{t("chat.stop")}</button></div>}
         {speech.enabled && speech.error && <div className="novel-speech-status" role="alert"><span>{speech.error}</span><button onClick={speech.replay}>{t("novel.ttsReplay")}</button><button onClick={openSpeechSettings}>{t("novel.ttsSettings")}</button></div>}
-        {busy && <div className="novel-generation-status" role="status"><span className="novel-pulse" />{t("novel.working")}<button onClick={onCancel}>{t("chat.stop")}</button></div>}
-        {scene && story.config.imagesEnabled && !scene.illustrations.length && <div className="novel-image-notice"><span>{t("novel.missingImagePlan")}</span><button disabled={busy} onClick={()=>void onGenerate(undefined,undefined,true)}>{t("novel.renderImages")}</button></div>}
+        {exported && <div className="novel-generation-status" role="status"><span>{t("novel.exportedWriter").replace("{name}", exported)}</span><button onClick={() => window.dispatchEvent(new CustomEvent("open-app-tab", { detail: { tabId: "writing" } }))}>{t("novel.openWriter")}</button><button aria-label={t("chat.cancel")} onClick={() => setExported("")}>×</button></div>}
+        {busy && <div className="novel-generation-status" role="status"><span className="novel-pulse" />{busyNote || t("novel.working")}<button onClick={onCancel}>{t("chat.stop")}</button></div>}
+        {scene && story.config.imagesEnabled && !layers && !scene.illustrations.length && <div className="novel-image-notice"><span>{t("novel.missingImagePlan")}</span><button disabled={busy} onClick={()=>void onGenerate(undefined,undefined,true)}>{t("novel.renderImages")}</button></div>}
         {selectedFrame?.status === "error" && <div className="novel-image-notice"><span title={selectedFrame.error}>{t("novel.imageFailed")} {selectedFrame.error}</span><button disabled={busy} onClick={() => void onGenerate(undefined, selectedFrame.id, true)}>{t("novel.retryImage")}</button></div>}
-        {selectedFrame?.status === "pending" && !busy && <div className="novel-image-notice"><span>{t("novel.imagePending")}</span><button onClick={() => void onGenerate(undefined, undefined, true)}>{t("novel.renderImages")}</button></div>}
+        {background?.status === "error" && !selectedFrame && <div className="novel-image-notice"><span title={background.error}>{t("novel.imageFailed")} {background.error}</span><button disabled={busy} onClick={() => void onGenerate(undefined, background.id, true)}>{t("novel.retryImage")}</button></div>}
+        {(selectedFrame || background)?.status === "pending" && !busy && <div className="novel-image-notice"><span>{t("novel.imagePending")}</span><button onClick={() => void onGenerate(undefined, undefined, true)}>{t("novel.renderImages")}</button></div>}
         {scene ? <>
           <div className="novel-dialogue-heading"><span>{line?.speaker || t("novel.narrator")}</span><small>{String(sceneIndex + 1).padStart(2, "0")} / {String(story.scenes.length).padStart(2, "0")} · {lineIndex + 1}/{scene.lines.length}</small></div>
           <button className={`novel-dialogue ${revealed ? "is-revealed" : ""}`} onClick={next} aria-label={t("novel.next")}><span key={`${scene.id}-${lineIndex}`}>{line?.text}</span>{!atEnd && <i aria-hidden="true">▾</i>}</button>
@@ -117,18 +140,24 @@ export function NovelReader({ story, busy, onGenerate, onSave, onSettings, onLib
           </section>}
         </> : <div className="novel-opening"><span className="novel-eyebrow">{t("novel.ready")}</span><h2>{story.title}</h2><p>{t("novel.readyHint")}</p><button className="novel-primary" disabled={busy} onClick={() => void onGenerate()}>{t("novel.begin")}</button></div>}
         <footer className="novel-reader-controls" aria-label={t("novel.controls")}>
-          <button disabled={!lineIndex && !sceneIndex} onClick={previous}>← {t("novel.previous")}</button>
-          <button disabled={!scene} aria-pressed={auto} onClick={() => setAuto((v) => !v)}>{t("novel.auto")}</button>
-          {selectedFrame?.status === "ready" && <button disabled={busy} onClick={() => void onGenerate(undefined, selectedFrame.id, true)}>{t("novel.redraw")}</button>}
-          <button aria-pressed={speech.enabled} title={t("novel.ttsHint")} onClick={speech.toggle}>{t("novel.autoTts")}: {t(speech.enabled?"novel.ttsOn":"novel.ttsOff")}</button>
-          {speech.enabled && !speech.error && <button disabled={!line} onClick={speech.status==="playing" || speech.status==="loading" ? speech.stop : speech.replay}>{t(speech.status==="playing" || speech.status==="loading" ? "novel.ttsStop" : "novel.ttsReplay")}</button>}
-          <button onClick={onSettings} disabled={busy} title={t("novel.settingsShortcut")}>{t("novel.settings")}</button>
-          <button onClick={() => setPanel("journal")}>{t("novel.journal")}</button>
-          <button onClick={() => setPanel("memory")}>{t("novel.memory")}</button>
-          <button onClick={async () => { const result = await onSave({ scene: sceneIndex, line: lineIndex }); if (result) setBookmarkSaved(true); }} disabled={busy || !scene}>{t(bookmarkSaved ? "novel.bookmarked" : "novel.bookmark")}</button>
-          <button onClick={() => setHidden(true)}>{t("novel.hideUi")}</button>
+          <NovelControl icon="back" label={t("novel.previous")} disabled={!lineIndex && !sceneIndex} onClick={previous} />
+          <NovelControl icon="auto" label={t("novel.auto")} disabled={!scene} pressed={auto} onClick={() => setAuto((v) => !v)} />
+          <NovelControl icon="voice" label={t("novel.voice")} title={t("novel.ttsHint")} pressed={speech.enabled} onClick={speech.toggle} />
+          {speech.enabled && !speech.error && <NovelControl iconOnly icon={speech.status==="playing" || speech.status==="loading" ? "stop" : "replay"} label={t(speech.status==="playing" || speech.status==="loading" ? "novel.ttsStop" : "novel.ttsReplay")} disabled={!line} onClick={speech.status==="playing" || speech.status==="loading" ? speech.stop : speech.replay} />}
+          <span className="novel-control-divider" aria-hidden="true" />
+          <NovelControl iconOnly icon="journal" label={t("novel.journal")} onClick={() => setPanel("journal")} />
+          <NovelControl iconOnly icon="memory" label={t("novel.memory")} onClick={() => setPanel("memory")} />
+          <NovelControl iconOnly icon="bookmark" label={t(bookmarkSaved ? "novel.bookmarked" : "novel.bookmark")} pressed={bookmarkSaved} disabled={busy || !scene} onClick={async () => { const result = await onSave({ scene: sceneIndex, line: lineIndex }); if (result) setBookmarkSaved(true); }} />
+          <NovelControl iconOnly icon="hide" label={t("novel.hideUi")} onClick={() => setHidden(true)} />
+          <NovelControl iconOnly icon="settings" label={t("novel.settings")} title={t("novel.settingsShortcut")} disabled={busy} onClick={onSettings} />
+          <NovelMoreMenu label={t("novel.moreActions")}>
+            {story.config.imagesEnabled && story.config.workflow && <><p className="novel-more-heading">{t("novel.pictures")}</p><NovelImageTools picture={picture} scene={scene} lineIndex={lineIndex} busy={busy} onEdit={onEditImage} onAdd={onAddFrame} /></>}
+            <p className="novel-more-heading">{t("novel.continueElsewhere")}</p>
+            <button type="button" disabled={busy || !story.scenes.length} title={t("novel.toChatHint")} onClick={() => void onToChat()}>{t("novel.toChat")}</button>
+            <button type="button" disabled={busy || !story.scenes.length} title={t("novel.exportWriterHint")} onClick={async () => { const result = await onExportWriter(); if (result) setExported(result.name); }}>{t("novel.exportWriter")}</button>
+          </NovelMoreMenu>
           <span className="novel-control-spacer" />
-          <button className="novel-continue" onClick={next} disabled={(busy && atEnd) || (atEnd && Boolean(action.trim() || scene?.question || scene?.choices.length))}>{t(atEnd ? "novel.continue" : "novel.next")} →</button>
+          <button className="novel-continue novel-primary" aria-label={t(atEnd ? "novel.continue" : "novel.next")} onClick={next} disabled={(busy && atEnd) || (atEnd && Boolean(action.trim() || scene?.question || scene?.choices.length))}><span className="novel-control-label">{t(atEnd ? "novel.continue" : "novel.next")}</span><NovelIcon name="next" /></button>
         </footer>
       </main>
     </>}

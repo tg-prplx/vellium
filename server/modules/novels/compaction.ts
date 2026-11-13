@@ -8,7 +8,8 @@ export function novelCompactionTarget(story:NovelStory,overhead:number) {
   const checkpoint=novelCheckpoint(story),start=checkpoint?.throughTurn || 0;
   const budget=story.config.contextChars-overhead-(checkpoint?0:1600)-256;
   if(budget<512)throw new Error("Novel context limit is too small for the world and character data. Increase the context budget.");
-  const sizes=story.turns.slice(start).map(t=>continuityTurn(t.user).length+continuityTurn(t.assistant).length);
+  // Lite turns are measured as they are actually sent.
+  const sizes=story.turns.slice(start).map(t=>t.lite?t.lite.user.length+t.lite.assistant.length:continuityTurn(t.user).length+continuityTurn(t.assistant).length);
   if(sizes.reduce((a,b)=>a+b,0)<=budget*.9 && !checkpoint?.turnOffset)return start;
   let used=0,keep=0;
   for(const size of [...sizes].reverse()){

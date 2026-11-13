@@ -8,6 +8,9 @@ interface SimpleChatActionsMenuProps {
   exporting: boolean;
   onCompress: () => void;
   onExport: () => void;
+  novelDisabled: boolean;
+  creatingNovel: boolean;
+  onNovel: () => void;
 }
 
 export function SimpleChatActionsMenu({
@@ -16,7 +19,10 @@ export function SimpleChatActionsMenu({
   exportDisabled,
   exporting,
   onCompress,
-  onExport
+  onExport,
+  novelDisabled,
+  creatingNovel,
+  onNovel
 }: SimpleChatActionsMenuProps) {
   const { t } = useI18n();
   const menuRef = useRef<HTMLDetailsElement>(null);
@@ -69,6 +75,12 @@ export function SimpleChatActionsMenu({
             <path strokeLinecap="round" strokeLinejoin="round" d="M13.75 3.75V8H18M10.25 11c-.9 0-1.25.55-1.25 1.5S8.65 14 7.75 14m6-3c.9 0 1.25.55 1.25 1.5s.35 1.5 1.25 1.5" />
           </svg>
           <span>{exporting ? t("chat.exporting") : t("chat.exportJson")}</span>
+        </button>
+        <button type="button" disabled={novelDisabled || creatingNovel} title={t("chat.toNovelHint")} onClick={() => run(onNovel)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 5c3-1 5-1 8 1 3-2 5-2 8-1v14c-3-1-5-1-8 1-3-2-5-2-8-1zM12 6v14" />
+          </svg>
+          <span>{creatingNovel ? t("chat.toNovelBusy") : t("chat.toNovel")}</span>
         </button>
       </div>
     </details>

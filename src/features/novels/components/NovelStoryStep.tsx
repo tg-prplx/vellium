@@ -1,3 +1,6 @@
+import {NovelWorldCards} from "./NovelWorldCards";
+import {NovelPersonaPicker} from "./NovelPersonaPicker";
+import {NovelKnowledgePicker} from "./NovelKnowledgePicker";
 import { useState } from "react";
 import { useI18n } from "../../../shared/i18n";
 import type { CharacterDetail } from "../../../shared/types/contracts";
@@ -11,9 +14,11 @@ export function NovelStoryStep({ config, patch, title, setTitle, characters, edi
   const filtered = characters.filter((c) => c.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   return <>
     <div className="novel-step-intro"><h2>{t("novel.setup.storyHeading")}</h2><p>{t("novel.setup.storyHint")}</p></div>
-    <NovelTextField {...props} name="premise" label="novel.premise" rows={4} placeholder="novel.setup.premisePlaceholder" />
-    {!config.premise.trim() && <div className="novel-idea-seeds"><span>{t("novel.setup.tryIdea")}</span>{(["mystery", "journey", "everyday"] as const).map((key) => <button key={key} type="button" onClick={() => patch({ premise: t(`novel.setup.seed.${key}`) })}>{t(`novel.setup.genre.${key}`)}</button>)}</div>}
+    <NovelTextField {...props} name="premise" label={config.settingCardIds?.length?"novel.premiseWithWorldCard":"novel.premise"} rows={4} placeholder="novel.setup.premisePlaceholder" />
+    {!config.premise.trim() && !config.settingCardIds?.length && <div className="novel-idea-seeds"><span>{t("novel.setup.tryIdea")}</span>{(["mystery", "journey", "everyday"] as const).map((key) => <button key={key} type="button" onClick={() => patch({ premise: t(`novel.setup.seed.${key}`) })}>{t(`novel.setup.genre.${key}`)}</button>)}</div>}
+    <NovelWorldCards {...props} characters={characters}/>
     <label className="novel-field"><span>{t("novel.title")} <small>{t("novel.setup.optional")}</small></span><input aria-label={t("novel.title")} maxLength={160} value={title} placeholder={t("novel.setup.titlePlaceholder")} onChange={(e) => setTitle(e.target.value)} /></label>
+    <NovelPersonaPicker {...props} editing={editing} />
     <section className="novel-cast-section"><h3>{t("novel.cast")}</h3>
       {editing ? <p className="novel-hint">{t("novel.castLocked")}</p> : <div className="novel-choice-modes" role="group" aria-label={t("novel.cast")}>
         <button type="button" aria-pressed={!chooseCast} onClick={() => { setChooseCast(false); patch({ characterIds: [] }); }}><b>{t("novel.setup.castAuto")}</b><span>{t("novel.setup.castAutoHint")}</span></button>
@@ -27,8 +32,9 @@ export function NovelStoryStep({ config, patch, title, setTitle, characters, edi
         <p className="novel-hint">{config.characterIds.length ? `${config.characterIds.length} / 12 · ${t("novel.setup.castSnapshot")}` : t("novel.setup.castEmpty")}</p>
       </>}
     </section>
+    <NovelKnowledgePicker {...props}/>
     <details className="novel-advanced" open={editing || undefined}><summary>{t("novel.setup.storyDetails")}</summary>
-      <NovelTextField {...props} name="protagonist" label="novel.protagonist" placeholder="novel.setup.protagonistPlaceholder" />
+      {!config.personaId && <NovelTextField {...props} name="protagonist" label="novel.protagonist" placeholder="novel.setup.protagonistPlaceholder" />}
       <NovelTextField {...props} name="tone" label="novel.tone" placeholder="novel.setup.tonePlaceholder" />
       <NovelTextField {...props} name="direction" label="novel.direction" />
     </details>

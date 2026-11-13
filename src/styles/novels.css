@@ -30,6 +30,18 @@
 .novel-stage, .novel-vignette { position: absolute; inset: 0; z-index: -2; pointer-events: none; }
 .novel-stage { background: linear-gradient(125deg,#172332,#30313b 50%,#151e28); background-size: cover; background-position: center; transition: background-image .5s; }
 .novel-vignette { z-index: -1; background: linear-gradient(180deg, rgb(7 10 16 / .65), transparent 35%, rgb(7 10 16 / .12) 45%, rgb(7 10 16 / .87)); }
+/* Layers mode: sprites stand on the background, under the vignette and UI.
+   The box keeps the background's proportions and is fitted like the artwork. */
+.novel-stage-layers { container-type: size; background: #131720; }
+.novel-stage-box { position: absolute; inset: 0; margin: auto; width: min(100cqw, calc(100cqh * var(--stage-w) / var(--stage-h))); height: min(100cqh, calc(100cqw * var(--stage-h) / var(--stage-w))); background: linear-gradient(125deg,#172332,#30313b 50%,#151e28) center / cover no-repeat; overflow: hidden; }
+.novel-stage-box[style*="background-image"] { background-size: cover; }
+.novel-sprites { position: absolute; inset: 0; pointer-events: none; display: flex; align-items: flex-end; justify-content: center; gap: 2%; padding: 0 6%; }
+.novel-sprite { height: 94%; max-width: 34%; object-fit: contain; object-position: bottom; transition: filter .25s, transform .25s; }
+.novel-sprite.is-dimmed { filter: brightness(.68) saturate(.85); }
+.novel-sprite.is-card { align-self: center; height: 62%; border: 1px solid rgb(255 255 255 / .22); border-radius: 10px; box-shadow: 0 12px 30px rgb(0 0 0 / .45); }
+.novel-comfy-check { display: grid; gap: 6px; justify-items: start; }
+.novel-check-field > span { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+@media (max-width: 640px) { .novel-sprites { padding: 0 2%; gap: 0; } .novel-sprite { max-width: 48%; } }
 .novel-reader-top { display: flex; align-items: center; gap: 24px; padding: 24px 30px; }
 .novel-reader-top > div { flex: 1; }
 .novel-reader-top h1 { margin: 5px 0 0; font: 20px Georgia,serif; letter-spacing: -.015em; }
@@ -42,25 +54,45 @@
 .novel-scene-strip button[aria-current] { color: #fff; border-left: 2px solid var(--color-accent); background: rgb(12 17 25 / .85); }
 .novel-reading-surface { position: absolute; bottom: 0; left: 0; right: 0; max-height: calc(100% - 115px); overflow: auto; padding: 24px clamp(24px,6vw,100px) 17px; background: linear-gradient(180deg,rgb(14 17 23 / .82),rgb(14 17 23 / .96)); border-top: 1px solid rgb(255 255 255 / .13); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
 .novel-dialogue-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.novel-dialogue-heading > span { color: var(--color-accent); font-size: 13px; font-weight: 600; }
+.novel-dialogue-heading > span { padding: 3px 11px; border: 1px solid rgb(255 255 255 / .12); border-radius: 999px; background: rgb(12 16 24 / .72); color: var(--color-accent); font-size: 13px; font-weight: 600; }
 .novel-dialogue-heading small { color: #999da7; font-size: 10px; font-variant-numeric: tabular-nums; }
 .novel-dialogue { display: block; width: 100%; min-height: 96px; text-align: left; color: #ede9e2; background: transparent; border: 0; padding: 0 0 18px; font: clamp(18px,1.6vw,25px)/1.75 Georgia,serif; white-space: pre-wrap; }
-.novel-dialogue > span { display: block; animation: novel-text-in .65s ease both; }
+.novel-dialogue > span { display: block; animation: novel-text-in .65s ease both; text-shadow: 0 1px 3px rgb(0 0 0 / .85), 0 0 12px rgb(0 0 0 / .45); }
 .novel-dialogue.is-revealed > span { animation: none; }
 .novel-dialogue i { display: block; text-align: right; color: var(--color-accent); font: 14px sans-serif; }
-.novel-reader-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; border-top: 1px solid rgb(255 255 255 / .1); padding-top: 14px; }
-.novel-reader-controls button { font-size: 11px; color: #abb0ba; }
-.novel-reader-controls button:hover, .novel-reader-controls button[aria-pressed=true] { color: #fff; }
-.novel-reader-controls .novel-continue { color: var(--color-accent); }
+/* Toolbar: labelled main actions, icon buttons for the rest, rare ones under "More". */
+.novel-reader-controls { display: flex; align-items: center; gap: 4px; border-top: 1px solid rgb(255 255 255 / .1); padding-top: 12px; }
+.novel-control { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 7px; height: 32px; padding: 0 10px; border-radius: 7px; color: #c3c7cf; font-size: 12px; cursor: pointer; list-style: none; }
+.novel-control::-webkit-details-marker { display: none; }
+.novel-control svg { width: 16px; height: 16px; flex: none; }
+.novel-control.is-icon { width: 32px; padding: 0; }
+.novel-control:hover:not(:disabled) { color: #fff; background: rgb(255 255 255 / .08); }
+.novel-control[aria-pressed=true] { color: var(--color-accent); background: rgb(255 255 255 / .07); }
+.novel-control:disabled { opacity: .38; cursor: default; }
+.novel-control:focus-visible, .novel-more-panel button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+.novel-control-divider { flex: none; width: 1px; height: 18px; margin: 0 6px; background: rgb(255 255 255 / .14); }
+.novel-reader-controls .novel-continue { flex: none; height: 34px; padding: 0 14px 0 16px; font-size: 13px; }
+.novel-reader-controls .novel-continue svg { width: 16px; height: 16px; }
+.novel-reader-controls .novel-continue:disabled { opacity: .45; }
+.novel-more-menu { position: relative; flex: none; }
+.novel-more-menu > [aria-expanded=true] { color: #fff; background: rgb(255 255 255 / .1); }
+.novel-more-panel[hidden] { display: none; }
+.novel-more-panel { position: fixed; z-index: 60; display: grid; min-width: 230px; max-height: min(70vh, 420px); overflow: auto; padding: 6px; border: 1px solid rgb(255 255 255 / .12); border-radius: 10px; background: #1a1e27; box-shadow: 0 14px 40px rgb(0 0 0 / .5); }
+.novel-more-panel button { display: block; width: 100%; padding: 8px 10px; border-radius: 6px; text-align: left; color: #dcdfe5; font-size: 12.5px; }
+.novel-more-panel button:hover:not(:disabled) { background: rgb(255 255 255 / .08); color: #fff; }
+.novel-more-panel button:disabled { opacity: .4; }
+.novel-more-heading { margin: 6px 10px 3px; color: #8d929c; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.novel-more-heading:first-child { margin-top: 2px; }
 .novel-control-spacer { flex: 1; }
 .novel-opening { padding: 5px 0 28px; }
 .novel-opening h2 { font: 32px Georgia,serif; margin: 14px 0; }
 .novel-opening p { color: #bfc3cc; font-size: 13px; margin-bottom: 20px; }
-.novel-choices { display: grid; gap: 6px; margin-bottom: 18px; }
-.novel-choices > p { margin: 0 0 8px; font-size: 14px; }
-.novel-choices > button { display: flex; align-items: center; gap: 14px; text-align: left; padding: 10px 14px; border: 1px solid rgb(255 255 255 / .12); border-radius: 5px; font-size: 13px; background: rgb(255 255 255 / .025); }
-.novel-choices > button:hover:not(:disabled) { border-color: var(--color-accent); background: rgb(255 255 255 / .06); }
-.novel-choices > button > span { color: var(--color-accent); font-size: 10px; }
+/* Choices sit in a readable centred column above the toolbar. */
+.novel-choices { display: grid; gap: 7px; width: min(760px, 100%); margin: 0 auto 16px; }
+.novel-choices > p { margin: 0 0 6px; text-align: center; color: #ece8e1; font: 16px/1.5 Georgia,serif; text-shadow: 0 1px 3px rgb(0 0 0 / .8); }
+.novel-choices > button { display: flex; align-items: center; gap: 14px; text-align: left; padding: 11px 16px; border: 1px solid rgb(255 255 255 / .14); border-radius: 8px; color: #eceae6; font-size: 14px; background: rgb(14 18 26 / .86); transition: border-color .15s, background .15s; }
+.novel-choices > button:hover:not(:disabled), .novel-choices > button:focus-visible { border-color: var(--color-accent); background: rgb(24 29 40 / .95); outline: 0; }
+.novel-choices > button > span { display: inline-grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 50%; background: rgb(255 255 255 / .08); color: var(--color-accent); font-size: 11px; }
 .novel-choices form { display: flex; margin-top: 6px; border-bottom: 1px solid rgb(255 255 255 / .2); }
 .novel-choices form input { width: 100%; background: transparent; padding: 8px 0; font-size: 13px; outline: 0; color: #fff; }
 .novel-choices form button { padding: 0 15px; color: var(--color-accent); }
@@ -113,8 +145,7 @@
 .app-shell.has-immersive-novel > .app-main { padding: 0 !important; }
 .has-immersive-novel .novels-workspace { border: 0; border-radius: 0; }
 .has-immersive-novel .novel-reading-surface, .has-immersive-novel .novel-reader-controls,
-.has-immersive-novel .novel-choices > button, .has-immersive-novel .novel-library aside { border: 0; }
-.has-immersive-novel .novel-choices > button { background: rgb(255 255 255 / .055); }
+.has-immersive-novel .novel-library aside { border: 0; }
 .has-immersive-novel .novel-scene-strip button[aria-current] { border: 0; color: var(--color-accent); background: rgb(12 17 25 / .9); }
 @media(hover:none) { .novel-navigation-trigger { width: 70px; height: 18px; left: 50%; right: auto; transform: translateX(-50%); } .novel-navigation-trigger > span { display: block; width: 28px; height: 3px; border-radius: 5px; margin: auto; background: rgb(240 235 225 / .5); } }
 @media(max-width:480px) { .has-immersive-novel .app-header-brand { display: none; } .has-immersive-novel .app-header-nav { display: block; } .has-immersive-novel .app-header-layout { grid-template-columns: minmax(0,1fr) auto; } .has-immersive-novel .app-header-inner { padding: 10px 12px; } .has-immersive-novel .app-nav { justify-content: center; } }
@@ -149,6 +180,9 @@
 .novel-advanced { margin-top: 24px; }
 .novel-advanced > summary { color: var(--color-text-secondary); font-size: 12px; cursor: pointer; padding: 8px 0 12px; }
 .novel-advanced[open] > summary { margin-bottom: 12px; }
+/* Consecutive optional sections read as one group, not spaced-out blocks. */
+.novel-advanced + .novel-advanced { margin-top: 2px; }
+.novel-cast-picker > p { margin: 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; }
 .novel-narration-options { margin-top: 25px; }
 .novel-connection-help { padding: 16px; border-radius: 7px; background: var(--color-bg-primary); }
 .novel-connection-help h3 { margin: 0 0 7px; font-size: 13px; }
@@ -207,11 +241,11 @@
 .novel-dialogue-heading { margin-bottom: 5px; }
 .novel-dialogue { min-height: 0; padding: 0 0 5px; font-size: clamp(17px,1.5vw,22px); line-height: 1.5; }
 .novel-dialogue i { display: inline; float: right; margin-top: -10px; }
-.novel-reader-controls { gap: 12px; padding-top: 5px; min-height: 25px; opacity: 0; transition: opacity .18s; }
+.novel-reader-controls { padding-top: 6px; min-height: 34px; opacity: 0; transition: opacity .18s; }
 .novel-reading-surface:hover .novel-reader-controls, .novel-reading-surface:focus-within .novel-reader-controls { opacity: 1; }
 .novel-reader.has-choice .novel-reading-surface { max-height: 48%; }
-.novel-choices { gap: 5px; margin: 8px 0; }
-.novel-choices > button { padding: 7px 12px; }
+.novel-choices { gap: 6px; margin: 8px auto 10px; }
+.novel-choices > button { padding: 9px 14px; }
 .novel-generation-status, .novel-image-notice { margin-bottom: 8px; }
 @media (hover:none) {
   .novel-reader-top, .novel-reader-controls { opacity: 1; }
@@ -221,6 +255,14 @@
   .novel-reader.has-choice .novel-reading-surface { max-height: 52%; }
 }
 @media (prefers-reduced-motion:reduce) { .novel-reader-top, .novel-reader-controls, .novel-scene-context, .novel-scene-strip { transition: none; } }
+/* Narrow screens: icon-only main actions so the toolbar stays on one line. */
+@media (max-width: 640px) {
+  .novel-control-label { display: none; }
+  .novel-control, .novel-control:not(.is-icon) { width: 30px; height: 30px; padding: 0; }
+  .novel-control-divider { display: none; }
+  .novel-reader-controls { gap: 1px; }
+  .novel-reader-controls .novel-continue { width: 40px; padding: 0; }
+}
 .novel-book-item { position: relative; min-width: 0; }
 .novel-book-item .novel-book { width: 100%; }
 .novel-book-delete { position: absolute; top: 10px; right: 10px; background: var(--color-bg-secondary); box-shadow: 0 2px 8px rgb(0 0 0 / .3); }

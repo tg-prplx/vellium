@@ -10,7 +10,7 @@ export function isNovelWorkflow(value: unknown): value is Record<string, unknown
     && typeof node.class_type === "string" && node.inputs && typeof node.inputs === "object");
 }
 export function novelStepProblem(step: NovelSetupStep, config: NovelConfig): TranslationKey | null {
-  if (step === "story" && !config.premise.trim()) return "novel.setup.needPremise";
+  if (step === "story" && !config.premise.trim()&&!config.settingCardIds?.length) return "novel.setup.needPremise";
   if (step === "generation") {
     if (!config.providerId) return "novel.setup.needProvider";
     if (!config.modelId.trim()) return "novel.setup.needModel";

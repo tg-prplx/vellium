@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../shared/api";
 import { startBackgroundTask, finishBackgroundTask, failBackgroundTask, updateBackgroundTask } from "../../shared/backgroundTasks";
-import type { NovelConfig, NovelStory, NovelSummary } from "../../shared/types/novels";
+import type { NovelConfig, NovelPreviewScene, NovelStory, NovelSummary } from "../../shared/types/novels";
+import { withPreviewScenes } from "./preview";
+import { novelImageQueue, usesLayers } from "./layers";
+import { requestOpenChat } from "../../shared/appNavigation";
+import { directorNote } from "./directorNote";
 import { useI18n } from "../../shared/i18n";
 
 export function useNovelWorkspace() {
@@ -11,6 +15,12 @@ export function useNovelWorkspace() {
   const [busy, setBusy] = useState(false); const [loading, setLoading] = useState(true);
   const [error, setError] = useState(""); const running = useRef(false);
   const abortRef = useRef<AbortController | null>(null); const currentId = useRef<string | null>(null);
+  // Scenes streamed before the story is saved. Display only: every API call
+  // still uses `story`, which carries the authoritative revision.
+  const [preview, setPreview] = useState<{ storyId: string; scenes: NovelPreviewScene[] } | null>(null);
+  // Why the separate follow-up request runs, shown while it does.
+  const [stageNote, setStageNote] = useState("");
+  const view = useMemo(() => story && preview?.storyId === story.id ? withPreviewScenes(story, preview.scenes) : story, [story, preview]);
   const refresh = useCallback(async () => { setList(await api.novelList()); }, []);
   useEffect(() => { void refresh().catch((e) => setError(String(e))).finally(() => setLoading(false)); }, [refresh]);
   useEffect(() => () => { abortRef.current?.abort(); }, []);
@@ -41,14 +51,18 @@ export function useNovelWorkspace() {
     const taskId = startBackgroundTask({ scope: "novels", type: "generate", label: `${target.title} · ${label}`, cancellable: true,
       onCancel: () => { controller.abort(); void api.novelAbort(target.id).catch(() => {}); } });
     try {
-      let next = imagesOnly ? target : await api.novelGenerate(target, action, controller.signal);
+      let next = imagesOnly ? target : target.config.generationMode === "lite"
+        ? await streamText(target, action, controller.signal, taskId)
+        : await api.novelGenerate(target, action, controller.signal);
       if (currentId.current === next.id) setStory(next);
+      setPreview(null);
       if (imagesOnly || (next.config.imagesEnabled && next.config.workflow)) {
-        if(next.scenes.some(scene=>!scene.illustrations.length)) {
+        // Layers mode draws backgrounds and sprites instead of a frame per scene.
+        if(!usesLayers(next.config) && next.scenes.some(scene=>!scene.illustrations.length)) {
           next=await api.novelPrepareImages(next,controller.signal);
           if(currentId.current===next.id)setStory(next);
         }
-        const frames = next.scenes.flatMap((scene) => scene.illustrations)
+        const frames = novelImageQueue(next)
           .filter((frame) => illustrationId ? frame.id === illustrationId : frame.status === "pending");
         const failures:string[]=[];
         for (let i=0; i<frames.length; i++) {
@@ -58,7 +72,7 @@ export function useNovelWorkspace() {
           // Publish each completed shot immediately; a later slow job must not
           // hide the opening image until the entire batch has finished.
           if (currentId.current === next.id) setStory(next);
-          const completed=next.scenes.flatMap(scene=>scene.illustrations).find(frame=>frame.id===frames[i].id);
+          const completed=novelImageQueue(next).find(frame=>frame.id===frames[i].id);
           if(completed?.status==="error")failures.push(completed.error || t("novel.imageFailed"));
         }
         if(failures.length)throw new Error(`${t("novel.imageFailed")}: ${[...new Set(failures)].join("; ")}`);
@@ -70,7 +84,57 @@ export function useNovelWorkspace() {
       else { setError(e instanceof Error ? e.message : String(e)); failBackgroundTask(taskId, String(e)); }
       // Any successfully completed text/images survive a later image failure or cancellation.
       await api.novelGet(target.id).then((next) => { if (currentId.current === next.id) setStory(next); }).catch(() => {});
-    } finally { abortRef.current = null; running.current = false; setBusy(false); await refresh().catch(() => {}); }
+    } finally { setPreview(null); setStageNote(""); abortRef.current = null; running.current = false; setBusy(false); await refresh().catch(() => {}); }
+  }
+  async function streamText(target: NovelStory, action: string, signal: AbortSignal, taskId: string) {
+    let saved: NovelStory | null = null, failure = "";
+    await api.novelGenerateStream(target, action, (event) => {
+      if (event.type === "preview") { if (currentId.current === target.id) setPreview({ storyId: target.id, scenes: event.scenes }); }
+      else if (event.type === "stage") {
+        const note = directorNote(event.reasons || [], t);
+        setStageNote(note);
+        updateBackgroundTask(taskId, { label: `${target.title} · ${note}` });
+      }
+      else if (event.type === "done") saved = event.story;
+      else if (event.type === "error") failure = event.error;
+    }, signal);
+    if (failure) throw new Error(failure);
+    if (!saved) throw new Error(t("novel.streamIncomplete"));
+    return saved as NovelStory;
+  }
+  /** Change a picture and render it again. Only ever called from a user action. */
+  async function editImage(imageId: string, patch: { prompt?: string; reseed?: boolean }) {
+    if (!story || running.current) return;
+    running.current = true; setBusy(true); setError("");
+    let next: NovelStory | undefined;
+    try { next = await api.novelEditImage(story, imageId, patch); if (currentId.current === next.id) setStory(next); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { running.current = false; setBusy(false); }
+    if (next) return generate("", imageId, true, next);
+  }
+  async function addFrame(sceneId: string, atLine: number, prompt: string) {
+    if (!story || running.current) return;
+    running.current = true; setBusy(true); setError("");
+    let added: { story: NovelStory; frameId: string } | undefined;
+    try { added = await api.novelAddFrame(story, sceneId, atLine, prompt); if (currentId.current === added.story.id) setStory(added.story); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { running.current = false; setBusy(false); }
+    if (added) return generate("", added.frameId, true, added.story);
+  }
+  /** Continue the story as an ordinary chat with the same characters. */
+  async function toChat() {
+    if (!story || running.current) return;
+    running.current = true; setBusy(true); setError("");
+    try { const chat = await api.novelToChat(story.id); requestOpenChat(chat.chatId); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { running.current = false; setBusy(false); }
+  }
+  async function exportWriter() {
+    if (!story || running.current) return;
+    running.current = true; setBusy(true); setError("");
+    try { return await api.novelExportWriter(story.id); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { running.current = false; setBusy(false); }
   }
   async function progress(cursor: NovelStory["cursor"]) {
     if (!story || currentId.current !== story.id) return;
@@ -94,7 +158,7 @@ export function useNovelWorkspace() {
     } catch (e) { setError(String(e)); return false; }
     finally { running.current = false; setBusy(false); }
   }
-  return { list, story, busy, loading, error, open, create, save, progress, generate, reset, remove, clearError: () => setError(""),
+  return { list, story, view, stageNote, busy, loading, error, open, create, save, progress, generate, editImage, addFrame, toChat, exportWriter, refresh, reset, remove, clearError: () => setError(""),
     close: () => { if (!running.current) { currentId.current = null; setStory(null); } },
     cancel: () => { abortRef.current?.abort(); if (story) void api.novelAbort(story.id).catch(() => {}); } };
 }

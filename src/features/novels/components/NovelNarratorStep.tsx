@@ -7,7 +7,7 @@ import { NovelNumberField, type SetupFieldsProps } from "./SetupFields";
 export function NovelNarratorStep({ config, patch, providers, models, modelLoading, modelError, dataLoading, onProviderSettings }: SetupFieldsProps & {
   providers: ProviderProfile[]; models: ProviderModel[]; modelLoading: boolean; modelError: string; dataLoading: boolean; onProviderSettings: () => void;
 }) {
-  const { t } = useI18n(); const props = { config, patch };
+  const { t } = useI18n(); const props = { config, patch }; const lite = config.generationMode === "lite";
   return <>
     <div className="novel-step-intro"><h2>{t("novel.setup.narratorHeading")}</h2><p>{t("novel.setup.narratorHint")}</p></div>
     {!dataLoading && !providers.length ? <div className="novel-connection-help"><h3>{t("novel.setup.noProviders")}</h3><p>{t("novel.setup.noProvidersHint")}</p><button type="button" className="novel-primary" onClick={onProviderSettings}>{t("novel.setup.connectProvider")}</button></div> : <>
@@ -23,9 +23,10 @@ export function NovelNarratorStep({ config, patch, providers, models, modelLoadi
       <label className="novel-field"><span>{t("novel.language")}</span><input aria-label={t("novel.language")} value={config.language} onChange={(e) => patch({ language: e.target.value })} /></label>
       <NovelNumberField {...props} name="scenesPerTurn" label="novel.batch" min={1} max={MAX_NOVEL_SCENES_PER_TURN} />
     </div>
+    <label className="novel-field"><span>{t("novel.generationMode")}</span><select aria-label={t("novel.generationMode")} value={lite?"lite":"json"} onChange={e=>patch({generationMode:e.target.value as NovelConfig["generationMode"],systemPrompt:""})}>{(["lite","json"] as const).map(mode=><option key={mode} value={mode}>{t(`novel.generationMode.${mode}`)}</option>)}</select><p>{t("novel.generationModeHint")}</p></label>
     <NovelPromptEditor {...props}/>
     <details className="novel-advanced"><summary>{t("novel.setup.advancedGeneration")}</summary>
-      <label className="novel-field"><span>{t("novel.structuredOutput")}</span><select value={config.structuredOutput||"auto"} onChange={e=>patch({structuredOutput:e.target.value as NovelConfig["structuredOutput"]})}>{(["auto","json_schema","off"] as const).map(mode=><option key={mode} value={mode}>{t(`novel.structuredOutput.${mode}`)}</option>)}</select><p>{t("novel.structuredOutputHint")}</p></label>
+      {!lite && <label className="novel-field"><span>{t("novel.structuredOutput")}</span><select value={config.structuredOutput||"auto"} onChange={e=>patch({structuredOutput:e.target.value as NovelConfig["structuredOutput"]})}>{(["auto","json_schema","off"] as const).map(mode=><option key={mode} value={mode}>{t(`novel.structuredOutput.${mode}`)}</option>)}</select><p>{t("novel.structuredOutputHint")}</p></label>}
       <label className="novel-field"><span>{t("novel.viewpoint")}</span><input value={config.povCharacter} onChange={(e) => patch({ povCharacter: e.target.value })} placeholder={t("novel.viewpointHint")} /></label>
       <div className="novel-form-grid"><NovelNumberField {...props} name="maxTokens" label="novel.maxTokens" min={1000} max={16000} /><NovelNumberField {...props} name="contextChars" label="novel.context" min={8000} max={120000} /></div>
       <p className="novel-hint">{t("novel.cacheHint")}</p>

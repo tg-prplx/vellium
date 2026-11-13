@@ -6,12 +6,17 @@ const string={type:"string"};
 const index={type:"integer",minimum:0,maximum:39};
 const strings={type:"array",items:string};
 const object=(properties:Record<string,unknown>,required:string[]=[])=>({type:"object",properties,required,additionalProperties:false});
-export function novelResponseFormat(config:NovelConfig,provider:UnifiedProviderRow,questionPolicy=novelQuestionPolicy({config,scenes:[]})):UnifiedResponseFormat|undefined {
-  if(config.structuredOutput==='off'||normalizeProviderType(provider.provider_type)!=='openai')return;
+/** Structured output is sent only where it is known to work: an explicit
+ * JSON-schema choice, or an LM Studio profile in auto mode. */
+export function novelSchemaEnabled(config:Pick<NovelConfig,'structuredOutput'>,provider:UnifiedProviderRow) {
+  if(config.structuredOutput==='off'||normalizeProviderType(provider.provider_type)!=='openai')return false;
   let standardPort=false;try{standardPort=new URL(provider.base_url).port==='1234';}catch{/* URL validation is handled by generation. */}
   const lmStudio=/lm[\s_-]*studio/i.test(provider.id+' '+provider.name)||standardPort;
-  if(config.structuredOutput!=='json_schema'&&!lmStudio)return;
-  const person={id:string,name:string,sourceCharacterId:string,isGroup:{type:'boolean'},appearance:string,outfit:string,state:string,relationships:string};
+  return config.structuredOutput==='json_schema'||lmStudio;
+}
+export function novelResponseFormat(config:NovelConfig,provider:UnifiedProviderRow,questionPolicy=novelQuestionPolicy({config,scenes:[]})):UnifiedResponseFormat|undefined {
+  if(!novelSchemaEnabled(config,provider))return;
+  const person={id:string,name:string,sourceCharacterId:string,isGroup:{type:'boolean'},appearance:string,look:string,outfit:string,state:string,relationships:string};
   const character=object({...person,members:{type:'array',items:object(person,['id','name']),maxItems:20}},['id']);
   const shot=object({prompt:{type:'string',minLength:1},characterIds:{...strings,maxItems:12},subjectNames:{...strings,maxItems:12},atLine:index,camera:{type:'string',enum:['external','first-person','over-shoulder']},viewpointCharacterId:string},['prompt','characterIds',...((config.imagePov||'dynamic')==='dynamic'?['camera']:[])]);
   const scene=object({

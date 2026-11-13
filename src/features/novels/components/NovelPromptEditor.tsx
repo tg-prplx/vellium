@@ -6,9 +6,9 @@ export function NovelPromptEditor({config,patch}:SetupFieldsProps) {
   const {t}=useI18n();const [open,setOpen]=useState(false),[defaultPrompt,setDefault]=useState(""),[error,setError]=useState(""),[retry,setRetry]=useState(0);
   useEffect(()=>{
     if(!open)return;let cancelled=false;setError("");setDefault("");
-    void api.novelPromptPreview({language:config.language,pov:config.pov,povCharacter:config.povCharacter,imagePov:config.imagePov,imagePovCharacter:config.imagePovCharacter,imagesEnabled:config.imagesEnabled}).then(result=>{if(!cancelled)setDefault(result.defaultPrompt);}).catch(e=>{if(!cancelled)setError(String(e));});
+    void api.novelPromptPreview({generationMode:config.generationMode,inlinePictures:config.inlinePictures,visualMode:config.visualMode,language:config.language,pov:config.pov,povCharacter:config.povCharacter,imagePov:config.imagePov,imagePovCharacter:config.imagePovCharacter,imagesEnabled:config.imagesEnabled}).then(result=>{if(!cancelled)setDefault(result.defaultPrompt);}).catch(e=>{if(!cancelled)setError(String(e));});
     return()=>{cancelled=true;};
-  },[open,config.language,config.pov,config.povCharacter,config.imagePov,config.imagePovCharacter,config.imagesEnabled,retry]);
+  },[open,config.generationMode,config.inlinePictures,config.visualMode,config.language,config.pov,config.povCharacter,config.imagePov,config.imagePovCharacter,config.imagesEnabled,retry]);
   const custom=Boolean(config.systemPrompt?.trim());
   return <details className="novel-advanced" onToggle={e=>setOpen(e.currentTarget.open)}><summary>{t("novel.systemPrompt")}</summary>
     <p className="novel-hint">{t("novel.systemPromptHint")}</p>

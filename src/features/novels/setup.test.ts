@@ -25,3 +25,8 @@ describe("guided novel setup", () => {
     expect(firstNovelProblem({ ...config(), imagesEnabled: true, workflow: { "1": { class_type: "X", inputs: {} } }, width: 12 })?.problem).toBe("novel.setup.invalidDimensions");
   });
 });
+
+it('accepts a complete foundation card without extra premise and keeps empty stories invalid',()=>{
+ expect(novelStepProblem('story',{...DEFAULT_NOVEL_CONFIG,premise:'',settingCardIds:['source-card']})).toBeNull();
+ expect(novelStepProblem('story',{...DEFAULT_NOVEL_CONFIG,premise:'',settingCardIds:[]})).toBe('novel.setup.needPremise');
+});

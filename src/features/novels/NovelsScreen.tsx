@@ -1,5 +1,6 @@
 import { IconButton } from "../../components/IconButton";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { takePendingNovel } from "../../shared/appNavigation";
 import { useI18n } from "../../shared/i18n";
 import { ModalShell } from "../../components/ModalShell";
 import { resolveApiAssetUrl } from "../../shared/api";
@@ -12,13 +13,20 @@ export function NovelsScreen() {
   const [setup, setSetup] = useState(false); const [confirmDelete, setConfirmDelete] = useState<{id:string;title:string}|null>(null);
   const [confirmReset,setConfirmReset]=useState(false);const [readerEpoch,setReaderEpoch]=useState(0);
   const { story, busy } = workspace;
+  // A novel created elsewhere (from a chat) opens as soon as this screen can.
+  useEffect(() => {
+    const openPending = () => { const id = takePendingNovel(); if (id) { setSetup(false); void workspace.refresh().catch(() => {}); void workspace.open(id); } };
+    openPending();
+    window.addEventListener("open-novel", openPending);
+    return () => window.removeEventListener("open-novel", openPending);
+  }, []);
   const [draft, setDraft] = useState<NovelDraft | null>(null);
-  const hasDraft = Boolean(draft?.title.trim() || draft?.config.premise.trim() || draft?.config.characterIds.length);
+  const hasDraft = Boolean(draft?.title.trim() || draft?.config.premise.trim() || draft?.config.characterIds.length || draft?.config.settingCardIds?.length);
   function openSetup() { workspace.clearError(); setSetup(true); }
   const showNavigationHelp = () => window.dispatchEvent(new Event("vellium:novel-navigation-help"));
   return <div className="novels-workspace">
     {workspace.error && !setup && !confirmDelete && !confirmReset && <div role="alert" className="novel-error-banner"><span>{workspace.error}</span><button onClick={workspace.clearError} aria-label={t("chat.cancel")}>×</button></div>}
-    {story ? <NovelReader key={`${story.id}:${readerEpoch}`} paused={setup || Boolean(confirmDelete) || confirmReset} story={story} busy={busy} onGenerate={workspace.generate} onSave={workspace.progress} onSettings={openSetup} onLibrary={workspace.close} onCancel={workspace.cancel} /> : <div className="novel-library">
+    {story ? <NovelReader key={`${story.id}:${readerEpoch}`} paused={setup || Boolean(confirmDelete) || confirmReset} story={workspace.view || story} busy={busy} onGenerate={workspace.generate} onSave={workspace.progress} onSettings={openSetup} onLibrary={workspace.close} onCancel={workspace.cancel} onEditImage={workspace.editImage} onAddFrame={workspace.addFrame} onToChat={workspace.toChat} onExportWriter={workspace.exportWriter} busyNote={workspace.stageNote} /> : <div className="novel-library">
       <aside><span className="novel-eyebrow">{t("novel.workspace")}</span><h1>{t("novel.library")}</h1><p>{t("novel.libraryHint")}</p><button className="novel-primary" onClick={openSetup}>{hasDraft ? "↗" : "＋"} {t(hasDraft ? "novel.setup.resumeDraft" : "novel.create")}</button>
         <button className="novel-library-help" onClick={showNavigationHelp}>{t("novel.setup.navigationHelp")}</button>
         <div className="novel-library-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M4 5c3-1 5-1 8 1 3-2 5-2 8-1v14c-3-1-5-1-8 1-3-2-5-2-8-1zM12 6v14" /></svg><span>{t("novel.libraryNote")}</span></div>

@@ -38,6 +38,7 @@ import {
   deleteBranch,
   deleteChatCascade,
   forkBranch,
+  insertChatRecord,
   listBranches,
   renameBranch
 } from "../modules/chat/repository.js";
@@ -85,7 +86,6 @@ router.post("/", (req, res) => {
 
   const allCharIds: string[] = characterIds?.length ? characterIds : (characterId ? [characterId] : []);
   const primaryCharacterId = allCharIds[0] || null;
-  const charIdsJson = JSON.stringify(allCharIds);
   const firstChar = primaryCharacterId
     ? db.prepare("SELECT name, greeting, card_json, lorebook_id FROM characters WHERE id = ?").get(primaryCharacterId) as {
       name: string;
@@ -101,37 +101,17 @@ router.post("/", (req, res) => {
   if (lorebookIds.length === 0 && firstChar?.lorebook_id) {
     lorebookIds = [firstChar.lorebook_id];
   }
-  const lorebookId = lorebookIds[0] || null;
-
   const sceneDefaults = readCharacterSceneDefaults(firstChar?.card_json, chatId);
-  const createChat = db.transaction(() => {
-    db.prepare("INSERT INTO chats (id, title, character_id, character_ids, lorebook_id, lorebook_ids, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(chatId, title, primaryCharacterId, charIdsJson, lorebookId, JSON.stringify(lorebookIds), ts);
-
-    // Auto-create root branch
-    const branchId = newId();
-    db.prepare("INSERT INTO branches (id, chat_id, name, parent_message_id, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(branchId, chatId, "main", null, ts);
-
-    if (sceneDefaults) {
-      db.prepare("INSERT INTO rp_scene_state (chat_id, payload, updated_at) VALUES (?, ?, ?)")
-        .run(chatId, JSON.stringify(sceneDefaults), ts);
-    }
-
-    // If character has a greeting, insert it as first message.
-    if (firstChar) {
-      const cardData = parseCardData(firstChar.card_json);
-      const alternateGreetings = pickStringList(cardData.alternate_greetings);
-      const firstGreeting = String(firstChar.greeting || "").trim();
-      const greetingToInsert = pickInitialGreeting(firstGreeting, alternateGreetings, settings.useAlternateGreetings === true);
-      if (greetingToInsert) {
-        db.prepare(
-          "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
-        ).run(newId(), chatId, branchId, "assistant", greetingToInsert, roughTokenCount(greetingToInsert), null, ts, firstChar.name, 1);
-      }
-    }
-  });
-  createChat();
+  // If the character has a greeting, it becomes the first message.
+  let firstMessage: { content: string; characterName: string } | null = null;
+  if (firstChar) {
+    const cardData = parseCardData(firstChar.card_json);
+    const alternateGreetings = pickStringList(cardData.alternate_greetings);
+    const firstGreeting = String(firstChar.greeting || "").trim();
+    const greetingToInsert = pickInitialGreeting(firstGreeting, alternateGreetings, settings.useAlternateGreetings === true);
+    if (greetingToInsert) firstMessage = { content: greetingToInsert, characterName: firstChar.name };
+  }
+  const { lorebookId } = insertChatRecord({ id: chatId, title, primaryCharacterId, characterIds: allCharIds, lorebookIds, sceneDefaults, firstMessage, createdAt: ts });
 
   res.json({ id: chatId, title, characterId: primaryCharacterId, characterIds: allCharIds, lorebookId, lorebookIds, createdAt: ts });
 });

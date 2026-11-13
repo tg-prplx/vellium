@@ -16,3 +16,11 @@ it("rejects shot-level art directions and lighting that compete with the locked 
 it("preserves a changed action when only a comma-separated lighting suffix conflicts",()=>{
  expect(canonicalShot("She lifts the key and looks toward the viewer, soft light.",true,true)).toBe("She lifts the key and looks toward the viewer");
 });
+
+it("keeps actions that involve clothing or the place, which the picture must show",()=>{
+ expect(canonicalShot("She pulls the strap of her swimsuit down. She sits on the beach towel. She wears a red bikini.",true,true)).toBe("She pulls the strap of her swimsuit down. She sits on the beach towel.");
+ expect(canonicalShot("He takes off his jacket and hangs it on the chair.",true,true)).toBe("He takes off his jacket and hangs it on the chair.");
+});
+it("never passes the word camera to the image model",()=>{
+ expect(canonicalShot("The camera shows Mira laughing. She looks at the camera.",false,false)).toBe("Mira laughing. She looks at the viewer.");
+});

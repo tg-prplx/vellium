@@ -1,14 +1,15 @@
 // Screens stay mounted when you switch tabs, so lists loaded once go stale when
 // another screen edits the same data. Mutations announce the kind they changed
 // and mounted consumers refresh that list in the background.
-export type DataCatalogKind = "characters" | "personas" | "lorebooks" | "ragCollections" | "providers";
+export type DataCatalogKind = "characters" | "personas" | "lorebooks" | "ragCollections" | "providers" | "writerProjects";
 
 const EVENT_NAMES: Record<DataCatalogKind, string> = {
   characters: "vellium:character-catalog-changed",
   personas: "vellium:persona-catalog-changed",
   lorebooks: "vellium:lorebook-catalog-changed",
   ragCollections: "vellium:rag-collection-catalog-changed",
-  providers: "vellium:provider-catalog-changed"
+  providers: "vellium:provider-catalog-changed",
+  writerProjects: "vellium:writer-project-catalog-changed"
 };
 
 export function dataCatalogEventName(kind: DataCatalogKind) {

@@ -149,7 +149,9 @@ export function WritingScreen({ initialWorkspaceMode = "books", lockWorkspaceMod
     }).catch(() => {});
   }, []);
 
-  useDataCatalogRefresh(["characters", "providers", "ragCollections"], (kind) => {
+  useDataCatalogRefresh(["characters", "providers", "ragCollections", "writerProjects"], (kind) => {
+    // A novel exported from the Novels screen adds a project while this screen stays mounted.
+    if (kind === "writerProjects") api.writerProjectList().then((list) => setProjects((prev) => reuseUnchangedItems(prev, list))).catch(() => {});
     if (kind === "characters") api.characterList().then((list) => setCharacters((prev) => reuseUnchangedItems(prev, list))).catch(() => {});
     if (kind === "providers") api.providerList().then(setProviders).catch(() => {});
     if (kind === "ragCollections") api.ragCollectionList().then(setRagCollections).catch(() => {});

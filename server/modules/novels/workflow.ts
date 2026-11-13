@@ -1,7 +1,8 @@
 import { record } from "./normalize.js";
 import type { NovelConfig } from "../../../src/shared/types/novels.js";
 
-export function patchNovelWorkflow(workflow: Record<string, unknown>, config: NovelConfig, prompt: string, seed: number) {
+/** `size` overrides the configured image size, e.g. portrait sprites. */
+export function patchNovelWorkflow(workflow: Record<string, unknown>, config: NovelConfig, prompt: string, seed: number, size?: { width: number; height: number }) {
   const graph = structuredClone(workflow);
   if (graph.nodes || !Object.keys(graph).length) throw new Error("Import a ComfyUI workflow in API format");
   const entries = Object.entries(graph).map(([id, value]) => [id, record(value)] as const);
@@ -41,7 +42,7 @@ export function patchNovelWorkflow(workflow: Record<string, unknown>, config: No
     const inputs = record(node.inputs);
     if(id===sampler?.[0]) {if("seed" in inputs)inputs.seed=seed;if("noise_seed" in inputs)inputs.noise_seed=seed;}
     if(id===noiseId && node.class_type==="RandomNoise" && "noise_seed" in inputs)inputs.noise_seed=seed;
-    if(latentIds.has(id)) {inputs.width=config.width;inputs.height=config.height;}
+    if(latentIds.has(id)) {inputs.width=size?.width ?? config.width;inputs.height=size?.height ?? config.height;}
   }
   return graph;
 }

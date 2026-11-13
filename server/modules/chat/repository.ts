@@ -1,6 +1,33 @@
 import { getContextConfig, saveContextConfig } from "./contextConfig.js";
-import { db, newId, now } from "../../db.js";
+import { db, newId, now, roughTokenCount } from "../../db.js";
 import { resolveBranch, type MessageRow } from "./routeHelpers.js";
+
+/** Create a chat with its root branch, optional scene state and an optional
+ * first assistant message, in one transaction. Callers decide the content. */
+export function insertChatRecord(params: {
+  id: string; title: string; primaryCharacterId: string | null; characterIds: string[]; lorebookIds: string[];
+  sceneDefaults?: unknown; firstMessage?: { content: string; characterName: string } | null; contextSummary?: string; createdAt: string;
+}) {
+  const lorebookId = params.lorebookIds[0] || null;
+  db.transaction(() => {
+    db.prepare("INSERT INTO chats (id, title, character_id, character_ids, lorebook_id, lorebook_ids, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(params.id, params.title, params.primaryCharacterId, JSON.stringify(params.characterIds), lorebookId, JSON.stringify(params.lorebookIds), params.createdAt);
+    if (params.contextSummary) db.prepare("UPDATE chats SET context_summary = ? WHERE id = ?").run(params.contextSummary, params.id);
+    const branchId = newId();
+    db.prepare("INSERT INTO branches (id, chat_id, name, parent_message_id, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(branchId, params.id, "main", null, params.createdAt);
+    if (params.sceneDefaults) {
+      db.prepare("INSERT INTO rp_scene_state (chat_id, payload, updated_at) VALUES (?, ?, ?)")
+        .run(params.id, JSON.stringify(params.sceneDefaults), params.createdAt);
+    }
+    if (params.firstMessage?.content) {
+      db.prepare(
+        "INSERT INTO messages (id, chat_id, branch_id, role, content, token_count, parent_id, deleted, created_at, character_name, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
+      ).run(newId(), params.id, branchId, "assistant", params.firstMessage.content, roughTokenCount(params.firstMessage.content), null, params.createdAt, params.firstMessage.characterName, 1);
+    }
+  })();
+  return { lorebookId };
+}
 
 export interface BranchSummary {
   id: string;

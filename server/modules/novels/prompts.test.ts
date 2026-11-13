@@ -182,3 +182,14 @@ it('explicitly requests opening exposition as story prose while keeping continua
  const next=novelMessages(story,'Follow the guide.');expect(JSON.parse(next.user)).toMatchObject({phase:'continuation',action:'Follow the guide.'});
  expect(next.messages.slice(0,opening.messages.length)).toEqual(opening.messages);
 });
+it('uses a source for both world and individual cast without requiring a second cast selection',()=>{
+ const story=initial();story.config.premise='';story.config.protagonist='Synthetic reader';
+ story.settingCards=[{sourceCharacterId:'source',name:'Observatory expedition',description:'The mountain observatory houses two adult explorers: Alice has red hair; Beatrice has black hair.',scenario:'{{user}} arrives with the {{char}} expedition.',instructions:'Keep the telescope mystery grounded.'}];
+ const request=novelMessages(story,'');const settings=JSON.parse(request.messages[0].content.split('SETTINGS: ')[1]);
+ expect(settings.storySources[0].description).toContain('mountain observatory');expect(settings.storySources[0].scenario).toBe('Synthetic reader arrives with the Observatory expedition expedition.');expect(settings.cast).toEqual([]);
+ const raw={characters:[{id:'source',sourceCharacterId:'source',name:'Alice',appearance:'red hair',outfit:'blue coat'},{id:'source',sourceCharacterId:'source',name:'Beatrice',appearance:'black hair',outfit:'yellow coat'}],scenes:[{lines:[{speaker:'Alice',text:'Synthetic greeting.'}],illustrations:[{prompt:'Alice waves. Medium shot.',characterIds:['source'],subjectNames:['Alice']}]}]};
+ const parsed=parseNovelBatch(JSON.stringify(raw),story)[0];expect(parsed.memory.characters).toHaveLength(2);
+ const a=parsed.memory.characters.find(c=>c.name==='Alice')!,b=parsed.memory.characters.find(c=>c.name==='Beatrice')!;
+ expect(a.id).not.toBe(b.id);expect(a.id).not.toBe('source');expect(parsed.illustrations[0].characterIds).toEqual([a.id]);expect(parsed.visuals?.outfits[a.id]).toBe('blue coat');
+ story.scenes=[parsed];story.memory=parsed.memory;expect(novelMessages(story,'').messages[0].content).toBe(request.messages[0].content);
+});

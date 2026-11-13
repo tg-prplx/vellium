@@ -178,3 +178,284 @@ Dynamic mode requires a camera on every shot in both instructions and JSON schem
 Question frequency now schedules a decision: Frequent every scene, Balanced every two, Rare every four; Off leaves continuation autonomous. The next generation stops at the upcoming decision boundary, within the chosen scene maximum. When that boundary fits the batch, the structured schema requires root-level question and 2–4 choices, emitted once for the final scene. With small batches, intermediate continuations omit the decision until its scene is reached. Legacy per-scene questions are still accepted. If a truncated or unstructured reply lacks choices, prose survives without fabricated options or another model call.
 
 A free-form reply/action field is available at the end of every generated fragment, including with questions off or missing. It is not restricted to the suggested buttons. Typing pauses auto-reading, submissions are protected against duplicates, and a failed send preserves the draft. New actions extend the current generated timeline; browsing earlier scenes does not submit an action into a different point in history.
+
+### Cards as a complete story foundation
+
+Story → Story foundation from cards selects up to three library cards. A single source can define the world, characters, relationships and starting situation together; its characters do not need to be selected again in the separate cast picker. Cards may also describe a world alone or one character. Additional premise text is optional when a selected source has story content; the user may add directions or additional cast independently.
+
+The server snapshots description (up to 12000 characters), scenario (8000), personality (2000), system instructions (4000), continuation instructions (2000), opening sample (3000) and example dialogue (2000). The snapshots appear once in the stable system SETTINGS.storySources as story/tone data. {{char}}/{{user}} resolve from the source name and configured protagonist/viewpoint when composing the request. These fields guide the fiction, while the novel output contract remains authoritative. There is no separate paid extraction request.
+
+On normal generation the narrator extracts individual cast profiles from the same source, linked through sourceCharacterId; a source title that describes a world does not become a person. Reused source IDs are split into stable individual IDs locally. Source snapshots themselves are not added as visual people or copied into character memory.
+
+Settings can add/remove source cards for future generation. Retained selections keep their existing snapshots even after library edits/deletion; newly selected IDs load from the library. Reset history keeps the selected sources and starts fresh generated character memory. Sources and cast have independent selections, and old novels without source cards keep their existing behavior. Snapshots are server-owned; sending custom snapshot objects through the API cannot replace library content.
+
+### Lite generation mode (small local models)
+
+Settings › Narrator › Generation mode offers **Lite — plain text** alongside the
+original **Structured — single JSON reply**. Existing stories stay structured;
+new stories default to structured until lite mode has been checked on real
+local models.
+
+- The model writes ordinary story lines: narration as plain prose,
+  `Name: words` for speech, `## Place` when the place changes and, only when a
+  decision is due, `? question` followed by 2-4 `> option` lines. Vellium builds
+  scenes from these lines. Any line that matches no rule becomes narration, so
+  a reply cannot be lost to broken JSON; only an empty reply is rejected.
+- Text streams into the reader: completed lines appear while the model is still
+  writing, and the saved scenes keep the same IDs, so speech playback is not
+  interrupted when the turn is stored.
+- The system prompt is about 1 KB instead of about 8 KB. History contains prose
+  only, without image plans, IDs or metadata.
+- **Prompt cache.** Every request extends the previous one byte for byte: the
+  user message is stored exactly as it was sent and a reply is replayed with its
+  original bytes when it already follows the format (otherwise in canonical
+  form). Everything that changes per turn — line count, whether a choice is due,
+  world notes — is in the last user message, never in the system message.
+- **Director follow-up.** When illustrations are enabled, or a scheduled choice
+  is missing from the text, one short technical turn is appended to the same
+  conversation: the model lists new people, places, shots, outfit changes and,
+  if needed, the question and options. It has no system prompt of its own, so
+  the cached prefix is reused and the story's own instructions still apply. The
+  exchange is not added to history. With structured output (explicit JSON
+  schema or LM Studio in auto mode) it uses a small schema; otherwise a
+  `PERSON | …`, `SHOT | …` line format. Shots point at lines by copying their
+  first words, and people are named rather than given IDs; the server resolves
+  both. If the follow-up fails, the turn is kept and each scene gets an
+  establishing shot. Without the line format a camera cannot be chosen per shot.
+- **Compaction.** Without a separate compression model, old turns are
+  summarised by appending a summary request to the cached conversation instead
+  of sending a separate prompt. A configured compression model keeps the
+  original separate request.
+- Reply token limits and request timeouts allow up to 20 minutes per turn for
+  slow local models; Stop cancels at any time.
+
+Measured on a synthetic five-turn story with identical prose (sixth request):
+system message 8167 → 1030 characters, whole request 20 924 → 7 229
+characters, model reply per turn 1 942 → 1 106 characters (plus a director
+reply of a few hundred characters when pictures or a choice are needed).
+
+### Backgrounds and sprites (layers mode)
+
+Settings › Visuals › Picture layout offers **Full frames** (unchanged: every
+scene gets its own illustrations) and **Backgrounds and sprites**, available
+with the Lite generation mode.
+
+- **One background per place**, keyed by the scene's place name, and **one
+  sprite per character and outfit**. Both are rendered once and reused across
+  scenes; a new background or sprite is queued only for a new place, a new
+  person or a changed outfit. Backgrounds render first, so the stage is usable
+  soonest, then sprites, then full frames.
+- **Who is on screen** is derived from the prose by the server, without a model
+  call: speakers and people named in narration, in order of appearance, at most
+  three. A first- or second-person narrator stays behind the camera. The reader
+  places one sprite in the centre, two left and right, three left, centre and
+  right; while someone speaks the others are dimmed.
+- **Full pictures are kept for action.** The director lists an `events` picture
+  for each moment standing sprites cannot show — physical action, a hug, a kiss
+  or a fight, something done to the narrator, a reveal — at most one per scene,
+  none for scenes that are only talking. It starts at the line where the moment
+  happens and covers the background and sprites from there to the end of the
+  scene.
+- **Background removal runs in Vellium, without a neural model.** Sprites are
+  drawn on a chroma-key backdrop the character does not wear: `vivid green`,
+  else `vivid blue` (green in the description), else `magenta`. Measured on
+  Anima 1.1 turbo, plain `green`/`blue` come out muted or near grey and merge
+  with pale hair, while the `vivid …` and `magenta` phrasings come out
+  saturated. The backdrop colour is measured from the image border and grown
+  inward through small colour steps, so gradients, vignettes and drop shadows
+  are removed too; enclosed gaps of backdrop colour are cleared, and edge
+  colour is pulled toward the figure. If the measured backdrop is washed out,
+  the cut-out runs in a cautious mode that never clears enclosed areas.
+  Removing a backdrop takes about 0.1 s per sprite. A result that does not look
+  like one figure on a backdrop is rejected; the sprite is drawn once more with
+  a new seed, and if that also fails the plain image is shown as a framed card.
+  PNG output is required; other formats are shown uncut.
+- Sprites are rendered at 832 × 1216 regardless of the configured image size;
+  backgrounds and full frames use the configured size.
+
+### Picture tools in the reader
+
+All picture actions start only from a click; nothing is redrawn automatically.
+
+- **Redraw frame** renders the picture on screen again with a new seed (a full
+  frame, or in layers mode the place's background).
+- **Edit picture** changes its description and redraws it. For a frame the
+  description is what the camera sees; style, appearance and place are still
+  added automatically. For a background or sprite it is the full prompt.
+- **Picture for this line** adds a full frame starting at the current line, or
+  replaces the one already starting there. An empty description draws what the
+  line says. No language model is involved.
+- **Check connection** on the Visuals step contacts ComfyUI and dry-runs the
+  imported workflow, reporting the prompt node it found. No job is queued.
+
+### Persona as the protagonist
+
+The Story step has a **Protagonist** choice: a user persona from the library or
+a manual description. A new story starts with the default persona. The persona
+is snapshotted into the story (name, description, personality), so editing or
+deleting it in the library does not change a running story; choosing another
+persona or the manual field takes a new snapshot. The persona's name and
+description fill the protagonist line of the prompt, `{{user}}` in source cards
+becomes its name, and its name is recognised as a speaker. Changing the
+protagonist of a started story changes the cached system prefix, so the model
+re-reads the whole context once; the setup screen says so.
+
+### Chat ↔ novel
+
+- **Chat › To novel** (the More actions menu in the simple layout, the toolbar in
+  the full layout) creates a Lite novel from the active branch: the chat's
+  characters in chat order, the chat summary — or else the first scenario found
+  on their cards — as the premise, the active provider and model, and the
+  default persona. The newest messages (at most 30 and about 12 000 characters,
+  deleted ones and other branches excluded, reasoning removed) become the opening
+  scenes: assistant paragraphs as narration, user messages as the protagonist's
+  lines. The novel opens immediately; the chat is not changed.
+- **Reader › Continue in chat** creates an ordinary chat with the same
+  characters. The latest scenes (about 6 000 characters) become its first
+  message as plain paragraphs, and the earlier-story summary plus the premise
+  become the chat's context summary. The chat opens immediately; the novel is
+  not changed.
+
+### Knowledge (RAG)
+
+The Story step can select up to five knowledge collections (Lite mode). Each
+turn searches them with the reader's action and the last two lines of the
+story, through the regular RAG service and its provider and Full Local Mode
+checks, and adds up to 1 500 characters of matches to that turn's message as
+reference notes. They are never put into the cached system prefix. A failed or
+empty search does not block the turn.
+
+### Export to Writer
+
+**Reader › To Writer** copies the story's prose into a new Writer project: one
+chapter per five scenes, named after its first scene, and one Writer scene per
+novel scene in story order, with narration as paragraphs and speech as
+`Name: line`. The project gets the novel's characters and premise. The Writer
+project list refreshes even if that screen is already open; the novel is not
+changed.
+
+LoreBook support for novels is planned separately and not part of this release.
+
+### Clothing changes and picture wording
+
+- The director follow-up is shown what the people in the new scenes currently
+  wear and gives a changed outfit as the **complete** clothing right after the
+  change ("no clothing" when nothing is worn), not a fragment such as "without
+  the jacket". If its quoted line cannot be found, the change still applies from
+  the first full line of the last new scene.
+- When an outfit is known, clothing is removed from the appearance text clause
+  by clause (hair, face and build stay), so clothing written into a character
+  card is never drawn on top of the current outfit. Sprites use the same rule.
+- Shot descriptions keep actions that involve clothing or the place ("pulls her
+  swimsuit strap down", "sits on the towel"); only static descriptions that
+  would compete with the anchors ("she wears…", "the background is…", bare
+  noun lists) are dropped.
+- Framing is written in plain picture terms. Anima takes text literally: "camera
+  view" produced a lens vignette and "other speakers" produced loudspeakers, so
+  neither word is sent; "looks at the camera" becomes "looks at the viewer".
+
+### Picture lines inside the story (hybrid)
+
+Settings › Visuals › **Mark pictures inside the story text** (Lite mode, on for
+new stories) lets the narrator describe pictures while it writes, in the same
+reply, so a second request is usually not needed:
+
+```
+## Harbour cafe
+[place: small wooden cafe, warm lamps, rain on the windows]
+[pic: Mira | Mira stands in the doorway, shaking rain off her hood.]
+Mira steps in from the rain.
+[new: Mira | young woman, short silver hair, grey eyes | dark green raincoat]
+[wear: Mira | white knit sweater, black boots]
+```
+
+- `[pic: visible people | what is seen]` starts a frame at the following line
+  (in layers mode only for action standing sprites cannot show);
+  `[new: …]` describes a person the first time they appear, before any picture
+  of them; `[wear: …]` gives everything someone wears after a change;
+  `[place: …]` describes a new place after its `##` line. These lines are never
+  shown to the reader and stay in the replayed history, so later turns see the
+  format in use and the prompt cache keeps extending byte for byte.
+- Names in picture lines are written exactly as in the story (a Russian story
+  writes `[new: Мира | …]`); only descriptions are in English, so lines and
+  speakers match.
+- The separate follow-up still runs, but only for gaps: a scheduled choice the
+  text forgot, no picture lines at all in full-frames mode, or someone shown in
+  a picture (in layers mode: anyone who speaks, for their sprite) who was never
+  described. Speakers who appear in no picture need no description. Picture
+  lines written by the narrator win over the follow-up. While the follow-up
+  runs, the reader status and the task list say why (for example "Follow-up
+  request: the text has no choice"); the reason is also kept on the turn.
+- The option is on for every Lite story unless switched off, including stories
+  created before it existed.
+- **Picture density.** The rules ask for a `[pic]` line at the start of every
+  scene and then about every 4 story lines. A scene that gets fewer than one
+  picture per 5 lines (capped by Frames per scene) counts as a gap: the
+  follow-up plans pictures and only those landing more than a line away from
+  the narrator's own are added ("Follow-up request: the text has too few [pic]
+  lines"). When a scene has more cuts than Frames per scene allows, the opening
+  is kept and the rest are spread evenly over the scene instead of keeping the
+  first few.
+- **Teaching the format.** The prompt's format example itself contains
+  `[place]`, `[pic]`, `[new]` and `[wear]` lines (small models copy examples far
+  more reliably than rules), and each turn ends with a concrete reminder ("Start
+  with a [pic: names | what is seen] line…"). When the follow-up had to fill
+  gaps, the turn is replayed in history as finally drawn — with the picture
+  lines and any choice it added — so the next turn sees the format in use rather
+  than a reply without it. That costs one re-read of that reply on the next
+  request, and only after a follow-up ran.
+- **Rendering during the stream.** When ComfyUI and the language model run on
+  different machines, each `[pic]` frame is queued in ComfyUI as soon as its
+  line is complete, once everyone in it has been described. The saved frame
+  adopts that job only if its final prompt and seed are identical; otherwise it
+  renders normally afterwards. On one machine nothing is queued early, so the
+  two never compete for the same GPU.
+- Outfits are still stored per scene, but a frame before a mid-scene clothing
+  change keeps the clothes worn at its own line.
+
+Measured live (synthetic model on this machine, ComfyUI on another): ComfyUI
+was busy 2.4 s into a 5.2 s reply, both frames were adopted from the early
+queue, and the second frame showed the clothing change while the first kept the
+earlier outfit.
+
+### The protagonist in pictures
+
+- The protagonist (the chosen persona, or the protagonist field) is a drawable
+  person for pictures even without a story character entry: the persona's
+  description is used as their looks.
+- In first- and second-person stories picture lines name the narrator `me`,
+  and may end with a camera hint: `| pov` (through the narrator's eyes),
+  `| wide`, or `| over-shoulder`. The director's line format accepts the same
+  hint. Without a hint, in dynamic camera mode a picture that involves the
+  narrator ("from my hand", `me` among the names) is drawn through their eyes;
+  others are drawn from outside. The same inference applies when any mode's
+  model leaves the camera out.
+- Through the narrator's eyes, a picture about "my hand/palm/fingers/arm" adds
+  `pov hands`, so their hands appear in the action while they stay off screen.
+- From outside, a picture about the narrator includes the protagonist, and
+  "my"/"me" in its description become their name, since an outside view has no
+  "my". Multi-person pictures add head-count tags such as `1girl, 1boy` when
+  everyone's sex is clear from their description; Anima follows these better
+  than "only 2 people". It can still duplicate a person on some seeds — use
+  Redraw for a new seed.
+
+### Consistent looks and clothes for every drawn person
+
+- Each person can carry a short English **picture look** (age, skin tone, face,
+  hair, eyes, build). Pictures and sprites use it instead of the character
+  card's prose, which is often long, not English and silent on skin tone and
+  build, so the image model guessed anew on every frame.
+- When someone appears in a picture (in layers mode: anyone who speaks) without
+  a picture look or without known clothes — typically a character from a card —
+  the follow-up describes them once ("Follow-up request: describe Мика"). The
+  look and clothes are stored on the person and reused in every later picture;
+  the card text itself is never rewritten. People introduced with `[new: …]`
+  get their look and clothes from that line. The narrator seen through their own
+  eyes is not drawn and needs no description.
+- In Structured (JSON) mode there is no follow-up, so the same request asks
+  for it: each turn's message lists known people still missing a look or
+  clothes (`describeForPictures`, at most eight, never in the cached system
+  prefix), and the model adds `{"id", "look", "outfit"}` to `characters` the
+  first time one of them appears. The strict schema accepts `look`.
+- Even with identical descriptions the image model varies proportions somewhat
+  between seeds; a more specific build in the look reduces it.

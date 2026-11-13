@@ -1,5 +1,6 @@
 import type {NovelImagePov} from "../../../shared/types/novels";
 import {NovelStyleSwitch} from "./NovelStyleSwitch";
+import {NovelComfyCheck} from "./NovelComfyCheck";
 import { useRef, useState } from "react";
 import { useI18n } from "../../../shared/i18n";
 import { isNovelWorkflow } from "../setup";
@@ -32,6 +33,14 @@ export function NovelVisualsStep({ config, patch }: SetupFieldsProps) {
         <p>{t("novel.setup.workflowHelp")}</p>
       </div>
       {error && <p role="alert" className="novel-error">{error}</p>}
+      <NovelComfyCheck config={config} />
+      <div className="novel-field"><span>{t("novel.visualMode")}</span>
+        <div className="novel-choice-modes" role="group" aria-label={t("novel.visualMode")}>
+          {(["shots", "layers"] as const).map((mode) => <button key={mode} type="button" disabled={mode === "layers" && config.generationMode !== "lite"} aria-pressed={(config.visualMode === "layers" && config.generationMode === "lite" ? "layers" : "shots") === mode} onClick={() => patch({ visualMode: mode })}><b>{t(`novel.visualMode.${mode}`)}</b><span>{t(`novel.visualModeHint.${mode}`)}</span></button>)}
+        </div>
+        {config.generationMode !== "lite" && <p>{t("novel.visualModeLiteOnly")}</p>}
+      </div>
+      {config.generationMode === "lite" && <label className="novel-field novel-check-field"><span><input type="checkbox" checked={config.inlinePictures === true} onChange={(e) => patch({ inlinePictures: e.target.checked })} /> {t("novel.inlinePictures")}</span><p>{t("novel.inlinePicturesHint")}</p></label>}
       <label className="novel-field"><span>{t("novel.imagePov")}</span><select aria-label={t("novel.imagePov")} value={config.imagePov||"dynamic"} onChange={e=>patch({imagePov:e.target.value as NovelImagePov})}>{(["first","third","over-shoulder","dynamic"] as const).map(mode=><option key={mode} value={mode}>{t(`novel.imagePov.${mode}`)}</option>)}</select><p>{t("novel.imagePovHint")}</p></label>
       {(config.imagePov==="first"||config.imagePov==="over-shoulder") && <label className="novel-field"><span>{t("novel.imageViewpoint")}</span><input aria-label={t("novel.imageViewpoint")} value={config.imagePovCharacter||""} onChange={e=>patch({imagePovCharacter:e.target.value})} placeholder={t("novel.viewpointHint")}/></label>}
       <NovelStyleSwitch {...props} />

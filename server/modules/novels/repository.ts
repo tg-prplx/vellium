@@ -1,3 +1,5 @@
+import {snapshotSettingCards,hasNovelPremise} from "./settingCards.js";
+import {snapshotPersona} from "./protagonist.js";
 import {normalizeNovelArtStyle} from "../../../src/shared/novelVisualDefaults.js";
 import { db, newId, now } from "../../db.js";
 import type { NovelStory, NovelSummary, NovelCharacter } from "../../../src/shared/types/novels.js";
@@ -29,7 +31,9 @@ export function writeNovel(story: NovelStory, expectedRevision: number) {
 }
 export function createNovel(value: unknown): NovelStory {
   const input = record(value); const config = normalizeConfig(input.config);
-  if (!config.premise) throw Object.assign(new Error("A premise is required"), { status: 400 });
+  const settingCards=snapshotSettingCards(config.settingCardIds||[]);
+  const persona=snapshotPersona(config.personaId);
+  if (!hasNovelPremise(config.premise,settingCards)) throw Object.assign(new Error("A premise or a story foundation card with content is required"), { status: 400 });
   const cast: NovelCharacter[] = config.characterIds.map((id) => {
     const row = db.prepare("SELECT card_json FROM characters WHERE id = ?").get(id) as { card_json: string } | undefined;
     if (!row) throw Object.assign(new Error("Selected character no longer exists"), { status: 400 });
@@ -37,7 +41,7 @@ export function createNovel(value: unknown): NovelStory {
     return { id, sourceCharacterId: id, name: text(c.name, 120), description: text(c.description, 4000), appearance: text(c.description, 2000), personality: text(c.personality, 2000), state: "", relationships: "" };
   });
   const stamp = now();
-  const story: NovelStory = { id: newId(), title: text(input.title, 160) || config.premise.slice(0, 60), config, cast,
+  const story: NovelStory = { id: newId(), title: text(input.title, 160) || config.premise.slice(0, 60) || settingCards[0]?.name || "Novel", config, cast,settingCards,...(persona?{persona}:{}),
     memory: { summary: "", facts: [], threads: [], characters: cast }, scenes: [], turns: [], cursor: { scene: 0, line: 0 }, revision: 0, createdAt: stamp, updatedAt: stamp, cache: null };
   db.prepare("INSERT INTO novels (id, title, payload, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
     .run(story.id, story.title, JSON.stringify(story), 0, stamp, stamp);

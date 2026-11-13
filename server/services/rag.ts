@@ -773,7 +773,7 @@ export function setWriterRagBinding(projectId: string, enabled: boolean, collect
   };
 }
 
-async function retrieveRagContextForCollections(params: {
+export async function retrieveRagContextForCollections(params: {
   collectionIds: string[];
   queryText: string;
   settings: Record<string, unknown>;

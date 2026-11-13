@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { useNovelFromChat, useOpenChatRequest } from "./hooks/useNovelBridge";
 import { AvatarBadge } from "../../components/AvatarBadge";
 import { ModalShell } from "../../components/ModalShell";
 import { ThreePanelLayout, PanelTitle, Badge, EmptyState } from "../../components/Panels";
@@ -156,6 +157,8 @@ export function ChatScreen() {
   const { branches, setBranches, activeBranchId, setActiveBranchId, forkBranch: handleFork, renameBranch, removeBranch } = useBranchManagement({ activeChat, setMessages, setErrorText });
   const { generationFailure, clearGenerationFailure, reportGenerationFailure } = useChatGenerationFailure(activeChat?.id || null, activeBranchId, setMessages);
   const { exportingChat, exportChat: exportChatJson } = useChatJsonExport(setErrorText);
+  const novelBridge = useNovelFromChat(setErrorText);
+  useOpenChatRequest((list, chat) => { setChats(list); activeChatIdRef.current = chat.id; setActiveChat(chat); });
   const {
     translatingId,
     translatedTexts,
@@ -2328,6 +2331,14 @@ export function ChatScreen() {
                         {exportingChat ? t("chat.exporting") : t("chat.exportJson")}
                       </button>
                       <button
+                        onClick={() => { if (activeChat) void novelBridge.start(activeChat.id, activeBranchId); }}
+                        disabled={novelBridge.creating || !activeChat || chatGenerationBusy || messages.length === 0}
+                        className="rounded-md border border-border px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+                        title={t("chat.toNovelHint")}
+                      >
+                        {novelBridge.creating ? t("chat.toNovelBusy") : t("chat.toNovel")}
+                      </button>
+                      <button
                         onClick={() => setZenMode((prev) => !prev)}
                         className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                           zenMode
@@ -2385,6 +2396,9 @@ export function ChatScreen() {
                       exporting={exportingChat}
                       onCompress={handleCompress}
                       onExport={() => { void handleExportChatJson(); }}
+                      novelDisabled={!activeChat || chatGenerationBusy || messages.length === 0}
+                      creatingNovel={novelBridge.creating}
+                      onNovel={() => { if (activeChat) void novelBridge.start(activeChat.id, activeBranchId); }}
                     />
                   </div>
                 </div>
