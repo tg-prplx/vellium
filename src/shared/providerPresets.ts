@@ -78,6 +78,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     providerType: "openai"
   },
   {
+    key: "teapotrouter",
+    label: "TeapotRouter",
+    description: "TeapotRouter OpenAI-compatible API",
+    baseUrl: "https://api.teapotrouter.com/v1",
+    defaultId: "teapotrouter",
+    defaultName: "TeapotRouter",
+    apiKeyHint: "TeapotRouter API key",
+    localOnly: false,
+    providerType: "openai"
+  },
+  {
     key: "demonroute",
     label: "Demon Route",
     description: "Demon Route OpenAI-compatible API",
