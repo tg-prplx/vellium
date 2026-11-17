@@ -144,6 +144,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     providerType: "openai"
   },
   {
+    key: "synap",
+    label: "Synap",
+    description: "Synap402 OpenAI-compatible API for open models",
+    baseUrl: "https://synap402.com/v1",
+    defaultId: "synap",
+    defaultName: "Synap",
+    apiKeyHint: "sk-pool-...",
+    localOnly: false,
+    providerType: "openai"
+  },
+  {
     key: "custom",
     label: "Custom",
     description: "Any OpenAI-compatible provider",
