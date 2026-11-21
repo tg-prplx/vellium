@@ -144,6 +144,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     providerType: "openai"
   },
   {
+    key: "openllm",
+    label: "OpenLLM",
+    description: "OpenLLM OpenAI-compatible API",
+    baseUrl: "https://www.openllm.sh/v1",
+    defaultId: "openllm",
+    defaultName: "OpenLLM",
+    apiKeyHint: "sk-llm-...",
+    localOnly: false,
+    providerType: "openai"
+  },
+  {
     key: "custom",
     label: "Custom",
     description: "Any OpenAI-compatible provider",

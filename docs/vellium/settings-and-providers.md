@@ -132,6 +132,19 @@ loaded, add one or more model IDs to `manual fallback models`. UberLLM uses the
 existing `OpenAI-compatible` provider path. Usage is billed from a prepaid
 UberLLM balance; per-model prices are listed at https://uberllm.dev/models.
 
+### OpenLLM setup
+
+Choose `OpenLLM` from the quick presets, enter an `sk-llm-...` API key from
+https://www.openllm.sh, save the profile, and use `Load models`. Vellium
+queries the authenticated `https://www.openllm.sh/v1/models` endpoint, which
+returns `provider/model` IDs. If the model list cannot be loaded, add one or
+more model IDs to `manual fallback models`. OpenLLM uses the existing
+`OpenAI-compatible` provider path.
+
+To use the OpenLLM local daemon instead (macOS and Linux), create a manual
+`OpenAI-compatible` profile with base URL `http://127.0.0.1:8787/v1`. The
+daemon does not need an API key. Docs: https://docs.openllm.sh.
+
 ### Provider types
 
 Vellium distinguishes between:
