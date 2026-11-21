@@ -112,5 +112,17 @@ describe("provider presets", () => {
       providerType: "openai"
     });
     expect(PROVIDER_PRESETS.filter((entry) => entry.defaultId === "synap")).toHaveLength(1);
+  it("includes the optional OpenLLM OpenAI-compatible profile", () => {
+    expect(PROVIDER_PRESETS).toContainEqual({
+      key: "openllm",
+      label: "OpenLLM",
+      description: "OpenLLM OpenAI-compatible API",
+      baseUrl: "https://www.openllm.sh/v1",
+      defaultId: "openllm",
+      defaultName: "OpenLLM",
+      apiKeyHint: "sk-llm-...",
+      localOnly: false,
+      providerType: "openai"
+    });
   });
 });
