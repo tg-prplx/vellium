@@ -99,6 +99,19 @@ describe("provider presets", () => {
     });
   });
 
+  it("includes the optional Synap OpenAI-compatible profile", () => {
+    expect(PROVIDER_PRESETS).toContainEqual({
+      key: "synap",
+      label: "Synap",
+      description: "Synap402 OpenAI-compatible API for open models",
+      baseUrl: "https://synap402.com/v1",
+      defaultId: "synap",
+      defaultName: "Synap",
+      apiKeyHint: "sk-pool-...",
+      localOnly: false,
+      providerType: "openai"
+    });
+    expect(PROVIDER_PRESETS.filter((entry) => entry.defaultId === "synap")).toHaveLength(1);
   it("includes the optional OpenLLM OpenAI-compatible profile", () => {
     expect(PROVIDER_PRESETS).toContainEqual({
       key: "openllm",

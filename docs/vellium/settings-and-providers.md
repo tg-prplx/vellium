@@ -43,6 +43,7 @@ From both `Settings` and `Welcome`, you can create a provider profile from a pre
 - `A2Agent`
 - `API Route`
 - `UberLLM`
+- `Synap`
 - `Custom`
 
 ### Manual provider setup
@@ -132,18 +133,20 @@ loaded, add one or more model IDs to `manual fallback models`. UberLLM uses the
 existing `OpenAI-compatible` provider path. Usage is billed from a prepaid
 UberLLM balance; per-model prices are listed at https://uberllm.dev/models.
 
-### OpenLLM setup
+### Synap setup
 
-Choose `OpenLLM` from the quick presets, enter an `sk-llm-...` API key from
-https://www.openllm.sh, save the profile, and use `Load models`. Vellium
-queries the authenticated `https://www.openllm.sh/v1/models` endpoint, which
-returns `provider/model` IDs. If the model list cannot be loaded, add one or
-more model IDs to `manual fallback models`. OpenLLM uses the existing
-`OpenAI-compatible` provider path.
+Choose `Synap` from the quick presets, enter an API key from
+https://synap402.com (keys start with `sk-pool-`), save the profile, and use
+`Load models`. Vellium queries the authenticated
+`https://synap402.com/v1/models` endpoint for the current catalog of open
+models. If the model list cannot be loaded, add one or more model IDs to
+`manual fallback models`. Synap uses the existing `OpenAI-compatible` provider
+path. Usage is billed from a prepaid Synap balance; per-model prices are
+listed at https://synap402.com/pricing.html.
 
-To use the OpenLLM local daemon instead (macOS and Linux), create a manual
-`OpenAI-compatible` profile with base URL `http://127.0.0.1:8787/v1`. The
-daemon does not need an API key. Docs: https://docs.openllm.sh.
+Disclosure: Synap is operated by Linkrra, an independent inference provider.
+This preset is a third-party OpenAI-compatible endpoint, not affiliated with
+the Vellium project.
 
 ### Provider types
 

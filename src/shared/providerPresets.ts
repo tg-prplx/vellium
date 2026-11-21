@@ -144,16 +144,27 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     providerType: "openai"
   },
   {
-    key: "openllm",
-    label: "OpenLLM",
-    description: "OpenLLM OpenAI-compatible API",
-    baseUrl: "https://www.openllm.sh/v1",
-    defaultId: "openllm",
-    defaultName: "OpenLLM",
-    apiKeyHint: "sk-llm-...",
-    localOnly: false,
-    providerType: "openai"
-  },
+      key: "synap",
+      label: "Synap",
+      description: "Synap402 OpenAI-compatible API for open models",
+      baseUrl: "https://synap402.com/v1",
+      defaultId: "synap",
+      defaultName: "Synap",
+      apiKeyHint: "sk-pool-...",
+      localOnly: false,
+      providerType: "openai"
+    },
+    {
+      key: "openllm",
+      label: "OpenLLM",
+      description: "OpenLLM OpenAI-compatible API",
+      baseUrl: "https://www.openllm.sh/v1",
+      defaultId: "openllm",
+      defaultName: "OpenLLM",
+      apiKeyHint: "sk-llm-...",
+      localOnly: false,
+      providerType: "openai"
+    },
   {
     key: "custom",
     label: "Custom",
