@@ -90,6 +90,7 @@ Vellium can create a provider profile quickly from either `Welcome` or later in 
 | `A2Agent` | You use the A2Agent OpenAI-compatible API gateway | OpenAI-compatible |
 | `API Route` | You use API Route with your own API key | OpenAI-compatible |
 | `UberLLM` | You want GPT, Claude, Gemini, DeepSeek, GLM, Qwen and Kimi models on one prepaid key | OpenAI-compatible |
+| `OpenLLM` | You want your own API keys, subscription accounts and local models behind one OpenAI-compatible endpoint | OpenAI-compatible |
 | `Custom` | You use another compatible API that the presets do not cover | OpenAI-compatible |
 
 ## Minimal Working Setup
